@@ -1,0 +1,25 @@
+services:
+  letta:
+    image: letta/letta:latest
+    ports:
+      - "8283:8283"
+    environment:
+      - OPENAI_API_BASE=http://ollama:11434/v1
+      - OPENAI_API_KEY=local
+    volumes:
+      - letta_data:/root/.letta
+    depends_on:
+      - ollama
+    restart: unless-stopped
+
+  ollama:
+    image: ollama/ollama:latest
+    ports:
+      - "11434:11434"
+    volumes:
+      - ollama_data:/root/.ollama
+    restart: unless-stopped
+
+volumes:
+  letta_data:
+  ollama_data:

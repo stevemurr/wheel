@@ -1,0 +1,21 @@
+// swift-tools-version: 5.9
+import PackageDescription
+
+let package = Package(
+    name: "WheelBrowser",
+    platforms: [
+        .macOS(.v14)
+    ],
+    dependencies: [
+        .package(url: "https://github.com/gonzalezreal/swift-markdown-ui", from: "2.3.0")
+    ],
+    targets: [
+        .executableTarget(
+            name: "WheelBrowser",
+            dependencies: [
+                .product(name: "MarkdownUI", package: "swift-markdown-ui")
+            ],
+            path: "Sources/WheelBrowser"
+        )
+    ]
+)
