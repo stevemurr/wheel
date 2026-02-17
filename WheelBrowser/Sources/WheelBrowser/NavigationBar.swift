@@ -49,76 +49,32 @@ struct NavigationBar: View {
                         .transition(.opacity.combined(with: .scale(scale: 0.8)))
                     }
 
-                    // URL bar - pill shaped
-                    HStack(spacing: 8) {
-                        Image(systemName: isURLFieldFocused ? "pencil" : "magnifyingglass")
-                            .foregroundColor(isURLFieldFocused ? .accentColor : .secondary)
-                            .font(.system(size: 12, weight: .medium))
-                            .contentTransition(.symbolEffect(.replace))
-
-                        AddressBarTextField(
-                            text: $urlText,
-                            isURLFieldFocused: _isURLFieldFocused,
-                            suggestionsVM: suggestionsVM,
-                            onSubmit: {
-                                // Use selected suggestion if available
-                                if let selected = suggestionsVM.selectedSuggestion {
-                                    urlText = selected.url
-                                }
-                                tab.load(urlText)
-                                isURLFieldFocused = false
-                                suggestionsVM.hide()
+                    // URL bar - pill shaped with suggestions overlay
+                    URLBarWithSuggestions(
+                        urlText: $urlText,
+                        isURLFieldFocused: _isURLFieldFocused,
+                        suggestionsVM: suggestionsVM,
+                        shouldExpand: shouldExpand,
+                        onSubmit: {
+                            // Use selected suggestion if available
+                            if let selected = suggestionsVM.selectedSuggestion {
+                                urlText = selected.url
                             }
-                        )
-
-                        // Clear button when focused and has text
-                        if isURLFieldFocused && !urlText.isEmpty {
-                            Button(action: {
-                                urlText = ""
-                                suggestionsVM.clear()
-                            }) {
-                                Image(systemName: "xmark.circle.fill")
-                                    .foregroundColor(.secondary)
-                                    .font(.system(size: 12))
-                            }
-                            .buttonStyle(.plain)
-                            .transition(.opacity.combined(with: .scale))
+                            tab.load(urlText)
+                            isURLFieldFocused = false
+                            suggestionsVM.hide()
+                        },
+                        onClear: {
+                            urlText = ""
+                            suggestionsVM.clear()
+                        },
+                        onSuggestionSelect: { entry in
+                            urlText = entry.url
+                            tab.load(entry.url)
+                            isURLFieldFocused = false
+                            suggestionsVM.hide()
                         }
-                    }
-                    .padding(.horizontal, 14)
-                    .padding(.vertical, 10)
-                    .frame(minWidth: shouldExpand ? 400 : 280, maxWidth: shouldExpand ? 500 : 320)
-                    .background {
-                        Capsule()
-                            .fill(.ultraThinMaterial)
-                            .shadow(
-                                color: isURLFieldFocused ? Color.accentColor.opacity(0.3) : Color.black.opacity(0.15),
-                                radius: isURLFieldFocused ? 8 : 4,
-                                x: 0,
-                                y: 2
-                            )
-                    }
-                    .overlay {
-                        Capsule()
-                            .strokeBorder(
-                                isURLFieldFocused ? Color.accentColor.opacity(0.6) : Color.white.opacity(0.1),
-                                lineWidth: isURLFieldFocused ? 2 : 1
-                            )
-                    }
-                    .overlay(alignment: .top) {
-                        // Suggestions dropdown - positioned above the URL bar
-                        if suggestionsVM.isVisible && isURLFieldFocused {
-                            AddressBarSuggestions(viewModel: suggestionsVM) { entry in
-                                urlText = entry.url
-                                tab.load(entry.url)
-                                isURLFieldFocused = false
-                                suggestionsVM.hide()
-                            }
-                            .frame(width: shouldExpand ? 480 : 300)
-                            .alignmentGuide(.top) { d in d[.bottom] + 8 }
-                            .transition(.opacity.combined(with: .move(edge: .bottom)))
-                        }
-                    }
+                    )
                     .zIndex(10)
 
                     // Zoom indicator (only show if not at 100%)
@@ -330,6 +286,75 @@ private struct NavigationButton: View {
                 isPressed = pressing
             }
         }, perform: {})
+    }
+}
+
+// URL bar with suggestions that appear above
+struct URLBarWithSuggestions: View {
+    @Binding var urlText: String
+    @FocusState var isURLFieldFocused: Bool
+    @ObservedObject var suggestionsVM: SuggestionsViewModel
+    let shouldExpand: Bool
+    let onSubmit: () -> Void
+    let onClear: () -> Void
+    let onSuggestionSelect: (HistoryEntry) -> Void
+
+    var body: some View {
+        VStack(spacing: 0) {
+            // Suggestions dropdown - appears above the URL bar
+            if suggestionsVM.isVisible && isURLFieldFocused {
+                AddressBarSuggestions(viewModel: suggestionsVM, onSelect: onSuggestionSelect)
+                    .frame(width: shouldExpand ? 480 : 300)
+                    .padding(.bottom, 8)
+                    .transition(.opacity.combined(with: .move(edge: .bottom)))
+            }
+
+            // URL bar - pill shaped
+            HStack(spacing: 8) {
+                Image(systemName: isURLFieldFocused ? "pencil" : "magnifyingglass")
+                    .foregroundColor(isURLFieldFocused ? .accentColor : .secondary)
+                    .font(.system(size: 12, weight: .medium))
+                    .contentTransition(.symbolEffect(.replace))
+
+                AddressBarTextField(
+                    text: $urlText,
+                    isURLFieldFocused: _isURLFieldFocused,
+                    suggestionsVM: suggestionsVM,
+                    onSubmit: onSubmit
+                )
+
+                // Clear button when focused and has text
+                if isURLFieldFocused && !urlText.isEmpty {
+                    Button(action: onClear) {
+                        Image(systemName: "xmark.circle.fill")
+                            .foregroundColor(.secondary)
+                            .font(.system(size: 12))
+                    }
+                    .buttonStyle(.plain)
+                    .transition(.opacity.combined(with: .scale))
+                }
+            }
+            .padding(.horizontal, 14)
+            .padding(.vertical, 10)
+            .frame(minWidth: shouldExpand ? 400 : 280, maxWidth: shouldExpand ? 500 : 320)
+            .background {
+                Capsule()
+                    .fill(.ultraThinMaterial)
+                    .shadow(
+                        color: isURLFieldFocused ? Color.accentColor.opacity(0.3) : Color.black.opacity(0.15),
+                        radius: isURLFieldFocused ? 8 : 4,
+                        x: 0,
+                        y: 2
+                    )
+            }
+            .overlay {
+                Capsule()
+                    .strokeBorder(
+                        isURLFieldFocused ? Color.accentColor.opacity(0.6) : Color.white.opacity(0.1),
+                        lineWidth: isURLFieldFocused ? 2 : 1
+                    )
+            }
+        }
     }
 }
 

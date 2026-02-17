@@ -18,21 +18,8 @@ struct TabSidebar: View {
     var body: some View {
         HStack(spacing: 0) {
             VStack(spacing: 0) {
-                // Header with Toggle and New Tab button
+                // Header with Tabs label
                 HStack {
-                    // Toggle button to expand/collapse sidebar
-                    Button(action: {
-                        withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
-                            settings.tabSidebarExpanded.toggle()
-                        }
-                    }) {
-                        Image(systemName: settings.tabSidebarExpanded ? "sidebar.left" : "sidebar.right")
-                            .font(.system(size: 12, weight: .medium))
-                            .foregroundColor(.secondary)
-                    }
-                    .buttonStyle(.plain)
-                    .help(settings.tabSidebarExpanded ? "Collapse Sidebar" : "Expand Sidebar")
-
                     if settings.tabSidebarExpanded {
                         Text("Tabs")
                             .font(.system(size: 11, weight: .semibold))
@@ -42,18 +29,6 @@ struct TabSidebar: View {
                     }
 
                     Spacer()
-
-                    Button(action: {
-                        withAnimation(.spring(response: 0.3, dampingFraction: 0.7)) {
-                            state.addTab()
-                        }
-                    }) {
-                        Image(systemName: "plus")
-                            .font(.system(size: 12, weight: .medium))
-                            .foregroundColor(.secondary)
-                    }
-                    .buttonStyle(.plain)
-                    .help("New Tab")
                 }
                 .padding(.horizontal, settings.tabSidebarExpanded ? 12 : 8)
                 .padding(.vertical, 10)

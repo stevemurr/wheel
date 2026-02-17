@@ -1,0 +1,116 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024">
+  <defs>
+    <!-- macOS Big Sur rounded square mask -->
+    <clipPath id="iconMask">
+      <path d="M512 8c225.5 0 354.5 0 433.2 78.8C1024 165.5 1024 294.5 1024 520c0 225.5 0 354.5-78.8 433.2C866.5 1032 737.5 1032 512 1032c-225.5 0-354.5 0-433.2-78.8C0 874.5 0 745.5 0 520c0-225.5 0-354.5 78.8-433.2C157.5 8 286.5 8 512 8z" transform="translate(0,-4)"/>
+    </clipPath>
+
+    <!-- Background gradient - sophisticated deep blue to purple -->
+    <linearGradient id="bgGradient" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#4A90D9"/>
+      <stop offset="50%" style="stop-color:#357ABD"/>
+      <stop offset="100%" style="stop-color:#2C5282"/>
+    </linearGradient>
+
+    <!-- Inner shadow/depth effect -->
+    <linearGradient id="topHighlight" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" style="stop-color:rgba(255,255,255,0.3)"/>
+      <stop offset="50%" style="stop-color:rgba(255,255,255,0)"/>
+    </linearGradient>
+
+    <!-- Wheel gradient -->
+    <linearGradient id="wheelGradient" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#FFFFFF"/>
+      <stop offset="100%" style="stop-color:#E8EEF5"/>
+    </linearGradient>
+
+    <!-- AI accent gradient - subtle aurora effect -->
+    <linearGradient id="aiAccent" x1="0%" y1="0%" x2="100%" y2="0%">
+      <stop offset="0%" style="stop-color:#7C3AED"/>
+      <stop offset="50%" style="stop-color:#A78BFA"/>
+      <stop offset="100%" style="stop-color:#C084FC"/>
+    </linearGradient>
+
+    <!-- Center hub gradient -->
+    <radialGradient id="hubGradient" cx="50%" cy="30%" r="70%">
+      <stop offset="0%" style="stop-color:#FFFFFF"/>
+      <stop offset="100%" style="stop-color:#D1D5DB"/>
+    </radialGradient>
+
+    <!-- Drop shadow for depth -->
+    <filter id="dropShadow" x="-20%" y="-20%" width="140%" height="140%">
+      <feDropShadow dx="0" dy="8" stdDeviation="20" flood-color="#1a365d" flood-opacity="0.4"/>
+    </filter>
+
+    <!-- Subtle inner glow for wheel -->
+    <filter id="wheelGlow" x="-10%" y="-10%" width="120%" height="120%">
+      <feDropShadow dx="0" dy="2" stdDeviation="3" flood-color="#ffffff" flood-opacity="0.5"/>
+    </filter>
+  </defs>
+
+  <!-- Background with macOS squircle shape -->
+  <g clip-path="url(#iconMask)">
+    <!-- Main background -->
+    <rect width="1024" height="1024" fill="url(#bgGradient)"/>
+
+    <!-- Top highlight for depth -->
+    <rect width="1024" height="512" fill="url(#topHighlight)"/>
+
+    <!-- Subtle grid pattern suggesting browser/tech -->
+    <g opacity="0.05">
+      <line x1="256" y1="0" x2="256" y2="1024" stroke="white" stroke-width="1"/>
+      <line x1="512" y1="0" x2="512" y2="1024" stroke="white" stroke-width="1"/>
+      <line x1="768" y1="0" x2="768" y2="1024" stroke="white" stroke-width="1"/>
+      <line x1="0" y1="256" x2="1024" y2="256" stroke="white" stroke-width="1"/>
+      <line x1="0" y1="512" x2="1024" y2="512" stroke="white" stroke-width="1"/>
+      <line x1="0" y1="768" x2="1024" y2="768" stroke="white" stroke-width="1"/>
+    </g>
+  </g>
+
+  <!-- Main wheel element -->
+  <g filter="url(#dropShadow)">
+    <!-- Outer wheel ring -->
+    <circle cx="512" cy="512" r="320" fill="none" stroke="url(#wheelGradient)" stroke-width="48" opacity="0.95"/>
+
+    <!-- AI accent arc - suggesting assistant capability -->
+    <path d="M 512 192 A 320 320 0 0 1 832 512" fill="none" stroke="url(#aiAccent)" stroke-width="48" stroke-linecap="round"/>
+
+    <!-- Wheel spokes - modern, minimal -->
+    <g stroke="url(#wheelGradient)" stroke-width="24" stroke-linecap="round" opacity="0.9">
+      <!-- 8 spokes radiating from center -->
+      <line x1="512" y1="512" x2="512" y2="260"/>
+      <line x1="512" y1="512" x2="690" y2="334"/>
+      <line x1="512" y1="512" x2="764" y2="512"/>
+      <line x1="512" y1="512" x2="690" y2="690"/>
+      <line x1="512" y1="512" x2="512" y2="764"/>
+      <line x1="512" y1="512" x2="334" y2="690"/>
+      <line x1="512" y1="512" x2="260" y2="512"/>
+      <line x1="512" y1="512" x2="334" y2="334"/>
+    </g>
+
+    <!-- Center hub -->
+    <circle cx="512" cy="512" r="80" fill="url(#hubGradient)"/>
+
+    <!-- Inner hub detail -->
+    <circle cx="512" cy="512" r="40" fill="none" stroke="#9CA3AF" stroke-width="4"/>
+
+    <!-- Small AI indicator dot in center -->
+    <circle cx="512" cy="512" r="16" fill="url(#aiAccent)"/>
+  </g>
+
+  <!-- Subtle compass/navigation indicator at top -->
+  <g opacity="0.6">
+    <polygon points="512,140 524,170 512,165 500,170" fill="white"/>
+  </g>
+
+  <!-- Bottom edge shadow for icon depth -->
+  <g clip-path="url(#iconMask)">
+    <rect y="900" width="1024" height="124" fill="url(#bottomShadow)" opacity="0.1"/>
+    <defs>
+      <linearGradient id="bottomShadow" x1="0%" y1="0%" x2="0%" y2="100%">
+        <stop offset="0%" style="stop-color:transparent"/>
+        <stop offset="100%" style="stop-color:#000000"/>
+      </linearGradient>
+    </defs>
+  </g>
+</svg>

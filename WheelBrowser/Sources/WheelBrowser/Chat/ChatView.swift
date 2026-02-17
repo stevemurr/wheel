@@ -5,6 +5,7 @@ struct ChatView: View {
     @ObservedObject var tab: Tab
     let contentExtractor: ContentExtractor
     @Binding var isHovered: Bool
+    @Binding var isPinned: Bool
 
     @State private var inputText = ""
     @State private var isSending = false
@@ -30,12 +31,21 @@ struct ChatView: View {
                 .shadow(color: .black.opacity(0.3), radius: 20, x: -5, y: 5)
         )
         .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                .stroke(Color.gray.opacity(0.3), lineWidth: 1)
+        )
         .padding(.trailing, 12)
         .padding(.vertical, 12)
         .task {
             if !agentManager.isReady && !agentManager.isLoading {
                 await agentManager.initialize()
             }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .focusChatInput)) { _ in
+            isInputFocused = true
+            // Pin the sidebar open when focused via keyboard shortcut
+            isPinned = true
         }
     }
 
@@ -231,6 +241,7 @@ struct AISidebarContainer: View {
 
     @State private var isHovered = false
     @State private var isVisible = false
+    @State private var isPinned = false
 
     var body: some View {
         ZStack(alignment: .trailing) {
@@ -258,14 +269,15 @@ struct AISidebarContainer: View {
                     agentManager: agentManager,
                     tab: tab,
                     contentExtractor: contentExtractor,
-                    isHovered: $isHovered
+                    isHovered: $isHovered,
+                    isPinned: $isPinned
                 )
                 .onHover { hovering in
                     isHovered = hovering
-                    if !hovering {
+                    if !hovering && !isPinned {
                         // Delay hiding to allow moving between elements
                         DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
-                            if !isHovered {
+                            if !isHovered && !isPinned {
                                 withAnimation(.spring(response: 0.3, dampingFraction: 0.85)) {
                                     isVisible = false
                                 }
@@ -300,6 +312,19 @@ struct AISidebarContainer: View {
                 }
                 .frame(maxWidth: .infinity, alignment: .trailing)
                 .allowsHitTesting(false)
+            }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .focusChatInput)) { _ in
+            // Show the sidebar when focus notification is received
+            withAnimation(.spring(response: 0.4, dampingFraction: 0.8)) {
+                isVisible = true
+                isPinned = true
+            }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .toggleSidebar)) { _ in
+            // When toggling sidebar, also unpin it
+            if isPinned {
+                isPinned = false
             }
         }
     }

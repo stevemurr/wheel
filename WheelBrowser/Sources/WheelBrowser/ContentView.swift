@@ -18,19 +18,28 @@ struct ContentView: View {
                     .frame(height: 28)
                     .background(WindowAccessor())
 
-                // Web content with AI overlay
+                // Web content with AI overlay and top drawer
                 if let tab = state.activeTab {
-                    ZStack(alignment: .trailing) {
+                    ZStack {
                         WebViewRepresentable(tab: tab)
                             .id(tab.id) // Force view refresh on tab change
 
                         // AI Sidebar overlay on the right (hover to reveal)
                         if settings.sidebarVisible {
-                            AISidebarContainer(
-                                agentManager: agentManager,
-                                tab: tab,
-                                contentExtractor: contentExtractor
-                            )
+                            HStack {
+                                Spacer()
+                                AISidebarContainer(
+                                    agentManager: agentManager,
+                                    tab: tab,
+                                    contentExtractor: contentExtractor
+                                )
+                            }
+                        }
+
+                        // Top drawer overlay (hover to reveal)
+                        VStack {
+                            TopDrawerContainer()
+                            Spacer()
                         }
                     }
 
@@ -95,6 +104,19 @@ struct ContentView: View {
         }
         .onReceive(NotificationCenter.default.publisher(for: .zoomReset)) { _ in
             state.activeTab?.resetZoom()
+        }
+        // AI sidebar focus
+        .onReceive(NotificationCenter.default.publisher(for: .focusAISidebar)) { _ in
+            // Show the sidebar if not visible
+            if !settings.sidebarVisible {
+                withAnimation(.easeInOut(duration: 0.2)) {
+                    settings.sidebarVisible = true
+                }
+            }
+            // Post notification to focus the chat input (with slight delay to allow sidebar to appear)
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+                NotificationCenter.default.post(name: .focusChatInput, object: nil)
+            }
         }
     }
 }

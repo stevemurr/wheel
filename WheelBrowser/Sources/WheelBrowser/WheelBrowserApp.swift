@@ -46,6 +46,11 @@ struct WheelBrowserApp: App {
                     NotificationCenter.default.post(name: .toggleTabSidebar, object: nil)
                 }
                 .keyboardShortcut("s", modifiers: [.command, .shift])
+
+                Button("Focus AI Chat") {
+                    NotificationCenter.default.post(name: .focusAISidebar, object: nil)
+                }
+                .keyboardShortcut("k", modifiers: .command)
             }
 
             CommandGroup(replacing: .appSettings) {
@@ -182,6 +187,10 @@ extension Notification.Name {
 
     // Find in page
     static let findInPage = Notification.Name("findInPage")
+
+    // AI sidebar
+    static let focusAISidebar = Notification.Name("focusAISidebar")
+    static let focusChatInput = Notification.Name("focusChatInput")
 
     // Zoom controls
     static let zoomIn = Notification.Name("zoomIn")
