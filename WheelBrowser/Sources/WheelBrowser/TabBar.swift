@@ -3,8 +3,12 @@ import SwiftUI
 struct TabSidebar: View {
     @ObservedObject var state: BrowserState
     @ObservedObject private var settings = AppSettings.shared
+    @ObservedObject private var workspaceManager = WorkspaceManager.shared
     @State private var sidebarWidth: CGFloat = 220
     @State private var isResizing = false
+
+    /// Callback when a workspace is selected - used to trigger tab switching
+    var onWorkspaceSelected: ((UUID) -> Void)?
 
     private let minWidth: CGFloat = 160
     private let maxWidth: CGFloat = 350
@@ -18,6 +22,21 @@ struct TabSidebar: View {
     var body: some View {
         HStack(spacing: 0) {
             VStack(spacing: 0) {
+                // Workspace selector at the top
+                WorkspaceFanoutSelector(
+                    isExpanded: settings.tabSidebarExpanded,
+                    onWorkspaceSelected: { workspaceId in
+                        onWorkspaceSelected?(workspaceId)
+                    }
+                )
+                .padding(.horizontal, settings.tabSidebarExpanded ? 8 : 4)
+                .padding(.top, 8)
+                .padding(.bottom, 4)
+
+                // Divider between workspace and tabs
+                Divider()
+                    .padding(.horizontal, settings.tabSidebarExpanded ? 8 : 4)
+
                 // Header with Tabs label
                 HStack {
                     if settings.tabSidebarExpanded {
@@ -31,10 +50,7 @@ struct TabSidebar: View {
                     Spacer()
                 }
                 .padding(.horizontal, settings.tabSidebarExpanded ? 12 : 8)
-                .padding(.vertical, 10)
-
-                Divider()
-                    .padding(.horizontal, settings.tabSidebarExpanded ? 8 : 4)
+                .padding(.vertical, 8)
 
                 // Scrollable tab list
                 ScrollView(.vertical, showsIndicators: false) {
@@ -84,6 +100,360 @@ struct TabSidebar: View {
             }
         }
         .animation(.spring(response: 0.3, dampingFraction: 0.8), value: settings.tabSidebarExpanded)
+    }
+}
+
+// MARK: - Workspace Fanout Selector
+
+/// A workspace selector that shows only the active workspace icon,
+/// and fans out horizontally on hover to show all workspaces
+struct WorkspaceFanoutSelector: View {
+    let isExpanded: Bool
+    var onWorkspaceSelected: ((UUID) -> Void)?
+
+    @ObservedObject private var workspaceManager = WorkspaceManager.shared
+    @ObservedObject private var agentStudioManager = AgentStudioManager.shared
+    @State private var isHovering = false
+    @State private var isFannedOut = false
+    @State private var isCreatingWorkspace = false
+    @State private var editingWorkspace: Workspace?
+    @State private var showingDeleteConfirmation: Workspace?
+
+    private let iconSize: CGFloat = 32
+    private let fanoutSpacing: CGFloat = 6
+
+    /// The current workspace
+    private var currentWorkspace: Workspace? {
+        workspaceManager.getCurrentWorkspace()
+    }
+
+    var body: some View {
+        ZStack(alignment: .leading) {
+            // Main container that expands on hover
+            HStack(spacing: fanoutSpacing) {
+                // Active workspace icon (always visible)
+                if let workspace = currentWorkspace {
+                    ActiveWorkspaceIcon(
+                        workspace: workspace,
+                        iconSize: iconSize,
+                        isExpanded: isExpanded,
+                        showLabel: isExpanded && !isFannedOut
+                    )
+                    .onTapGesture {
+                        // Toggle fan out on tap when collapsed
+                        if !isExpanded {
+                            withAnimation(.spring(response: 0.3, dampingFraction: 0.7)) {
+                                isFannedOut.toggle()
+                            }
+                        }
+                    }
+                    .contextMenu {
+                        Button(action: { editingWorkspace = workspace }) {
+                            Label("Edit Workspace...", systemImage: "pencil")
+                        }
+
+                        if workspaceManager.workspaces.count > 1 {
+                            Divider()
+                            Button(role: .destructive) {
+                                showingDeleteConfirmation = workspace
+                            } label: {
+                                Label("Delete Workspace", systemImage: "trash")
+                            }
+                        }
+                    }
+                }
+
+                // Fanned out workspace icons (visible on hover)
+                if isFannedOut {
+                    ForEach(workspaceManager.workspaces) { workspace in
+                        if workspace.id != workspaceManager.currentWorkspaceID {
+                            FanoutWorkspaceIcon(
+                                workspace: workspace,
+                                iconSize: iconSize,
+                                tabCount: workspaceManager.tabCount(for: workspace.id),
+                                onSelect: {
+                                    selectWorkspace(workspace)
+                                },
+                                onEdit: {
+                                    editingWorkspace = workspace
+                                },
+                                onDelete: {
+                                    showingDeleteConfirmation = workspace
+                                }
+                            )
+                            .transition(.asymmetric(
+                                insertion: .scale(scale: 0.5).combined(with: .opacity),
+                                removal: .scale(scale: 0.5).combined(with: .opacity)
+                            ))
+                        }
+                    }
+
+                    // Add workspace button
+                    FanoutAddButton(iconSize: iconSize) {
+                        isCreatingWorkspace = true
+                    }
+                    .transition(.asymmetric(
+                        insertion: .scale(scale: 0.5).combined(with: .opacity),
+                        removal: .scale(scale: 0.5).combined(with: .opacity)
+                    ))
+                }
+            }
+            .padding(.vertical, 4)
+            .padding(.horizontal, 4)
+            .background(
+                RoundedRectangle(cornerRadius: 10)
+                    .fill(isFannedOut ? Color(nsColor: .controlBackgroundColor).opacity(0.8) : Color.clear)
+            )
+            .onHover { hovering in
+                withAnimation(.spring(response: 0.25, dampingFraction: 0.7)) {
+                    isHovering = hovering
+                    if hovering {
+                        isFannedOut = true
+                    }
+                }
+
+                // Delay hiding the fanout when mouse leaves
+                if !hovering {
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+                        if !isHovering {
+                            withAnimation(.spring(response: 0.25, dampingFraction: 0.7)) {
+                                isFannedOut = false
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        .sheet(isPresented: $isCreatingWorkspace) {
+            WorkspaceEditorSheet(
+                mode: .create,
+                onSave: { name, icon, color, agentID in
+                    let newWorkspace = workspaceManager.createWorkspace(name: name, icon: icon, color: color, defaultAgentID: agentID)
+                    isCreatingWorkspace = false
+                    // Auto-switch to the newly created workspace
+                    selectWorkspace(newWorkspace)
+                },
+                onCancel: {
+                    isCreatingWorkspace = false
+                }
+            )
+        }
+        .sheet(item: $editingWorkspace) { workspace in
+            WorkspaceEditorSheet(
+                mode: .edit(workspace),
+                onSave: { name, icon, color, agentID in
+                    workspaceManager.updateWorkspace(
+                        id: workspace.id,
+                        name: name,
+                        icon: icon,
+                        color: color,
+                        defaultAgentID: agentID
+                    )
+                    editingWorkspace = nil
+                },
+                onCancel: {
+                    editingWorkspace = nil
+                }
+            )
+        }
+        .alert(
+            "Delete Workspace?",
+            isPresented: Binding(
+                get: { showingDeleteConfirmation != nil },
+                set: { if !$0 { showingDeleteConfirmation = nil } }
+            ),
+            presenting: showingDeleteConfirmation
+        ) { workspace in
+            Button("Delete", role: .destructive) {
+                workspaceManager.deleteWorkspace(workspace.id)
+                showingDeleteConfirmation = nil
+            }
+            Button("Cancel", role: .cancel) {
+                showingDeleteConfirmation = nil
+            }
+        } message: { workspace in
+            Text("Are you sure you want to delete \"\(workspace.name)\"? This cannot be undone.")
+        }
+    }
+
+    private func selectWorkspace(_ workspace: Workspace) {
+        withAnimation(.easeInOut(duration: 0.2)) {
+            workspaceManager.switchToWorkspace(workspace.id)
+
+            // Switch to the workspace's agent if it has one
+            if let agentID = workspace.defaultAgentID {
+                agentStudioManager.setActiveAgent(id: agentID)
+            }
+
+            // Notify parent to switch tabs
+            onWorkspaceSelected?(workspace.id)
+
+            // Close the fanout
+            isFannedOut = false
+        }
+    }
+}
+
+// MARK: - Active Workspace Icon
+
+/// The main workspace icon that is always visible
+struct ActiveWorkspaceIcon: View {
+    let workspace: Workspace
+    let iconSize: CGFloat
+    let isExpanded: Bool
+    let showLabel: Bool
+
+    @State private var isHovering = false
+
+    var body: some View {
+        HStack(spacing: 8) {
+            ZStack {
+                // Background circle with accent color
+                Circle()
+                    .fill(workspace.accentColor.opacity(0.15))
+                    .frame(width: iconSize, height: iconSize)
+
+                // Icon
+                Image(systemName: workspace.icon)
+                    .font(.system(size: 14, weight: .medium))
+                    .foregroundColor(workspace.accentColor)
+
+                // Selection ring
+                Circle()
+                    .stroke(workspace.accentColor, lineWidth: 2)
+                    .frame(width: iconSize + 4, height: iconSize + 4)
+            }
+            .frame(width: iconSize + 8, height: iconSize + 8)
+
+            // Workspace name (when expanded and not fanned out)
+            if showLabel {
+                Text(workspace.name)
+                    .font(.system(size: 12, weight: .medium))
+                    .foregroundColor(.primary)
+                    .lineLimit(1)
+                    .transition(.opacity.combined(with: .move(edge: .leading)))
+            }
+        }
+        .onHover { hovering in
+            withAnimation(.easeInOut(duration: 0.15)) {
+                isHovering = hovering
+            }
+        }
+        .help("Click or hover to switch workspaces")
+    }
+}
+
+// MARK: - Fanout Workspace Icon
+
+/// A workspace icon shown in the fanout
+struct FanoutWorkspaceIcon: View {
+    let workspace: Workspace
+    let iconSize: CGFloat
+    let tabCount: Int
+    let onSelect: () -> Void
+    let onEdit: () -> Void
+    let onDelete: () -> Void
+
+    @State private var isHovering = false
+
+    var body: some View {
+        Button(action: onSelect) {
+            ZStack {
+                // Background circle
+                Circle()
+                    .fill(isHovering ? workspace.accentColor.opacity(0.2) : Color(nsColor: .controlBackgroundColor))
+                    .frame(width: iconSize, height: iconSize)
+
+                // Icon
+                Image(systemName: workspace.icon)
+                    .font(.system(size: 14, weight: .medium))
+                    .foregroundColor(isHovering ? workspace.accentColor : .secondary)
+
+                // Tab count badge
+                if tabCount > 0 {
+                    VStack {
+                        HStack {
+                            Spacer()
+                            Text("\(tabCount)")
+                                .font(.system(size: 8, weight: .bold))
+                                .foregroundColor(.white)
+                                .padding(.horizontal, 4)
+                                .padding(.vertical, 1)
+                                .background(
+                                    Capsule()
+                                        .fill(workspace.accentColor)
+                                )
+                        }
+                        Spacer()
+                    }
+                    .frame(width: iconSize + 6, height: iconSize + 6)
+                }
+            }
+            .frame(width: iconSize + 4, height: iconSize + 4)
+        }
+        .buttonStyle(.plain)
+        .onHover { hovering in
+            withAnimation(.easeInOut(duration: 0.1)) {
+                isHovering = hovering
+            }
+        }
+        .help(workspace.name)
+        .contextMenu {
+            Button(action: onSelect) {
+                Label("Switch to \(workspace.name)", systemImage: "arrow.right.circle")
+            }
+
+            Divider()
+
+            Button(action: onEdit) {
+                Label("Edit...", systemImage: "pencil")
+            }
+
+            Divider()
+
+            Button(role: .destructive, action: onDelete) {
+                Label("Delete", systemImage: "trash")
+            }
+        }
+    }
+}
+
+// MARK: - Fanout Add Button
+
+/// The add button shown at the end of the fanout
+struct FanoutAddButton: View {
+    let iconSize: CGFloat
+    let onTap: () -> Void
+
+    @State private var isHovering = false
+
+    var body: some View {
+        Button(action: onTap) {
+            ZStack {
+                Circle()
+                    .fill(isHovering ? Color(nsColor: .controlBackgroundColor) : Color.clear)
+                    .frame(width: iconSize, height: iconSize)
+
+                Circle()
+                    .stroke(
+                        Color(nsColor: .separatorColor).opacity(isHovering ? 0.8 : 0.4),
+                        style: StrokeStyle(lineWidth: 1, dash: [3, 2])
+                    )
+                    .frame(width: iconSize, height: iconSize)
+
+                Image(systemName: "plus")
+                    .font(.system(size: 12, weight: .medium))
+                    .foregroundColor(.secondary)
+            }
+            .frame(width: iconSize + 4, height: iconSize + 4)
+        }
+        .buttonStyle(.plain)
+        .onHover { hovering in
+            withAnimation(.easeInOut(duration: 0.1)) {
+                isHovering = hovering
+            }
+        }
+        .help("Create new workspace")
     }
 }
 

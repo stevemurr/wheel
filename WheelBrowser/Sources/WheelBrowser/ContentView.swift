@@ -1,123 +1,220 @@
 import SwiftUI
 
+// MARK: - Browser Content Area (extracted to help compiler with type checking)
+
+private struct BrowserContentArea: View {
+    @ObservedObject var tab: Tab
+    @ObservedObject var agentManager: AgentManager
+    @ObservedObject var settings: AppSettings
+    let contentExtractor: ContentExtractor
+
+    var body: some View {
+        ZStack(alignment: .bottom) {
+            // Main content area
+            VStack(spacing: 0) {
+                WebViewRepresentable(tab: tab)
+                    .id(tab.id)
+            }
+
+            // OmniBar at bottom with chat panel above
+            OmniBar(
+                tab: tab,
+                agentManager: agentManager,
+                contentExtractor: contentExtractor
+            )
+            .zIndex(1000)
+        }
+    }
+}
+
+// MARK: - Notification Handler Modifiers (extracted to help compiler with type checking)
+
+private struct TabNotificationModifier: ViewModifier {
+    let state: BrowserState
+    let workspaceManager: WorkspaceManager
+    let saveTabState: (UUID) -> Void
+
+    func body(content: Content) -> some View {
+        content
+            .onReceive(NotificationCenter.default.publisher(for: .newTab)) { _ in
+                state.addTab()
+                if let workspaceId = workspaceManager.currentWorkspaceID {
+                    saveTabState(workspaceId)
+                }
+            }
+            .onReceive(NotificationCenter.default.publisher(for: .closeTab)) { _ in
+                state.closeActiveTab()
+                if let workspaceId = workspaceManager.currentWorkspaceID {
+                    saveTabState(workspaceId)
+                }
+            }
+            .onReceive(NotificationCenter.default.publisher(for: .switchToTab)) { notification in
+                if let tabIndex = notification.object as? Int {
+                    state.selectTab(atIndex: tabIndex)
+                }
+            }
+            .onReceive(NotificationCenter.default.publisher(for: .previousTab)) { _ in
+                state.selectPreviousTab()
+            }
+            .onReceive(NotificationCenter.default.publisher(for: .nextTab)) { _ in
+                state.selectNextTab()
+            }
+            .onReceive(NotificationCenter.default.publisher(for: .reopenClosedTab)) { _ in
+                state.reopenLastClosedTab()
+            }
+    }
+}
+
+private struct NavigationNotificationModifier: ViewModifier {
+    let state: BrowserState
+
+    func body(content: Content) -> some View {
+        content
+            .onReceive(NotificationCenter.default.publisher(for: .reloadPage)) { _ in
+                state.activeTab?.reload()
+            }
+            .onReceive(NotificationCenter.default.publisher(for: .goBack)) { _ in
+                state.activeTab?.goBack()
+            }
+            .onReceive(NotificationCenter.default.publisher(for: .goForward)) { _ in
+                state.activeTab?.goForward()
+            }
+            .onReceive(NotificationCenter.default.publisher(for: .stopLoading)) { _ in
+                state.activeTab?.stopLoading()
+            }
+            .onReceive(NotificationCenter.default.publisher(for: .openURL)) { notification in
+                if let url = notification.object as? URL {
+                    state.activeTab?.load(url.absoluteString)
+                }
+            }
+    }
+}
+
+private struct ZoomNotificationModifier: ViewModifier {
+    let state: BrowserState
+
+    func body(content: Content) -> some View {
+        content
+            .onReceive(NotificationCenter.default.publisher(for: .zoomIn)) { _ in
+                state.activeTab?.zoomIn()
+            }
+            .onReceive(NotificationCenter.default.publisher(for: .zoomOut)) { _ in
+                state.activeTab?.zoomOut()
+            }
+            .onReceive(NotificationCenter.default.publisher(for: .zoomReset)) { _ in
+                state.activeTab?.resetZoom()
+            }
+    }
+}
+
+private struct SidebarNotificationModifier: ViewModifier {
+    @ObservedObject var settings: AppSettings
+
+    func body(content: Content) -> some View {
+        content
+            .onReceive(NotificationCenter.default.publisher(for: .toggleTabSidebar)) { _ in
+                withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
+                    settings.tabSidebarExpanded.toggle()
+                }
+            }
+    }
+}
+
 struct ContentView: View {
     @StateObject private var state = BrowserState()
     @ObservedObject private var agentManager = AgentManager.shared
+    @ObservedObject private var agentStudioManager = AgentStudioManager.shared
+    @ObservedObject private var workspaceManager = WorkspaceManager.shared
     @ObservedObject private var settings = AppSettings.shared
     private let contentExtractor = ContentExtractor()
 
-    var body: some View {
-        HStack(spacing: 0) {
-            // Tab Sidebar on the left
-            TabSidebar(state: state)
+    // MARK: - Main Content (extracted to help compiler with type checking)
 
-            // Main browser content
+    @ViewBuilder
+    private var mainContent: some View {
+        HStack(spacing: 0) {
+            TabSidebar(
+                state: state,
+                onWorkspaceSelected: { workspaceId in
+                    switchToWorkspace(workspaceId)
+                }
+            )
+
             VStack(spacing: 0) {
-                // Draggable title bar area
                 Color.clear
                     .frame(height: 28)
                     .background(WindowAccessor())
 
-                // Web content with AI overlay and top drawer
                 if let tab = state.activeTab {
-                    ZStack {
-                        WebViewRepresentable(tab: tab)
-                            .id(tab.id) // Force view refresh on tab change
-
-                        // AI Sidebar overlay on the right (hover to reveal)
-                        if settings.sidebarVisible {
-                            HStack {
-                                Spacer()
-                                AISidebarContainer(
-                                    agentManager: agentManager,
-                                    tab: tab,
-                                    contentExtractor: contentExtractor
-                                )
-                            }
-                        }
-
-                        // Top drawer overlay (hover to reveal)
-                        VStack {
-                            TopDrawerContainer()
-                            Spacer()
-                        }
-                    }
-
-                    // Navigation bar at the bottom
-                    NavigationBar(tab: tab)
+                    BrowserContentArea(
+                        tab: tab,
+                        agentManager: agentManager,
+                        settings: settings,
+                        contentExtractor: contentExtractor
+                    )
                 }
             }
             .frame(minWidth: 400)
         }
-        .frame(minWidth: 800, minHeight: 600)
-        // Tab management
-        .onReceive(NotificationCenter.default.publisher(for: .newTab)) { _ in
-            state.addTab()
+    }
+
+    // MARK: - Body
+
+    var body: some View {
+        mainContent
+            .frame(minWidth: 800, minHeight: 600)
+            .onAppear(perform: handleOnAppear)
+            .modifier(TabNotificationModifier(
+                state: state,
+                workspaceManager: workspaceManager,
+                saveTabState: saveCurrentTabState
+            ))
+            .modifier(NavigationNotificationModifier(state: state))
+            .modifier(ZoomNotificationModifier(state: state))
+            .modifier(SidebarNotificationModifier(settings: settings))
+    }
+
+    // MARK: - Handlers
+
+    private func handleOnAppear() {
+        if let currentWorkspaceId = workspaceManager.currentWorkspaceID {
+            state.bindToWorkspace(currentWorkspaceId)
         }
-        .onReceive(NotificationCenter.default.publisher(for: .closeTab)) { _ in
-            state.closeActiveTab()
+    }
+
+    // MARK: - Workspace Switching
+
+    private func switchToWorkspace(_ workspaceId: UUID) {
+        // Save current tab state before switching
+        if let currentWorkspaceId = state.currentWorkspaceId {
+            saveCurrentTabState(to: currentWorkspaceId)
         }
-        .onReceive(NotificationCenter.default.publisher(for: .toggleSidebar)) { _ in
-            withAnimation(.easeInOut(duration: 0.2)) {
-                settings.sidebarVisible.toggle()
-            }
+
+        // Load tabs for the new workspace
+        state.loadStateForWorkspace(workspaceId)
+
+        // Switch to workspace's agent if one is assigned
+        if let workspace = workspaceManager.workspaces.first(where: { $0.id == workspaceId }),
+           let agentId = workspace.defaultAgentID {
+            agentStudioManager.setActiveAgent(id: agentId)
         }
-        .onReceive(NotificationCenter.default.publisher(for: .toggleTabSidebar)) { _ in
-            withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
-                settings.tabSidebarExpanded.toggle()
-            }
+    }
+
+    private func saveCurrentTabState(to workspaceId: UUID) {
+        let persistedTabs = state.tabs.map { tab in
+            PersistedTab(
+                id: tab.id,
+                url: tab.url?.absoluteString,
+                title: tab.title
+            )
         }
-        // Navigation actions
-        .onReceive(NotificationCenter.default.publisher(for: .reloadPage)) { _ in
-            state.activeTab?.reload()
-        }
-        .onReceive(NotificationCenter.default.publisher(for: .goBack)) { _ in
-            state.activeTab?.goBack()
-        }
-        .onReceive(NotificationCenter.default.publisher(for: .goForward)) { _ in
-            state.activeTab?.goForward()
-        }
-        .onReceive(NotificationCenter.default.publisher(for: .stopLoading)) { _ in
-            state.activeTab?.stopLoading()
-        }
-        // Tab switching
-        .onReceive(NotificationCenter.default.publisher(for: .switchToTab)) { notification in
-            if let tabIndex = notification.object as? Int {
-                state.selectTab(atIndex: tabIndex)
-            }
-        }
-        .onReceive(NotificationCenter.default.publisher(for: .previousTab)) { _ in
-            state.selectPreviousTab()
-        }
-        .onReceive(NotificationCenter.default.publisher(for: .nextTab)) { _ in
-            state.selectNextTab()
-        }
-        .onReceive(NotificationCenter.default.publisher(for: .reopenClosedTab)) { _ in
-            state.reopenLastClosedTab()
-        }
-        // Zoom controls
-        .onReceive(NotificationCenter.default.publisher(for: .zoomIn)) { _ in
-            state.activeTab?.zoomIn()
-        }
-        .onReceive(NotificationCenter.default.publisher(for: .zoomOut)) { _ in
-            state.activeTab?.zoomOut()
-        }
-        .onReceive(NotificationCenter.default.publisher(for: .zoomReset)) { _ in
-            state.activeTab?.resetZoom()
-        }
-        // AI sidebar focus
-        .onReceive(NotificationCenter.default.publisher(for: .focusAISidebar)) { _ in
-            // Show the sidebar if not visible
-            if !settings.sidebarVisible {
-                withAnimation(.easeInOut(duration: 0.2)) {
-                    settings.sidebarVisible = true
-                }
-            }
-            // Post notification to focus the chat input (with slight delay to allow sidebar to appear)
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
-                NotificationCenter.default.post(name: .focusChatInput, object: nil)
-            }
-        }
+
+        let tabState = WorkspaceTabState(
+            tabData: persistedTabs,
+            activeTabId: state.activeTabId
+        )
+
+        workspaceManager.saveTabState(tabState, for: workspaceId)
     }
 }
 

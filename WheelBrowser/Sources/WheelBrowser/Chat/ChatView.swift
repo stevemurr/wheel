@@ -198,11 +198,15 @@ struct ChatView: View {
             .buttonStyle(.plain)
             .disabled(inputText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || isSending)
         }
-        .padding(.horizontal, 12)
-        .padding(.vertical, 8)
+        .padding(.horizontal, 14)
+        .padding(.vertical, 10)
         .background(
-            RoundedRectangle(cornerRadius: 10, style: .continuous)
+            RoundedRectangle(cornerRadius: 20, style: .continuous)
                 .fill(Color(nsColor: .controlBackgroundColor))
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 20, style: .continuous)
+                .stroke(Color(nsColor: .separatorColor), lineWidth: 1)
         )
         .padding(.top, 8)
     }

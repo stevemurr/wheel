@@ -6,12 +6,14 @@ struct HistoryEntry: Codable, Identifiable, Equatable {
     let url: String
     let title: String
     let timestamp: Date
+    let workspaceID: UUID?
 
-    init(url: String, title: String, timestamp: Date = Date()) {
+    init(url: String, title: String, timestamp: Date = Date(), workspaceID: UUID? = nil) {
         self.id = UUID()
         self.url = url
         self.title = title
         self.timestamp = timestamp
+        self.workspaceID = workspaceID
     }
 
     static func == (lhs: HistoryEntry, rhs: HistoryEntry) -> Bool {
@@ -45,7 +47,7 @@ class BrowsingHistory: ObservableObject {
     }
 
     /// Add a new entry to history
-    func addEntry(url: URL, title: String) {
+    func addEntry(url: URL, title: String, workspaceID: UUID? = nil) {
         let urlString = url.absoluteString
 
         // Skip certain URLs
@@ -55,7 +57,7 @@ class BrowsingHistory: ObservableObject {
         entries.removeAll { $0.url == urlString }
 
         // Create and insert new entry at the beginning
-        let entry = HistoryEntry(url: urlString, title: title.isEmpty ? urlString : title)
+        let entry = HistoryEntry(url: urlString, title: title.isEmpty ? urlString : title, workspaceID: workspaceID)
         entries.insert(entry, at: 0)
 
         // Trim to max entries
@@ -67,6 +69,46 @@ class BrowsingHistory: ObservableObject {
         Task {
             await saveHistory()
         }
+    }
+
+    /// Get history entries for a specific workspace
+    func entriesForWorkspace(_ workspaceID: UUID) -> [HistoryEntry] {
+        return entries.filter { $0.workspaceID == workspaceID }
+    }
+
+    /// Search history for a specific workspace
+    func search(query: String, workspaceID: UUID?, limit: Int = 10) -> [HistoryEntry] {
+        let filteredEntries: [HistoryEntry]
+        if let workspaceID = workspaceID {
+            filteredEntries = entries.filter { $0.workspaceID == workspaceID }
+        } else {
+            filteredEntries = entries
+        }
+
+        guard !query.isEmpty else {
+            // Return recent entries if no query
+            return Array(filteredEntries.prefix(limit))
+        }
+
+        // Use fuzzy search to score and filter entries
+        let scoredEntries = filteredEntries.compactMap { entry -> (entry: HistoryEntry, score: Int)? in
+            let titleScore = FuzzySearch.score(query: query, target: entry.title)
+            let urlScore = FuzzySearch.score(query: query, target: entry.url)
+
+            // Use the better score of title or URL
+            let bestScore = max(titleScore, urlScore)
+
+            // Filter out entries with no match
+            guard bestScore > 0 else { return nil }
+
+            return (entry, bestScore)
+        }
+
+        // Sort by score (descending) and return limited results
+        return scoredEntries
+            .sorted { $0.score > $1.score }
+            .prefix(limit)
+            .map { $0.entry }
     }
 
     /// Search history using fuzzy matching

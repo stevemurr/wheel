@@ -37,15 +37,12 @@ struct WheelBrowserApp: App {
             }
 
             CommandGroup(after: .sidebar) {
-                Button("Toggle AI Sidebar") {
-                    NotificationCenter.default.post(name: .toggleSidebar, object: nil)
-                }
-                .keyboardShortcut("a", modifiers: [.command, .shift])
-
                 Button("Toggle Tab Sidebar") {
                     NotificationCenter.default.post(name: .toggleTabSidebar, object: nil)
                 }
                 .keyboardShortcut("s", modifiers: [.command, .shift])
+
+                Divider()
 
                 Button("Focus AI Chat") {
                     NotificationCenter.default.post(name: .focusAISidebar, object: nil)

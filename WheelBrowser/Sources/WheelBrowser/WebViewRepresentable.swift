@@ -43,10 +43,11 @@ struct WebViewRepresentable: NSViewRepresentable {
                     ContentBlockerManager.shared.recordPageLoad()
                 }
 
-                // Record to browsing history
+                // Record to browsing history with current workspace
                 if let url = webView.url {
                     let title = webView.title ?? "Untitled"
-                    BrowsingHistory.shared.addEntry(url: url, title: title)
+                    let workspaceID = WorkspaceManager.shared.currentWorkspaceID
+                    BrowsingHistory.shared.addEntry(url: url, title: title, workspaceID: workspaceID)
                 }
             }
         }

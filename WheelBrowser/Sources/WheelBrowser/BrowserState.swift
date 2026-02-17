@@ -8,6 +8,19 @@ struct ClosedTabInfo {
     let closedAt: Date
 }
 
+/// Persisted tab data for workspace switching
+struct PersistedTab: Codable {
+    let id: UUID
+    let url: String?
+    let title: String
+}
+
+/// Persisted workspace tab state
+struct WorkspaceTabState: Codable {
+    let tabData: [PersistedTab]
+    let activeTabId: UUID?
+}
+
 class BrowserState: ObservableObject {
     @Published var tabs: [Tab] = []
     @Published var activeTabId: UUID?
@@ -15,6 +28,12 @@ class BrowserState: ObservableObject {
     /// Stack of recently closed tabs (most recent first)
     private var closedTabsHistory: [ClosedTabInfo] = []
     private let maxClosedTabsHistory = 20
+
+    /// Current workspace ID being managed
+    private(set) var currentWorkspaceId: UUID?
+
+    /// Cache of tab states per workspace (in-memory for quick switching)
+    private var workspaceTabStates: [UUID: WorkspaceTabState] = [:]
 
     var activeTab: Tab? {
         tabs.first { $0.id == activeTabId }
@@ -25,8 +44,76 @@ class BrowserState: ObservableObject {
         tabs.firstIndex { $0.id == activeTabId }
     }
 
+    /// Returns the IDs of all current tabs
+    var tabIDs: [UUID] {
+        tabs.map { $0.id }
+    }
+
     init() {
         addTab()
+    }
+
+    // MARK: - Workspace Integration
+
+    /// Saves the current tab state for the given workspace
+    func saveStateForWorkspace(_ workspaceId: UUID) {
+        let persistedTabs = tabs.map { tab in
+            PersistedTab(
+                id: tab.id,
+                url: tab.url?.absoluteString,
+                title: tab.title
+            )
+        }
+
+        let state = WorkspaceTabState(
+            tabData: persistedTabs,
+            activeTabId: activeTabId
+        )
+
+        workspaceTabStates[workspaceId] = state
+    }
+
+    /// Loads tabs for a workspace, restoring from saved state
+    func loadStateForWorkspace(_ workspaceId: UUID) {
+        // Save current workspace state before switching
+        if let currentId = currentWorkspaceId, currentId != workspaceId {
+            saveStateForWorkspace(currentId)
+        }
+
+        currentWorkspaceId = workspaceId
+
+        // Check if we have cached state for this workspace
+        if let state = workspaceTabStates[workspaceId], !state.tabData.isEmpty {
+            // Restore tabs from cached state
+            tabs.removeAll()
+
+            for persistedTab in state.tabData {
+                let tab = Tab()
+                tabs.append(tab)
+
+                if let urlString = persistedTab.url {
+                    tab.load(urlString)
+                }
+            }
+
+            activeTabId = state.activeTabId ?? tabs.first?.id
+        } else {
+            // No saved state - create a fresh tab for this workspace
+            tabs.removeAll()
+            addTab()
+        }
+    }
+
+    /// Clears the cached state for a workspace (e.g., when workspace is deleted)
+    func clearStateForWorkspace(_ workspaceId: UUID) {
+        workspaceTabStates.removeValue(forKey: workspaceId)
+    }
+
+    /// Binds this BrowserState to a workspace manager for automatic syncing
+    func bindToWorkspace(_ workspaceId: UUID) {
+        if currentWorkspaceId != workspaceId {
+            loadStateForWorkspace(workspaceId)
+        }
     }
 
     func addTab() {

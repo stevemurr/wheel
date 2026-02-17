@@ -8,7 +8,7 @@ struct TopDrawerContainer: View {
     @State private var isSheetPresented = false
     @State private var pendingHideWorkItem: DispatchWorkItem?
 
-    private let drawerHeight: CGFloat = 300
+    private let drawerHeight: CGFloat = 340
     private let cornerRadius: CGFloat = 16
     private let revealZoneHeight: CGFloat = 20
     private let safeZoneHeight: CGFloat = 50
@@ -118,52 +118,32 @@ struct TopDrawerContainer: View {
 
     private var drawerContent: some View {
         VStack(spacing: 0) {
-            // Drawer header with close button and drag indicator
-            ZStack {
-                // Center: Drag indicator pill
-                RoundedRectangle(cornerRadius: 2)
-                    .fill(Color.gray.opacity(0.4))
-                    .frame(width: 40, height: 4)
+            // Drawer header with close button
+            drawerHeader
 
-                // Right: Close button
-                HStack {
-                    Spacer()
-                    Button(action: dismissDrawer) {
-                        Image(systemName: "xmark")
-                            .font(.system(size: 10, weight: .semibold))
-                            .foregroundColor(.secondary)
-                            .frame(width: 20, height: 20)
-                            .background(
-                                Circle()
-                                    .fill(Color(nsColor: .controlBackgroundColor))
-                            )
-                    }
-                    .buttonStyle(.plain)
-                    .help("Close drawer (Esc)")
-                }
-            }
-            .padding(.top, 8)
-            .padding(.horizontal, 8)
-            .padding(.bottom, 12)
-
-            // Main content area
+            // Split view content - History on left, Agent Studio on right
             HStack(spacing: 0) {
-                // Left: Workspaces
-                WorkspacesView()
+                // Left side: History
+                WorkspaceHistoryView()
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .padding(.leading, 16)
+                    .padding(.trailing, 8)
+                    .padding(.bottom, 16)
 
+                // Divider
                 Divider()
                     .padding(.vertical, 8)
 
-                // Right: Agent Studio
+                // Right side: Agent Studio
                 AgentStudioView(
                     manager: AgentStudioManager.shared,
                     isSheetPresented: $isSheetPresented
                 )
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .padding(.leading, 8)
+                .padding(.trailing, 16)
+                .padding(.bottom, 16)
             }
-            .padding(.horizontal, 16)
-            .padding(.bottom, 16)
         }
         .frame(maxWidth: .infinity)
         .frame(height: drawerHeight)
@@ -198,6 +178,38 @@ struct TopDrawerContainer: View {
             .stroke(Color.gray.opacity(0.3), lineWidth: 1)
         )
         .padding(.horizontal, 12)
+    }
+
+    // MARK: - Drawer Header
+
+    private var drawerHeader: some View {
+        HStack(spacing: 12) {
+            Spacer()
+
+            // Drag indicator pill
+            RoundedRectangle(cornerRadius: 2)
+                .fill(Color.gray.opacity(0.4))
+                .frame(width: 40, height: 4)
+
+            Spacer()
+
+            // Close button
+            Button(action: dismissDrawer) {
+                Image(systemName: "xmark")
+                    .font(.system(size: 10, weight: .semibold))
+                    .foregroundColor(.secondary)
+                    .frame(width: 20, height: 20)
+                    .background(
+                        Circle()
+                            .fill(Color(nsColor: .controlBackgroundColor))
+                    )
+            }
+            .buttonStyle(.plain)
+            .help("Close drawer (Esc)")
+        }
+        .padding(.top, 8)
+        .padding(.horizontal, 12)
+        .padding(.bottom, 12)
     }
 }
 

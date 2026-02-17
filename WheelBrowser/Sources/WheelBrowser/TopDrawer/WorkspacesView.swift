@@ -65,8 +65,8 @@ struct WorkspacesView: View {
         .sheet(isPresented: $isCreatingWorkspace) {
             WorkspaceEditorSheet(
                 mode: .create,
-                onSave: { name, icon, color in
-                    workspaceManager.createWorkspace(name: name, icon: icon, color: color)
+                onSave: { name, icon, color, agentID in
+                    workspaceManager.createWorkspace(name: name, icon: icon, color: color, defaultAgentID: agentID)
                     isCreatingWorkspace = false
                 },
                 onCancel: {
@@ -77,12 +77,13 @@ struct WorkspacesView: View {
         .sheet(item: $editingWorkspace) { workspace in
             WorkspaceEditorSheet(
                 mode: .edit(workspace),
-                onSave: { name, icon, color in
+                onSave: { name, icon, color, agentID in
                     workspaceManager.updateWorkspace(
                         id: workspace.id,
                         name: name,
                         icon: icon,
-                        color: color
+                        color: color,
+                        defaultAgentID: agentID
                     )
                     editingWorkspace = nil
                 },
@@ -256,12 +257,15 @@ struct WorkspaceEditorSheet: View {
     }
 
     let mode: Mode
-    let onSave: (String, String, String) -> Void
+    let onSave: (String, String, String, UUID?) -> Void
     let onCancel: () -> Void
+
+    @ObservedObject private var agentStudioManager = AgentStudioManager.shared
 
     @State private var name: String = ""
     @State private var selectedIcon: String = "folder"
     @State private var selectedColor: String = "#007AFF"
+    @State private var selectedAgentID: UUID?
 
     private var isValid: Bool {
         !name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
@@ -288,7 +292,8 @@ struct WorkspaceEditorSheet: View {
                     onSave(
                         name.trimmingCharacters(in: .whitespacesAndNewlines),
                         selectedIcon,
-                        selectedColor
+                        selectedColor,
+                        selectedAgentID
                     )
                 }
                 .buttonStyle(.plain)
@@ -358,19 +363,94 @@ struct WorkspaceEditorSheet: View {
                             }
                         }
                     }
+
+                    // Agent picker
+                    VStack(alignment: .leading, spacing: 6) {
+                        Text("Default Agent")
+                            .font(.system(size: 11, weight: .medium))
+                            .foregroundColor(.secondary)
+
+                        ScrollView(.horizontal, showsIndicators: false) {
+                            HStack(spacing: 8) {
+                                // "None" option
+                                AgentPickerItem(
+                                    name: "None",
+                                    icon: "minus.circle",
+                                    isSelected: selectedAgentID == nil,
+                                    color: selectedColor
+                                ) {
+                                    selectedAgentID = nil
+                                }
+
+                                ForEach(agentStudioManager.agents) { agent in
+                                    AgentPickerItem(
+                                        name: agent.name,
+                                        icon: agent.icon,
+                                        isSelected: selectedAgentID == agent.id,
+                                        color: selectedColor
+                                    ) {
+                                        selectedAgentID = agent.id
+                                    }
+                                }
+                            }
+                        }
+                    }
                 }
                 .padding(16)
             }
         }
-        .frame(width: 360, height: 420)
+        .frame(width: 360, height: 500)
         .background(Color(nsColor: .controlBackgroundColor))
         .onAppear {
             if case .edit(let workspace) = mode {
                 name = workspace.name
                 selectedIcon = workspace.icon
                 selectedColor = workspace.color
+                selectedAgentID = workspace.defaultAgentID
             }
         }
+    }
+}
+
+// MARK: - Agent Picker Item
+
+struct AgentPickerItem: View {
+    let name: String
+    let icon: String
+    let isSelected: Bool
+    let color: String
+    let onTap: () -> Void
+
+    var body: some View {
+        Button(action: onTap) {
+            VStack(spacing: 4) {
+                Image(systemName: icon)
+                    .font(.system(size: 16))
+                    .foregroundColor(isSelected ? (Color(hex: color) ?? .blue) : .secondary)
+                    .frame(width: 36, height: 36)
+                    .background(
+                        RoundedRectangle(cornerRadius: 8)
+                            .fill(isSelected
+                                ? (Color(hex: color) ?? .blue).opacity(0.15)
+                                : Color(nsColor: .controlBackgroundColor)
+                            )
+                    )
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 8)
+                            .stroke(
+                                isSelected ? (Color(hex: color) ?? .blue).opacity(0.5) : Color.clear,
+                                lineWidth: 1
+                            )
+                    )
+
+                Text(name)
+                    .font(.system(size: 10))
+                    .foregroundColor(isSelected ? .primary : .secondary)
+                    .lineLimit(1)
+                    .frame(maxWidth: 60)
+            }
+        }
+        .buttonStyle(.plain)
     }
 }
 

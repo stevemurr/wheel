@@ -1,6 +1,11 @@
 import Foundation
 import SwiftUI
 
+/// Notification sent when workspace changes - observers can respond to load appropriate tabs
+extension Notification.Name {
+    static let workspaceDidChange = Notification.Name("workspaceDidChange")
+}
+
 /// Manages workspace storage and operations
 @MainActor
 class WorkspaceManager: ObservableObject {
@@ -8,6 +13,9 @@ class WorkspaceManager: ObservableObject {
 
     @Published private(set) var workspaces: [Workspace] = []
     @Published var currentWorkspaceID: UUID?
+
+    /// Cached tab states per workspace for persistence
+    @Published private(set) var workspaceTabStates: [UUID: WorkspaceTabState] = [:]
 
     /// File URL for persisting workspaces
     private var workspacesFileURL: URL {
@@ -20,8 +28,16 @@ class WorkspaceManager: ObservableObject {
         return appDir.appendingPathComponent("workspaces.json")
     }
 
+    /// File URL for persisting workspace tab states
+    private var tabStatesFileURL: URL {
+        let appSupport = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
+        let appDir = appSupport.appendingPathComponent("WheelBrowser", isDirectory: true)
+        return appDir.appendingPathComponent("workspace_tabs.json")
+    }
+
     private init() {
         loadWorkspaces()
+        loadTabStates()
 
         // Set current workspace to first one if available and none selected
         if currentWorkspaceID == nil, let first = workspaces.first {
@@ -75,9 +91,20 @@ class WorkspaceManager: ObservableObject {
     func switchToWorkspace(_ id: UUID) {
         guard let index = workspaces.firstIndex(where: { $0.id == id }) else { return }
 
+        let previousWorkspaceID = currentWorkspaceID
         currentWorkspaceID = id
         workspaces[index].lastAccessedAt = Date()
         saveWorkspaces()
+
+        // Post notification so observers (like BrowserState) can respond
+        NotificationCenter.default.post(
+            name: .workspaceDidChange,
+            object: nil,
+            userInfo: [
+                "newWorkspaceID": id,
+                "previousWorkspaceID": previousWorkspaceID as Any
+            ]
+        )
     }
 
     /// Gets the current workspace if one is selected
@@ -155,6 +182,25 @@ class WorkspaceManager: ObservableObject {
         workspaces.first { $0.id == workspaceID }?.tabIDs.count ?? 0
     }
 
+    // MARK: - Tab State Management
+
+    /// Saves tab state for a workspace
+    func saveTabState(_ state: WorkspaceTabState, for workspaceID: UUID) {
+        workspaceTabStates[workspaceID] = state
+        saveTabStates()
+    }
+
+    /// Gets the saved tab state for a workspace
+    func getTabState(for workspaceID: UUID) -> WorkspaceTabState? {
+        return workspaceTabStates[workspaceID]
+    }
+
+    /// Clears tab state for a workspace
+    func clearTabState(for workspaceID: UUID) {
+        workspaceTabStates.removeValue(forKey: workspaceID)
+        saveTabStates()
+    }
+
     // MARK: - Persistence
 
     private func loadWorkspaces() {
@@ -189,9 +235,26 @@ class WorkspaceManager: ObservableObject {
         }
     }
 
+    private func loadTabStates() {
+        guard FileManager.default.fileExists(atPath: tabStatesFileURL.path) else { return }
+
+        do {
+            let data = try Data(contentsOf: tabStatesFileURL)
+            workspaceTabStates = try JSONDecoder().decode([UUID: WorkspaceTabState].self, from: data)
+        } catch {
+            print("Failed to load tab states: \(error)")
+        }
+    }
+
     private func saveWorkspaces() {
         Task {
             await persistWorkspaces()
+        }
+    }
+
+    private func saveTabStates() {
+        Task {
+            await persistTabStates()
         }
     }
 
@@ -205,6 +268,15 @@ class WorkspaceManager: ObservableObject {
             try encoded.write(to: workspacesFileURL, options: .atomic)
         } catch {
             print("Failed to save workspaces: \(error)")
+        }
+    }
+
+    private func persistTabStates() async {
+        do {
+            let encoded = try JSONEncoder().encode(workspaceTabStates)
+            try encoded.write(to: tabStatesFileURL, options: .atomic)
+        } catch {
+            print("Failed to save tab states: \(error)")
         }
     }
 }
