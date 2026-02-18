@@ -135,6 +135,9 @@ struct WebViewRepresentable: NSViewRepresentable {
         }
 
         private func indexPageForSemanticSearch(webView: WKWebView, url: URL, title: String, workspaceID: UUID?) {
+            // Check if semantic search is enabled
+            guard AppSettings.shared.semanticSearchEnabled else { return }
+
             // Skip certain URLs
             let urlString = url.absoluteString
             let skipPrefixes = ["about:", "data:", "javascript:", "blob:", "chrome:", "file:"]
@@ -149,7 +152,8 @@ struct WebViewRepresentable: NSViewRepresentable {
                     'script', 'style', 'noscript', 'iframe', 'svg',
                     'nav', 'header', 'footer', 'aside',
                     '[role="navigation"]', '[role="banner"]', '[role="contentinfo"]',
-                    '.sidebar', '.nav', '.menu', '.advertisement', '.ad'
+                    '.sidebar', '.nav', '.menu', '.advertisement', '.ad',
+                    '.cookie-banner', '.popup', '.modal', '[aria-hidden="true"]'
                 ];
                 const doc = document.cloneNode(true);
                 removeSelectors.forEach(selector => {
@@ -168,8 +172,9 @@ struct WebViewRepresentable: NSViewRepresentable {
                     return
                 }
 
+                // Use the new V2 manager with sqlite-vec backend
                 Task { @MainActor in
-                    await SemanticSearchManager.shared.indexPage(
+                    await SemanticSearchManagerV2.shared.indexPage(
                         url: urlString,
                         title: title,
                         content: content,

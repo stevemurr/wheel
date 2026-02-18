@@ -84,5 +84,6 @@ class KeychainHelper {
 extension KeychainHelper {
     enum Keys {
         static let llmAPIKey = "llm_api_key"
+        static let embeddingAPIKey = "embedding_api_key"
     }
 }

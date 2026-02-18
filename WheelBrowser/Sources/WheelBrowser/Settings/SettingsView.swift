@@ -4,10 +4,12 @@ struct SettingsView: View {
     @ObservedObject private var settings = AppSettings.shared
     @ObservedObject private var contentBlocker = ContentBlockerManager.shared
     @ObservedObject private var blockingStats = BlockingStats.shared
+    @ObservedObject private var semanticSearch = SemanticSearchManagerV2.shared
     @State private var availableModels: [String] = []
     @State private var isLoadingModels = false
     @State private var connectionStatus: ConnectionStatus = .unknown
     @State private var showingResetStatsAlert = false
+    @State private var showingClearIndexAlert = false
     @State private var apiKeyInput: String = ""
     @State private var showAPIKey = false
     @State private var llmConnectionStatus: LLMConnectionStatus = .unknown
@@ -352,6 +354,157 @@ struct SettingsView: View {
                 }
             }
 
+            // MARK: - Semantic Search Section
+            Section("Semantic Search") {
+                Toggle("Enable Semantic Search", isOn: $settings.semanticSearchEnabled)
+
+                Text("Index your browsing history for semantic search. Uses embeddings to find pages by meaning, not just keywords.")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+
+                Picker("Embedding Provider", selection: $settings.embeddingProvider) {
+                    Text("OpenAI").tag("openai")
+                    Text("Voyage AI").tag("voyage")
+                    Text("Local (macOS)").tag("local")
+                    Text("Custom").tag("custom")
+                }
+
+                if settings.embeddingProvider == "local" {
+                    HStack {
+                        Image(systemName: "exclamationmark.triangle")
+                            .foregroundColor(.orange)
+                        Text("Local embeddings have lower quality than API-based options")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                    }
+                }
+
+                if settings.embeddingProvider == "custom" {
+                    TextField("Endpoint URL", text: $settings.embeddingEndpoint)
+                        .textFieldStyle(.roundedBorder)
+                }
+
+                if settings.embeddingProvider != "local" {
+                    TextField("Model", text: $settings.embeddingModel)
+                        .textFieldStyle(.roundedBorder)
+
+                    HStack {
+                        Text("Dimensions")
+                        Spacer()
+                        TextField("", value: $settings.embeddingDimensions, format: .number)
+                            .textFieldStyle(.roundedBorder)
+                            .frame(width: 80)
+                    }
+
+                    Text("Changing dimensions will clear the search index")
+                        .font(.caption2)
+                        .foregroundColor(.orange)
+
+                    // API Key
+                    EmbeddingAPIKeyField(settings: settings)
+                }
+
+                // Presets
+                if settings.embeddingProvider == "openai" {
+                    HStack {
+                        Text("Presets:")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+
+                        Button("Small (1536d)") {
+                            settings.embeddingModel = "text-embedding-3-small"
+                            settings.embeddingDimensions = 1536
+                        }
+                        .buttonStyle(.borderless)
+                        .font(.caption)
+
+                        Button("Large (3072d)") {
+                            settings.embeddingModel = "text-embedding-3-large"
+                            settings.embeddingDimensions = 3072
+                        }
+                        .buttonStyle(.borderless)
+                        .font(.caption)
+                    }
+                }
+
+                if settings.embeddingProvider == "voyage" {
+                    HStack {
+                        Text("Presets:")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+
+                        Button("Lite (512d)") {
+                            settings.embeddingModel = "voyage-3-lite"
+                            settings.embeddingDimensions = 512
+                        }
+                        .buttonStyle(.borderless)
+                        .font(.caption)
+
+                        Button("Standard (1024d)") {
+                            settings.embeddingModel = "voyage-3"
+                            settings.embeddingDimensions = 1024
+                        }
+                        .buttonStyle(.borderless)
+                        .font(.caption)
+                    }
+                }
+
+                // Index stats
+                Divider()
+
+                HStack {
+                    VStack(alignment: .leading, spacing: 4) {
+                        HStack {
+                            Image(systemName: semanticSearch.isAvailable ? "checkmark.circle.fill" : "xmark.circle.fill")
+                                .foregroundColor(semanticSearch.isAvailable ? .green : .red)
+                            Text(semanticSearch.isAvailable ? "Search available" : "Search unavailable")
+                                .font(.caption)
+                        }
+
+                        HStack(spacing: 16) {
+                            Label("\(semanticSearch.indexedCount) indexed", systemImage: "doc.text.fill")
+                                .font(.caption)
+                                .foregroundColor(.secondary)
+
+                            if semanticSearch.pendingCount > 0 {
+                                Label("\(semanticSearch.pendingCount) pending", systemImage: "clock.fill")
+                                    .font(.caption)
+                                    .foregroundColor(.orange)
+                            }
+
+                            if semanticSearch.isIndexing {
+                                ProgressView()
+                                    .scaleEffect(0.6)
+                            }
+                        }
+
+                        if let error = semanticSearch.lastError {
+                            Text(error)
+                                .font(.caption2)
+                                .foregroundColor(.red)
+                                .lineLimit(2)
+                        }
+                    }
+
+                    Spacer()
+
+                    Button("Clear Index", role: .destructive) {
+                        showingClearIndexAlert = true
+                    }
+                    .buttonStyle(.borderless)
+                }
+                .alert("Clear Search Index", isPresented: $showingClearIndexAlert) {
+                    Button("Cancel", role: .cancel) { }
+                    Button("Clear", role: .destructive) {
+                        Task {
+                            await semanticSearch.clearIndex()
+                        }
+                    }
+                } message: {
+                    Text("This will delete all indexed pages. They will be re-indexed as you browse.")
+                }
+            }
+
             // MARK: - Letta Server Section
             Section("Letta Server") {
                 TextField("Letta Server URL", text: $settings.lettaServerURL)
@@ -607,6 +760,66 @@ struct StatsRow: View {
                 .font(.system(.body, design: .rounded))
                 .fontWeight(.medium)
                 .foregroundColor(.primary)
+        }
+    }
+}
+
+/// Field for entering embedding API key
+struct EmbeddingAPIKeyField: View {
+    @ObservedObject var settings: AppSettings
+    @State private var apiKeyInput: String = ""
+    @State private var showAPIKey = false
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack {
+                if showAPIKey {
+                    TextField("Embedding API Key", text: $apiKeyInput)
+                        .textFieldStyle(.roundedBorder)
+                        .font(.system(.body, design: .monospaced))
+                } else {
+                    SecureField("Embedding API Key", text: $apiKeyInput)
+                        .textFieldStyle(.roundedBorder)
+                }
+
+                Button(action: { showAPIKey.toggle() }) {
+                    Image(systemName: showAPIKey ? "eye.slash" : "eye")
+                        .foregroundColor(.secondary)
+                }
+                .buttonStyle(.borderless)
+
+                Button("Save") {
+                    settings.embeddingAPIKey = apiKeyInput
+                }
+                .disabled(apiKeyInput.isEmpty)
+            }
+
+            if settings.hasEmbeddingAPIKey {
+                HStack {
+                    Image(systemName: "checkmark.circle.fill")
+                        .foregroundColor(.green)
+                        .font(.caption)
+                    Text("API key configured")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+
+                    Spacer()
+
+                    Button("Clear", role: .destructive) {
+                        settings.embeddingAPIKey = ""
+                        apiKeyInput = ""
+                    }
+                    .font(.caption)
+                    .buttonStyle(.borderless)
+                }
+            }
+
+            Text("API key is stored securely in your system Keychain")
+                .font(.caption2)
+                .foregroundColor(.secondary)
+        }
+        .onAppear {
+            apiKeyInput = settings.embeddingAPIKey
         }
     }
 }

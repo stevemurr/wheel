@@ -143,14 +143,14 @@ class MentionSuggestionsViewModel: ObservableObject {
         }
     }
 
-    /// Search semantic history using the SemanticSearchManager
+    /// Search semantic history using the SemanticSearchManagerV2
     private func searchSemanticHistory(
         query: String,
         excludedIds: Set<String>
     ) async -> [MentionSuggestion] {
         guard !query.isEmpty else { return [] }
 
-        let results = await SemanticSearchManager.shared.search(query: query, limit: 5)
+        let results = await SemanticSearchManagerV2.shared.search(query: query, limit: 5)
 
         return results.compactMap { result -> MentionSuggestion? in
             // Generate a UUID from the UInt64 id for consistent identification

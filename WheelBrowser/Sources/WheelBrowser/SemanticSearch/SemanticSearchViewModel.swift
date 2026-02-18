@@ -35,7 +35,7 @@ class SemanticSearchViewModel: ObservableObject {
 
             guard !Task.isCancelled else { return }
 
-            let searchResults = await SemanticSearchManager.shared.search(query: query, limit: 20)
+            let searchResults = await SemanticSearchManagerV2.shared.search(query: query, limit: 20)
 
             guard !Task.isCancelled else { return }
 
@@ -68,7 +68,7 @@ class SemanticSearchViewModel: ObservableObject {
 
 struct SemanticSearchPanelContent: View {
     @ObservedObject var viewModel: SemanticSearchViewModel
-    @ObservedObject var searchManager: SemanticSearchManager
+    @ObservedObject var searchManager: SemanticSearchManagerV2
     let searchText: String
     let onSelect: (SemanticSearchResult) -> Void
 

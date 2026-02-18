@@ -19,7 +19,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         // Save semantic search index before quitting
         let semaphore = DispatchSemaphore(value: 0)
         Task { @MainActor in
-            await SemanticSearchManager.shared.save()
+            await SemanticSearchManagerV2.shared.save()
             semaphore.signal()
         }
         // Wait briefly for save to complete
@@ -219,6 +219,8 @@ extension Notification.Name {
 
     // Semantic search
     static let focusSemanticSearch = Notification.Name("focusSemanticSearch")
+    static let embeddingSettingsChanged = Notification.Name("embeddingSettingsChanged")
+    static let embeddingDimensionsChanged = Notification.Name("embeddingDimensionsChanged")
 
     // Zoom controls
     static let zoomIn = Notification.Name("zoomIn")

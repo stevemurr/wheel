@@ -9,7 +9,7 @@ struct OmniBar: View {
     @StateObject private var suggestionsVM = SuggestionsViewModel()
     @StateObject private var semanticSearchVM = SemanticSearchViewModel()
     @StateObject private var mentionSuggestionsVM = MentionSuggestionsViewModel()
-    @ObservedObject private var semanticSearchManager = SemanticSearchManager.shared
+    @ObservedObject private var semanticSearchManager = SemanticSearchManagerV2.shared
     @ObservedObject private var downloadManager = DownloadManager.shared
 
     let contentExtractor: ContentExtractor
