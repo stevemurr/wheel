@@ -88,8 +88,8 @@ actor SearchDatabase {
         // Set busy timeout to 5 seconds to handle brief locking scenarios
         sqlite3_busy_timeout(db, 5000)
 
-        // Use DELETE journal mode instead of WAL - sqlite-vec may have issues with WAL
-        try execute("PRAGMA journal_mode = DELETE")
+        // WAL mode for better concurrent performance
+        try execute("PRAGMA journal_mode = WAL")
         try execute("PRAGMA synchronous = NORMAL")
         try execute("PRAGMA foreign_keys = ON")
     }
