@@ -30,7 +30,6 @@ private struct BrowserContentArea: View {
                     contentExtractor: contentExtractor
                 )
             }
-            .padding(.bottom, 12)
         }
     }
 }
