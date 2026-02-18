@@ -89,6 +89,9 @@ private struct NavigationNotificationModifier: ViewModifier {
                     state.activeTab?.load(url.absoluteString)
                 }
             }
+            .onReceive(NotificationCenter.default.publisher(for: .togglePictureInPicture)) { _ in
+                state.activeTab?.togglePictureInPicture()
+            }
     }
 }
 

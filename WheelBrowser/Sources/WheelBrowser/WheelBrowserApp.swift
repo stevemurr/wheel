@@ -144,6 +144,13 @@ struct WheelBrowserApp: App {
                     NotificationCenter.default.post(name: .zoomReset, object: nil)
                 }
                 .keyboardShortcut("0", modifiers: .command)
+
+                Divider()
+
+                Button("Picture in Picture") {
+                    NotificationCenter.default.post(name: .togglePictureInPicture, object: nil)
+                }
+                .keyboardShortcut("p", modifiers: [.command, .shift])
             }
         }
 
@@ -184,4 +191,7 @@ extension Notification.Name {
     static let zoomIn = Notification.Name("zoomIn")
     static let zoomOut = Notification.Name("zoomOut")
     static let zoomReset = Notification.Name("zoomReset")
+
+    // Picture in Picture
+    static let togglePictureInPicture = Notification.Name("togglePictureInPicture")
 }
