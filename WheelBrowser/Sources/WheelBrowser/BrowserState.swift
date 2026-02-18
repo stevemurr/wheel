@@ -56,6 +56,18 @@ class BrowserState: ObservableObject {
         return AccessibilityBridge(webView: tab.webView)
     }
 
+    /// Returns an AccessibilityBridge for a specific tab's webView
+    @MainActor
+    func accessibilityBridge(for tabId: UUID) -> AccessibilityBridge? {
+        guard let tab = tabs.first(where: { $0.id == tabId }) else { return nil }
+        return AccessibilityBridge(webView: tab.webView)
+    }
+
+    /// Returns a tab by its ID
+    func tab(for tabId: UUID) -> Tab? {
+        tabs.first { $0.id == tabId }
+    }
+
     /// Navigate the active tab to a URL
     func navigate(to url: URL) {
         activeTab?.load(url.absoluteString)

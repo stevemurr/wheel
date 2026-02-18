@@ -12,6 +12,8 @@ class Tab: Identifiable, ObservableObject {
     @Published var zoomLevel: Double = 1.0
     @Published var isFindBarVisible: Bool = false
     @Published var findSearchText: String = ""
+    @Published var hasActiveAgent: Bool = false
+    @Published var agentProgress: String = ""
 
     let webView: WKWebView
 

@@ -3,12 +3,19 @@ import SwiftUI
 /// Content view for the Agent panel in OmniBar
 struct AgentPanelContent: View {
     @ObservedObject var agentEngine: AgentEngine
+    var browserState: BrowserState?
 
     var body: some View {
         ScrollViewReader { proxy in
             ScrollView(showsIndicators: true) {
                 LazyVStack(spacing: 2) {
                     if agentEngine.isRunning || !agentEngine.steps.isEmpty {
+                        // Bound tab indicator (shows when running on a background tab)
+                        if agentEngine.isRunning, agentEngine.isRunningInBackground,
+                           let tabTitle = agentEngine.boundTabTitle {
+                            BoundTabIndicator(tabTitle: tabTitle)
+                        }
+
                         // Task name row
                         if !agentEngine.currentTask.isEmpty {
                             AgentTaskRow(
@@ -46,6 +53,47 @@ struct AgentPanelContent: View {
                 }
             }
         }
+    }
+}
+
+// MARK: - Bound Tab Indicator
+
+private struct BoundTabIndicator: View {
+    let tabTitle: String
+
+    var body: some View {
+        HStack(spacing: 8) {
+            Image(systemName: "arrow.left.arrow.right")
+                .font(.system(size: 10, weight: .medium))
+                .foregroundColor(.green)
+
+            Text("Running on:")
+                .font(.system(size: 11))
+                .foregroundColor(.secondary)
+
+            Text(tabTitle)
+                .font(.system(size: 11, weight: .medium))
+                .foregroundColor(.primary)
+                .lineLimit(1)
+
+            Text("(background)")
+                .font(.system(size: 10))
+                .foregroundColor(.green)
+                .padding(.horizontal, 6)
+                .padding(.vertical, 2)
+                .background(
+                    Capsule()
+                        .fill(Color.green.opacity(0.15))
+                )
+
+            Spacer()
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 6)
+        .background(
+            RoundedRectangle(cornerRadius: 6)
+                .fill(Color.green.opacity(0.1))
+        )
     }
 }
 
@@ -194,8 +242,9 @@ private struct AgentStepRow: View {
 }
 
 #Preview {
-    let engine = AgentEngine(browserState: BrowserState(), settings: AppSettings.shared)
-    return AgentPanelContent(agentEngine: engine)
+    let browserState = BrowserState()
+    let engine = AgentEngine(browserState: browserState, settings: AppSettings.shared)
+    return AgentPanelContent(agentEngine: engine, browserState: browserState)
         .frame(width: 400, height: 300)
         .background(Color(nsColor: .windowBackgroundColor))
 }

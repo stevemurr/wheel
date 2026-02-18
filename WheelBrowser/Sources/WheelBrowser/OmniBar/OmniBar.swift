@@ -232,7 +232,7 @@ struct OmniBar: View {
                     omniState.dismissAgentPanel()
                 }
             ) {
-                AgentPanelContent(agentEngine: agentEngine)
+                AgentPanelContent(agentEngine: agentEngine, browserState: browserState)
             }
             .padding(.horizontal, 16)
             .padding(.bottom, 8)
