@@ -86,18 +86,28 @@ class AgentManager: ObservableObject {
 
         do {
             var buffer = ""
+            var pendingChunk = ""
             var lastUpdateTime = Date()
-            let updateInterval: TimeInterval = 0.033 // ~30fps
+            let maxUpdateInterval: TimeInterval = 0.1 // Force update at least every 100ms
 
             for try await chunk in streamLLM() {
-                buffer += chunk
+                pendingChunk += chunk
 
-                // Throttle UI updates
                 let now = Date()
-                if now.timeIntervalSince(lastUpdateTime) >= updateInterval {
+                let timeSinceUpdate = now.timeIntervalSince(lastUpdateTime)
+
+                // Flush on complete markdown structures or timeout
+                if shouldFlushBuffer(pendingChunk) || timeSinceUpdate >= maxUpdateInterval {
+                    buffer += pendingChunk
+                    pendingChunk = ""
                     messages[assistantIndex].content = buffer
                     lastUpdateTime = now
                 }
+            }
+
+            // Flush any remaining content
+            if !pendingChunk.isEmpty {
+                buffer += pendingChunk
             }
 
             // Final update with complete content
@@ -185,6 +195,76 @@ class AgentManager: ObservableObject {
                 }
             }
         }
+    }
+
+    /// Detects complete markdown structures that are safe flush points
+    /// This reduces UI updates while ensuring meaningful visual progress
+    private func shouldFlushBuffer(_ buffer: String) -> Bool {
+        guard !buffer.isEmpty else { return false }
+
+        // Paragraph break - most common flush point
+        if buffer.hasSuffix("\n\n") {
+            return true
+        }
+
+        // Code block boundaries
+        if buffer.hasSuffix("```\n") || buffer.hasSuffix("```") {
+            return true
+        }
+
+        // LaTeX block boundaries
+        if buffer.hasSuffix("$$\n") || buffer.hasSuffix("$$") {
+            return true
+        }
+
+        // End of sentence followed by space (natural reading break)
+        if buffer.count >= 2 {
+            let lastTwo = String(buffer.suffix(2))
+            if lastTwo == ". " || lastTwo == "! " || lastTwo == "? " {
+                return true
+            }
+        }
+
+        // List item complete (newline after list content)
+        if buffer.contains("\n") {
+            let lines = buffer.split(separator: "\n", omittingEmptySubsequences: false)
+            if let lastLine = lines.last, lastLine.isEmpty {
+                // Previous line was complete
+                if lines.count >= 2 {
+                    let prevLine = String(lines[lines.count - 2])
+                    // Check if it was a list item or heading
+                    let trimmed = prevLine.trimmingCharacters(in: .whitespaces)
+                    if trimmed.hasPrefix("- ") || trimmed.hasPrefix("* ") ||
+                       trimmed.hasPrefix("# ") || trimmed.hasPrefix("> ") ||
+                       trimmed.first?.isNumber == true && trimmed.contains(". ") {
+                        return true
+                    }
+                }
+            }
+        }
+
+        // Heading complete
+        if buffer.hasSuffix("\n") && buffer.contains("#") {
+            let lines = buffer.split(separator: "\n", omittingEmptySubsequences: false)
+            if lines.count >= 2 {
+                let prevLine = String(lines[lines.count - 2])
+                if prevLine.trimmingCharacters(in: .whitespaces).hasPrefix("#") {
+                    return true
+                }
+            }
+        }
+
+        // Table row complete
+        if buffer.hasSuffix("|\n") {
+            return true
+        }
+
+        // Fallback: flush on any newline if buffer is getting large
+        if buffer.count > 200 && buffer.hasSuffix("\n") {
+            return true
+        }
+
+        return false
     }
 
     func storePageVisit(_ context: PageContext) async {

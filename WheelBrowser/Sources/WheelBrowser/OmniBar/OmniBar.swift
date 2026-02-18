@@ -131,8 +131,8 @@ struct OmniBar: View {
 
             // Chat panel - appears above OmniBar when in chat mode
             OmniPanel(
-                title: "Claude",
-                icon: "sparkles",
+                title: "Chat",
+                icon: "bubble.left.and.bubble.right.fill",
                 iconColor: .purple,
                 borderColor: .purple,
                 subtitle: agentManager.isLoading ? "Thinking..." : nil,

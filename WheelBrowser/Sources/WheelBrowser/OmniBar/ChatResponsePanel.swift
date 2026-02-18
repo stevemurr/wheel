@@ -105,6 +105,105 @@ struct ChatPanelPromptChip: View {
     }
 }
 
+// MARK: - Streaming Markdown Content (Block-based rendering)
+
+/// Splits markdown into completed blocks (cached) + streaming tail (re-renders)
+/// This prevents O(n²) re-parsing by only re-rendering the active block
+struct StreamingMarkdownContent: View {
+    let content: String
+    let theme: Theme
+
+    // Split content into completed blocks and streaming tail
+    private var blocks: (completed: [String], streaming: String) {
+        splitIntoBlocks(content)
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            // Completed blocks - each rendered once and cached by SwiftUI
+            ForEach(Array(blocks.completed.enumerated()), id: \.offset) { index, block in
+                Markdown(block)
+                    .markdownTheme(theme)
+                    .textSelection(.enabled)
+                    .id("block-\(index)-\(block.hashValue)") // Stable ID prevents re-render
+            }
+
+            // Streaming tail - only this re-renders on updates
+            if !blocks.streaming.isEmpty {
+                HStack(alignment: .bottom, spacing: 2) {
+                    Text(blocks.streaming)
+                        .font(.system(size: 13.5))
+                        .foregroundColor(.primary)
+                        .textSelection(.enabled)
+                    ChatPanelStreamingCursor()
+                }
+            } else {
+                ChatPanelStreamingCursor()
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    /// Splits content into completed markdown blocks and the streaming tail
+    private func splitIntoBlocks(_ text: String) -> (completed: [String], streaming: String) {
+        guard !text.isEmpty else { return ([], "") }
+
+        var completed: [String] = []
+        var currentBlock = ""
+        var inCodeBlock = false
+        var inLatexBlock = false
+
+        let lines = text.components(separatedBy: "\n")
+
+        for (index, line) in lines.enumerated() {
+            let trimmed = line.trimmingCharacters(in: .whitespaces)
+
+            // Track code block state
+            if trimmed.hasPrefix("```") {
+                inCodeBlock.toggle()
+            }
+
+            // Track LaTeX block state
+            if trimmed.hasPrefix("$$") {
+                inLatexBlock.toggle()
+            }
+
+            currentBlock += line
+            if index < lines.count - 1 {
+                currentBlock += "\n"
+            }
+
+            // Check if this completes a block (only if not in code/latex block)
+            let isLastLine = index == lines.count - 1
+            let nextLineEmpty = index + 1 < lines.count && lines[index + 1].trimmingCharacters(in: .whitespaces).isEmpty
+
+            if !isLastLine && !inCodeBlock && !inLatexBlock {
+                // Block boundaries: empty line, or end of code/latex block
+                if trimmed.isEmpty && !currentBlock.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                    // Empty line = paragraph break
+                    completed.append(currentBlock)
+                    currentBlock = ""
+                } else if trimmed.hasPrefix("```") && !inCodeBlock {
+                    // Just closed a code block
+                    completed.append(currentBlock)
+                    currentBlock = ""
+                } else if trimmed.hasPrefix("$$") && !inLatexBlock {
+                    // Just closed a latex block
+                    completed.append(currentBlock)
+                    currentBlock = ""
+                } else if trimmed.hasPrefix("#") && nextLineEmpty {
+                    // Heading followed by empty line
+                    completed.append(currentBlock)
+                    currentBlock = ""
+                }
+            }
+        }
+
+        // Whatever remains is the streaming tail
+        return (completed, currentBlock)
+    }
+}
+
 /// Panel that displays chat conversation above the OmniBar
 struct ChatResponsePanel: View {
     @ObservedObject var agentManager: AgentManager
@@ -130,15 +229,15 @@ struct ChatResponsePanel: View {
         .frame(maxWidth: 700)
         .frame(maxHeight: maxHeight)
         .background(
-            RoundedRectangle(cornerRadius: 12, style: .continuous)
+            RoundedRectangle(cornerRadius: 14, style: .continuous)
                 .fill(Color(nsColor: .windowBackgroundColor))
-                .shadow(color: .black.opacity(0.25), radius: 20, x: 0, y: -8)
+                .shadow(color: .black.opacity(0.15), radius: 24, x: 0, y: -10)
         )
         .overlay(
-            RoundedRectangle(cornerRadius: 12, style: .continuous)
-                .stroke(Color.purple.opacity(0.5), lineWidth: 1.5)
+            RoundedRectangle(cornerRadius: 14, style: .continuous)
+                .stroke(Color(nsColor: .separatorColor).opacity(0.4), lineWidth: 0.5)
         )
-        .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+        .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
         .onHover { hovering in
             isHovering = hovering
         }
@@ -147,19 +246,20 @@ struct ChatResponsePanel: View {
     // MARK: - Header
 
     private var header: some View {
-        HStack(spacing: 10) {
-            Image(systemName: "sparkles")
-                .font(.system(size: 12, weight: .semibold))
-                .foregroundColor(.purple)
+        HStack(spacing: 8) {
+            Image(systemName: "bubble.left.and.bubble.right.fill")
+                .font(.system(size: 11))
+                .foregroundColor(.secondary.opacity(0.7))
 
-            Text("Claude")
-                .font(.system(size: 12, weight: .semibold))
-                .foregroundColor(.primary)
+            Text("Chat")
+                .font(.system(size: 12, weight: .medium))
+                .foregroundColor(.primary.opacity(0.85))
 
             Spacer()
 
             if agentManager.isLoading {
                 ChatPanelPulsingDot()
+                    .padding(.trailing, 4)
             }
 
             Menu {
@@ -171,28 +271,29 @@ struct ChatResponsePanel: View {
                     Task { await agentManager.resetAgent() }
                 }
             } label: {
-                Image(systemName: "ellipsis.circle")
-                    .font(.system(size: 14))
-                    .foregroundColor(.secondary)
+                Image(systemName: "ellipsis")
+                    .font(.system(size: 12, weight: .medium))
+                    .foregroundColor(.secondary.opacity(0.7))
+                    .frame(width: 24, height: 24)
+                    .contentShape(Rectangle())
             }
             .menuStyle(.borderlessButton)
-            .frame(width: 20)
+            .frame(width: 24)
 
             Button(action: onDismiss) {
                 Image(systemName: "xmark")
-                    .font(.system(size: 11, weight: .medium))
-                    .foregroundColor(.secondary)
-                    .frame(width: 20, height: 20)
+                    .font(.system(size: 10, weight: .semibold))
+                    .foregroundColor(.secondary.opacity(0.6))
+                    .frame(width: 22, height: 22)
                     .background(
                         Circle()
-                            .fill(Color(nsColor: .controlBackgroundColor))
+                            .fill(Color(nsColor: .controlBackgroundColor).opacity(0.8))
                     )
             }
             .buttonStyle(.plain)
         }
-        .padding(.horizontal, 14)
-        .padding(.vertical, 10)
-        .background(Color(nsColor: .separatorColor).opacity(0.05))
+        .padding(.horizontal, 16)
+        .padding(.vertical, 12)
     }
 
     // MARK: - Messages Area
@@ -200,10 +301,10 @@ struct ChatResponsePanel: View {
     private var messagesArea: some View {
         ScrollViewReader { proxy in
             ScrollView(showsIndicators: true) {
-                VStack(spacing: 8) {
+                VStack(spacing: 14) {
                     if agentManager.messages.isEmpty {
                         emptyState
-                            .padding(.top, 30)
+                            .padding(.top, 24)
                     } else {
                         ForEach(agentManager.messages) { message in
                             ChatPanelMessageBubble(message: message)
@@ -216,8 +317,8 @@ struct ChatResponsePanel: View {
                             .id("bottom")
                     }
                 }
-                .padding(.horizontal, 14)
-                .padding(.vertical, 12)
+                .padding(.horizontal, 16)
+                .padding(.vertical, 14)
             }
             .onChange(of: agentManager.messages.count) { _, _ in
                 // Scroll to bottom on new message
@@ -247,25 +348,25 @@ struct ChatResponsePanel: View {
     // MARK: - Empty State
 
     private var emptyState: some View {
-        VStack(spacing: 12) {
+        VStack(spacing: 16) {
             Image(systemName: "bubble.left.and.bubble.right")
-                .font(.system(size: 24))
-                .foregroundColor(.secondary)
+                .font(.system(size: 28, weight: .light))
+                .foregroundColor(.secondary.opacity(0.6))
 
-            VStack(spacing: 4) {
-                Text("Chat with Claude")
-                    .font(.system(size: 13, weight: .medium))
+            VStack(spacing: 6) {
+                Text("Start a conversation")
+                    .font(.system(size: 14, weight: .medium))
                     .foregroundColor(.primary)
 
                 Text("Ask questions about the current page")
-                    .font(.system(size: 11))
+                    .font(.system(size: 12))
                     .foregroundColor(.secondary)
             }
 
             if let error = agentManager.error {
                 Text(error)
-                    .font(.caption)
-                    .foregroundColor(.red)
+                    .font(.system(size: 11))
+                    .foregroundColor(.red.opacity(0.9))
                     .padding(.horizontal)
                     .multilineTextAlignment(.center)
 
@@ -277,47 +378,32 @@ struct ChatResponsePanel: View {
             }
         }
         .frame(maxWidth: .infinity)
-        .padding()
+        .padding(.vertical, 20)
     }
 }
 
 /// Compact message bubble for the chat panel
 struct ChatPanelMessageBubble: View {
     let message: ChatMessage
+    @State private var isHovered = false
+    @State private var showCopied = false
 
     var body: some View {
-        HStack(alignment: .top, spacing: 8) {
+        HStack(alignment: .top, spacing: 10) {
             if message.role == .user {
-                Spacer(minLength: 40)
+                Spacer(minLength: 50)
             }
 
-            // Accent bar for assistant messages
-            if message.role == .assistant {
-                RoundedRectangle(cornerRadius: 1.5)
-                    .fill(Color.purple.opacity(0.6))
-                    .frame(width: 3)
-                    .padding(.vertical, 4)
-            }
-
-            VStack(alignment: message.role == .user ? .trailing : .leading, spacing: 4) {
-                // Role indicator (simplified - removed for assistant to reduce clutter)
-                if message.role == .user || message.role == .system || message.role == .thinking {
+            VStack(alignment: message.role == .user ? .trailing : .leading, spacing: 6) {
+                // Role indicator for user messages only
+                if message.role == .user {
                     HStack(spacing: 4) {
-                        if message.role != .user {
-                            Image(systemName: roleIcon)
-                                .font(.system(size: 9, weight: .medium))
-                                .foregroundColor(roleColor)
-                        }
-
-                        Text(roleLabel)
-                            .font(.system(size: 9, weight: .medium))
-                            .foregroundColor(.secondary)
-
-                        if message.role == .user {
-                            Image(systemName: roleIcon)
-                                .font(.system(size: 9, weight: .medium))
-                                .foregroundColor(roleColor)
-                        }
+                        Text("You")
+                            .font(.system(size: 10, weight: .medium))
+                            .foregroundColor(.secondary.opacity(0.8))
+                        Image(systemName: "person.fill")
+                            .font(.system(size: 9))
+                            .foregroundColor(.secondary.opacity(0.6))
                     }
                 }
 
@@ -325,58 +411,78 @@ struct ChatPanelMessageBubble: View {
                 Group {
                     if message.content.isEmpty && message.isStreaming {
                         ChatPanelTypingIndicator()
+                            .padding(.horizontal, 12)
+                            .padding(.vertical, 10)
+                    } else if message.isStreaming {
+                        // Streaming: render completed blocks + streaming tail
+                        StreamingMarkdownContent(
+                            content: message.content,
+                            theme: markdownTheme
+                        )
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 10)
                     } else {
-                        VStack(alignment: .leading, spacing: 4) {
-                            Markdown(message.content)
-                                .markdownTheme(markdownTheme)
-                                .textSelection(.enabled)
-
-                            if message.isStreaming {
-                                ChatPanelStreamingCursor()
-                            }
-                        }
-                        .frame(maxWidth: .infinity, alignment: .leading)
+                        // Streaming complete: render full markdown
+                        Markdown(message.content)
+                            .markdownTheme(markdownTheme)
+                            .textSelection(.enabled)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .padding(.horizontal, 12)
+                            .padding(.vertical, 10)
                     }
                 }
-                .padding(.horizontal, 10)
-                .padding(.vertical, 6)
                 .frame(minWidth: 60, alignment: message.role == .user ? .trailing : .leading)
                 .background(bubbleBackground)
-                .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+                .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 12, style: .continuous)
+                        .stroke(bubbleBorder, lineWidth: 0.5)
+                )
+
+                // Action toolbar for assistant messages (copy button)
+                if message.role == .assistant && !message.content.isEmpty && !message.isStreaming {
+                    HStack(spacing: 8) {
+                        Button(action: copyMessage) {
+                            HStack(spacing: 4) {
+                                Image(systemName: showCopied ? "checkmark" : "doc.on.doc")
+                                    .font(.system(size: 10, weight: .medium))
+                                Text(showCopied ? "Copied" : "Copy")
+                                    .font(.system(size: 10, weight: .medium))
+                            }
+                            .foregroundColor(showCopied ? .green : .secondary)
+                            .padding(.horizontal, 8)
+                            .padding(.vertical, 4)
+                            .background(
+                                RoundedRectangle(cornerRadius: 6, style: .continuous)
+                                    .fill(Color(nsColor: .controlBackgroundColor).opacity(isHovered ? 1.0 : 0.6))
+                            )
+                        }
+                        .buttonStyle(.plain)
+
+                        Spacer()
+                    }
+                    .opacity(isHovered || showCopied ? 1.0 : 0.0)
+                    .animation(.easeOut(duration: 0.15), value: isHovered)
+                }
             }
             .frame(maxWidth: message.role == .user ? 400 : .infinity, alignment: message.role == .user ? .trailing : .leading)
 
             if message.role != .user {
-                Spacer(minLength: 40)
+                Spacer(minLength: 50)
             }
         }
-        .padding(.vertical, 1)
-    }
-
-    private var roleColor: Color {
-        switch message.role {
-        case .user: return .accentColor
-        case .assistant: return .purple
-        case .system: return .orange
-        case .thinking: return .purple
+        .padding(.vertical, 2)
+        .onHover { hovering in
+            isHovered = hovering
         }
     }
 
-    private var roleLabel: String {
-        switch message.role {
-        case .user: return "You"
-        case .assistant: return "Claude"
-        case .system: return "System"
-        case .thinking: return "Thinking"
-        }
-    }
-
-    private var roleIcon: String {
-        switch message.role {
-        case .user: return "person.fill"
-        case .assistant: return "sparkles"
-        case .system: return "info.circle.fill"
-        case .thinking: return "brain"
+    private func copyMessage() {
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(message.content, forType: .string)
+        showCopied = true
+        DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) {
+            showCopied = false
         }
     }
 
@@ -384,13 +490,30 @@ struct ChatPanelMessageBubble: View {
     private var bubbleBackground: some View {
         switch message.role {
         case .user:
-            Color.accentColor
+            LinearGradient(
+                colors: [Color.accentColor, Color.accentColor.opacity(0.85)],
+                startPoint: .topLeading,
+                endPoint: .bottomTrailing
+            )
         case .assistant:
-            Color(nsColor: .controlBackgroundColor)
+            Color(nsColor: .textBackgroundColor).opacity(0.5)
         case .system:
-            Color.orange.opacity(0.15)
+            Color.orange.opacity(0.1)
         case .thinking:
-            Color.purple.opacity(0.15)
+            Color.purple.opacity(0.08)
+        }
+    }
+
+    private var bubbleBorder: Color {
+        switch message.role {
+        case .user:
+            return .clear
+        case .assistant:
+            return Color(nsColor: .separatorColor).opacity(0.3)
+        case .system:
+            return Color.orange.opacity(0.2)
+        case .thinking:
+            return Color.purple.opacity(0.15)
         }
     }
 
@@ -400,15 +523,15 @@ struct ChatPanelMessageBubble: View {
             return Theme()
                 .text {
                     ForegroundColor(.white)
-                    FontSize(13)
+                    FontSize(13.5)
                 }
                 .paragraph { configuration in
                     configuration.label
-                        .markdownMargin(top: 0, bottom: 4)
+                        .markdownMargin(top: 0, bottom: 6)
                 }
                 .code {
                     ForegroundColor(.white.opacity(0.95))
-                    BackgroundColor(.white.opacity(0.2))
+                    BackgroundColor(.white.opacity(0.15))
                     FontSize(12)
                 }
                 .link {
@@ -419,23 +542,29 @@ struct ChatPanelMessageBubble: View {
             return Theme()
                 .text {
                     ForegroundColor(.primary)
-                    FontSize(13)
+                    FontSize(13.5)
                 }
                 .paragraph { configuration in
                     configuration.label
-                        .markdownMargin(top: 0, bottom: 4)
+                        .markdownMargin(top: 0, bottom: 8)
                 }
                 .code {
                     FontFamilyVariant(.monospaced)
                     FontSize(12)
-                    BackgroundColor(Color(nsColor: .controlBackgroundColor))
+                    BackgroundColor(Color(nsColor: .quaternaryLabelColor).opacity(0.15))
                 }
                 .codeBlock { configuration in
-                    configuration.label
-                        .padding(8)
-                        .background(Color(nsColor: .controlBackgroundColor))
-                        .clipShape(RoundedRectangle(cornerRadius: 6))
-                        .markdownMargin(top: 4, bottom: 4)
+                    ScrollView(.horizontal, showsIndicators: false) {
+                        configuration.label
+                            .padding(10)
+                    }
+                    .background(Color(nsColor: .textBackgroundColor).opacity(0.8))
+                    .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 8, style: .continuous)
+                            .stroke(Color(nsColor: .separatorColor).opacity(0.2), lineWidth: 0.5)
+                    )
+                    .markdownMargin(top: 8, bottom: 8)
                 }
                 .link {
                     ForegroundColor(.accentColor)
@@ -445,22 +574,22 @@ struct ChatPanelMessageBubble: View {
                 }
                 .heading1 { configuration in
                     configuration.label
-                        .markdownTextStyle { FontSize(14); FontWeight(.bold) }
-                        .markdownMargin(top: 8, bottom: 4)
+                        .markdownTextStyle { FontSize(15); FontWeight(.bold) }
+                        .markdownMargin(top: 12, bottom: 6)
                 }
                 .heading2 { configuration in
                     configuration.label
-                        .markdownTextStyle { FontSize(13); FontWeight(.bold) }
-                        .markdownMargin(top: 6, bottom: 4)
+                        .markdownTextStyle { FontSize(14); FontWeight(.bold) }
+                        .markdownMargin(top: 10, bottom: 5)
                 }
                 .heading3 { configuration in
                     configuration.label
-                        .markdownTextStyle { FontSize(13); FontWeight(.semibold) }
-                        .markdownMargin(top: 4, bottom: 2)
+                        .markdownTextStyle { FontSize(13.5); FontWeight(.semibold) }
+                        .markdownMargin(top: 8, bottom: 4)
                 }
                 .listItem { configuration in
                     configuration.label
-                        .markdownMargin(top: 2, bottom: 2)
+                        .markdownMargin(top: 3, bottom: 3)
                 }
         }
     }
