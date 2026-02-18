@@ -654,8 +654,9 @@ struct OmniBarTextField: NSViewRepresentable {
                 parent.onShiftTabPress()
                 return true
             } else if commandSelector == #selector(NSResponder.cancelOperation(_:)) {
-                // Escape key - handled by notification
-                return false
+                // Escape key - post notification to dismiss overlay
+                NotificationCenter.default.post(name: .escapePressed, object: nil)
+                return true
             }
             return false
         }

@@ -49,10 +49,11 @@ struct OmniPanel<Content: View>: View {
         .background(
             RoundedRectangle(cornerRadius: 12, style: .continuous)
                 .fill(Color(nsColor: .windowBackgroundColor))
+                .shadow(color: Color.black.opacity(0.25), radius: 12, x: 0, y: 4)
         )
         .overlay(
             RoundedRectangle(cornerRadius: 12, style: .continuous)
-                .stroke(Color(nsColor: .separatorColor).opacity(0.8), lineWidth: 1)
+                .stroke(Color(nsColor: .separatorColor), lineWidth: 1.5)
         )
         .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
         .onHover { hovering in
@@ -84,12 +85,17 @@ struct OmniPanel<Content: View>: View {
                 Menu {
                     menuContent()
                 } label: {
-                    Image(systemName: "ellipsis.circle")
-                        .font(.system(size: 14))
+                    Image(systemName: "ellipsis")
+                        .font(.system(size: 11, weight: .medium))
                         .foregroundColor(.secondary)
+                        .frame(width: 20, height: 20)
+                        .background(
+                            Circle()
+                                .fill(Color(nsColor: .controlBackgroundColor))
+                        )
                 }
                 .menuStyle(.borderlessButton)
-                .frame(width: 20)
+                .menuIndicator(.hidden)
             }
 
             Button(action: onDismiss) {
