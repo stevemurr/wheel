@@ -84,7 +84,7 @@ struct BlockingRules {
     }
 
     /// Returns rules for a specific category
-    private static func rules(for category: BlockingCategory) -> [[String: Any]] {
+    static func rules(for category: BlockingCategory) -> [[String: Any]] {
         switch category {
         case .ads:
             return adBlockingRules
@@ -95,6 +95,15 @@ struct BlockingRules {
         case .annoyances:
             return annoyanceRules
         }
+    }
+
+    /// Returns combined rules for a set of categories
+    static func rules(for categories: Set<BlockingCategory>) -> [[String: Any]] {
+        var allRules: [[String: Any]] = []
+        for category in categories {
+            allRules.append(contentsOf: rules(for: category))
+        }
+        return allRules
     }
 
     /// Default rules JSON (all categories enabled)

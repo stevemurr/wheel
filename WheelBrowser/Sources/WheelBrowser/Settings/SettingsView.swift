@@ -164,6 +164,13 @@ struct SettingsView: View {
                 .disabled(contentBlocker.isCompiling)
             }
 
+            // MARK: - External Filter Lists Section
+            if settings.adBlockingEnabled {
+                Section("External Filter Lists") {
+                    FilterListSettingsView()
+                }
+            }
+
             // MARK: - Blocking Statistics Section
             if settings.adBlockingEnabled {
                 Section("Blocking Statistics") {

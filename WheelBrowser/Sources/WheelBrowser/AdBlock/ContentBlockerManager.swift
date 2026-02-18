@@ -38,9 +38,37 @@ class ContentBlockerManager: ObservableObject {
     /// Reference to blocking stats for tracking
     private let stats = BlockingStats.shared
 
+    /// Reference to filter list manager
+    private let filterListManager = FilterListManager.shared
+
+    /// Observer for filter list changes
+    private var filterListObserver: NSObjectProtocol?
+
     private init() {
         // Load saved categories or default to all enabled
         self.enabledCategories = Self.loadEnabledCategories()
+
+        // Observe filter list changes
+        setupFilterListObserver()
+    }
+
+    deinit {
+        if let observer = filterListObserver {
+            NotificationCenter.default.removeObserver(observer)
+        }
+    }
+
+    /// Set up observer for filter list changes
+    private func setupFilterListObserver() {
+        filterListObserver = NotificationCenter.default.addObserver(
+            forName: .filterListsChanged,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            Task { @MainActor in
+                await self?.refreshRules()
+            }
+        }
     }
 
     // MARK: - Category Management
@@ -98,10 +126,11 @@ class ContentBlockerManager: ObservableObject {
 
     // MARK: - Rule Compilation
 
-    /// Unique identifier for current category configuration
+    /// Unique identifier for current category configuration (includes filter lists)
     private var currentConfigurationHash: String {
         let sortedCategories = enabledCategories.map { $0.rawValue }.sorted().joined(separator: "-")
-        return "\(BlockingRules.ruleSetVersion)-\(sortedCategories)"
+        let filterListIDs = filterListManager.enabledFilterListIDs
+        return "\(BlockingRules.ruleSetVersion)-\(sortedCategories)-\(filterListIDs)"
     }
 
     /// Compiles and caches the content blocking rules for enabled categories
@@ -241,8 +270,45 @@ class ContentBlockerManager: ObservableObject {
 
     /// Compiles new rules from JSON and stores them
     private func compileNewRules() async throws -> WKContentRuleList {
-        // Generate rules JSON for enabled categories only
-        let rulesJSON = BlockingRules.generateRulesJSON(for: enabledCategories)
+        // Get built-in rules for enabled categories
+        let builtInRules = BlockingRules.rules(for: enabledCategories)
+
+        // Add external filter list rules
+        let externalRules = filterListManager.getEnabledRules()
+
+        // Try compiling with external rules first
+        if !externalRules.isEmpty {
+            var allRules = builtInRules
+            allRules.append(contentsOf: externalRules)
+
+            // Truncate if we exceed WebKit's limit
+            let maxRules = 50_000
+            if allRules.count > maxRules {
+                print("ContentBlockerManager: Truncating rules from \(allRules.count) to \(maxRules)")
+                allRules = Array(allRules.prefix(maxRules))
+            }
+
+            // Try to compile with external rules
+            if let result = try? await compileRulesJSON(allRules) {
+                print("ContentBlockerManager: Compiled \(allRules.count) rules (including external)")
+                return result
+            }
+
+            // If that failed, try with just built-in rules
+            print("ContentBlockerManager: External rules caused compilation failure, falling back to built-in only")
+        }
+
+        // Compile with built-in rules only
+        return try await compileRulesJSON(builtInRules)
+    }
+
+    /// Compile rules array to WebKit content rule list
+    private func compileRulesJSON(_ rules: [[String: Any]]) async throws -> WKContentRuleList {
+        // Convert to JSON
+        guard let jsonData = try? JSONSerialization.data(withJSONObject: rules, options: []),
+              let rulesJSON = String(data: jsonData, encoding: .utf8) else {
+            throw ContentBlockerError.compilationFailed
+        }
 
         return try await withCheckedThrowingContinuation { continuation in
             WKContentRuleListStore.default().compileContentRuleList(
