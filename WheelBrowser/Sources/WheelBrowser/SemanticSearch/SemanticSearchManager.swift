@@ -147,8 +147,13 @@ class SemanticSearchManager: ObservableObject {
 
         // Check if URL already exists (update if so)
         if let existingId = pages.first(where: { $0.value.url == url })?.key {
-            // Remove old entry
+            // Remove old entry from both pages dictionary and vector index
             pages.removeValue(forKey: existingId)
+            do {
+                _ = try index?.remove(key: existingId)
+            } catch {
+                print("Failed to remove old entry from index: \(error)")
+            }
         }
 
         let pageId = nextId
