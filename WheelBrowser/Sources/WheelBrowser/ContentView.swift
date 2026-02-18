@@ -17,14 +17,13 @@ private struct BrowserContentArea: View {
                     .id(tab.id)
             }
 
-            // OmniBar at bottom with chat panel above
+            // OmniBar at bottom with all panels above
             OmniBar(
                 tab: tab,
                 agentManager: agentManager,
                 browserState: browserState,
                 contentExtractor: contentExtractor
             )
-            .zIndex(1000)
         }
     }
 }
@@ -118,6 +117,7 @@ struct ContentView: View {
     @ObservedObject private var agentStudioManager = AgentStudioManager.shared
     @ObservedObject private var workspaceManager = WorkspaceManager.shared
     @ObservedObject private var settings = AppSettings.shared
+    @ObservedObject private var downloadManager = DownloadManager.shared
     private let contentExtractor = ContentExtractor()
 
     // MARK: - Main Content (extracted to help compiler with type checking)
@@ -152,6 +152,9 @@ struct ContentView: View {
             ))
             .modifier(NavigationNotificationModifier(state: state))
             .modifier(ZoomNotificationModifier(state: state))
+            .onReceive(NotificationCenter.default.publisher(for: .toggleDownloads)) { _ in
+                downloadManager.togglePanel()
+            }
     }
 
     // MARK: - Handlers

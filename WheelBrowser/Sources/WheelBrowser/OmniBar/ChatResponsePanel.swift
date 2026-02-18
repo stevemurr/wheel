@@ -1,5 +1,117 @@
 import SwiftUI
 import MarkdownUI
+import AppKit
+
+// MARK: - Typing Indicator (for ChatPanel)
+
+struct ChatPanelTypingIndicator: View {
+    @State private var animatingDots = [false, false, false]
+
+    var body: some View {
+        HStack(spacing: 4) {
+            ForEach(0..<3, id: \.self) { index in
+                Circle()
+                    .fill(Color.secondary.opacity(0.6))
+                    .frame(width: 5, height: 5)
+                    .scaleEffect(animatingDots[index] ? 1.0 : 0.5)
+                    .opacity(animatingDots[index] ? 1.0 : 0.4)
+            }
+        }
+        .padding(.vertical, 6)
+        .onAppear {
+            animateDots()
+        }
+    }
+
+    private func animateDots() {
+        for i in 0..<3 {
+            withAnimation(
+                .easeInOut(duration: 0.5)
+                .repeatForever(autoreverses: true)
+                .delay(Double(i) * 0.15)
+            ) {
+                animatingDots[i] = true
+            }
+        }
+    }
+}
+
+// MARK: - Streaming Text with Cursor
+
+struct ChatPanelStreamingText: View {
+    let text: String
+    let textColor: Color
+    @State private var showCursor = true
+
+    var body: some View {
+        HStack(spacing: 0) {
+            Text(text)
+                .font(.system(size: 13))
+                .foregroundColor(textColor)
+
+            Text("|")
+                .font(.system(size: 13, weight: .medium))
+                .foregroundColor(textColor.opacity(showCursor ? 0.8 : 0.0))
+        }
+        .onAppear {
+            withAnimation(.easeInOut(duration: 0.5).repeatForever(autoreverses: true)) {
+                showCursor.toggle()
+            }
+        }
+    }
+}
+
+// MARK: - Pulsing Loading Dot
+
+struct ChatPanelPulsingDot: View {
+    @State private var isAnimating = false
+
+    var body: some View {
+        Circle()
+            .fill(Color.purple)
+            .frame(width: 8, height: 8)
+            .scaleEffect(isAnimating ? 1.2 : 0.8)
+            .opacity(isAnimating ? 1.0 : 0.5)
+            .onAppear {
+                withAnimation(.easeInOut(duration: 0.8).repeatForever(autoreverses: true)) {
+                    isAnimating = true
+                }
+            }
+    }
+}
+
+// MARK: - Suggested Prompt Chip
+
+struct ChatPanelPromptChip: View {
+    let text: String
+    let action: () -> Void
+    @State private var isHovered = false
+
+    var body: some View {
+        Button(action: action) {
+            Text(text)
+                .font(.system(size: 11, weight: .medium))
+                .foregroundColor(.primary)
+                .padding(.horizontal, 12)
+                .padding(.vertical, 6)
+                .background(
+                    RoundedRectangle(cornerRadius: 12, style: .continuous)
+                        .fill(Color(nsColor: .controlBackgroundColor))
+                        .opacity(isHovered ? 1.0 : 0.8)
+                )
+                .overlay(
+                    RoundedRectangle(cornerRadius: 12, style: .continuous)
+                        .stroke(Color.purple.opacity(isHovered ? 0.5 : 0.2), lineWidth: 1)
+                )
+        }
+        .buttonStyle(.plain)
+        .onHover { hovering in
+            withAnimation(.easeOut(duration: 0.15)) {
+                isHovered = hovering
+            }
+        }
+    }
+}
 
 /// Panel that displays chat conversation above the OmniBar
 struct ChatResponsePanel: View {
@@ -48,16 +160,14 @@ struct ChatResponsePanel: View {
                 .font(.system(size: 12, weight: .semibold))
                 .foregroundColor(.purple)
 
-            Text("AI Assistant")
+            Text("Claude")
                 .font(.system(size: 12, weight: .semibold))
                 .foregroundColor(.primary)
 
             Spacer()
 
             if agentManager.isLoading {
-                ProgressView()
-                    .scaleEffect(0.5)
-                    .frame(width: 16, height: 16)
+                ChatPanelPulsingDot()
             }
 
             Menu {
@@ -106,6 +216,10 @@ struct ChatResponsePanel: View {
                         ForEach(agentManager.messages) { message in
                             ChatPanelMessageBubble(message: message)
                                 .id(message.id)
+                                .transition(.asymmetric(
+                                    insertion: .move(edge: .bottom).combined(with: .opacity),
+                                    removal: .opacity
+                                ))
                         }
 
                         // Invisible anchor at the bottom for scrolling
@@ -138,7 +252,9 @@ struct ChatResponsePanel: View {
             .onChange(of: agentManager.messages.count) { _, _ in
                 // Re-enable auto-scroll on new message
                 shouldAutoScroll = true
-                scrollToBottom(proxy: proxy)
+                withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
+                    scrollToBottom(proxy: proxy)
+                }
             }
             .onChange(of: agentManager.messages.last?.content) { _, _ in
                 // Scroll during streaming if auto-scroll is enabled
@@ -164,7 +280,7 @@ struct ChatResponsePanel: View {
                 .foregroundColor(.secondary)
 
             VStack(spacing: 4) {
-                Text("Start a conversation")
+                Text("Chat with Claude")
                     .font(.system(size: 13, weight: .medium))
                     .foregroundColor(.primary)
 
@@ -202,37 +318,45 @@ struct ChatPanelMessageBubble: View {
                 Spacer(minLength: 40)
             }
 
+            // Accent bar for assistant messages
+            if message.role == .assistant {
+                RoundedRectangle(cornerRadius: 1.5)
+                    .fill(Color.purple.opacity(0.6))
+                    .frame(width: 3)
+                    .padding(.vertical, 4)
+            }
+
             VStack(alignment: message.role == .user ? .trailing : .leading, spacing: 4) {
-                // Role indicator
-                HStack(spacing: 4) {
-                    if message.role != .user {
-                        Image(systemName: roleIcon)
-                            .font(.system(size: 9, weight: .medium))
-                            .foregroundColor(roleColor)
-                    }
+                // Role indicator (simplified - removed for assistant to reduce clutter)
+                if message.role == .user || message.role == .system || message.role == .thinking {
+                    HStack(spacing: 4) {
+                        if message.role != .user {
+                            Image(systemName: roleIcon)
+                                .font(.system(size: 9, weight: .medium))
+                                .foregroundColor(roleColor)
+                        }
 
-                    Text(roleLabel)
-                        .font(.system(size: 9, weight: .medium))
-                        .foregroundColor(.secondary)
-
-                    if message.role == .user {
-                        Image(systemName: roleIcon)
+                        Text(roleLabel)
                             .font(.system(size: 9, weight: .medium))
-                            .foregroundColor(roleColor)
+                            .foregroundColor(.secondary)
+
+                        if message.role == .user {
+                            Image(systemName: roleIcon)
+                                .font(.system(size: 9, weight: .medium))
+                                .foregroundColor(roleColor)
+                        }
                     }
                 }
 
                 // Message content
                 Group {
                     if message.content.isEmpty {
-                        HStack(spacing: 3) {
-                            ForEach(0..<3, id: \.self) { _ in
-                                Circle()
-                                    .fill(Color.white.opacity(0.4))
-                                    .frame(width: 3, height: 3)
-                            }
-                        }
-                        .padding(.vertical, 6)
+                        ChatPanelTypingIndicator()
+                    } else if message.isStreaming {
+                        ChatPanelStreamingText(
+                            text: message.content,
+                            textColor: message.role == .user ? .white : .primary
+                        )
                     } else {
                         Markdown(message.content)
                             .markdownTheme(markdownTheme)
@@ -264,7 +388,7 @@ struct ChatPanelMessageBubble: View {
     private var roleLabel: String {
         switch message.role {
         case .user: return "You"
-        case .assistant: return "Assistant"
+        case .assistant: return "Claude"
         case .system: return "System"
         case .thinking: return "Thinking"
         }

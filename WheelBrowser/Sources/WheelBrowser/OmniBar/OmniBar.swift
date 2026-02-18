@@ -1,12 +1,15 @@
 import SwiftUI
 
-/// The OmniBar - a unified input bar for both URL navigation and AI chat
+/// The OmniBar - a unified input bar for URL navigation, AI chat, and semantic search
 struct OmniBar: View {
     @ObservedObject var tab: Tab
     @ObservedObject var agentManager: AgentManager
     @ObservedObject var browserState: BrowserState
     @StateObject private var omniState = OmniBarState()
     @StateObject private var suggestionsVM = SuggestionsViewModel()
+    @StateObject private var semanticSearchVM = SemanticSearchViewModel()
+    @ObservedObject private var semanticSearchManager = SemanticSearchManager.shared
+    @ObservedObject private var downloadManager = DownloadManager.shared
 
     let contentExtractor: ContentExtractor
 
@@ -32,6 +35,11 @@ struct OmniBar: View {
         omniState.showChatPanel && omniState.mode == .chat
     }
 
+    /// Computed property to determine if semantic panel should be visible
+    private var isSemanticPanelVisible: Bool {
+        omniState.showSemanticPanel && omniState.mode == .semantic
+    }
+
     private var historyPanelSubtitle: String {
         let tabCount = suggestionsVM.suggestions.filter { $0.isOpenTab }.count
         let historyCount = suggestionsVM.suggestions.filter { !$0.isOpenTab }.count
@@ -49,10 +57,28 @@ struct OmniBar: View {
         return "Tabs & Recent"
     }
 
+    private var semanticPanelSubtitle: String {
+        if semanticSearchVM.isSearching {
+            return "Searching..."
+        } else if !semanticSearchVM.results.isEmpty {
+            return "\(semanticSearchVM.results.count) results"
+        }
+        return "\(semanticSearchManager.indexedCount) pages indexed"
+    }
+
+    private var downloadsPanelSubtitle: String {
+        let activeCount = downloadManager.downloads.filter { $0.status == .downloading }.count
+        if activeCount > 0 {
+            return "\(activeCount) downloading"
+        } else if !downloadManager.downloads.isEmpty {
+            return "\(downloadManager.downloads.count) items"
+        }
+        return ""
+    }
+
     var body: some View {
         VStack(spacing: 0) {
             // Suggestions panel - appears above OmniBar when in address mode (shows tabs + history)
-            // Always in view hierarchy but hidden when not active to prevent first-render flash
             OmniPanel(
                 title: "Go to",
                 icon: "magnifyingglass",
@@ -83,9 +109,8 @@ struct OmniBar: View {
             .zIndex(999)
 
             // Chat panel - appears above OmniBar when in chat mode
-            // Always in view hierarchy but hidden when not active to prevent first-render flash
             OmniPanel(
-                title: "AI Assistant",
+                title: "Claude",
                 icon: "sparkles",
                 iconColor: .purple,
                 borderColor: .purple,
@@ -120,6 +145,84 @@ struct OmniBar: View {
             .animation(hasAppeared ? .spring(response: 0.3, dampingFraction: 0.85) : nil, value: isChatPanelVisible)
             .zIndex(999)
 
+            // Semantic search panel - appears above OmniBar when in semantic mode
+            OmniPanel(
+                title: "Semantic Search",
+                icon: "brain.head.profile",
+                iconColor: .orange,
+                borderColor: .orange,
+                subtitle: semanticPanelSubtitle,
+                menuContent: {
+                    AnyView(
+                        Group {
+                            Button("Clear Index") {
+                                Task { await semanticSearchManager.clearIndex() }
+                            }
+                        }
+                    )
+                },
+                onDismiss: {
+                    omniState.dismissSemanticPanel()
+                }
+            ) {
+                SemanticSearchPanelContent(
+                    viewModel: semanticSearchVM,
+                    searchManager: semanticSearchManager,
+                    searchText: omniState.inputText,
+                    onSelect: { result in
+                        handleSemanticSelection(result)
+                    }
+                )
+            }
+            .padding(.horizontal, 16)
+            .padding(.bottom, 8)
+            .opacity(isSemanticPanelVisible ? 1 : 0)
+            .scaleEffect(isSemanticPanelVisible ? 1 : 0.95)
+            .offset(y: isSemanticPanelVisible ? 0 : 10)
+            .allowsHitTesting(isSemanticPanelVisible)
+            .frame(maxHeight: isSemanticPanelVisible ? nil : 0)
+            .clipped()
+            .animation(hasAppeared ? .spring(response: 0.3, dampingFraction: 0.85) : nil, value: isSemanticPanelVisible)
+            .zIndex(999)
+
+            // Downloads panel - appears above OmniBar when downloads are active
+            OmniPanel(
+                title: "Downloads",
+                icon: "arrow.down.circle.fill",
+                iconColor: .blue,
+                borderColor: .blue,
+                subtitle: downloadsPanelSubtitle,
+                menuContent: {
+                    AnyView(
+                        Group {
+                            Button("Clear Completed") {
+                                downloadManager.clearCompleted()
+                            }
+                            Button("Show in Finder") {
+                                if let url = FileManager.default.urls(for: .downloadsDirectory, in: .userDomainMask).first {
+                                    NSWorkspace.shared.open(url)
+                                }
+                            }
+                        }
+                    )
+                },
+                onDismiss: {
+                    downloadManager.dismissPanel()
+                }
+            ) {
+                DownloadsPanelContent(manager: downloadManager)
+            }
+            .padding(.horizontal, 16)
+            .padding(.bottom, 8)
+            .opacity(downloadManager.showDownloadsPanel ? 1 : 0)
+            .scaleEffect(downloadManager.showDownloadsPanel ? 1 : 0.95)
+            .offset(y: downloadManager.showDownloadsPanel ? 0 : 10)
+            .allowsHitTesting(downloadManager.showDownloadsPanel)
+            .frame(maxHeight: downloadManager.showDownloadsPanel ? nil : 0)
+            .clipped()
+            .animation(hasAppeared ? .spring(response: 0.3, dampingFraction: 0.85) : nil, value: downloadManager.showDownloadsPanel)
+            .zIndex(999)
+
             // Find bar - appears above OmniBar when active
             if tab.isFindBarVisible {
                 OmniBarFindBar(tab: tab, findText: $findText, isFocused: _isFindFieldFocused)
@@ -138,17 +241,25 @@ struct OmniBar: View {
         .animation(.spring(response: 0.3, dampingFraction: 0.8), value: shouldExpand)
         .animation(.spring(response: 0.3, dampingFraction: 0.85), value: isInputFocused)
         .animation(.spring(response: 0.3, dampingFraction: 0.85), value: omniState.showChatPanel)
+        .animation(.spring(response: 0.3, dampingFraction: 0.85), value: omniState.showSemanticPanel)
         .onChange(of: tab.url) { _, newURL in
             if !isInputFocused && omniState.mode == .address {
                 omniState.inputText = newURL?.absoluteString ?? ""
             }
         }
         .onChange(of: omniState.inputText) { _, newValue in
-            if isInputFocused && omniState.mode == .address {
-                if newValue.isEmpty {
-                    suggestionsVM.loadRecentHistory()
-                } else {
-                    suggestionsVM.updateSuggestions(for: newValue)
+            if isInputFocused {
+                switch omniState.mode {
+                case .address:
+                    if newValue.isEmpty {
+                        suggestionsVM.loadRecentHistory()
+                    } else {
+                        suggestionsVM.updateSuggestions(for: newValue)
+                    }
+                case .semantic:
+                    semanticSearchVM.search(query: newValue)
+                case .chat:
+                    break
                 }
             }
         }
@@ -158,48 +269,68 @@ struct OmniBar: View {
                 // Delay hiding to allow click on suggestion
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
                     suggestionsVM.hide()
+                    semanticSearchVM.clear()
                     if omniState.mode == .address {
                         omniState.dismissHistoryPanel()
+                    } else if omniState.mode == .semantic {
+                        omniState.dismissSemanticPanel()
                     }
                 }
-            } else if omniState.mode == .address {
-                // Show history panel when focusing address bar
-                omniState.openHistoryPanel()
-                if omniState.inputText.isEmpty {
-                    suggestionsVM.loadRecentHistory()
-                } else {
-                    suggestionsVM.updateSuggestions(for: omniState.inputText)
+            } else {
+                switch omniState.mode {
+                case .address:
+                    omniState.openHistoryPanel()
+                    if omniState.inputText.isEmpty {
+                        suggestionsVM.loadRecentHistory()
+                    } else {
+                        suggestionsVM.updateSuggestions(for: omniState.inputText)
+                    }
+                case .semantic:
+                    omniState.openSemanticPanel()
+                    if !omniState.inputText.isEmpty {
+                        semanticSearchVM.search(query: omniState.inputText)
+                    }
+                case .chat:
+                    break
                 }
             }
         }
         .onChange(of: omniState.mode) { _, newMode in
             // Handle panel visibility based on mode
-            if newMode == .chat {
+            switch newMode {
+            case .chat:
                 suggestionsVM.hide()
+                semanticSearchVM.clear()
                 omniState.dismissHistoryPanel()
-                // Show chat panel if there are messages
+                omniState.dismissSemanticPanel()
                 if !agentManager.messages.isEmpty {
                     omniState.openChatPanel()
                 }
-            } else if newMode == .address {
+            case .address:
+                semanticSearchVM.clear()
                 omniState.dismissChatPanel()
-                // Show history panel if focused
+                omniState.dismissSemanticPanel()
                 if isInputFocused {
                     omniState.openHistoryPanel()
+                }
+            case .semantic:
+                suggestionsVM.hide()
+                omniState.dismissChatPanel()
+                omniState.dismissHistoryPanel()
+                omniState.openSemanticPanel()
+                if !omniState.inputText.isEmpty {
+                    semanticSearchVM.search(query: omniState.inputText)
                 }
             }
         }
         .onAppear {
             omniState.inputText = tab.url?.absoluteString ?? ""
-            // Connect suggestionsVM to browserState for tab searching
             suggestionsVM.browserState = browserState
             Task {
                 if !agentManager.isReady && !agentManager.isLoading {
                     await agentManager.initialize()
                 }
             }
-            // Enable animations after the view has appeared to prevent first-render flash
-            // Using a slight delay ensures the view hierarchy is fully established
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
                 hasAppeared = true
             }
@@ -207,7 +338,6 @@ struct OmniBar: View {
         .onReceive(NotificationCenter.default.publisher(for: .focusAddressBar)) { _ in
             omniState.setMode(.address)
             isInputFocused = true
-            // Select all text when focusing
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
                 if let window = NSApp.keyWindow,
                    let fieldEditor = window.fieldEditor(false, for: nil) as? NSTextView {
@@ -218,7 +348,6 @@ struct OmniBar: View {
         .onReceive(NotificationCenter.default.publisher(for: .focusAISidebar)) { _ in
             omniState.setMode(.chat)
             isInputFocused = true
-            // Show chat panel if there are messages
             if !agentManager.messages.isEmpty {
                 omniState.openChatPanel()
             }
@@ -227,6 +356,11 @@ struct OmniBar: View {
             omniState.setMode(.chat)
             isInputFocused = true
         }
+        .onReceive(NotificationCenter.default.publisher(for: .focusSemanticSearch)) { _ in
+            omniState.setMode(.semantic)
+            isInputFocused = true
+            omniState.openSemanticPanel()
+        }
         .onReceive(NotificationCenter.default.publisher(for: .escapePressed)) { _ in
             if tab.isFindBarVisible {
                 withAnimation(.easeInOut(duration: 0.15)) {
@@ -234,20 +368,22 @@ struct OmniBar: View {
                 }
                 findText = ""
             } else if omniState.showHistoryPanel {
-                // Dismiss history panel if open
                 omniState.dismissHistoryPanel()
                 isInputFocused = false
-                // Restore URL to current page URL
                 omniState.inputText = tab.url?.absoluteString ?? ""
             } else if omniState.showChatPanel {
-                // Dismiss chat panel if open
                 omniState.dismissChatPanel()
                 isInputFocused = false
+            } else if omniState.showSemanticPanel {
+                omniState.dismissSemanticPanel()
+                isInputFocused = false
+                omniState.inputText = ""
             } else if isInputFocused {
                 isInputFocused = false
-                // Restore URL to current page URL in address mode
                 if omniState.mode == .address {
                     omniState.inputText = tab.url?.absoluteString ?? ""
+                } else if omniState.mode == .semantic {
+                    omniState.inputText = ""
                 }
             }
         }
@@ -300,6 +436,28 @@ struct OmniBar: View {
                     .transition(.opacity.combined(with: .scale))
                 }
 
+                // Semantic panel toggle (only in semantic mode with results)
+                if omniState.mode == .semantic && !semanticSearchVM.results.isEmpty {
+                    Button(action: {
+                        if omniState.showSemanticPanel {
+                            omniState.dismissSemanticPanel()
+                        } else {
+                            omniState.openSemanticPanel()
+                        }
+                    }) {
+                        Image(systemName: omniState.showSemanticPanel ? "chevron.down" : "chevron.up")
+                            .font(.system(size: 12, weight: .medium))
+                            .foregroundColor(.secondary)
+                            .frame(width: 28, height: 28)
+                            .background(
+                                Circle()
+                                    .fill(Color(nsColor: .controlBackgroundColor))
+                            )
+                    }
+                    .buttonStyle(.plain)
+                    .transition(.opacity.combined(with: .scale))
+                }
+
                 // Zoom indicator (only show if not at 100%)
                 if tab.zoomLevel != 1.0 {
                     Text("\(Int(tab.zoomLevel * 100))%")
@@ -320,7 +478,6 @@ struct OmniBar: View {
             Spacer()
         }
         .background {
-            // Subtle gradient background
             LinearGradient(
                 colors: [
                     Color(nsColor: .windowBackgroundColor).opacity(0.95),
@@ -381,6 +538,7 @@ struct OmniBar: View {
                 isFocused: $isInputFocused,
                 mode: omniState.mode,
                 suggestionsVM: suggestionsVM,
+                semanticSearchVM: semanticSearchVM,
                 placeholder: omniState.placeholder,
                 onSubmit: handleSubmit,
                 onTabPress: {
@@ -426,7 +584,7 @@ struct OmniBar: View {
                 .contentTransition(.symbolEffect(.replace))
         }
         .buttonStyle(.plain)
-        .help("Press Tab to switch modes")
+        .help("Press Tab to switch modes (Address / Chat / Semantic)")
     }
 
     // MARK: - Action Button
@@ -435,7 +593,6 @@ struct OmniBar: View {
     private var actionButton: some View {
         switch omniState.mode {
         case .address:
-            // Clear button when focused and has text
             if isInputFocused && !omniState.inputText.isEmpty {
                 Button(action: {
                     omniState.inputText = ""
@@ -450,7 +607,6 @@ struct OmniBar: View {
             }
 
         case .chat:
-            // Send button
             Button(action: handleSubmit) {
                 ZStack {
                     if isSending {
@@ -470,6 +626,20 @@ struct OmniBar: View {
             }
             .buttonStyle(.plain)
             .disabled(omniState.inputText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || isSending)
+
+        case .semantic:
+            if isInputFocused && !omniState.inputText.isEmpty {
+                Button(action: {
+                    omniState.inputText = ""
+                    semanticSearchVM.clear()
+                }) {
+                    Image(systemName: "xmark.circle.fill")
+                        .foregroundColor(.secondary)
+                        .font(.system(size: 12))
+                }
+                .buttonStyle(.plain)
+                .transition(.opacity.combined(with: .scale))
+            }
         }
     }
 
@@ -481,11 +651,12 @@ struct OmniBar: View {
             submitAddress()
         case .chat:
             submitChat()
+        case .semantic:
+            submitSemantic()
         }
     }
 
     private func submitAddress() {
-        // Use selected suggestion if available
         if let selected = suggestionsVM.selectedSuggestion {
             handleSuggestionSelection(selected)
             return
@@ -496,20 +667,16 @@ struct OmniBar: View {
         omniState.dismissHistoryPanel()
     }
 
-    /// Handle selection of a suggestion (either open tab or history entry)
     private func handleSuggestionSelection(_ suggestion: Suggestion) {
         switch suggestion {
         case .openTab(let tab, _):
-            // Switch to the existing tab instead of loading the URL
             browserState.selectTab(tab.id)
             isInputFocused = false
             omniState.dismissHistoryPanel()
             suggestionsVM.hide()
-            // Update the input text to show the selected tab's URL
             omniState.inputText = tab.url?.absoluteString ?? ""
 
         case .history(let entry, _):
-            // Load the history entry URL in the current tab
             omniState.inputText = entry.url
             self.tab.load(entry.url)
             isInputFocused = false
@@ -525,7 +692,6 @@ struct OmniBar: View {
         omniState.inputText = ""
         isSending = true
 
-        // Show chat panel when sending a message
         omniState.openChatPanel()
 
         Task {
@@ -534,16 +700,30 @@ struct OmniBar: View {
             isSending = false
         }
     }
+
+    private func submitSemantic() {
+        if let selected = semanticSearchVM.selectedResult {
+            handleSemanticSelection(selected)
+        }
+    }
+
+    private func handleSemanticSelection(_ result: SemanticSearchResult) {
+        tab.load(result.page.url)
+        isInputFocused = false
+        omniState.dismissSemanticPanel()
+        semanticSearchVM.clear()
+        omniState.inputText = ""
+    }
 }
 
 // MARK: - Custom TextField for OmniBar
 
-/// Custom TextField that handles keyboard events for both address and chat modes
 struct OmniBarTextField: NSViewRepresentable {
     @Binding var text: String
     @Binding var isFocused: Bool
     let mode: OmniBarMode
     @ObservedObject var suggestionsVM: SuggestionsViewModel
+    @ObservedObject var semanticSearchVM: SemanticSearchViewModel
     let placeholder: String
     var onSubmit: () -> Void
     var onTabPress: () -> Void
@@ -563,7 +743,6 @@ struct OmniBarTextField: NSViewRepresentable {
     }
 
     func updateNSView(_ nsView: NSTextField, context: Context) {
-        // Update coordinator's parent reference so closures are fresh
         context.coordinator.parent = self
 
         if nsView.stringValue != text {
@@ -571,7 +750,6 @@ struct OmniBarTextField: NSViewRepresentable {
         }
         nsView.placeholderString = placeholder
 
-        // Handle focus changes from SwiftUI side
         if isFocused && nsView.window != nil && nsView.window?.firstResponder != nsView.currentEditor() {
             nsView.window?.makeFirstResponder(nsView)
         }
@@ -583,7 +761,6 @@ struct OmniBarTextField: NSViewRepresentable {
 
     class Coordinator: NSObject, NSTextFieldDelegate {
         var parent: OmniBarTextField
-        /// Track if we've received a begin editing notification without a corresponding end
         private var isEditing = false
 
         init(_ parent: OmniBarTextField) {
@@ -602,16 +779,11 @@ struct OmniBarTextField: NSViewRepresentable {
         }
 
         func controlTextDidEndEditing(_ obj: Notification) {
-            // Guard against spurious end editing notifications that can occur
-            // before we've actually begun editing (AppKit field editor setup quirk)
             guard isEditing else { return }
             isEditing = false
 
-            // Verify we're actually losing focus by checking the first responder
-            // after a brief delay to allow AppKit to settle
             if let textField = obj.object as? NSTextField {
                 DispatchQueue.main.async {
-                    // Only set isFocused to false if the text field is truly no longer the first responder
                     let isStillFocused = textField.window?.firstResponder == textField.currentEditor()
                     if !isStillFocused {
                         self.parent.isFocused = false
@@ -632,31 +804,37 @@ struct OmniBarTextField: NSViewRepresentable {
 
         func control(_ control: NSControl, textView: NSTextView, doCommandBy commandSelector: Selector) -> Bool {
             if commandSelector == #selector(NSResponder.insertNewline(_:)) {
-                // Enter key - submit
                 parent.onSubmit()
                 return true
             } else if commandSelector == #selector(NSResponder.moveUp(_:)) {
-                // Up arrow - select previous suggestion (address mode only)
-                if parent.mode == .address {
+                switch parent.mode {
+                case .address:
                     parent.suggestionsVM.selectPrevious()
                     return true
+                case .semantic:
+                    parent.semanticSearchVM.selectPrevious()
+                    return true
+                case .chat:
+                    return false
                 }
             } else if commandSelector == #selector(NSResponder.moveDown(_:)) {
-                // Down arrow - select next suggestion (address mode only)
-                if parent.mode == .address {
+                switch parent.mode {
+                case .address:
                     parent.suggestionsVM.selectNext()
                     return true
+                case .semantic:
+                    parent.semanticSearchVM.selectNext()
+                    return true
+                case .chat:
+                    return false
                 }
             } else if commandSelector == #selector(NSResponder.insertTab(_:)) {
-                // Tab key - switch mode
                 parent.onTabPress()
                 return true
             } else if commandSelector == #selector(NSResponder.insertBacktab(_:)) {
-                // Shift+Tab - switch mode (backwards)
                 parent.onShiftTabPress()
                 return true
             } else if commandSelector == #selector(NSResponder.cancelOperation(_:)) {
-                // Escape key - post notification to dismiss overlay
                 NotificationCenter.default.post(name: .escapePressed, object: nil)
                 return true
             }
@@ -699,7 +877,6 @@ private struct NavigationButton: View {
 
 // MARK: - OmniBar Find Bar
 
-/// Find bar component for in-page search (used by OmniBar)
 struct OmniBarFindBar: View {
     @ObservedObject var tab: Tab
     @Binding var findText: String
@@ -710,7 +887,6 @@ struct OmniBarFindBar: View {
             Spacer()
 
             HStack(spacing: 12) {
-                // Find input field
                 HStack(spacing: 8) {
                     Image(systemName: "magnifyingglass")
                         .foregroundColor(.secondary)
@@ -751,7 +927,6 @@ struct OmniBarFindBar: View {
                         )
                 }
 
-                // Navigation buttons
                 HStack(spacing: 4) {
                     Button(action: { tab.findPrevious() }) {
                         Image(systemName: "chevron.up")
@@ -782,7 +957,6 @@ struct OmniBarFindBar: View {
                     .disabled(findText.isEmpty)
                 }
 
-                // Close button
                 Button(action: {
                     tab.hideFindBar()
                     findText = ""

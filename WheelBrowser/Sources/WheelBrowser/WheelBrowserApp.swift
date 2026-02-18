@@ -14,6 +14,17 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             NSApp.windows.first?.makeKeyAndOrderFront(nil)
         }
     }
+
+    func applicationWillTerminate(_ notification: Notification) {
+        // Save semantic search index before quitting
+        let semaphore = DispatchSemaphore(value: 0)
+        Task { @MainActor in
+            await SemanticSearchManager.shared.save()
+            semaphore.signal()
+        }
+        // Wait briefly for save to complete
+        _ = semaphore.wait(timeout: .now() + 2.0)
+    }
 }
 
 @main
@@ -50,6 +61,11 @@ struct WheelBrowserApp: App {
                     NotificationCenter.default.post(name: .focusAISidebar, object: nil)
                 }
                 .keyboardShortcut("k", modifiers: .command)
+
+                Button("Semantic Search") {
+                    NotificationCenter.default.post(name: .focusSemanticSearch, object: nil)
+                }
+                .keyboardShortcut("j", modifiers: .command)
             }
 
 // Navigation commands
@@ -151,6 +167,13 @@ struct WheelBrowserApp: App {
                     NotificationCenter.default.post(name: .togglePictureInPicture, object: nil)
                 }
                 .keyboardShortcut("p", modifiers: [.command, .shift])
+
+                Divider()
+
+                Button("Downloads") {
+                    NotificationCenter.default.post(name: .toggleDownloads, object: nil)
+                }
+                .keyboardShortcut("d", modifiers: .command)
             }
         }
 
@@ -187,6 +210,9 @@ extension Notification.Name {
     static let focusAISidebar = Notification.Name("focusAISidebar")
     static let focusChatInput = Notification.Name("focusChatInput")
 
+    // Semantic search
+    static let focusSemanticSearch = Notification.Name("focusSemanticSearch")
+
     // Zoom controls
     static let zoomIn = Notification.Name("zoomIn")
     static let zoomOut = Notification.Name("zoomOut")
@@ -194,4 +220,7 @@ extension Notification.Name {
 
     // Picture in Picture
     static let togglePictureInPicture = Notification.Name("togglePictureInPicture")
+
+    // Downloads
+    static let toggleDownloads = Notification.Name("toggleDownloads")
 }

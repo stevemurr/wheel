@@ -5,6 +5,7 @@ import Combine
 enum OmniBarMode: Equatable {
     case address
     case chat
+    case semantic
 }
 
 /// Manages the state of the OmniBar
@@ -15,6 +16,7 @@ class OmniBarState: ObservableObject {
     @Published var isFocused: Bool = false
     @Published var showChatPanel: Bool = false
     @Published var showHistoryPanel: Bool = false
+    @Published var showSemanticPanel: Bool = false
 
     /// Switch to the next mode (Tab key)
     func nextMode() {
@@ -24,6 +26,9 @@ class OmniBarState: ObservableObject {
                 mode = .chat
                 inputText = ""
             case .chat:
+                mode = .semantic
+                inputText = ""
+            case .semantic:
                 mode = .address
                 inputText = ""
             }
@@ -32,7 +37,19 @@ class OmniBarState: ObservableObject {
 
     /// Switch to the previous mode (Shift+Tab)
     func previousMode() {
-        nextMode() // Same as next since we only have 2 modes
+        withAnimation(.easeInOut(duration: 0.15)) {
+            switch mode {
+            case .address:
+                mode = .semantic
+                inputText = ""
+            case .chat:
+                mode = .address
+                inputText = ""
+            case .semantic:
+                mode = .chat
+                inputText = ""
+            }
+        }
     }
 
     /// Set mode explicitly
@@ -62,6 +79,7 @@ class OmniBarState: ObservableObject {
         withAnimation(.spring(response: 0.3, dampingFraction: 0.85)) {
             showChatPanel = true
             showHistoryPanel = false
+            showSemanticPanel = false
         }
     }
 
@@ -77,6 +95,23 @@ class OmniBarState: ObservableObject {
         withAnimation(.spring(response: 0.3, dampingFraction: 0.85)) {
             showHistoryPanel = true
             showChatPanel = false
+            showSemanticPanel = false
+        }
+    }
+
+    /// Dismiss semantic panel
+    func dismissSemanticPanel() {
+        withAnimation(.spring(response: 0.3, dampingFraction: 0.85)) {
+            showSemanticPanel = false
+        }
+    }
+
+    /// Show semantic panel
+    func openSemanticPanel() {
+        withAnimation(.spring(response: 0.3, dampingFraction: 0.85)) {
+            showSemanticPanel = true
+            showHistoryPanel = false
+            showChatPanel = false
         }
     }
 
@@ -87,6 +122,8 @@ class OmniBarState: ObservableObject {
             return "magnifyingglass"
         case .chat:
             return "sparkles"
+        case .semantic:
+            return "brain.head.profile"
         }
     }
 
@@ -97,6 +134,8 @@ class OmniBarState: ObservableObject {
             return "Search or enter URL"
         case .chat:
             return "Ask about this page..."
+        case .semantic:
+            return "Search history semantically..."
         }
     }
 
@@ -107,6 +146,8 @@ class OmniBarState: ObservableObject {
             return .accentColor
         case .chat:
             return .purple
+        case .semantic:
+            return .orange
         }
     }
 }
