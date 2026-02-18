@@ -15,9 +15,21 @@ struct OmniBar: View {
     @State private var isSending = false
     @State private var isHovering = false
     @State private var findText: String = ""
+    /// Track if the view has appeared to prevent initial animation flash
+    @State private var hasAppeared: Bool = false
 
     private var shouldExpand: Bool {
         isInputFocused || isHovering
+    }
+
+    /// Computed property to determine if history panel should be visible
+    private var isHistoryPanelVisible: Bool {
+        omniState.showHistoryPanel && omniState.mode == .address
+    }
+
+    /// Computed property to determine if chat panel should be visible
+    private var isChatPanelVisible: Bool {
+        omniState.showChatPanel && omniState.mode == .chat
     }
 
     private var historyPanelSubtitle: String {
@@ -40,67 +52,71 @@ struct OmniBar: View {
     var body: some View {
         VStack(spacing: 0) {
             // Suggestions panel - appears above OmniBar when in address mode (shows tabs + history)
-            if omniState.showHistoryPanel && omniState.mode == .address {
-                OmniPanel(
-                    title: "Go to",
-                    icon: "magnifyingglass",
-                    iconColor: .accentColor,
-                    subtitle: historyPanelSubtitle,
-                    onDismiss: {
-                        omniState.dismissHistoryPanel()
-                    }
-                ) {
-                    HistoryPanelContent(
-                        viewModel: suggestionsVM,
-                        searchText: omniState.inputText,
-                        onSelect: { suggestion in
-                            handleSuggestionSelection(suggestion)
-                        }
-                    )
+            // Always in view hierarchy but hidden when not active to prevent first-render flash
+            OmniPanel(
+                title: "Go to",
+                icon: "magnifyingglass",
+                iconColor: .accentColor,
+                subtitle: historyPanelSubtitle,
+                onDismiss: {
+                    omniState.dismissHistoryPanel()
                 }
-                .padding(.horizontal, 16)
-                .padding(.bottom, 8)
-                .transition(.asymmetric(
-                    insertion: .move(edge: .bottom).combined(with: .opacity),
-                    removal: .opacity
-                ))
-                .zIndex(999)
+            ) {
+                HistoryPanelContent(
+                    viewModel: suggestionsVM,
+                    searchText: omniState.inputText,
+                    onSelect: { suggestion in
+                        handleSuggestionSelection(suggestion)
+                    }
+                )
             }
+            .padding(.horizontal, 16)
+            .padding(.bottom, 8)
+            .opacity(isHistoryPanelVisible ? 1 : 0)
+            .scaleEffect(isHistoryPanelVisible ? 1 : 0.95)
+            .offset(y: isHistoryPanelVisible ? 0 : 10)
+            .allowsHitTesting(isHistoryPanelVisible)
+            .frame(maxHeight: isHistoryPanelVisible ? nil : 0)
+            .clipped()
+            .animation(hasAppeared ? .spring(response: 0.3, dampingFraction: 0.85) : nil, value: isHistoryPanelVisible)
+            .zIndex(999)
 
             // Chat panel - appears above OmniBar when in chat mode
-            if omniState.showChatPanel && omniState.mode == .chat {
-                OmniPanel(
-                    title: "AI Assistant",
-                    icon: "sparkles",
-                    iconColor: .purple,
-                    subtitle: agentManager.isLoading ? "Thinking..." : nil,
-                    menuContent: {
-                        AnyView(
-                            Group {
-                                Button("Clear Chat") {
-                                    agentManager.clearMessages()
-                                }
-                                Divider()
-                                Button("Reset Agent", role: .destructive) {
-                                    Task { await agentManager.resetAgent() }
-                                }
+            // Always in view hierarchy but hidden when not active to prevent first-render flash
+            OmniPanel(
+                title: "AI Assistant",
+                icon: "sparkles",
+                iconColor: .purple,
+                subtitle: agentManager.isLoading ? "Thinking..." : nil,
+                menuContent: {
+                    AnyView(
+                        Group {
+                            Button("Clear Chat") {
+                                agentManager.clearMessages()
                             }
-                        )
-                    },
-                    onDismiss: {
-                        omniState.dismissChatPanel()
-                    }
-                ) {
-                    ChatPanelContent(agentManager: agentManager)
+                            Divider()
+                            Button("Reset Agent", role: .destructive) {
+                                Task { await agentManager.resetAgent() }
+                            }
+                        }
+                    )
+                },
+                onDismiss: {
+                    omniState.dismissChatPanel()
                 }
-                .padding(.horizontal, 16)
-                .padding(.bottom, 8)
-                .transition(.asymmetric(
-                    insertion: .move(edge: .bottom).combined(with: .opacity),
-                    removal: .opacity
-                ))
-                .zIndex(999)
+            ) {
+                ChatPanelContent(agentManager: agentManager)
             }
+            .padding(.horizontal, 16)
+            .padding(.bottom, 8)
+            .opacity(isChatPanelVisible ? 1 : 0)
+            .scaleEffect(isChatPanelVisible ? 1 : 0.95)
+            .offset(y: isChatPanelVisible ? 0 : 10)
+            .allowsHitTesting(isChatPanelVisible)
+            .frame(maxHeight: isChatPanelVisible ? nil : 0)
+            .clipped()
+            .animation(hasAppeared ? .spring(response: 0.3, dampingFraction: 0.85) : nil, value: isChatPanelVisible)
+            .zIndex(999)
 
             // Find bar - appears above OmniBar when active
             if tab.isFindBarVisible {
@@ -179,6 +195,11 @@ struct OmniBar: View {
                 if !agentManager.isReady && !agentManager.isLoading {
                     await agentManager.initialize()
                 }
+            }
+            // Enable animations after the view has appeared to prevent first-render flash
+            // Using a slight delay ensures the view hierarchy is fully established
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+                hasAppeared = true
             }
         }
         .onReceive(NotificationCenter.default.publisher(for: .focusAddressBar)) { _ in
@@ -552,6 +573,8 @@ struct OmniBarTextField: NSViewRepresentable {
 
     class Coordinator: NSObject, NSTextFieldDelegate {
         var parent: OmniBarTextField
+        /// Track if we've received a begin editing notification without a corresponding end
+        private var isEditing = false
 
         init(_ parent: OmniBarTextField) {
             self.parent = parent
@@ -562,14 +585,32 @@ struct OmniBarTextField: NSViewRepresentable {
         }
 
         func controlTextDidBeginEditing(_ obj: Notification) {
+            isEditing = true
             DispatchQueue.main.async {
                 self.parent.isFocused = true
             }
         }
 
         func controlTextDidEndEditing(_ obj: Notification) {
-            DispatchQueue.main.async {
-                self.parent.isFocused = false
+            // Guard against spurious end editing notifications that can occur
+            // before we've actually begun editing (AppKit field editor setup quirk)
+            guard isEditing else { return }
+            isEditing = false
+
+            // Verify we're actually losing focus by checking the first responder
+            // after a brief delay to allow AppKit to settle
+            if let textField = obj.object as? NSTextField {
+                DispatchQueue.main.async {
+                    // Only set isFocused to false if the text field is truly no longer the first responder
+                    let isStillFocused = textField.window?.firstResponder == textField.currentEditor()
+                    if !isStillFocused {
+                        self.parent.isFocused = false
+                    }
+                }
+            } else {
+                DispatchQueue.main.async {
+                    self.parent.isFocused = false
+                }
             }
         }
 

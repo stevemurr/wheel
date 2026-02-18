@@ -49,7 +49,6 @@ struct OmniPanel<Content: View>: View {
         .background(
             RoundedRectangle(cornerRadius: 12, style: .continuous)
                 .fill(Color(nsColor: .windowBackgroundColor))
-                .shadow(color: .black.opacity(0.25), radius: 20, x: 0, y: -8)
         )
         .overlay(
             RoundedRectangle(cornerRadius: 12, style: .continuous)

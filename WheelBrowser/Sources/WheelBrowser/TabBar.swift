@@ -32,6 +32,7 @@ struct TabSidebar: View {
                 .padding(.horizontal, settings.tabSidebarExpanded ? 8 : 4)
                 .padding(.top, 8)
                 .padding(.bottom, 4)
+                .zIndex(1)
 
                 // Divider between workspace and tabs
                 Divider()
@@ -76,12 +77,12 @@ struct TabSidebar: View {
                     .padding(.horizontal, settings.tabSidebarExpanded ? 8 : 4)
                     .padding(.vertical, 6)
                 }
+                .clipped()
 
                 Spacer(minLength: 0)
             }
             .frame(width: effectiveWidth)
             .background(Color(nsColor: .windowBackgroundColor).opacity(0.95))
-            .clipped()
 
             // Resize handle (only when expanded)
             if settings.tabSidebarExpanded {
@@ -128,10 +129,9 @@ struct WorkspaceFanoutSelector: View {
     }
 
     var body: some View {
-        ZStack(alignment: .leading) {
-            // Main container that expands on hover
-            HStack(spacing: fanoutSpacing) {
-                // Active workspace icon (always visible)
+        VStack(spacing: 0) {
+            // Active workspace icon (always visible)
+            Group {
                 if let workspace = currentWorkspace {
                     ActiveWorkspaceIcon(
                         workspace: workspace,
@@ -140,11 +140,8 @@ struct WorkspaceFanoutSelector: View {
                         showLabel: isExpanded && !isFannedOut
                     )
                     .onTapGesture {
-                        // Toggle fan out on tap when collapsed
-                        if !isExpanded {
-                            withAnimation(.spring(response: 0.3, dampingFraction: 0.7)) {
-                                isFannedOut.toggle()
-                            }
+                        withAnimation(.spring(response: 0.3, dampingFraction: 0.7)) {
+                            isFannedOut.toggle()
                         }
                     }
                     .contextMenu {
@@ -162,15 +159,18 @@ struct WorkspaceFanoutSelector: View {
                         }
                     }
                 }
+            }
 
-                // Fanned out workspace icons (visible on hover)
-                if isFannedOut {
+            // Dropdown workspace list (appears below active icon)
+            if isFannedOut {
+                VStack(spacing: 4) {
                     ForEach(workspaceManager.workspaces) { workspace in
                         if workspace.id != workspaceManager.currentWorkspaceID {
-                            FanoutWorkspaceIcon(
+                            FanoutWorkspaceRow(
                                 workspace: workspace,
-                                iconSize: iconSize,
+                                iconSize: iconSize - 4,
                                 tabCount: workspaceManager.tabCount(for: workspace.id),
+                                isExpanded: isExpanded,
                                 onSelect: {
                                     selectWorkspace(workspace)
                                 },
@@ -182,43 +182,45 @@ struct WorkspaceFanoutSelector: View {
                                 }
                             )
                             .transition(.asymmetric(
-                                insertion: .scale(scale: 0.5).combined(with: .opacity),
-                                removal: .scale(scale: 0.5).combined(with: .opacity)
+                                insertion: .move(edge: .top).combined(with: .opacity),
+                                removal: .move(edge: .top).combined(with: .opacity)
                             ))
                         }
                     }
 
                     // Add workspace button
-                    FanoutAddButton(iconSize: iconSize) {
+                    FanoutAddRow(iconSize: iconSize - 4, isExpanded: isExpanded) {
                         isCreatingWorkspace = true
                     }
                     .transition(.asymmetric(
-                        insertion: .scale(scale: 0.5).combined(with: .opacity),
-                        removal: .scale(scale: 0.5).combined(with: .opacity)
+                        insertion: .move(edge: .top).combined(with: .opacity),
+                        removal: .move(edge: .top).combined(with: .opacity)
                     ))
                 }
+                .padding(.vertical, 6)
+                .padding(.horizontal, 4)
+                .background(
+                    RoundedRectangle(cornerRadius: 8)
+                        .fill(Color(nsColor: .controlBackgroundColor).opacity(0.95))
+                        .shadow(color: .black.opacity(0.1), radius: 4, y: 2)
+                )
+                .padding(.top, 4)
             }
-            .padding(.vertical, 4)
-            .padding(.horizontal, 4)
-            .background(
-                RoundedRectangle(cornerRadius: 10)
-                    .fill(isFannedOut ? Color(nsColor: .controlBackgroundColor).opacity(0.8) : Color.clear)
-            )
-            .onHover { hovering in
-                withAnimation(.spring(response: 0.25, dampingFraction: 0.7)) {
-                    isHovering = hovering
-                    if hovering {
-                        isFannedOut = true
-                    }
+        }
+        .onHover { hovering in
+            withAnimation(.spring(response: 0.25, dampingFraction: 0.7)) {
+                isHovering = hovering
+                if hovering {
+                    isFannedOut = true
                 }
+            }
 
-                // Delay hiding the fanout when mouse leaves
-                if !hovering {
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
-                        if !isHovering {
-                            withAnimation(.spring(response: 0.25, dampingFraction: 0.7)) {
-                                isFannedOut = false
-                            }
+            // Delay hiding the fanout when mouse leaves
+            if !hovering {
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+                    if !isHovering {
+                        withAnimation(.spring(response: 0.25, dampingFraction: 0.7)) {
+                            isFannedOut = false
                         }
                     }
                 }
@@ -415,6 +417,139 @@ struct FanoutWorkspaceIcon: View {
                 Label("Delete", systemImage: "trash")
             }
         }
+    }
+}
+
+// MARK: - Fanout Workspace Row (Vertical dropdown style)
+
+/// A workspace row shown in the vertical dropdown
+struct FanoutWorkspaceRow: View {
+    let workspace: Workspace
+    let iconSize: CGFloat
+    let tabCount: Int
+    let isExpanded: Bool
+    let onSelect: () -> Void
+    let onEdit: () -> Void
+    let onDelete: () -> Void
+
+    @State private var isHovering = false
+
+    var body: some View {
+        Button(action: onSelect) {
+            HStack(spacing: 8) {
+                // Icon
+                ZStack {
+                    Circle()
+                        .fill(isHovering ? workspace.accentColor.opacity(0.2) : Color(nsColor: .controlBackgroundColor))
+                        .frame(width: iconSize, height: iconSize)
+
+                    Image(systemName: workspace.icon)
+                        .font(.system(size: 12, weight: .medium))
+                        .foregroundColor(isHovering ? workspace.accentColor : .secondary)
+                }
+
+                if isExpanded {
+                    // Name and tab count
+                    VStack(alignment: .leading, spacing: 1) {
+                        Text(workspace.name)
+                            .font(.system(size: 11, weight: .medium))
+                            .foregroundColor(.primary)
+                            .lineLimit(1)
+
+                        Text("\(tabCount) tab\(tabCount == 1 ? "" : "s")")
+                            .font(.system(size: 9))
+                            .foregroundColor(.secondary)
+                    }
+
+                    Spacer()
+                }
+            }
+            .padding(.horizontal, 6)
+            .padding(.vertical, 4)
+            .background(
+                RoundedRectangle(cornerRadius: 6)
+                    .fill(isHovering ? Color(nsColor: .controlBackgroundColor) : Color.clear)
+            )
+        }
+        .buttonStyle(.plain)
+        .onHover { hovering in
+            withAnimation(.easeInOut(duration: 0.1)) {
+                isHovering = hovering
+            }
+        }
+        .help(workspace.name)
+        .contextMenu {
+            Button(action: onSelect) {
+                Label("Switch to \(workspace.name)", systemImage: "arrow.right.circle")
+            }
+
+            Divider()
+
+            Button(action: onEdit) {
+                Label("Edit...", systemImage: "pencil")
+            }
+
+            Divider()
+
+            Button(role: .destructive, action: onDelete) {
+                Label("Delete", systemImage: "trash")
+            }
+        }
+    }
+}
+
+// MARK: - Fanout Add Row (Vertical dropdown style)
+
+/// The add button row shown in the vertical dropdown
+struct FanoutAddRow: View {
+    let iconSize: CGFloat
+    let isExpanded: Bool
+    let onTap: () -> Void
+
+    @State private var isHovering = false
+
+    var body: some View {
+        Button(action: onTap) {
+            HStack(spacing: 8) {
+                ZStack {
+                    Circle()
+                        .fill(isHovering ? Color(nsColor: .controlBackgroundColor) : Color.clear)
+                        .frame(width: iconSize, height: iconSize)
+
+                    Circle()
+                        .stroke(
+                            Color(nsColor: .separatorColor).opacity(isHovering ? 0.8 : 0.4),
+                            style: StrokeStyle(lineWidth: 1, dash: [3, 2])
+                        )
+                        .frame(width: iconSize, height: iconSize)
+
+                    Image(systemName: "plus")
+                        .font(.system(size: 10, weight: .medium))
+                        .foregroundColor(.secondary)
+                }
+
+                if isExpanded {
+                    Text("New workspace")
+                        .font(.system(size: 11))
+                        .foregroundColor(.secondary)
+
+                    Spacer()
+                }
+            }
+            .padding(.horizontal, 6)
+            .padding(.vertical, 4)
+            .background(
+                RoundedRectangle(cornerRadius: 6)
+                    .fill(isHovering ? Color(nsColor: .controlBackgroundColor).opacity(0.5) : Color.clear)
+            )
+        }
+        .buttonStyle(.plain)
+        .onHover { hovering in
+            withAnimation(.easeInOut(duration: 0.1)) {
+                isHovering = hovering
+            }
+        }
+        .help("Create new workspace")
     }
 }
 

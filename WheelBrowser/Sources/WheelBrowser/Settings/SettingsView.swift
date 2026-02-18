@@ -349,6 +349,8 @@ struct SettingsView: View {
         .frame(width: 500, height: 750)
         .onAppear {
             fetchModels()
+            // Load the existing API key from Keychain into the input field
+            apiKeyInput = settings.llmAPIKey
         }
     }
 
