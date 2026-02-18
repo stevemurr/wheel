@@ -23,6 +23,7 @@ struct WebViewRepresentable: NSViewRepresentable {
         let tab: Tab
         private var currentDownload: WKDownload?
         private var downloadFilename: String = ""
+        private var progressObservations: [WKDownload: NSKeyValueObservation] = [:]
 
         init(tab: Tab) {
             self.tab = tab
@@ -182,6 +183,13 @@ struct WebViewRepresentable: NSViewRepresentable {
                 return
             }
 
+            // Only allow downloads for successful responses (2xx status codes)
+            // This prevents downloading error pages (404, 403, etc.) as files
+            guard (200...299).contains(response.statusCode) else {
+                decisionHandler(.allow)
+                return
+            }
+
             // Check Content-Disposition header for attachment
             if let contentDisposition = response.value(forHTTPHeaderField: "Content-Disposition"),
                contentDisposition.lowercased().contains("attachment") {
@@ -251,12 +259,30 @@ struct WebViewRepresentable: NSViewRepresentable {
             var destinationURL = downloadsURL.appendingPathComponent(suggestedFilename)
             destinationURL = getUniqueFileURL(basePath: destinationURL)
 
-            // Register with DownloadManager
+            // Register with DownloadManager and set up progress tracking
             let sourceURL = response.url ?? URL(string: "about:blank")!
+            let expectedLength = response.expectedContentLength
+
             Task { @MainActor in
                 _ = DownloadManager.shared.startDownload(download, filename: suggestedFilename, url: sourceURL)
                 DownloadManager.shared.updateDestination(download, destination: destinationURL)
+
+                // Set initial total bytes if known
+                if expectedLength > 0 {
+                    DownloadManager.shared.updateProgress(download, bytesReceived: 0, totalBytes: expectedLength)
+                }
             }
+
+            // Set up KVO observation for download progress
+            let observation = download.progress.observe(\.fractionCompleted, options: [.new]) { [weak self] progress, _ in
+                guard self != nil else { return }
+                let totalBytes = progress.totalUnitCount
+                let completedBytes = progress.completedUnitCount
+                Task { @MainActor in
+                    DownloadManager.shared.updateProgress(download, bytesReceived: completedBytes, totalBytes: totalBytes)
+                }
+            }
+            progressObservations[download] = observation
 
             completionHandler(destinationURL)
         }
@@ -271,6 +297,9 @@ struct WebViewRepresentable: NSViewRepresentable {
         }
 
         func downloadDidFinish(_ download: WKDownload) {
+            // Clean up progress observation
+            progressObservations.removeValue(forKey: download)
+
             Task { @MainActor in
                 DownloadManager.shared.completeDownload(download)
             }
@@ -278,6 +307,9 @@ struct WebViewRepresentable: NSViewRepresentable {
         }
 
         func download(_ download: WKDownload, didFailWithError error: Error, resumeData: Data?) {
+            // Clean up progress observation
+            progressObservations.removeValue(forKey: download)
+
             Task { @MainActor in
                 DownloadManager.shared.failDownload(download, error: error.localizedDescription)
             }

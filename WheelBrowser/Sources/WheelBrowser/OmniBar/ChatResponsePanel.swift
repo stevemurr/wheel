@@ -112,7 +112,7 @@ struct ChatResponsePanel: View {
     let onDismiss: () -> Void
 
     @State private var isHovering = false
-    @State private var shouldAutoScroll = true
+    @State private var lastScrollTime: Date = .distantPast
 
     private let maxHeight: CGFloat = 500
 
@@ -200,7 +200,7 @@ struct ChatResponsePanel: View {
     private var messagesArea: some View {
         ScrollViewReader { proxy in
             ScrollView(showsIndicators: true) {
-                LazyVStack(spacing: 8) {
+                VStack(spacing: 8) {
                     if agentManager.messages.isEmpty {
                         emptyState
                             .padding(.top, 30)
@@ -208,10 +208,6 @@ struct ChatResponsePanel: View {
                         ForEach(agentManager.messages) { message in
                             ChatPanelMessageBubble(message: message)
                                 .id(message.id)
-                                .transition(.asymmetric(
-                                    insertion: .move(edge: .bottom).combined(with: .opacity),
-                                    removal: .opacity
-                                ))
                         }
 
                         // Invisible anchor at the bottom for scrolling
@@ -222,43 +218,28 @@ struct ChatResponsePanel: View {
                 }
                 .padding(.horizontal, 14)
                 .padding(.vertical, 12)
-                .background(
-                    GeometryReader { contentGeometry in
-                        Color.clear
-                            .preference(
-                                key: ChatScrollOffsetPreferenceKey.self,
-                                value: contentGeometry.frame(in: .named("chatResponseScroll")).minY
-                            )
-                    }
-                )
-            }
-            .coordinateSpace(name: "chatResponseScroll")
-            .onPreferenceChange(ChatScrollOffsetPreferenceKey.self) { offset in
-                // If user scrolls up significantly, disable auto-scroll
-                if offset > -20 {
-                    shouldAutoScroll = false
-                } else {
-                    shouldAutoScroll = true
-                }
             }
             .onChange(of: agentManager.messages.count) { _, _ in
-                // Re-enable auto-scroll on new message
-                shouldAutoScroll = true
-                withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
-                    scrollToBottom(proxy: proxy)
-                }
+                // Scroll to bottom on new message
+                scrollToBottom(proxy: proxy, animated: true)
             }
             .onChange(of: agentManager.messages.last?.content) { _, _ in
-                // Scroll during streaming if auto-scroll is enabled
-                if shouldAutoScroll {
-                    scrollToBottom(proxy: proxy)
+                // Throttled scroll during streaming (max once per 100ms)
+                let now = Date()
+                if now.timeIntervalSince(lastScrollTime) > 0.1 {
+                    lastScrollTime = now
+                    scrollToBottom(proxy: proxy, animated: false)
                 }
             }
         }
     }
 
-    private func scrollToBottom(proxy: ScrollViewProxy) {
-        withAnimation(.easeOut(duration: 0.15)) {
+    private func scrollToBottom(proxy: ScrollViewProxy, animated: Bool) {
+        if animated {
+            withAnimation(.easeOut(duration: 0.15)) {
+                proxy.scrollTo("bottom", anchor: .bottom)
+            }
+        } else {
             proxy.scrollTo("bottom", anchor: .bottom)
         }
     }
@@ -348,19 +329,22 @@ struct ChatPanelMessageBubble: View {
                         VStack(alignment: .leading, spacing: 4) {
                             Markdown(message.content)
                                 .markdownTheme(markdownTheme)
+                                .textSelection(.enabled)
 
                             if message.isStreaming {
                                 ChatPanelStreamingCursor()
                             }
                         }
+                        .frame(maxWidth: .infinity, alignment: .leading)
                     }
                 }
-                .textSelection(.enabled)
                 .padding(.horizontal, 10)
                 .padding(.vertical, 6)
+                .frame(minWidth: 60, alignment: message.role == .user ? .trailing : .leading)
                 .background(bubbleBackground)
                 .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
             }
+            .frame(maxWidth: message.role == .user ? 400 : .infinity, alignment: message.role == .user ? .trailing : .leading)
 
             if message.role != .user {
                 Spacer(minLength: 40)
@@ -482,11 +466,3 @@ struct ChatPanelMessageBubble: View {
     }
 }
 
-// MARK: - Scroll Offset Preference Key
-
-private struct ChatScrollOffsetPreferenceKey: PreferenceKey {
-    static var defaultValue: CGFloat = 0
-    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
-        value = nextValue()
-    }
-}

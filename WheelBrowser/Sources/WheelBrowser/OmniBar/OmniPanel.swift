@@ -214,12 +214,12 @@ struct HistoryPanelContent: View {
 
 struct ChatPanelContent: View {
     @ObservedObject var agentManager: AgentManager
-    @State private var shouldAutoScroll = true
+    @State private var lastScrollTime: Date = .distantPast
 
     var body: some View {
         ScrollViewReader { proxy in
             ScrollView(showsIndicators: true) {
-                LazyVStack(spacing: 8) {
+                VStack(spacing: 8) {
                     if agentManager.messages.isEmpty {
                         OmniPanelEmptyState(
                             icon: "bubble.left.and.bubble.right",
@@ -255,41 +255,28 @@ struct ChatPanelContent: View {
                 }
                 .padding(.horizontal, 14)
                 .padding(.vertical, 12)
-                .background(
-                    GeometryReader { contentGeometry in
-                        Color.clear
-                            .preference(
-                                key: OmniPanelScrollOffsetPreferenceKey.self,
-                                value: contentGeometry.frame(in: .named("omniPanelScroll")).minY
-                            )
-                    }
-                )
-            }
-            .coordinateSpace(name: "omniPanelScroll")
-            .onPreferenceChange(OmniPanelScrollOffsetPreferenceKey.self) { offset in
-                // If user scrolls up significantly, disable auto-scroll
-                if offset > -20 {
-                    shouldAutoScroll = false
-                } else {
-                    shouldAutoScroll = true
-                }
             }
             .onChange(of: agentManager.messages.count) { _, _ in
-                // Re-enable auto-scroll on new message
-                shouldAutoScroll = true
-                scrollToBottom(proxy: proxy)
+                // Scroll to bottom on new message
+                scrollToBottom(proxy: proxy, animated: true)
             }
             .onChange(of: agentManager.messages.last?.content) { _, _ in
-                // Scroll during streaming if auto-scroll is enabled
-                if shouldAutoScroll {
-                    scrollToBottom(proxy: proxy)
+                // Throttled scroll during streaming (max once per 100ms)
+                let now = Date()
+                if now.timeIntervalSince(lastScrollTime) > 0.1 {
+                    lastScrollTime = now
+                    scrollToBottom(proxy: proxy, animated: false)
                 }
             }
         }
     }
 
-    private func scrollToBottom(proxy: ScrollViewProxy) {
-        withAnimation(.easeOut(duration: 0.15)) {
+    private func scrollToBottom(proxy: ScrollViewProxy, animated: Bool) {
+        if animated {
+            withAnimation(.easeOut(duration: 0.15)) {
+                proxy.scrollTo("bottom", anchor: .bottom)
+            }
+        } else {
             proxy.scrollTo("bottom", anchor: .bottom)
         }
     }
@@ -302,14 +289,6 @@ struct ChatPanelContent: View {
     }
 }
 
-// MARK: - Scroll Offset Preference Key
-
-private struct OmniPanelScrollOffsetPreferenceKey: PreferenceKey {
-    static var defaultValue: CGFloat = 0
-    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
-        value = nextValue()
-    }
-}
 
 // MARK: - Suggestion Row (handles both open tabs and history)
 
