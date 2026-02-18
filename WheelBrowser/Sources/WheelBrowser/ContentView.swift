@@ -143,10 +143,6 @@ struct ContentView: View {
             )
 
             VStack(spacing: 0) {
-                Color.clear
-                    .frame(height: 28)
-                    .background(WindowAccessor())
-
                 if let tab = state.activeTab {
                     BrowserContentArea(
                         tab: tab,
@@ -158,6 +154,7 @@ struct ContentView: View {
                 }
             }
             .frame(minWidth: 400)
+            .background(WindowAccessor())
         }
     }
 

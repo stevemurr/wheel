@@ -231,8 +231,16 @@ struct OmniBar: View {
                     tab.hideFindBar()
                 }
                 findText = ""
+            } else if omniState.showHistoryPanel {
+                // Dismiss history panel if open
+                omniState.dismissHistoryPanel()
+                isInputFocused = false
+                // Restore URL to current page URL
+                omniState.inputText = tab.url?.absoluteString ?? ""
             } else if omniState.showChatPanel {
+                // Dismiss chat panel if open
                 omniState.dismissChatPanel()
+                isInputFocused = false
             } else if isInputFocused {
                 isInputFocused = false
                 // Restore URL to current page URL in address mode
