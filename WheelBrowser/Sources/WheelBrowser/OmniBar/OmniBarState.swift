@@ -6,6 +6,7 @@ enum OmniBarMode: Equatable {
     case address
     case chat
     case semantic
+    case agent
 }
 
 /// Manages the state of the OmniBar
@@ -17,6 +18,7 @@ class OmniBarState: ObservableObject {
     @Published var showChatPanel: Bool = false
     @Published var showHistoryPanel: Bool = false
     @Published var showSemanticPanel: Bool = false
+    @Published var showAgentPanel: Bool = false
 
     // MARK: - Mention State
     @Published var mentions: [Mention] = [.currentPage]
@@ -34,6 +36,9 @@ class OmniBarState: ObservableObject {
                 mode = .semantic
                 inputText = ""
             case .semantic:
+                mode = .agent
+                inputText = ""
+            case .agent:
                 mode = .address
                 inputText = ""
             }
@@ -45,13 +50,16 @@ class OmniBarState: ObservableObject {
         withAnimation(.easeInOut(duration: 0.15)) {
             switch mode {
             case .address:
-                mode = .semantic
+                mode = .agent
                 inputText = ""
             case .chat:
                 mode = .address
                 inputText = ""
             case .semantic:
                 mode = .chat
+                inputText = ""
+            case .agent:
+                mode = .semantic
                 inputText = ""
             }
         }
@@ -120,6 +128,7 @@ class OmniBarState: ObservableObject {
             showChatPanel = true
             showHistoryPanel = false
             showSemanticPanel = false
+            showAgentPanel = false
         }
     }
 
@@ -136,6 +145,7 @@ class OmniBarState: ObservableObject {
             showHistoryPanel = true
             showChatPanel = false
             showSemanticPanel = false
+            showAgentPanel = false
         }
     }
 
@@ -152,6 +162,24 @@ class OmniBarState: ObservableObject {
             showSemanticPanel = true
             showHistoryPanel = false
             showChatPanel = false
+            showAgentPanel = false
+        }
+    }
+
+    /// Dismiss agent panel
+    func dismissAgentPanel() {
+        withAnimation(.spring(response: 0.3, dampingFraction: 0.85)) {
+            showAgentPanel = false
+        }
+    }
+
+    /// Show agent panel
+    func openAgentPanel() {
+        withAnimation(.spring(response: 0.3, dampingFraction: 0.85)) {
+            showAgentPanel = true
+            showHistoryPanel = false
+            showChatPanel = false
+            showSemanticPanel = false
         }
     }
 
@@ -164,6 +192,8 @@ class OmniBarState: ObservableObject {
             return "sparkles"
         case .semantic:
             return "brain.head.profile"
+        case .agent:
+            return "wand.and.stars"
         }
     }
 
@@ -176,6 +206,8 @@ class OmniBarState: ObservableObject {
             return "Ask about this page..."
         case .semantic:
             return "Search history semantically..."
+        case .agent:
+            return "Describe a task for the agent..."
         }
     }
 
@@ -188,6 +220,8 @@ class OmniBarState: ObservableObject {
             return .purple
         case .semantic:
             return .orange
+        case .agent:
+            return .green
         }
     }
 }

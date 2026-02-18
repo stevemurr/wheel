@@ -554,9 +554,14 @@ struct SettingsView: View {
                     }
                 }
             }
+
+            // MARK: - MCP Server Section
+            Section("MCP Server") {
+                MCPSettingsView()
+            }
         }
         .formStyle(.grouped)
-        .frame(width: 500, height: 750)
+        .frame(width: 500, height: 800)
         .onAppear {
             fetchModels()
             // Load the existing API key from Keychain into the input field

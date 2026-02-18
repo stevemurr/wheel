@@ -7,6 +7,7 @@ private struct BrowserContentArea: View {
     @ObservedObject var agentManager: AgentManager
     @ObservedObject var browserState: BrowserState
     @ObservedObject var settings: AppSettings
+    @ObservedObject var agentEngine: AgentEngine
     let contentExtractor: ContentExtractor
 
     var body: some View {
@@ -17,13 +18,19 @@ private struct BrowserContentArea: View {
                     .id(tab.id)
             }
 
-            // OmniBar at bottom with all panels above
-            OmniBar(
-                tab: tab,
-                agentManager: agentManager,
-                browserState: browserState,
-                contentExtractor: contentExtractor
-            )
+            // Bottom controls: Dock + OmniBar
+            VStack(spacing: 8) {
+                DockTabBar(browserState: browserState)
+
+                OmniBar(
+                    tab: tab,
+                    agentManager: agentManager,
+                    browserState: browserState,
+                    agentEngine: agentEngine,
+                    contentExtractor: contentExtractor
+                )
+            }
+            .padding(.bottom, 12)
         }
     }
 }
@@ -123,13 +130,27 @@ private struct ZoomNotificationModifier: ViewModifier {
 }
 
 struct ContentView: View {
-    @StateObject private var state = BrowserState()
+    @StateObject private var state: BrowserState
+    @StateObject private var agentEngine: AgentEngine
     @ObservedObject private var agentManager = AgentManager.shared
     @ObservedObject private var agentStudioManager = AgentStudioManager.shared
     @ObservedObject private var workspaceManager = WorkspaceManager.shared
     @ObservedObject private var settings = AppSettings.shared
     @ObservedObject private var downloadManager = DownloadManager.shared
     private let contentExtractor = ContentExtractor()
+
+    init() {
+        let browserState = BrowserState()
+        let engine = AgentEngine(browserState: browserState, settings: AppSettings.shared)
+
+        _state = StateObject(wrappedValue: browserState)
+        _agentEngine = StateObject(wrappedValue: engine)
+
+        // Configure the shared MCP server with browser dependencies
+        Task { @MainActor in
+            MCPServer.shared.configure(browserState: browserState, agentEngine: engine)
+        }
+    }
 
     // MARK: - Main Content (extracted to help compiler with type checking)
 
@@ -142,6 +163,7 @@ struct ContentView: View {
                     agentManager: agentManager,
                     browserState: state,
                     settings: settings,
+                    agentEngine: agentEngine,
                     contentExtractor: contentExtractor
                 )
             }

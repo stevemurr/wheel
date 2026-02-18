@@ -5,6 +5,7 @@ struct OmniBar: View {
     @ObservedObject var tab: Tab
     @ObservedObject var agentManager: AgentManager
     @ObservedObject var browserState: BrowserState
+    @ObservedObject var agentEngine: AgentEngine
     @StateObject private var omniState = OmniBarState()
     @StateObject private var suggestionsVM = SuggestionsViewModel()
     @StateObject private var semanticSearchVM = SemanticSearchViewModel()
@@ -41,6 +42,11 @@ struct OmniBar: View {
         omniState.showSemanticPanel && omniState.mode == .semantic
     }
 
+    /// Computed property to determine if agent panel should be visible
+    private var isAgentPanelVisible: Bool {
+        omniState.showAgentPanel && omniState.mode == .agent
+    }
+
     private var historyPanelSubtitle: String {
         let tabCount = suggestionsVM.suggestions.filter { $0.isOpenTab }.count
         let historyCount = suggestionsVM.suggestions.filter { !$0.isOpenTab }.count
@@ -75,6 +81,20 @@ struct OmniBar: View {
             return "\(downloadManager.downloads.count) items"
         }
         return ""
+    }
+
+    private var agentPanelSubtitle: String {
+        if agentEngine.isRunning {
+            return agentEngine.progress
+        } else if !agentEngine.steps.isEmpty {
+            if let lastStep = agentEngine.steps.last, lastStep.type == .done {
+                return "Completed"
+            } else if agentEngine.error != nil {
+                return "Failed"
+            }
+            return "\(agentEngine.steps.count) steps"
+        }
+        return "Ready"
     }
 
     var body: some View {
@@ -186,6 +206,45 @@ struct OmniBar: View {
             .animation(hasAppeared ? .spring(response: 0.3, dampingFraction: 0.85) : nil, value: isSemanticPanelVisible)
             .zIndex(999)
 
+            // Agent panel - appears above OmniBar when in agent mode
+            OmniPanel(
+                title: "Agent",
+                icon: "wand.and.stars",
+                iconColor: .green,
+                borderColor: .green,
+                subtitle: agentPanelSubtitle,
+                menuContent: {
+                    AnyView(
+                        Group {
+                            Button("Cancel Task") {
+                                agentEngine.cancel()
+                            }
+                            .disabled(!agentEngine.isRunning)
+                            Divider()
+                            Button("Clear History") {
+                                agentEngine.steps = []
+                            }
+                            .disabled(agentEngine.steps.isEmpty)
+                        }
+                    )
+                },
+                onDismiss: {
+                    omniState.dismissAgentPanel()
+                }
+            ) {
+                AgentPanelContent(agentEngine: agentEngine)
+            }
+            .padding(.horizontal, 16)
+            .padding(.bottom, 8)
+            .opacity(isAgentPanelVisible ? 1 : 0)
+            .scaleEffect(isAgentPanelVisible ? 1 : 0.95)
+            .offset(y: isAgentPanelVisible ? 0 : 10)
+            .allowsHitTesting(isAgentPanelVisible)
+            .frame(maxHeight: isAgentPanelVisible ? nil : 0)
+            .clipped()
+            .animation(hasAppeared ? .spring(response: 0.3, dampingFraction: 0.85) : nil, value: isAgentPanelVisible)
+            .zIndex(999)
+
             // Downloads panel - appears above OmniBar when downloads are active
             OmniPanel(
                 title: "Downloads",
@@ -270,6 +329,8 @@ struct OmniBar: View {
                     semanticSearchVM.search(query: newValue)
                 case .chat:
                     break
+                case .agent:
+                    break
                 }
             }
         }
@@ -302,6 +363,8 @@ struct OmniBar: View {
                     }
                 case .chat:
                     break
+                case .agent:
+                    omniState.openAgentPanel()
                 }
             }
         }
@@ -313,6 +376,7 @@ struct OmniBar: View {
                 semanticSearchVM.clear()
                 omniState.dismissHistoryPanel()
                 omniState.dismissSemanticPanel()
+                omniState.dismissAgentPanel()
                 if !agentManager.messages.isEmpty {
                     omniState.openChatPanel()
                 }
@@ -320,6 +384,7 @@ struct OmniBar: View {
                 semanticSearchVM.clear()
                 omniState.dismissChatPanel()
                 omniState.dismissSemanticPanel()
+                omniState.dismissAgentPanel()
                 if isInputFocused {
                     omniState.openHistoryPanel()
                 }
@@ -327,10 +392,18 @@ struct OmniBar: View {
                 suggestionsVM.hide()
                 omniState.dismissChatPanel()
                 omniState.dismissHistoryPanel()
+                omniState.dismissAgentPanel()
                 omniState.openSemanticPanel()
                 if !omniState.inputText.isEmpty {
                     semanticSearchVM.search(query: omniState.inputText)
                 }
+            case .agent:
+                suggestionsVM.hide()
+                semanticSearchVM.clear()
+                omniState.dismissChatPanel()
+                omniState.dismissHistoryPanel()
+                omniState.dismissSemanticPanel()
+                omniState.openAgentPanel()
             }
         }
         .onAppear {
@@ -392,11 +465,15 @@ struct OmniBar: View {
                 omniState.dismissSemanticPanel()
                 isInputFocused = false
                 omniState.inputText = ""
+            } else if omniState.showAgentPanel {
+                omniState.dismissAgentPanel()
+                isInputFocused = false
+                omniState.inputText = ""
             } else if isInputFocused {
                 isInputFocused = false
                 if omniState.mode == .address {
                     omniState.inputText = tab.url?.absoluteString ?? ""
-                } else if omniState.mode == .semantic {
+                } else if omniState.mode == .semantic || omniState.mode == .agent {
                     omniState.inputText = ""
                 }
             }
@@ -460,6 +537,28 @@ struct OmniBar: View {
                         }
                     }) {
                         Image(systemName: omniState.showSemanticPanel ? "chevron.down" : "chevron.up")
+                            .font(.system(size: 12, weight: .medium))
+                            .foregroundColor(.secondary)
+                            .frame(width: 28, height: 28)
+                            .background(
+                                Circle()
+                                    .fill(Color(nsColor: .controlBackgroundColor))
+                            )
+                    }
+                    .buttonStyle(.plain)
+                    .transition(.opacity.combined(with: .scale))
+                }
+
+                // Agent panel toggle (only in agent mode with steps or running)
+                if omniState.mode == .agent && (!agentEngine.steps.isEmpty || agentEngine.isRunning) {
+                    Button(action: {
+                        if omniState.showAgentPanel {
+                            omniState.dismissAgentPanel()
+                        } else {
+                            omniState.openAgentPanel()
+                        }
+                    }) {
+                        Image(systemName: omniState.showAgentPanel ? "chevron.down" : "chevron.up")
                             .font(.system(size: 12, weight: .medium))
                             .foregroundColor(.secondary)
                             .frame(width: 28, height: 28)
@@ -772,6 +871,27 @@ struct OmniBar: View {
                 .buttonStyle(.plain)
                 .transition(.opacity.combined(with: .scale))
             }
+
+        case .agent:
+            Button(action: handleSubmit) {
+                ZStack {
+                    if agentEngine.isRunning {
+                        ProgressView()
+                            .scaleEffect(0.5)
+                    } else {
+                        Image(systemName: "play.fill")
+                            .font(.system(size: 10, weight: .bold))
+                            .foregroundColor(omniState.inputText.isEmpty ? .secondary : .white)
+                    }
+                }
+                .frame(width: 22, height: 22)
+                .background(
+                    Circle()
+                        .fill(omniState.inputText.isEmpty ? Color.secondary.opacity(0.2) : Color.green)
+                )
+            }
+            .buttonStyle(.plain)
+            .disabled(omniState.inputText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || agentEngine.isRunning)
         }
     }
 
@@ -785,6 +905,8 @@ struct OmniBar: View {
             submitChat()
         case .semantic:
             submitSemantic()
+        case .agent:
+            submitAgent()
         }
     }
 
@@ -880,6 +1002,18 @@ struct OmniBar: View {
         omniState.dismissSemanticPanel()
         semanticSearchVM.clear()
         omniState.inputText = ""
+    }
+
+    private func submitAgent() {
+        let task = omniState.inputText.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !task.isEmpty else { return }
+
+        omniState.inputText = ""
+        omniState.openAgentPanel()
+
+        Task {
+            _ = await agentEngine.run(task: task)
+        }
     }
 }
 
@@ -1074,7 +1208,7 @@ struct OmniBarTextField: NSViewRepresentable {
                 case .semantic:
                     parent.semanticSearchVM.selectPrevious()
                     return true
-                case .chat:
+                case .chat, .agent:
                     return false
                 }
             } else if commandSelector == #selector(NSResponder.moveDown(_:)) {
@@ -1085,7 +1219,7 @@ struct OmniBarTextField: NSViewRepresentable {
                 case .semantic:
                     parent.semanticSearchVM.selectNext()
                     return true
-                case .chat:
+                case .chat, .agent:
                     return false
                 }
             } else if commandSelector == #selector(NSResponder.insertTab(_:)) {

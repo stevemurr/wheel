@@ -49,6 +49,18 @@ class BrowserState: ObservableObject {
         tabs.map { $0.id }
     }
 
+    /// Returns an AccessibilityBridge for the active tab's webView
+    @MainActor
+    var accessibilityBridge: AccessibilityBridge? {
+        guard let tab = activeTab else { return nil }
+        return AccessibilityBridge(webView: tab.webView)
+    }
+
+    /// Navigate the active tab to a URL
+    func navigate(to url: URL) {
+        activeTab?.load(url.absoluteString)
+    }
+
     init() {
         addTab()
     }
