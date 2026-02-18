@@ -18,6 +18,11 @@ class OmniBarState: ObservableObject {
     @Published var showHistoryPanel: Bool = false
     @Published var showSemanticPanel: Bool = false
 
+    // MARK: - Mention State
+    @Published var mentions: [Mention] = [.currentPage]
+    @Published var showMentionDropdown: Bool = false
+    @Published var mentionSearchText: String = ""
+
     /// Switch to the next mode (Tab key)
     func nextMode() {
         withAnimation(.easeInOut(duration: 0.15)) {
@@ -65,6 +70,41 @@ class OmniBarState: ObservableObject {
     func reset() {
         inputText = ""
         isFocused = false
+    }
+
+    // MARK: - Mention Methods
+
+    /// Add a mention to the list
+    func addMention(_ mention: Mention) {
+        // Don't add duplicates
+        guard !mentions.contains(mention) else { return }
+        mentions.append(mention)
+    }
+
+    /// Remove a mention from the list
+    func removeMention(_ mention: Mention) {
+        mentions.removeAll { $0 == mention }
+    }
+
+    /// Reset mentions to default state (current page only)
+    func resetMentions() {
+        mentions = [.currentPage]
+    }
+
+    /// Open the mention dropdown
+    func openMentionDropdown() {
+        withAnimation(.easeInOut(duration: 0.15)) {
+            showMentionDropdown = true
+            mentionSearchText = ""
+        }
+    }
+
+    /// Dismiss the mention dropdown
+    func dismissMentionDropdown() {
+        withAnimation(.easeInOut(duration: 0.15)) {
+            showMentionDropdown = false
+            mentionSearchText = ""
+        }
     }
 
     /// Dismiss chat panel

@@ -31,23 +31,46 @@ class AgentManager: ObservableObject {
         isReady = true
     }
 
-    func sendMessage(_ content: String, pageContext: PageContext? = nil) async {
+    /// Send a message with multiple page contexts
+    func sendMessage(_ content: String, pageContexts: [PageContext]) async {
         isLoading = true
 
-        // Build message with context
+        // Build message with multiple contexts
         var fullMessage = content
-        if let context = pageContext {
+        if !pageContexts.isEmpty {
+            var contextParts: [String] = []
+            for (index, context) in pageContexts.enumerated() {
+                let header = pageContexts.count == 1 ? "[Page Context]" : "--- Page \(index + 1) ---"
+                contextParts.append("""
+                \(header)
+                URL: \(context.url)
+                Title: \(context.title)
+                Content Preview:
+                \(context.textContent.prefix(4000))
+                """)
+            }
             fullMessage = """
-            [Current Page Context]
-            URL: \(context.url)
-            Title: \(context.title)
-            Content Preview:
-            \(context.textContent.prefix(4000))
+            \(contextParts.joined(separator: "\n\n"))
 
             [User Question]
             \(content)
             """
         }
+
+        await sendMessageInternal(content: content, fullMessage: fullMessage)
+    }
+
+    /// Backward-compatible single context method
+    func sendMessage(_ content: String, pageContext: PageContext? = nil) async {
+        if let context = pageContext {
+            await sendMessage(content, pageContexts: [context])
+        } else {
+            await sendMessage(content, pageContexts: [])
+        }
+    }
+
+    private func sendMessageInternal(content: String, fullMessage: String) async {
+        isLoading = true
 
         // Add user message to chat UI
         let userMessage = ChatMessage(role: .user, content: content, timestamp: Date())

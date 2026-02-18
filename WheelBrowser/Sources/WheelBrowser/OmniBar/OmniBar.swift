@@ -8,6 +8,7 @@ struct OmniBar: View {
     @StateObject private var omniState = OmniBarState()
     @StateObject private var suggestionsVM = SuggestionsViewModel()
     @StateObject private var semanticSearchVM = SemanticSearchViewModel()
+    @StateObject private var mentionSuggestionsVM = MentionSuggestionsViewModel()
     @ObservedObject private var semanticSearchManager = SemanticSearchManager.shared
     @ObservedObject private var downloadManager = DownloadManager.shared
 
@@ -223,6 +224,15 @@ struct OmniBar: View {
             .animation(hasAppeared ? .spring(response: 0.3, dampingFraction: 0.85) : nil, value: downloadManager.showDownloadsPanel)
             .zIndex(999)
 
+            // Mention dropdown panel - appears above OmniBar input when in chat mode with @ trigger
+            if omniState.mode == .chat && omniState.showMentionDropdown {
+                mentionDropdownPanel
+                    .padding(.horizontal, 16)
+                    .padding(.bottom, 4)
+                    .transition(.opacity.combined(with: .scale(scale: 0.95, anchor: .bottom)))
+                    .zIndex(1000)
+            }
+
             // Find bar - appears above OmniBar when active
             if tab.isFindBarVisible {
                 OmniBarFindBar(tab: tab, findText: $findText, isFocused: _isFindFieldFocused)
@@ -326,6 +336,7 @@ struct OmniBar: View {
         .onAppear {
             omniState.inputText = tab.url?.absoluteString ?? ""
             suggestionsVM.browserState = browserState
+            mentionSuggestionsVM.browserState = browserState
             Task {
                 if !agentManager.isReady && !agentManager.isLoading {
                     await agentManager.initialize()
@@ -362,7 +373,10 @@ struct OmniBar: View {
             omniState.openSemanticPanel()
         }
         .onReceive(NotificationCenter.default.publisher(for: .escapePressed)) { _ in
-            if tab.isFindBarVisible {
+            if omniState.showMentionDropdown {
+                omniState.dismissMentionDropdown()
+                mentionSuggestionsVM.clear()
+            } else if tab.isFindBarVisible {
                 withAnimation(.easeInOut(duration: 0.15)) {
                     tab.hideFindBar()
                 }
@@ -532,6 +546,11 @@ struct OmniBar: View {
             // Mode indicator icon
             modeIndicator
 
+            // Mention chips (only in chat mode)
+            if omniState.mode == .chat {
+                mentionChips
+            }
+
             // Input field
             OmniBarTextField(
                 text: $omniState.inputText,
@@ -539,13 +558,21 @@ struct OmniBar: View {
                 mode: omniState.mode,
                 suggestionsVM: suggestionsVM,
                 semanticSearchVM: semanticSearchVM,
-                placeholder: omniState.placeholder,
+                mentionSuggestionsVM: mentionSuggestionsVM,
+                omniState: omniState,
+                placeholder: omniState.mode == .chat && !omniState.mentions.isEmpty ? "Ask about these pages..." : omniState.placeholder,
                 onSubmit: handleSubmit,
                 onTabPress: {
                     omniState.nextMode()
                 },
                 onShiftTabPress: {
                     omniState.previousMode()
+                },
+                onAtTrigger: { query in
+                    handleAtTrigger(query: query)
+                },
+                onMentionSelect: {
+                    handleMentionSelection()
                 }
             )
 
@@ -554,7 +581,7 @@ struct OmniBar: View {
         }
         .padding(.horizontal, 14)
         .padding(.vertical, 10)
-        .frame(minWidth: shouldExpand ? 400 : 280, maxWidth: shouldExpand ? 500 : 320)
+        .frame(minWidth: shouldExpand ? 400 : 280, maxWidth: shouldExpand ? 540 : 360)
         .background {
             Capsule()
                 .fill(.ultraThinMaterial)
@@ -571,6 +598,111 @@ struct OmniBar: View {
                     isInputFocused ? omniState.modeColor.opacity(0.6) : Color.white.opacity(0.1),
                     lineWidth: isInputFocused ? 2 : 1
                 )
+        }
+    }
+
+    // MARK: - Mention Chips
+
+    private var mentionChips: some View {
+        HStack(spacing: 4) {
+            ForEach(omniState.mentions) { mention in
+                MentionChip(mention: mention) {
+                    withAnimation(.easeInOut(duration: 0.15)) {
+                        omniState.removeMention(mention)
+                    }
+                }
+            }
+        }
+    }
+
+    // MARK: - Mention Dropdown Panel
+
+    private var mentionDropdownPanel: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            if mentionSuggestionsVM.suggestions.isEmpty {
+                if mentionSuggestionsVM.isSearching {
+                    HStack {
+                        ProgressView()
+                            .scaleEffect(0.6)
+                        Text("Searching...")
+                            .font(.system(size: 11))
+                            .foregroundColor(.secondary)
+                    }
+                    .frame(maxWidth: .infinity, alignment: .center)
+                    .padding(.vertical, 12)
+                } else {
+                    Text("No matches found")
+                        .font(.system(size: 11))
+                        .foregroundColor(.secondary)
+                        .frame(maxWidth: .infinity, alignment: .center)
+                        .padding(.vertical, 12)
+                }
+            } else {
+                ScrollView(showsIndicators: false) {
+                    VStack(spacing: 2) {
+                        ForEach(Array(mentionSuggestionsVM.suggestions.enumerated()), id: \.element.id) { index, suggestion in
+                            MentionSuggestionRow(
+                                suggestion: suggestion,
+                                isSelected: index == mentionSuggestionsVM.selectedIndex,
+                                onSelect: {
+                                    selectMentionSuggestion(suggestion)
+                                }
+                            )
+                        }
+                    }
+                    .padding(.vertical, 6)
+                    .padding(.horizontal, 6)
+                }
+                .frame(maxHeight: 200)
+            }
+        }
+        .frame(maxWidth: 360)
+        .background(
+            RoundedRectangle(cornerRadius: 10)
+                .fill(Color(nsColor: .windowBackgroundColor))
+                .shadow(color: .black.opacity(0.2), radius: 8, x: 0, y: 4)
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 10)
+                .strokeBorder(Color.purple.opacity(0.3), lineWidth: 1)
+        )
+    }
+
+    // MARK: - Mention Handling
+
+    private func handleAtTrigger(query: String) {
+        if !omniState.showMentionDropdown {
+            omniState.openMentionDropdown()
+        }
+        omniState.mentionSearchText = query
+        mentionSuggestionsVM.updateSuggestions(
+            for: query,
+            excluding: omniState.mentions,
+            currentTabId: tab.id
+        )
+    }
+
+    private func handleMentionSelection() {
+        guard let suggestion = mentionSuggestionsVM.selectedSuggestion else { return }
+        selectMentionSuggestion(suggestion)
+    }
+
+    private func selectMentionSuggestion(_ suggestion: MentionSuggestion) {
+        withAnimation(.easeInOut(duration: 0.15)) {
+            omniState.addMention(suggestion.mention)
+            omniState.dismissMentionDropdown()
+        }
+        mentionSuggestionsVM.clear()
+
+        // Remove the @query from input text
+        removeAtQueryFromInput()
+    }
+
+    private func removeAtQueryFromInput() {
+        // Find and remove @... pattern from input
+        let text = omniState.inputText
+        if let atIndex = text.lastIndex(of: "@") {
+            omniState.inputText = String(text[..<atIndex])
         }
     }
 
@@ -689,15 +821,50 @@ struct OmniBar: View {
         let content = omniState.inputText.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !content.isEmpty else { return }
 
+        // Capture mentions before clearing
+        let currentMentions = omniState.mentions
+
         omniState.inputText = ""
         isSending = true
 
         omniState.openChatPanel()
 
         Task {
-            let pageContext = await contentExtractor.extractContent(from: tab)
-            await agentManager.sendMessage(content, pageContext: pageContext)
+            // Extract content from all mentioned sources
+            var pageContexts: [PageContext] = []
+
+            for mention in currentMentions {
+                switch mention {
+                case .currentPage:
+                    if let context = await contentExtractor.extractContent(from: tab) {
+                        pageContexts.append(context)
+                    }
+
+                case .tab(let tabId, _, _):
+                    // Find the tab and extract its content
+                    if let mentionedTab = browserState.tabs.first(where: { $0.id == tabId }) {
+                        if let context = await contentExtractor.extractContent(from: mentionedTab) {
+                            pageContexts.append(context)
+                        }
+                    }
+
+                case .semanticResult(_, _, let url):
+                    // For semantic results, we include the URL as context
+                    // The actual content would need to be fetched, but for now we provide URL info
+                    let semanticContext = PageContext(
+                        url: url,
+                        title: mention.displayTitle,
+                        textContent: "[Content from browsing history - URL: \(url)]"
+                    )
+                    pageContexts.append(semanticContext)
+                }
+            }
+
+            await agentManager.sendMessage(content, pageContexts: pageContexts)
             isSending = false
+
+            // Reset mentions to default after sending
+            omniState.resetMentions()
         }
     }
 
@@ -724,10 +891,14 @@ struct OmniBarTextField: NSViewRepresentable {
     let mode: OmniBarMode
     @ObservedObject var suggestionsVM: SuggestionsViewModel
     @ObservedObject var semanticSearchVM: SemanticSearchViewModel
+    @ObservedObject var mentionSuggestionsVM: MentionSuggestionsViewModel
+    @ObservedObject var omniState: OmniBarState
     let placeholder: String
     var onSubmit: () -> Void
     var onTabPress: () -> Void
     var onShiftTabPress: () -> Void
+    var onAtTrigger: (String) -> Void
+    var onMentionSelect: () -> Void
 
     func makeNSView(context: Context) -> NSTextField {
         let textField = NSTextField()
@@ -798,11 +969,100 @@ struct OmniBarTextField: NSViewRepresentable {
 
         func controlTextDidChange(_ obj: Notification) {
             if let textField = obj.object as? NSTextField {
-                parent.text = textField.stringValue
+                let newText = textField.stringValue
+                parent.text = newText
+
+                // Check for @ trigger in chat mode
+                if parent.mode == .chat {
+                    checkForAtTrigger(in: newText)
+                }
+            }
+        }
+
+        private func checkForAtTrigger(in text: String) {
+            // Find the last @ and extract the query after it
+            if let atIndex = text.lastIndex(of: "@") {
+                let queryStartIndex = text.index(after: atIndex)
+                let query = String(text[queryStartIndex...])
+
+                // Check if @ is at start or preceded by whitespace
+                let isValidTrigger: Bool
+                if atIndex == text.startIndex {
+                    isValidTrigger = true
+                } else {
+                    let beforeAt = text.index(before: atIndex)
+                    let charBeforeAt = text[beforeAt]
+                    isValidTrigger = charBeforeAt.isWhitespace
+                }
+
+                // Only trigger if query doesn't contain spaces (single word/partial)
+                if isValidTrigger && !query.contains(" ") {
+                    DispatchQueue.main.async {
+                        self.parent.onAtTrigger(query)
+                    }
+                    return
+                }
+            }
+
+            // No valid @ trigger - dismiss dropdown if open
+            DispatchQueue.main.async { [self] in
+                Task { @MainActor in
+                    if self.parent.omniState.showMentionDropdown {
+                        self.parent.omniState.dismissMentionDropdown()
+                        self.parent.mentionSuggestionsVM.clear()
+                    }
+                }
             }
         }
 
         func control(_ control: NSControl, textView: NSTextView, doCommandBy commandSelector: Selector) -> Bool {
+            // For chat mode, we need to handle mention navigation
+            // We dispatch to main async for MainActor-isolated properties
+            if parent.mode == .chat {
+                if commandSelector == #selector(NSResponder.moveUp(_:)) {
+                    DispatchQueue.main.async {
+                        Task { @MainActor in
+                            if self.parent.omniState.showMentionDropdown {
+                                self.parent.mentionSuggestionsVM.selectPrevious()
+                            }
+                        }
+                    }
+                    return true
+                } else if commandSelector == #selector(NSResponder.moveDown(_:)) {
+                    DispatchQueue.main.async {
+                        Task { @MainActor in
+                            if self.parent.omniState.showMentionDropdown {
+                                self.parent.mentionSuggestionsVM.selectNext()
+                            }
+                        }
+                    }
+                    return true
+                } else if commandSelector == #selector(NSResponder.insertNewline(_:)) {
+                    DispatchQueue.main.async {
+                        Task { @MainActor in
+                            if self.parent.omniState.showMentionDropdown && !self.parent.mentionSuggestionsVM.suggestions.isEmpty {
+                                self.parent.onMentionSelect()
+                            } else {
+                                self.parent.onSubmit()
+                            }
+                        }
+                    }
+                    return true
+                } else if commandSelector == #selector(NSResponder.cancelOperation(_:)) {
+                    DispatchQueue.main.async {
+                        Task { @MainActor in
+                            if self.parent.omniState.showMentionDropdown {
+                                self.parent.omniState.dismissMentionDropdown()
+                                self.parent.mentionSuggestionsVM.clear()
+                            } else {
+                                NotificationCenter.default.post(name: .escapePressed, object: nil)
+                            }
+                        }
+                    }
+                    return true
+                }
+            }
+
             if commandSelector == #selector(NSResponder.insertNewline(_:)) {
                 parent.onSubmit()
                 return true

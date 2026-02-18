@@ -36,28 +36,20 @@ struct ChatPanelTypingIndicator: View {
     }
 }
 
-// MARK: - Streaming Text with Cursor
+// MARK: - Streaming Cursor Indicator
 
-struct ChatPanelStreamingText: View {
-    let text: String
-    let textColor: Color
+struct ChatPanelStreamingCursor: View {
     @State private var showCursor = true
 
     var body: some View {
-        HStack(spacing: 0) {
-            Text(text)
-                .font(.system(size: 13))
-                .foregroundColor(textColor)
-
-            Text("|")
-                .font(.system(size: 13, weight: .medium))
-                .foregroundColor(textColor.opacity(showCursor ? 0.8 : 0.0))
-        }
-        .onAppear {
-            withAnimation(.easeInOut(duration: 0.5).repeatForever(autoreverses: true)) {
-                showCursor.toggle()
+        Text("|")
+            .font(.system(size: 13, weight: .medium))
+            .foregroundColor(.purple.opacity(showCursor ? 0.8 : 0.0))
+            .onAppear {
+                withAnimation(.easeInOut(duration: 0.5).repeatForever(autoreverses: true)) {
+                    showCursor.toggle()
+                }
             }
-        }
     }
 }
 
@@ -350,16 +342,17 @@ struct ChatPanelMessageBubble: View {
 
                 // Message content
                 Group {
-                    if message.content.isEmpty {
+                    if message.content.isEmpty && message.isStreaming {
                         ChatPanelTypingIndicator()
-                    } else if message.isStreaming {
-                        ChatPanelStreamingText(
-                            text: message.content,
-                            textColor: message.role == .user ? .white : .primary
-                        )
                     } else {
-                        Markdown(message.content)
-                            .markdownTheme(markdownTheme)
+                        VStack(alignment: .leading, spacing: 4) {
+                            Markdown(message.content)
+                                .markdownTheme(markdownTheme)
+
+                            if message.isStreaming {
+                                ChatPanelStreamingCursor()
+                            }
+                        }
                     }
                 }
                 .textSelection(.enabled)
