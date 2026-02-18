@@ -91,6 +91,17 @@ private struct NavigationNotificationModifier: ViewModifier {
             .onReceive(NotificationCenter.default.publisher(for: .togglePictureInPicture)) { _ in
                 state.activeTab?.togglePictureInPicture()
             }
+            .onReceive(NotificationCenter.default.publisher(for: .toggleDarkMode)) { _ in
+                if let tab = state.activeTab {
+                    DarkModeManager.shared.toggle(on: tab)
+                }
+            }
+            .onReceive(NotificationCenter.default.publisher(for: .darkModeChanged)) { _ in
+                DarkModeManager.shared.applyToExistingTabs(state.tabs)
+            }
+            .onReceive(NotificationCenter.default.publisher(for: .darkModeBrightnessChanged)) { _ in
+                DarkModeManager.shared.updateBrightnessContrast(on: state.tabs)
+            }
     }
 }
 

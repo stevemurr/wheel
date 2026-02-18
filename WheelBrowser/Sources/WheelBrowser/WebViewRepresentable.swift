@@ -75,6 +75,14 @@ struct WebViewRepresentable: NSViewRepresentable {
             }
         }
 
+        func webView(_ webView: WKWebView, didCommit navigation: WKNavigation!) {
+            // Apply dark mode as early as possible when navigation commits
+            // This runs before didFinish and helps prevent flash of light content
+            DispatchQueue.main.async {
+                self.applyDarkModeIfNeeded(to: webView)
+            }
+        }
+
         func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
             DispatchQueue.main.async {
                 self.tab.isLoading = false
@@ -82,6 +90,10 @@ struct WebViewRepresentable: NSViewRepresentable {
                 self.tab.url = webView.url
                 self.tab.canGoBack = webView.canGoBack
                 self.tab.canGoForward = webView.canGoForward
+
+                // Re-apply dark mode state after navigation
+                // This ensures dark mode is applied even if settings changed after tab creation
+                self.applyDarkModeIfNeeded(to: webView)
 
                 // Record page load for blocking stats
                 if AppSettings.shared.adBlockingEnabled {
@@ -98,6 +110,28 @@ struct WebViewRepresentable: NSViewRepresentable {
                     self.indexPageForSemanticSearch(webView: webView, url: url, title: title, workspaceID: workspaceID)
                 }
             }
+        }
+
+        /// Apply dark mode to the webview based on current settings
+        private func applyDarkModeIfNeeded(to webView: WKWebView) {
+            let settings = AppSettings.shared
+            let shouldEnable: Bool
+
+            switch settings.darkModeMode {
+            case .on:
+                shouldEnable = true
+            case .off:
+                shouldEnable = false
+            case .auto:
+                if let appearance = NSApp.effectiveAppearance.bestMatch(from: [.darkAqua, .aqua]) {
+                    shouldEnable = appearance == .darkAqua
+                } else {
+                    shouldEnable = false
+                }
+            }
+
+            let script = shouldEnable ? DarkModeScripts.enableScript() : DarkModeScripts.disableScript()
+            webView.evaluateJavaScript(script) { _, _ in }
         }
 
         private func indexPageForSemanticSearch(webView: WKWebView, url: URL, title: String, workspaceID: UUID?) {

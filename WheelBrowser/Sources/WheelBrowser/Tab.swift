@@ -1,5 +1,6 @@
 import Foundation
 import WebKit
+import AppKit
 
 class Tab: Identifiable, ObservableObject {
     let id = UUID()
@@ -25,6 +26,10 @@ class Tab: Identifiable, ObservableObject {
 
         // Enable Picture-in-Picture using KVC (required on macOS, private API)
         config.preferences.setValue(true, forKey: "allowsPictureInPictureMediaPlayback")
+
+        // Inject dark mode script at document start to prevent flash of light content
+        let darkModeScript = Tab.createDarkModeUserScript()
+        config.userContentController.addUserScript(darkModeScript)
 
         self.webView = WKWebView(frame: .zero, configuration: config)
         self.webView.allowsBackForwardNavigationGestures = true
@@ -245,6 +250,41 @@ class Tab: Identifiable, ObservableObject {
         })();
         """
         webView.evaluateJavaScript(script) { _, _ in }
+    }
+
+    // MARK: - Dark Mode Helper
+
+    /// Creates a dark mode user script based on current settings
+    /// This is a static method to avoid MainActor isolation issues during init
+    private static func createDarkModeUserScript() -> WKUserScript {
+        let settings = AppSettings.shared
+        let shouldEnable: Bool
+
+        switch settings.darkModeMode {
+        case .on:
+            shouldEnable = true
+        case .off:
+            shouldEnable = false
+        case .auto:
+            // Check system appearance synchronously
+            if let appearance = NSApp.effectiveAppearance.bestMatch(from: [.darkAqua, .aqua]) {
+                shouldEnable = appearance == .darkAqua
+            } else {
+                shouldEnable = false
+            }
+        }
+
+        let script = DarkModeScripts.generateBundle(
+            enabled: shouldEnable,
+            brightness: settings.darkModeBrightness,
+            contrast: settings.darkModeContrast
+        )
+
+        return WKUserScript(
+            source: script,
+            injectionTime: .atDocumentStart,
+            forMainFrameOnly: false
+        )
     }
 
     // MARK: - Picture in Picture

@@ -174,6 +174,13 @@ struct WheelBrowserApp: App {
                     NotificationCenter.default.post(name: .toggleDownloads, object: nil)
                 }
                 .keyboardShortcut("d", modifiers: .command)
+
+                Divider()
+
+                Button("Toggle Dark Mode") {
+                    NotificationCenter.default.post(name: .toggleDarkMode, object: nil)
+                }
+                .keyboardShortcut("d", modifiers: [.command, .shift])
             }
         }
 

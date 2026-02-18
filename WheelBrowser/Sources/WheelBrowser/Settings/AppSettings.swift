@@ -81,6 +81,34 @@ class AppSettings: ObservableObject {
         !llmAPIKey.isEmpty
     }
 
+    // MARK: - Dark Mode Settings (Web Content)
+
+    /// Dark mode for web content - mode setting (auto, on, off)
+    @AppStorage("darkModeMode") var darkModeModeRaw: String = DarkModeMode.off.rawValue {
+        didSet {
+            NotificationCenter.default.post(name: .darkModeChanged, object: nil)
+        }
+    }
+
+    var darkModeMode: DarkModeMode {
+        get { DarkModeMode(rawValue: darkModeModeRaw) ?? .off }
+        set { darkModeModeRaw = newValue.rawValue }
+    }
+
+    /// Dark mode brightness adjustment (0-200, 100 is default)
+    @AppStorage("darkModeBrightness") var darkModeBrightness: Double = 100 {
+        didSet {
+            NotificationCenter.default.post(name: .darkModeBrightnessChanged, object: nil)
+        }
+    }
+
+    /// Dark mode contrast adjustment (0-200, 100 is default)
+    @AppStorage("darkModeContrast") var darkModeContrast: Double = 100 {
+        didSet {
+            NotificationCenter.default.post(name: .darkModeBrightnessChanged, object: nil)
+        }
+    }
+
     // MARK: - Content Blocking Settings
 
     /// Master toggle for content blocking
