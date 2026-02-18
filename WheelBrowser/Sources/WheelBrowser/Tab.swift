@@ -25,8 +25,6 @@ class Tab: Identifiable, ObservableObject {
 
         // Enable Picture-in-Picture using KVC (required on macOS, private API)
         config.preferences.setValue(true, forKey: "allowsPictureInPictureMediaPlayback")
-        let pipEnabled = config.preferences.value(forKey: "allowsPictureInPictureMediaPlayback") as? Bool ?? false
-        print("[PiP] Configuration allowsPictureInPictureMediaPlayback = \(pipEnabled)")
 
         self.webView = WKWebView(frame: .zero, configuration: config)
         self.webView.allowsBackForwardNavigationGestures = true
@@ -308,12 +306,6 @@ class Tab: Identifiable, ObservableObject {
             return { success: true, action: 'enter', method: 'standard-async' };
         })();
         """
-        webView.evaluateJavaScript(script) { result, error in
-            if let error = error {
-                print("[PiP] JavaScript error: \(error.localizedDescription)")
-            } else if let result = result {
-                print("[PiP] Result: \(result)")
-            }
-        }
+        webView.evaluateJavaScript(script) { _, _ in }
     }
 }
