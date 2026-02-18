@@ -44,7 +44,7 @@ struct MessageBubble: View {
                     } else if message.isStreaming {
                         // Fast plain text rendering during streaming
                         Text(message.content)
-                            .font(.system(size: 13))
+                            .font(.system(size: 12))
                             .foregroundColor(message.role == .user ? .white : .primary)
                     } else {
                         // Full markdown rendering when complete
@@ -112,11 +112,70 @@ struct MessageBubble: View {
         switch message.role {
         case .user:
             return Theme()
-                .text { ForegroundColor(.white) }
-                .code { ForegroundColor(.white.opacity(0.95)); BackgroundColor(.white.opacity(0.2)) }
-                .link { ForegroundColor(.white); UnderlineStyle(.single) }
+                .text {
+                    ForegroundColor(.white)
+                    FontSize(13)
+                }
+                .paragraph { configuration in
+                    configuration.label
+                        .markdownMargin(top: 0, bottom: 4)
+                }
+                .code {
+                    ForegroundColor(.white.opacity(0.95))
+                    BackgroundColor(.white.opacity(0.2))
+                    FontSize(12)
+                }
+                .link {
+                    ForegroundColor(.white)
+                    UnderlineStyle(.single)
+                }
         default:
-            return Theme.gitHub
+            return Theme()
+                .text {
+                    ForegroundColor(.primary)
+                    FontSize(13)
+                }
+                .paragraph { configuration in
+                    configuration.label
+                        .markdownMargin(top: 0, bottom: 4)
+                }
+                .code {
+                    FontFamilyVariant(.monospaced)
+                    FontSize(12)
+                    BackgroundColor(Color(nsColor: .controlBackgroundColor))
+                }
+                .codeBlock { configuration in
+                    configuration.label
+                        .padding(8)
+                        .background(Color(nsColor: .controlBackgroundColor))
+                        .clipShape(RoundedRectangle(cornerRadius: 6))
+                        .markdownMargin(top: 4, bottom: 4)
+                }
+                .link {
+                    ForegroundColor(.accentColor)
+                }
+                .strong {
+                    FontWeight(.semibold)
+                }
+                .heading1 { configuration in
+                    configuration.label
+                        .markdownTextStyle { FontSize(14); FontWeight(.bold) }
+                        .markdownMargin(top: 8, bottom: 4)
+                }
+                .heading2 { configuration in
+                    configuration.label
+                        .markdownTextStyle { FontSize(13); FontWeight(.bold) }
+                        .markdownMargin(top: 6, bottom: 4)
+                }
+                .heading3 { configuration in
+                    configuration.label
+                        .markdownTextStyle { FontSize(13); FontWeight(.semibold) }
+                        .markdownMargin(top: 4, bottom: 2)
+                }
+                .listItem { configuration in
+                    configuration.label
+                        .markdownMargin(top: 2, bottom: 2)
+                }
         }
     }
 }

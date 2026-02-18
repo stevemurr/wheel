@@ -109,19 +109,6 @@ private struct ZoomNotificationModifier: ViewModifier {
     }
 }
 
-private struct SidebarNotificationModifier: ViewModifier {
-    @ObservedObject var settings: AppSettings
-
-    func body(content: Content) -> some View {
-        content
-            .onReceive(NotificationCenter.default.publisher(for: .toggleTabSidebar)) { _ in
-                withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
-                    settings.tabSidebarExpanded.toggle()
-                }
-            }
-    }
-}
-
 struct ContentView: View {
     @StateObject private var state = BrowserState()
     @ObservedObject private var agentManager = AgentManager.shared
@@ -134,28 +121,19 @@ struct ContentView: View {
 
     @ViewBuilder
     private var mainContent: some View {
-        HStack(spacing: 0) {
-            TabSidebar(
-                state: state,
-                onWorkspaceSelected: { workspaceId in
-                    switchToWorkspace(workspaceId)
-                }
-            )
-
-            VStack(spacing: 0) {
-                if let tab = state.activeTab {
-                    BrowserContentArea(
-                        tab: tab,
-                        agentManager: agentManager,
-                        browserState: state,
-                        settings: settings,
-                        contentExtractor: contentExtractor
-                    )
-                }
+        VStack(spacing: 0) {
+            if let tab = state.activeTab {
+                BrowserContentArea(
+                    tab: tab,
+                    agentManager: agentManager,
+                    browserState: state,
+                    settings: settings,
+                    contentExtractor: contentExtractor
+                )
             }
-            .frame(minWidth: 400)
-            .background(WindowAccessor())
         }
+        .frame(minWidth: 400)
+        .background(WindowAccessor())
     }
 
     // MARK: - Body
@@ -171,7 +149,6 @@ struct ContentView: View {
             ))
             .modifier(NavigationNotificationModifier(state: state))
             .modifier(ZoomNotificationModifier(state: state))
-            .modifier(SidebarNotificationModifier(settings: settings))
     }
 
     // MARK: - Handlers

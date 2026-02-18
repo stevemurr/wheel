@@ -5,6 +5,7 @@ struct OmniPanel<Content: View>: View {
     let title: String
     let icon: String
     let iconColor: Color
+    let borderColor: Color
     let subtitle: String?
     let menuContent: (() -> AnyView)?
     let onDismiss: () -> Void
@@ -12,13 +13,14 @@ struct OmniPanel<Content: View>: View {
 
     @State private var isHovering = false
 
-    private let maxHeight: CGFloat = 400
+    private let maxHeight: CGFloat = 500
     private let maxWidth: CGFloat = 700
 
     init(
         title: String,
         icon: String,
         iconColor: Color = .accentColor,
+        borderColor: Color = .blue,
         subtitle: String? = nil,
         menuContent: (() -> AnyView)? = nil,
         onDismiss: @escaping () -> Void,
@@ -27,6 +29,7 @@ struct OmniPanel<Content: View>: View {
         self.title = title
         self.icon = icon
         self.iconColor = iconColor
+        self.borderColor = borderColor
         self.subtitle = subtitle
         self.menuContent = menuContent
         self.onDismiss = onDismiss
@@ -53,7 +56,7 @@ struct OmniPanel<Content: View>: View {
         )
         .overlay(
             RoundedRectangle(cornerRadius: 12, style: .continuous)
-                .stroke(Color(nsColor: .separatorColor), lineWidth: 1.5)
+                .stroke(borderColor.opacity(0.5), lineWidth: 1.5)
         )
         .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
         .onHover { hovering in
@@ -211,6 +214,7 @@ struct HistoryPanelContent: View {
 
 struct ChatPanelContent: View {
     @ObservedObject var agentManager: AgentManager
+    @State private var shouldAutoScroll = true
 
     var body: some View {
         ScrollViewReader { proxy in
@@ -242,18 +246,51 @@ struct ChatPanelContent: View {
                             ChatPanelMessageBubble(message: message)
                                 .id(message.id)
                         }
+
+                        // Invisible anchor at the bottom for scrolling
+                        Color.clear
+                            .frame(height: 1)
+                            .id("bottom")
                     }
                 }
                 .padding(.horizontal, 14)
                 .padding(.vertical, 12)
-            }
-            .onChange(of: agentManager.messages.count) { _, _ in
-                if let lastMessage = agentManager.messages.last {
-                    withAnimation(.easeOut(duration: 0.3)) {
-                        proxy.scrollTo(lastMessage.id, anchor: .bottom)
+                .background(
+                    GeometryReader { contentGeometry in
+                        Color.clear
+                            .preference(
+                                key: OmniPanelScrollOffsetPreferenceKey.self,
+                                value: contentGeometry.frame(in: .named("omniPanelScroll")).minY
+                            )
                     }
+                )
+            }
+            .coordinateSpace(name: "omniPanelScroll")
+            .onPreferenceChange(OmniPanelScrollOffsetPreferenceKey.self) { offset in
+                // If user scrolls up significantly, disable auto-scroll
+                if offset > -20 {
+                    shouldAutoScroll = false
+                } else {
+                    shouldAutoScroll = true
                 }
             }
+            .onChange(of: agentManager.messages.count) { _, _ in
+                // Re-enable auto-scroll on new message
+                shouldAutoScroll = true
+                scrollToBottom(proxy: proxy)
+            }
+            .onChange(of: agentManager.messages.last?.content) { _, _ in
+                // Scroll during streaming if auto-scroll is enabled
+                if shouldAutoScroll {
+                    scrollToBottom(proxy: proxy)
+                }
+            }
+        }
+    }
+
+    private func scrollToBottom(proxy: ScrollViewProxy) {
+        withAnimation(.easeOut(duration: 0.15)) {
+            proxy.scrollTo("bottom", anchor: .bottom)
         }
     }
 
@@ -262,6 +299,15 @@ struct ChatPanelContent: View {
             return "Thinking..."
         }
         return nil
+    }
+}
+
+// MARK: - Scroll Offset Preference Key
+
+private struct OmniPanelScrollOffsetPreferenceKey: PreferenceKey {
+    static var defaultValue: CGFloat = 0
+    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
+        value = nextValue()
     }
 }
 

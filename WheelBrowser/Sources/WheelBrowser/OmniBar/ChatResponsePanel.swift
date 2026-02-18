@@ -8,8 +8,9 @@ struct ChatResponsePanel: View {
     let onDismiss: () -> Void
 
     @State private var isHovering = false
+    @State private var shouldAutoScroll = true
 
-    private let maxHeight: CGFloat = 400
+    private let maxHeight: CGFloat = 500
 
     var body: some View {
         VStack(spacing: 0) {
@@ -31,7 +32,7 @@ struct ChatResponsePanel: View {
         )
         .overlay(
             RoundedRectangle(cornerRadius: 12, style: .continuous)
-                .stroke(Color(nsColor: .separatorColor).opacity(0.8), lineWidth: 1)
+                .stroke(Color.purple.opacity(0.5), lineWidth: 1.5)
         )
         .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
         .onHover { hovering in
@@ -106,18 +107,51 @@ struct ChatResponsePanel: View {
                             ChatPanelMessageBubble(message: message)
                                 .id(message.id)
                         }
+
+                        // Invisible anchor at the bottom for scrolling
+                        Color.clear
+                            .frame(height: 1)
+                            .id("bottom")
                     }
                 }
                 .padding(.horizontal, 14)
                 .padding(.vertical, 12)
-            }
-            .onChange(of: agentManager.messages.count) { _, _ in
-                if let lastMessage = agentManager.messages.last {
-                    withAnimation(.easeOut(duration: 0.3)) {
-                        proxy.scrollTo(lastMessage.id, anchor: .bottom)
+                .background(
+                    GeometryReader { contentGeometry in
+                        Color.clear
+                            .preference(
+                                key: ChatScrollOffsetPreferenceKey.self,
+                                value: contentGeometry.frame(in: .named("chatResponseScroll")).minY
+                            )
                     }
+                )
+            }
+            .coordinateSpace(name: "chatResponseScroll")
+            .onPreferenceChange(ChatScrollOffsetPreferenceKey.self) { offset in
+                // If user scrolls up significantly, disable auto-scroll
+                if offset > -20 {
+                    shouldAutoScroll = false
+                } else {
+                    shouldAutoScroll = true
                 }
             }
+            .onChange(of: agentManager.messages.count) { _, _ in
+                // Re-enable auto-scroll on new message
+                shouldAutoScroll = true
+                scrollToBottom(proxy: proxy)
+            }
+            .onChange(of: agentManager.messages.last?.content) { _, _ in
+                // Scroll during streaming if auto-scroll is enabled
+                if shouldAutoScroll {
+                    scrollToBottom(proxy: proxy)
+                }
+            }
+        }
+    }
+
+    private func scrollToBottom(proxy: ScrollViewProxy) {
+        withAnimation(.easeOut(duration: 0.15)) {
+            proxy.scrollTo("bottom", anchor: .bottom)
         }
     }
 
@@ -263,11 +297,79 @@ struct ChatPanelMessageBubble: View {
         switch message.role {
         case .user:
             return Theme()
-                .text { ForegroundColor(.white) }
-                .code { ForegroundColor(.white.opacity(0.95)); BackgroundColor(.white.opacity(0.2)) }
-                .link { ForegroundColor(.white); UnderlineStyle(.single) }
+                .text {
+                    ForegroundColor(.white)
+                    FontSize(13)
+                }
+                .paragraph { configuration in
+                    configuration.label
+                        .markdownMargin(top: 0, bottom: 4)
+                }
+                .code {
+                    ForegroundColor(.white.opacity(0.95))
+                    BackgroundColor(.white.opacity(0.2))
+                    FontSize(12)
+                }
+                .link {
+                    ForegroundColor(.white)
+                    UnderlineStyle(.single)
+                }
         default:
-            return Theme.gitHub
+            return Theme()
+                .text {
+                    ForegroundColor(.primary)
+                    FontSize(13)
+                }
+                .paragraph { configuration in
+                    configuration.label
+                        .markdownMargin(top: 0, bottom: 4)
+                }
+                .code {
+                    FontFamilyVariant(.monospaced)
+                    FontSize(12)
+                    BackgroundColor(Color(nsColor: .controlBackgroundColor))
+                }
+                .codeBlock { configuration in
+                    configuration.label
+                        .padding(8)
+                        .background(Color(nsColor: .controlBackgroundColor))
+                        .clipShape(RoundedRectangle(cornerRadius: 6))
+                        .markdownMargin(top: 4, bottom: 4)
+                }
+                .link {
+                    ForegroundColor(.accentColor)
+                }
+                .strong {
+                    FontWeight(.semibold)
+                }
+                .heading1 { configuration in
+                    configuration.label
+                        .markdownTextStyle { FontSize(14); FontWeight(.bold) }
+                        .markdownMargin(top: 8, bottom: 4)
+                }
+                .heading2 { configuration in
+                    configuration.label
+                        .markdownTextStyle { FontSize(13); FontWeight(.bold) }
+                        .markdownMargin(top: 6, bottom: 4)
+                }
+                .heading3 { configuration in
+                    configuration.label
+                        .markdownTextStyle { FontSize(13); FontWeight(.semibold) }
+                        .markdownMargin(top: 4, bottom: 2)
+                }
+                .listItem { configuration in
+                    configuration.label
+                        .markdownMargin(top: 2, bottom: 2)
+                }
         }
+    }
+}
+
+// MARK: - Scroll Offset Preference Key
+
+private struct ChatScrollOffsetPreferenceKey: PreferenceKey {
+    static var defaultValue: CGFloat = 0
+    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
+        value = nextValue()
     }
 }

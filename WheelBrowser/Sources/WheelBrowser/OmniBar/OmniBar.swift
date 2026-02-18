@@ -57,6 +57,7 @@ struct OmniBar: View {
                 title: "Go to",
                 icon: "magnifyingglass",
                 iconColor: .accentColor,
+                borderColor: .blue,
                 subtitle: historyPanelSubtitle,
                 onDismiss: {
                     omniState.dismissHistoryPanel()
@@ -87,6 +88,7 @@ struct OmniBar: View {
                 title: "AI Assistant",
                 icon: "sparkles",
                 iconColor: .purple,
+                borderColor: .purple,
                 subtitle: agentManager.isLoading ? "Thinking..." : nil,
                 menuContent: {
                     AnyView(

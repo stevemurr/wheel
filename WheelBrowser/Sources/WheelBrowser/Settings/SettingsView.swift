@@ -27,6 +27,16 @@ struct SettingsView: View {
 
     var body: some View {
         Form {
+            // MARK: - Appearance Section
+            Section("Appearance") {
+                Picker("Theme", selection: $settings.appearanceMode) {
+                    ForEach(AppearanceMode.allCases, id: \.self) { mode in
+                        Text(mode.displayName).tag(mode)
+                    }
+                }
+                .pickerStyle(.segmented)
+            }
+
             // MARK: - Content Blocking Section
             Section("Privacy & Content Blocking") {
                 // Master toggle

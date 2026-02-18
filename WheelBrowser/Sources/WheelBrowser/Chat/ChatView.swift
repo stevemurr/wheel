@@ -9,6 +9,7 @@ struct ChatView: View {
 
     @State private var inputText = ""
     @State private var isSending = false
+    @State private var shouldAutoScroll = true
     @FocusState private var isInputFocused: Bool
 
     var body: some View {
@@ -33,7 +34,7 @@ struct ChatView: View {
         .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
         .overlay(
             RoundedRectangle(cornerRadius: 16, style: .continuous)
-                .stroke(Color.gray.opacity(0.3), lineWidth: 1)
+                .stroke(Color.purple.opacity(0.5), lineWidth: 1.5)
         )
         .padding(.trailing, 12)
         .padding(.vertical, 12)
@@ -113,23 +114,53 @@ struct ChatView: View {
                             MessageBubble(message: message)
                                 .id(message.id)
                         }
+
+                        // Invisible anchor at the bottom for scrolling
+                        Color.clear
+                            .frame(height: 1)
+                            .id("bottom")
                     }
                 }
                 .padding(.vertical, 8)
+                .background(
+                    GeometryReader { contentGeometry in
+                        Color.clear
+                            .preference(
+                                key: ScrollOffsetPreferenceKey.self,
+                                value: contentGeometry.frame(in: .named("chatScroll")).minY
+                            )
+                    }
+                )
+            }
+            .coordinateSpace(name: "chatScroll")
+            .onPreferenceChange(ScrollOffsetPreferenceKey.self) { offset in
+                // If user scrolls up significantly, disable auto-scroll
+                // offset becomes more positive when scrolling up
+                if offset > -20 {
+                    // Near the top or scrolled up
+                    shouldAutoScroll = false
+                } else {
+                    // Scrolled down near bottom
+                    shouldAutoScroll = true
+                }
             }
             .onChange(of: agentManager.messages.count) { _, _ in
-                if let lastMessage = agentManager.messages.last {
-                    withAnimation(.easeOut(duration: 0.3)) {
-                        proxy.scrollTo(lastMessage.id, anchor: .bottom)
-                    }
+                // Re-enable auto-scroll on new message
+                shouldAutoScroll = true
+                scrollToBottom(proxy: proxy)
+            }
+            .onChange(of: agentManager.messages.last?.content) { _, _ in
+                // Scroll during streaming if auto-scroll is enabled
+                if shouldAutoScroll {
+                    scrollToBottom(proxy: proxy)
                 }
             }
-            .onChange(of: agentManager.isLoading) { _, isLoading in
-                // Scroll when loading state changes
-                if let lastMessage = agentManager.messages.last {
-                    proxy.scrollTo(lastMessage.id, anchor: .bottom)
-                }
-            }
+        }
+    }
+
+    private func scrollToBottom(proxy: ScrollViewProxy) {
+        withAnimation(.easeOut(duration: 0.15)) {
+            proxy.scrollTo("bottom", anchor: .bottom)
         }
     }
 
@@ -337,5 +368,14 @@ struct AISidebarContainer: View {
                 isPinned = false
             }
         }
+    }
+}
+
+// MARK: - Scroll Offset Preference Key
+
+private struct ScrollOffsetPreferenceKey: PreferenceKey {
+    static var defaultValue: CGFloat = 0
+    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
+        value = nextValue()
     }
 }

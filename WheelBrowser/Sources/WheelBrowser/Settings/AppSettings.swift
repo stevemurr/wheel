@@ -1,5 +1,30 @@
 import Foundation
 import SwiftUI
+import AppKit
+
+// MARK: - Appearance Mode
+
+enum AppearanceMode: String, CaseIterable {
+    case system = "system"
+    case light = "light"
+    case dark = "dark"
+
+    var displayName: String {
+        switch self {
+        case .system: return "System"
+        case .light: return "Light"
+        case .dark: return "Dark"
+        }
+    }
+
+    var nsAppearance: NSAppearance? {
+        switch self {
+        case .system: return nil
+        case .light: return NSAppearance(named: .aqua)
+        case .dark: return NSAppearance(named: .darkAqua)
+        }
+    }
+}
 
 class AppSettings: ObservableObject {
     static let shared = AppSettings()
@@ -12,6 +37,23 @@ class AppSettings: ObservableObject {
 
     /// Whether the left tab sidebar is expanded (showing full tab names) or collapsed (icons only)
     @AppStorage("tabSidebarExpanded") var tabSidebarExpanded: Bool = true
+
+    /// App appearance mode (system, light, or dark)
+    @AppStorage("appearanceMode") var appearanceModeRaw: String = AppearanceMode.system.rawValue {
+        didSet {
+            applyAppearance()
+        }
+    }
+
+    var appearanceMode: AppearanceMode {
+        get { AppearanceMode(rawValue: appearanceModeRaw) ?? .system }
+        set { appearanceModeRaw = newValue.rawValue }
+    }
+
+    /// Apply the current appearance mode to the app
+    func applyAppearance() {
+        NSApp.appearance = appearanceMode.nsAppearance
+    }
 
     /// Whether to use API key authentication for remote LLM endpoints
     @AppStorage("useAPIKey") var useAPIKey: Bool = false

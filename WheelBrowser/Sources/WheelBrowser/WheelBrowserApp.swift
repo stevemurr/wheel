@@ -8,6 +8,8 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.activate(ignoringOtherApps: true)
+        // Apply saved appearance mode
+        AppSettings.shared.applyAppearance()
         DispatchQueue.main.async {
             NSApp.windows.first?.makeKeyAndOrderFront(nil)
         }
