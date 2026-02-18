@@ -1,11 +1,13 @@
 import SwiftUI
 import WebKit
+import AuthenticationServices
 
 struct WebViewRepresentable: NSViewRepresentable {
     let tab: Tab
 
     func makeNSView(context: Context) -> WKWebView {
         tab.webView.navigationDelegate = context.coordinator
+        tab.webView.uiDelegate = context.coordinator
         return tab.webView
     }
 
@@ -17,12 +19,14 @@ struct WebViewRepresentable: NSViewRepresentable {
         Coordinator(tab: tab)
     }
 
-    class Coordinator: NSObject, WKNavigationDelegate {
+    class Coordinator: NSObject, WKNavigationDelegate, WKUIDelegate {
         let tab: Tab
 
         init(tab: Tab) {
             self.tab = tab
         }
+
+        // MARK: - WKNavigationDelegate
 
         func webView(_ webView: WKWebView, didStartProvisionalNavigation navigation: WKNavigation!) {
             DispatchQueue.main.async {
@@ -62,6 +66,43 @@ struct WebViewRepresentable: NSViewRepresentable {
             DispatchQueue.main.async {
                 self.tab.isLoading = false
             }
+        }
+
+        // MARK: - WKUIDelegate
+
+        func webView(_ webView: WKWebView,
+                     runJavaScriptAlertPanelWithMessage message: String,
+                     initiatedByFrame frame: WKFrameInfo,
+                     completionHandler: @escaping () -> Void) {
+            let alert = NSAlert()
+            alert.messageText = "Alert"
+            alert.informativeText = message
+            alert.addButton(withTitle: "OK")
+            alert.runModal()
+            completionHandler()
+        }
+
+        func webView(_ webView: WKWebView,
+                     runJavaScriptConfirmPanelWithMessage message: String,
+                     initiatedByFrame frame: WKFrameInfo,
+                     completionHandler: @escaping (Bool) -> Void) {
+            let alert = NSAlert()
+            alert.messageText = "Confirm"
+            alert.informativeText = message
+            alert.addButton(withTitle: "OK")
+            alert.addButton(withTitle: "Cancel")
+            completionHandler(alert.runModal() == .alertFirstButtonReturn)
+        }
+
+        func webView(_ webView: WKWebView,
+                     createWebViewWith configuration: WKWebViewConfiguration,
+                     for navigationAction: WKNavigationAction,
+                     windowFeatures: WKWindowFeatures) -> WKWebView? {
+            // Handle popup windows for OAuth flows
+            if navigationAction.targetFrame == nil {
+                webView.load(navigationAction.request)
+            }
+            return nil
         }
     }
 }
