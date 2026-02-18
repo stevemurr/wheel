@@ -158,20 +158,25 @@ struct StreamingChunk: Codable {
 
 // MARK: - Chat Message (Local)
 
-struct ChatMessage: Identifiable, Equatable {
-    let id = UUID()
+struct ChatMessage: Identifiable {
+    let id: UUID
     let role: MessageRole
     var content: String
     let timestamp: Date
+    var isStreaming: Bool
+
+    init(id: UUID = UUID(), role: MessageRole, content: String, timestamp: Date, isStreaming: Bool = false) {
+        self.id = id
+        self.role = role
+        self.content = content
+        self.timestamp = timestamp
+        self.isStreaming = isStreaming
+    }
 
     enum MessageRole: String {
         case user
         case assistant
         case system
         case thinking
-    }
-
-    static func == (lhs: ChatMessage, rhs: ChatMessage) -> Bool {
-        lhs.id == rhs.id
     }
 }

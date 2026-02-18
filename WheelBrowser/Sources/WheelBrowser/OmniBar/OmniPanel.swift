@@ -144,53 +144,53 @@ struct OmniPanelEmptyState: View {
 struct HistoryPanelContent: View {
     @ObservedObject var viewModel: SuggestionsViewModel
     let searchText: String
-    let onSelect: (HistoryEntry) -> Void
-
-    private let history = BrowsingHistory.shared
+    let onSelect: (Suggestion) -> Void
 
     var body: some View {
-        ScrollView(showsIndicators: true) {
-            LazyVStack(spacing: 2) {
-                if viewModel.suggestions.isEmpty && searchText.isEmpty {
-                    // Show recent history when no search
-                    let recentHistory = Array(history.entries.prefix(20))
-                    if recentHistory.isEmpty {
-                        OmniPanelEmptyState(
-                            icon: "clock",
-                            title: "No browsing history",
-                            subtitle: "Pages you visit will appear here"
-                        )
-                        .padding(.top, 30)
-                    } else {
-                        ForEach(Array(recentHistory.enumerated()), id: \.element.id) { index, entry in
-                            HistoryRow(
-                                entry: entry,
-                                isSelected: index == viewModel.selectedIndex,
-                                onSelect: { onSelect(entry) }
+        ScrollViewReader { proxy in
+            ScrollView(showsIndicators: true) {
+                LazyVStack(spacing: 2) {
+                    if viewModel.suggestions.isEmpty {
+                        if searchText.isEmpty {
+                            // No history at all
+                            OmniPanelEmptyState(
+                                icon: "clock",
+                                title: "No browsing history",
+                                subtitle: "Pages you visit will appear here"
                             )
+                            .padding(.top, 30)
+                        } else {
+                            // No search results
+                            OmniPanelEmptyState(
+                                icon: "magnifyingglass",
+                                title: "No matches found",
+                                subtitle: "Try a different search term"
+                            )
+                            .padding(.top, 30)
+                        }
+                    } else {
+                        // Show suggestions (either search results or recent history)
+                        ForEach(Array(viewModel.suggestions.enumerated()), id: \.element.id) { index, suggestion in
+                            SuggestionRow(
+                                suggestion: suggestion,
+                                isSelected: index == viewModel.selectedIndex,
+                                onSelect: { onSelect(suggestion) }
+                            )
+                            .id(suggestion.id)
                         }
                     }
-                } else if viewModel.suggestions.isEmpty {
-                    // No search results
-                    OmniPanelEmptyState(
-                        icon: "magnifyingglass",
-                        title: "No matches found",
-                        subtitle: "Try a different search term"
-                    )
-                    .padding(.top, 30)
-                } else {
-                    // Show search results
-                    ForEach(Array(viewModel.suggestions.enumerated()), id: \.element.id) { index, entry in
-                        HistoryRow(
-                            entry: entry,
-                            isSelected: index == viewModel.selectedIndex,
-                            onSelect: { onSelect(entry) }
-                        )
+                }
+                .padding(.horizontal, 8)
+                .padding(.vertical, 8)
+            }
+            .onChange(of: viewModel.selectedIndex) { _, newIndex in
+                if newIndex >= 0 && newIndex < viewModel.suggestions.count {
+                    let selectedId = viewModel.suggestions[newIndex].id
+                    withAnimation(.easeOut(duration: 0.1)) {
+                        proxy.scrollTo(selectedId, anchor: .center)
                     }
                 }
             }
-            .padding(.horizontal, 8)
-            .padding(.vertical, 8)
         }
     }
 
@@ -260,7 +260,195 @@ struct ChatPanelContent: View {
     }
 }
 
-// MARK: - History Row
+// MARK: - Suggestion Row (handles both open tabs and history)
+
+struct SuggestionRow: View {
+    let suggestion: Suggestion
+    let isSelected: Bool
+    let onSelect: () -> Void
+
+    @State private var isHovering = false
+
+    private var domain: String {
+        if let url = URL(string: suggestion.url), let host = url.host {
+            return host.replacingOccurrences(of: "www.", with: "")
+        }
+        return ""
+    }
+
+    private var title: String {
+        suggestion.title.isEmpty ? domain : suggestion.title
+    }
+
+    var body: some View {
+        HStack(spacing: 12) {
+            // Favicon / Tab indicator
+            faviconView
+                .frame(width: 28, height: 28)
+
+            // Title and URL
+            VStack(alignment: .leading, spacing: 2) {
+                HStack(spacing: 6) {
+                    Text(title)
+                        .font(.system(size: 13))
+                        .foregroundColor(.primary)
+                        .lineLimit(1)
+
+                    // Open tab badge
+                    if suggestion.isOpenTab {
+                        Text("Tab")
+                            .font(.system(size: 9, weight: .semibold))
+                            .foregroundColor(.white)
+                            .padding(.horizontal, 5)
+                            .padding(.vertical, 2)
+                            .background(
+                                Capsule()
+                                    .fill(Color.green)
+                            )
+                    }
+                }
+
+                Text(displayURL)
+                    .font(.system(size: 11))
+                    .foregroundColor(.secondary)
+                    .lineLimit(1)
+            }
+
+            Spacer()
+
+            // Right side indicator
+            rightIndicator
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 8)
+        .background(
+            RoundedRectangle(cornerRadius: 8)
+                .fill(backgroundColor)
+        )
+        .contentShape(Rectangle())
+        .onTapGesture(perform: onSelect)
+        .onHover { hovering in
+            withAnimation(.easeInOut(duration: 0.1)) {
+                isHovering = hovering
+            }
+        }
+    }
+
+    private var backgroundColor: Color {
+        if isSelected {
+            return Color.accentColor.opacity(0.2)
+        } else if isHovering {
+            return Color(nsColor: .controlBackgroundColor).opacity(0.5)
+        }
+        return Color.clear
+    }
+
+    @ViewBuilder
+    private var faviconView: some View {
+        if suggestion.isOpenTab {
+            // Show a tab icon for open tabs
+            Image(systemName: "square.on.square")
+                .font(.system(size: 12, weight: .medium))
+                .foregroundColor(.green)
+                .frame(width: 28, height: 28)
+                .background(
+                    RoundedRectangle(cornerRadius: 6)
+                        .fill(Color.green.opacity(0.15))
+                )
+        } else if !domain.isEmpty {
+            let initial = String(domain.prefix(1)).uppercased()
+            Text(initial)
+                .font(.system(size: 12, weight: .semibold))
+                .foregroundColor(.white)
+                .frame(width: 28, height: 28)
+                .background(
+                    RoundedRectangle(cornerRadius: 6)
+                        .fill(colorForDomain(domain))
+                )
+        } else {
+            Image(systemName: "globe")
+                .font(.system(size: 14))
+                .foregroundColor(.secondary)
+                .frame(width: 28, height: 28)
+                .background(
+                    RoundedRectangle(cornerRadius: 6)
+                        .fill(Color(nsColor: .controlBackgroundColor))
+                )
+        }
+    }
+
+    @ViewBuilder
+    private var rightIndicator: some View {
+        if suggestion.isOpenTab {
+            // Show "Switch" action hint for open tabs
+            Text("Switch")
+                .font(.system(size: 10, weight: .medium))
+                .foregroundColor(.green.opacity(0.8))
+                .padding(.horizontal, 8)
+                .padding(.vertical, 3)
+                .background(
+                    Capsule()
+                        .fill(Color.green.opacity(0.1))
+                )
+        } else if let timeAgo = relativeTimeString {
+            // Show time for history entries
+            Text(timeAgo)
+                .font(.system(size: 10, weight: .medium))
+                .foregroundColor(.secondary.opacity(0.7))
+                .padding(.horizontal, 8)
+                .padding(.vertical, 3)
+                .background(
+                    Capsule()
+                        .fill(Color(nsColor: .controlBackgroundColor).opacity(0.5))
+                )
+        }
+    }
+
+    private var displayURL: String {
+        var url = suggestion.url
+        url = url.replacingOccurrences(of: "https://", with: "")
+        url = url.replacingOccurrences(of: "http://", with: "")
+        url = url.replacingOccurrences(of: "www.", with: "")
+        if url.count > 60 {
+            url = String(url.prefix(57)) + "..."
+        }
+        return url
+    }
+
+    private var relativeTimeString: String? {
+        // Only for history entries
+        guard case .history(let entry, _) = suggestion else { return nil }
+
+        let interval = Date().timeIntervalSince(entry.timestamp)
+
+        if interval < 60 {
+            return "now"
+        } else if interval < 3600 {
+            let minutes = Int(interval / 60)
+            return "\(minutes)m ago"
+        } else if interval < 86400 {
+            let hours = Int(interval / 3600)
+            return "\(hours)h ago"
+        } else if interval < 604800 {
+            let days = Int(interval / 86400)
+            return "\(days)d ago"
+        } else {
+            let formatter = DateFormatter()
+            formatter.dateStyle = .short
+            return formatter.string(from: entry.timestamp)
+        }
+    }
+
+    private func colorForDomain(_ domain: String) -> Color {
+        let colors: [Color] = [
+            .blue, .purple, .pink, .red, .orange, .yellow, .green, .teal, .cyan, .indigo
+        ]
+        let hash = domain.utf8.reduce(0) { $0 &+ Int($1) }
+        return colors[abs(hash) % colors.count]
+    }
+}
+
+// MARK: - History Row (legacy, kept for compatibility)
 
 struct HistoryRow: View {
     let entry: HistoryEntry

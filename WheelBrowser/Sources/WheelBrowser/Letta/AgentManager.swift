@@ -56,77 +56,112 @@ class AgentManager: ObservableObject {
         // Add to conversation history
         conversationHistory.append(["role": "user", "content": fullMessage])
 
-        // Add placeholder for assistant response
-        let assistantMessage = ChatMessage(role: .assistant, content: "", timestamp: Date())
-        messages.append(assistantMessage)
+        // Add placeholder for assistant response with streaming flag
+        let messageId = UUID()
+        messages.append(ChatMessage(id: messageId, role: .assistant, content: "", timestamp: Date(), isStreaming: true))
         let assistantIndex = messages.count - 1
 
         do {
-            let responseText = try await callLLM()
+            var buffer = ""
+            var lastUpdateTime = Date()
+            let updateInterval: TimeInterval = 0.033 // ~30fps
 
-            // Add to conversation history
-            conversationHistory.append(["role": "assistant", "content": responseText])
+            for try await chunk in streamLLM() {
+                buffer += chunk
 
-            messages[assistantIndex] = ChatMessage(
-                role: .assistant,
-                content: responseText,
-                timestamp: Date()
-            )
+                // Throttle UI updates
+                let now = Date()
+                if now.timeIntervalSince(lastUpdateTime) >= updateInterval {
+                    messages[assistantIndex].content = buffer
+                    lastUpdateTime = now
+                }
+            }
+
+            // Final update with complete content
+            messages[assistantIndex].content = buffer
+            messages[assistantIndex].isStreaming = false
+
+            // Add final response to conversation history
+            conversationHistory.append(["role": "assistant", "content": buffer])
         } catch {
-            messages[assistantIndex] = ChatMessage(
-                role: .assistant,
-                content: "Error: \(error.localizedDescription)",
-                timestamp: Date()
-            )
+            messages[assistantIndex].content = "Error: \(error.localizedDescription)"
+            messages[assistantIndex].isStreaming = false
         }
 
         isLoading = false
     }
 
-    private func callLLM() async throws -> String {
-        guard let url = URL(string: "\(settings.llmEndpoint)/chat/completions") else {
-            throw LLMError.invalidURL
+    private func streamLLM() -> AsyncThrowingStream<String, Error> {
+        AsyncThrowingStream { continuation in
+            Task {
+                do {
+                    guard let url = URL(string: "\(settings.llmEndpoint)/chat/completions") else {
+                        throw LLMError.invalidURL
+                    }
+
+                    var request = URLRequest(url: url)
+                    request.httpMethod = "POST"
+                    request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+                    request.timeoutInterval = 120
+
+                    // Add API key authentication if enabled and configured
+                    if settings.useAPIKey && settings.hasAPIKey {
+                        request.setValue("Bearer \(settings.llmAPIKey)", forHTTPHeaderField: "Authorization")
+                    }
+
+                    // Build messages array with system prompt
+                    var apiMessages: [[String: String]] = [
+                        ["role": "system", "content": systemPrompt]
+                    ]
+                    apiMessages.append(contentsOf: conversationHistory)
+
+                    let body: [String: Any] = [
+                        "model": settings.selectedModel,
+                        "messages": apiMessages,
+                        "max_tokens": 2048,
+                        "stream": true
+                    ]
+
+                    request.httpBody = try JSONSerialization.data(withJSONObject: body)
+
+                    let (bytes, response) = try await URLSession.shared.bytes(for: request)
+
+                    guard let httpResponse = response as? HTTPURLResponse else {
+                        throw LLMError.invalidResponse
+                    }
+
+                    if httpResponse.statusCode != 200 {
+                        throw LLMError.httpError(statusCode: httpResponse.statusCode, message: "Stream request failed")
+                    }
+
+                    // Parse SSE stream
+                    for try await line in bytes.lines {
+                        // SSE format: "data: {...}" or "data: [DONE]"
+                        guard line.hasPrefix("data: ") else { continue }
+
+                        let jsonString = String(line.dropFirst(6))
+                        if jsonString == "[DONE]" {
+                            break
+                        }
+
+                        guard let data = jsonString.data(using: .utf8),
+                              let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                              let choices = json["choices"] as? [[String: Any]],
+                              let firstChoice = choices.first,
+                              let delta = firstChoice["delta"] as? [String: Any],
+                              let content = delta["content"] as? String else {
+                            continue
+                        }
+
+                        continuation.yield(content)
+                    }
+
+                    continuation.finish()
+                } catch {
+                    continuation.finish(throwing: error)
+                }
+            }
         }
-
-        var request = URLRequest(url: url)
-        request.httpMethod = "POST"
-        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        request.timeoutInterval = 120
-
-        // Build messages array with system prompt
-        var apiMessages: [[String: String]] = [
-            ["role": "system", "content": systemPrompt]
-        ]
-        apiMessages.append(contentsOf: conversationHistory)
-
-        let body: [String: Any] = [
-            "model": settings.selectedModel,
-            "messages": apiMessages,
-            "max_tokens": 2048
-        ]
-
-        request.httpBody = try JSONSerialization.data(withJSONObject: body)
-
-        let (data, response) = try await URLSession.shared.data(for: request)
-
-        guard let httpResponse = response as? HTTPURLResponse else {
-            throw LLMError.invalidResponse
-        }
-
-        if httpResponse.statusCode != 200 {
-            let errorBody = String(data: data, encoding: .utf8) ?? "Unknown error"
-            throw LLMError.httpError(statusCode: httpResponse.statusCode, message: errorBody)
-        }
-
-        guard let json = try JSONSerialization.jsonObject(with: data) as? [String: Any],
-              let choices = json["choices"] as? [[String: Any]],
-              let firstChoice = choices.first,
-              let message = firstChoice["message"] as? [String: Any],
-              let content = message["content"] as? String else {
-            throw LLMError.parseError
-        }
-
-        return content
     }
 
     func storePageVisit(_ context: PageContext) async {

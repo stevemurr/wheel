@@ -41,7 +41,13 @@ struct MessageBubble: View {
                             }
                         }
                         .padding(.vertical, 8)
+                    } else if message.isStreaming {
+                        // Fast plain text rendering during streaming
+                        Text(message.content)
+                            .font(.system(size: 13))
+                            .foregroundColor(message.role == .user ? .white : .primary)
                     } else {
+                        // Full markdown rendering when complete
                         Markdown(message.content)
                             .markdownTheme(markdownTheme)
                     }

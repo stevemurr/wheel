@@ -4,6 +4,7 @@ import SwiftUI
 struct OmniBar: View {
     @ObservedObject var tab: Tab
     @ObservedObject var agentManager: AgentManager
+    @ObservedObject var browserState: BrowserState
     @StateObject private var omniState = OmniBarState()
     @StateObject private var suggestionsVM = SuggestionsViewModel()
 
@@ -20,19 +21,29 @@ struct OmniBar: View {
     }
 
     private var historyPanelSubtitle: String {
+        let tabCount = suggestionsVM.suggestions.filter { $0.isOpenTab }.count
+        let historyCount = suggestionsVM.suggestions.filter { !$0.isOpenTab }.count
+
         if !omniState.inputText.isEmpty && !suggestionsVM.suggestions.isEmpty {
-            return "\(suggestionsVM.suggestions.count) results"
+            var parts: [String] = []
+            if tabCount > 0 {
+                parts.append("\(tabCount) tab\(tabCount == 1 ? "" : "s")")
+            }
+            if historyCount > 0 {
+                parts.append("\(historyCount) history")
+            }
+            return parts.joined(separator: ", ")
         }
-        return "Recent"
+        return "Tabs & Recent"
     }
 
     var body: some View {
         VStack(spacing: 0) {
-            // History panel - appears above OmniBar when in address mode
+            // Suggestions panel - appears above OmniBar when in address mode (shows tabs + history)
             if omniState.showHistoryPanel && omniState.mode == .address {
                 OmniPanel(
-                    title: "History",
-                    icon: "clock.arrow.circlepath",
+                    title: "Go to",
+                    icon: "magnifyingglass",
                     iconColor: .accentColor,
                     subtitle: historyPanelSubtitle,
                     onDismiss: {
@@ -42,12 +53,8 @@ struct OmniBar: View {
                     HistoryPanelContent(
                         viewModel: suggestionsVM,
                         searchText: omniState.inputText,
-                        onSelect: { entry in
-                            omniState.inputText = entry.url
-                            tab.load(entry.url)
-                            isInputFocused = false
-                            omniState.dismissHistoryPanel()
-                            suggestionsVM.hide()
+                        onSelect: { suggestion in
+                            handleSuggestionSelection(suggestion)
                         }
                     )
                 }
@@ -120,7 +127,11 @@ struct OmniBar: View {
         }
         .onChange(of: omniState.inputText) { _, newValue in
             if isInputFocused && omniState.mode == .address {
-                suggestionsVM.updateSuggestions(for: newValue)
+                if newValue.isEmpty {
+                    suggestionsVM.loadRecentHistory()
+                } else {
+                    suggestionsVM.updateSuggestions(for: newValue)
+                }
             }
         }
         .onChange(of: isInputFocused) { _, focused in
@@ -136,7 +147,9 @@ struct OmniBar: View {
             } else if omniState.mode == .address {
                 // Show history panel when focusing address bar
                 omniState.openHistoryPanel()
-                if !omniState.inputText.isEmpty {
+                if omniState.inputText.isEmpty {
+                    suggestionsVM.loadRecentHistory()
+                } else {
                     suggestionsVM.updateSuggestions(for: omniState.inputText)
                 }
             }
@@ -160,6 +173,8 @@ struct OmniBar: View {
         }
         .onAppear {
             omniState.inputText = tab.url?.absoluteString ?? ""
+            // Connect suggestionsVM to browserState for tab searching
+            suggestionsVM.browserState = browserState
             Task {
                 if !agentManager.isReady && !agentManager.isLoading {
                     await agentManager.initialize()
@@ -441,11 +456,35 @@ struct OmniBar: View {
     private func submitAddress() {
         // Use selected suggestion if available
         if let selected = suggestionsVM.selectedSuggestion {
-            omniState.inputText = selected.url
+            handleSuggestionSelection(selected)
+            return
         }
         tab.load(omniState.inputText)
         isInputFocused = false
         suggestionsVM.hide()
+        omniState.dismissHistoryPanel()
+    }
+
+    /// Handle selection of a suggestion (either open tab or history entry)
+    private func handleSuggestionSelection(_ suggestion: Suggestion) {
+        switch suggestion {
+        case .openTab(let tab, _):
+            // Switch to the existing tab instead of loading the URL
+            browserState.selectTab(tab.id)
+            isInputFocused = false
+            omniState.dismissHistoryPanel()
+            suggestionsVM.hide()
+            // Update the input text to show the selected tab's URL
+            omniState.inputText = tab.url?.absoluteString ?? ""
+
+        case .history(let entry, _):
+            // Load the history entry URL in the current tab
+            omniState.inputText = entry.url
+            self.tab.load(entry.url)
+            isInputFocused = false
+            omniState.dismissHistoryPanel()
+            suggestionsVM.hide()
+        }
     }
 
     private func submitChat() {

@@ -8,9 +8,21 @@ struct SettingsView: View {
     @State private var isLoadingModels = false
     @State private var connectionStatus: ConnectionStatus = .unknown
     @State private var showingResetStatsAlert = false
+    @State private var apiKeyInput: String = ""
+    @State private var showAPIKey = false
+    @State private var llmConnectionStatus: LLMConnectionStatus = .unknown
 
     enum ConnectionStatus {
         case unknown, checking, connected, failed
+    }
+
+    enum LLMConnectionStatus {
+        case unknown, checking, connected, failed(String)
+
+        var isChecking: Bool {
+            if case .checking = self { return true }
+            return false
+        }
     }
 
     var body: some View {
@@ -181,6 +193,106 @@ struct SettingsView: View {
                     }
                     .disabled(isLoadingModels)
                 }
+
+                // API Key toggle
+                Toggle("Use API Key Authentication", isOn: $settings.useAPIKey)
+
+                // API Key input field (only shown when toggle is on)
+                if settings.useAPIKey {
+                    VStack(alignment: .leading, spacing: 8) {
+                        HStack {
+                            if showAPIKey {
+                                TextField("API Key", text: $apiKeyInput)
+                                    .textFieldStyle(.roundedBorder)
+                                    .font(.system(.body, design: .monospaced))
+                            } else {
+                                SecureField("API Key", text: $apiKeyInput)
+                                    .textFieldStyle(.roundedBorder)
+                            }
+
+                            Button(action: { showAPIKey.toggle() }) {
+                                Image(systemName: showAPIKey ? "eye.slash" : "eye")
+                                    .foregroundColor(.secondary)
+                            }
+                            .buttonStyle(.borderless)
+                            .help(showAPIKey ? "Hide API key" : "Show API key")
+
+                            Button("Save") {
+                                settings.llmAPIKey = apiKeyInput
+                            }
+                            .disabled(apiKeyInput.isEmpty)
+                        }
+
+                        if settings.hasAPIKey {
+                            HStack {
+                                Image(systemName: "checkmark.circle.fill")
+                                    .foregroundColor(.green)
+                                    .font(.caption)
+                                Text("API key configured")
+                                    .font(.caption)
+                                    .foregroundColor(.secondary)
+
+                                Spacer()
+
+                                Button("Clear", role: .destructive) {
+                                    settings.llmAPIKey = ""
+                                    apiKeyInput = ""
+                                }
+                                .font(.caption)
+                                .buttonStyle(.borderless)
+                            }
+                        } else {
+                            HStack {
+                                Image(systemName: "exclamationmark.triangle.fill")
+                                    .foregroundColor(.orange)
+                                    .font(.caption)
+                                Text("No API key configured")
+                                    .font(.caption)
+                                    .foregroundColor(.secondary)
+                            }
+                        }
+
+                        Text("API key is stored securely in your system Keychain")
+                            .font(.caption2)
+                            .foregroundColor(.secondary)
+                    }
+                }
+
+                // Connection test
+                HStack {
+                    switch llmConnectionStatus {
+                    case .unknown:
+                        Text("Connection not tested")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                    case .checking:
+                        ProgressView()
+                            .scaleEffect(0.6)
+                        Text("Testing connection...")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                    case .connected:
+                        Image(systemName: "checkmark.circle.fill")
+                            .foregroundColor(.green)
+                        Text("Connected to LLM endpoint")
+                            .font(.caption)
+                            .foregroundColor(.green)
+                    case .failed(let message):
+                        Image(systemName: "xmark.circle.fill")
+                            .foregroundColor(.red)
+                        Text(message)
+                            .font(.caption)
+                            .foregroundColor(.red)
+                            .lineLimit(2)
+                    }
+
+                    Spacer()
+
+                    Button("Test Connection") {
+                        testLLMConnection()
+                    }
+                    .disabled(llmConnectionStatus.isChecking)
+                }
             }
 
             // MARK: - Letta Server Section
@@ -234,7 +346,7 @@ struct SettingsView: View {
             }
         }
         .formStyle(.grouped)
-        .frame(width: 500, height: 650)
+        .frame(width: 500, height: 750)
         .onAppear {
             fetchModels()
         }
@@ -270,17 +382,29 @@ struct SettingsView: View {
         var request = URLRequest(url: modelsURL)
         request.httpMethod = "GET"
 
+        // Add API key if enabled
+        if settings.useAPIKey && settings.hasAPIKey {
+            request.setValue("Bearer \(settings.llmAPIKey)", forHTTPHeaderField: "Authorization")
+        }
+
         URLSession.shared.dataTask(with: request) { data, response, error in
             DispatchQueue.main.async {
                 isLoadingModels = false
 
                 guard let data = data,
-                      let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-                      let models = json["models"] as? [[String: Any]] else {
+                      let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
                     return
                 }
 
-                availableModels = models.compactMap { $0["name"] as? String }
+                // Handle both Ollama format ({"models": [...]}) and OpenAI format ({"data": [...]})
+                if let models = json["models"] as? [[String: Any]] {
+                    // Ollama format
+                    availableModels = models.compactMap { $0["name"] as? String }
+                } else if let data = json["data"] as? [[String: Any]] {
+                    // OpenAI format
+                    availableModels = data.compactMap { $0["id"] as? String }
+                }
+
                 if !availableModels.contains(settings.selectedModel) && !availableModels.isEmpty {
                     settings.selectedModel = availableModels[0]
                 }
@@ -308,6 +432,51 @@ struct SettingsView: View {
                     connectionStatus = .connected
                 } else {
                     connectionStatus = .failed
+                }
+            }
+        }.resume()
+    }
+
+    private func testLLMConnection() {
+        guard let baseURL = settings.llmBaseURL else {
+            llmConnectionStatus = .failed("Invalid endpoint URL")
+            return
+        }
+
+        llmConnectionStatus = .checking
+
+        // Use the models endpoint to test the connection
+        let modelsURL = baseURL.appendingPathComponent("models")
+        var request = URLRequest(url: modelsURL)
+        request.httpMethod = "GET"
+        request.timeoutInterval = 10
+
+        // Add API key if enabled
+        if settings.useAPIKey && settings.hasAPIKey {
+            request.setValue("Bearer \(settings.llmAPIKey)", forHTTPHeaderField: "Authorization")
+        }
+
+        URLSession.shared.dataTask(with: request) { data, response, error in
+            DispatchQueue.main.async {
+                if let error = error {
+                    llmConnectionStatus = .failed(error.localizedDescription)
+                    return
+                }
+
+                guard let httpResponse = response as? HTTPURLResponse else {
+                    llmConnectionStatus = .failed("Invalid response")
+                    return
+                }
+
+                switch httpResponse.statusCode {
+                case 200:
+                    llmConnectionStatus = .connected
+                case 401:
+                    llmConnectionStatus = .failed("Unauthorized - check API key")
+                case 403:
+                    llmConnectionStatus = .failed("Forbidden - invalid API key")
+                default:
+                    llmConnectionStatus = .failed("HTTP \(httpResponse.statusCode)")
                 }
             }
         }.resume()

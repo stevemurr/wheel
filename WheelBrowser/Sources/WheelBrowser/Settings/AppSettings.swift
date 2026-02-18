@@ -13,6 +13,32 @@ class AppSettings: ObservableObject {
     /// Whether the left tab sidebar is expanded (showing full tab names) or collapsed (icons only)
     @AppStorage("tabSidebarExpanded") var tabSidebarExpanded: Bool = true
 
+    /// Whether to use API key authentication for remote LLM endpoints
+    @AppStorage("useAPIKey") var useAPIKey: Bool = false
+
+    // MARK: - API Key (stored securely in Keychain)
+
+    /// The LLM API key stored securely in the Keychain
+    /// Setting this property will trigger objectWillChange to update any observing views
+    var llmAPIKey: String {
+        get {
+            KeychainHelper.shared.retrieve(forKey: KeychainHelper.Keys.llmAPIKey) ?? ""
+        }
+        set {
+            objectWillChange.send()
+            if newValue.isEmpty {
+                KeychainHelper.shared.delete(forKey: KeychainHelper.Keys.llmAPIKey)
+            } else {
+                KeychainHelper.shared.save(newValue, forKey: KeychainHelper.Keys.llmAPIKey)
+            }
+        }
+    }
+
+    /// Whether an API key is currently configured
+    var hasAPIKey: Bool {
+        !llmAPIKey.isEmpty
+    }
+
     // MARK: - Content Blocking Settings
 
     /// Master toggle for content blocking

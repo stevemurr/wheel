@@ -5,6 +5,7 @@ import SwiftUI
 private struct BrowserContentArea: View {
     @ObservedObject var tab: Tab
     @ObservedObject var agentManager: AgentManager
+    @ObservedObject var browserState: BrowserState
     @ObservedObject var settings: AppSettings
     let contentExtractor: ContentExtractor
 
@@ -20,6 +21,7 @@ private struct BrowserContentArea: View {
             OmniBar(
                 tab: tab,
                 agentManager: agentManager,
+                browserState: browserState,
                 contentExtractor: contentExtractor
             )
             .zIndex(1000)
@@ -149,6 +151,7 @@ struct ContentView: View {
                     BrowserContentArea(
                         tab: tab,
                         agentManager: agentManager,
+                        browserState: state,
                         settings: settings,
                         contentExtractor: contentExtractor
                     )

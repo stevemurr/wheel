@@ -124,6 +124,12 @@ struct ChatView: View {
                     }
                 }
             }
+            .onChange(of: agentManager.isLoading) { _, isLoading in
+                // Scroll when loading state changes
+                if let lastMessage = agentManager.messages.last {
+                    proxy.scrollTo(lastMessage.id, anchor: .bottom)
+                }
+            }
         }
     }
 
