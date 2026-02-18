@@ -50,14 +50,7 @@ struct WheelBrowserApp: App {
                 .keyboardShortcut("k", modifiers: .command)
             }
 
-            CommandGroup(replacing: .appSettings) {
-                Button("Settings...") {
-                    openSettings()
-                }
-                .keyboardShortcut(",", modifiers: .command)
-            }
-
-            // Navigation commands
+// Navigation commands
             CommandGroup(after: .textEditing) {
                 Button("Focus Address Bar") {
                     NotificationCenter.default.post(name: .focusAddressBar, object: nil)
@@ -155,10 +148,6 @@ struct WheelBrowserApp: App {
         Settings {
             SettingsView()
         }
-    }
-
-    private func openSettings() {
-        NSApp.sendAction(Selector(("showSettingsWindow:")), to: nil, from: nil)
     }
 }
 
