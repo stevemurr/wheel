@@ -6,6 +6,10 @@
     <string>com.wheel.browser</string>
     <key>CFBundleName</key>
     <string>Wheel Browser</string>
+    <key>CFBundleExecutable</key>
+    <string>WheelBrowser</string>
+    <key>CFBundleIconFile</key>
+    <string>AppIcon</string>
     <key>CFBundleVersion</key>
     <string>1</string>
     <key>CFBundleShortVersionString</key>
