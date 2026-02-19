@@ -522,7 +522,9 @@ struct OmniBar: View {
             omniState.openSemanticPanel()
         }
         .onReceive(NotificationCenter.default.publisher(for: .escapePressed)) { _ in
-            if omniState.showMentionDropdown {
+            if downloadManager.showDownloadsPanel {
+                downloadManager.dismissPanel()
+            } else if omniState.showMentionDropdown {
                 omniState.dismissMentionDropdown()
                 mentionSuggestionsVM.clear()
             } else if tab.isFindBarVisible {
