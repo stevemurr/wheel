@@ -245,6 +245,8 @@ struct WindowAccessor: NSViewRepresentable {
             if let window = view.window {
                 window.isMovableByWindowBackground = true
                 window.titlebarAppearsTransparent = true
+                window.backgroundColor = .clear
+                window.isOpaque = false
                 window.makeKeyAndOrderFront(nil)
                 window.acceptsMouseMovedEvents = true
             }

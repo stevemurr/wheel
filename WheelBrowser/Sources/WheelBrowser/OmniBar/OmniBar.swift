@@ -591,16 +591,6 @@ struct OmniBar: View {
 
             Spacer()
         }
-        .background {
-            LinearGradient(
-                colors: [
-                    Color(nsColor: .windowBackgroundColor).opacity(0.95),
-                    Color(nsColor: .windowBackgroundColor)
-                ],
-                startPoint: .top,
-                endPoint: .bottom
-            )
-        }
     }
 
     // MARK: - Navigation Buttons
@@ -1372,9 +1362,6 @@ struct OmniBarFindBar: View {
             .padding(.vertical, 8)
 
             Spacer()
-        }
-        .background {
-            Color(nsColor: .windowBackgroundColor).opacity(0.95)
         }
     }
 }
