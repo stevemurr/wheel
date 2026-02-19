@@ -12,7 +12,7 @@ private struct BrowserContentArea: View {
 
     var body: some View {
         ZStack(alignment: .bottom) {
-            // Main content area
+            // Main content area - extends full window including behind title bar
             VStack(spacing: 0) {
                 if tab.url == nil {
                     NewTabPageView()
@@ -21,6 +21,7 @@ private struct BrowserContentArea: View {
                         .id(tab.id)
                 }
             }
+            .ignoresSafeArea()
 
             // Bottom controls: Dock + OmniBar
             VStack(spacing: 8) {
@@ -245,8 +246,8 @@ struct WindowAccessor: NSViewRepresentable {
             if let window = view.window {
                 window.isMovableByWindowBackground = true
                 window.titlebarAppearsTransparent = true
-                window.backgroundColor = .clear
-                window.isOpaque = false
+                // Extend content into title bar area
+                window.styleMask.insert(.fullSizeContentView)
                 window.makeKeyAndOrderFront(nil)
                 window.acceptsMouseMovedEvents = true
             }
