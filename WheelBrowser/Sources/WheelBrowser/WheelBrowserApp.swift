@@ -60,6 +60,12 @@ struct WheelBrowserApp: App {
                 }
                 .keyboardShortcut("s", modifiers: [.command, .shift])
 
+                Toggle("Auto-hide Tab Dock", isOn: Binding(
+                    get: { AppSettings.shared.tabDockAutoHide },
+                    set: { AppSettings.shared.tabDockAutoHide = $0 }
+                ))
+                .keyboardShortcut("h", modifiers: [.command, .option])
+
                 Divider()
 
                 Button("Focus AI Chat") {

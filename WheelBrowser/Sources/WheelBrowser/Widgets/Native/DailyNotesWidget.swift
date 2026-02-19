@@ -103,17 +103,19 @@ struct DailyNotesWidgetView: View {
     }
 
     var body: some View {
-        HStack(spacing: 0) {
-            // Left: Calendar
-            calendarView
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
+        GeometryReader { geometry in
+            HStack(spacing: 0) {
+                // Left: Calendar (60% of width)
+                calendarView
+                    .frame(width: geometry.size.width * 0.6, height: geometry.size.height)
 
-            Divider()
-                .padding(.vertical, 12)
+                Divider()
+                    .padding(.vertical, 12)
 
-            // Right: Note editor
-            noteEditorView
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                // Right: Note editor (remaining space)
+                noteEditorView
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+            }
         }
         .padding(12)
         .frame(maxWidth: .infinity, maxHeight: .infinity)

@@ -71,6 +71,9 @@ class AppSettings: ObservableObject {
     /// Whether the left tab sidebar is expanded (showing full tab names) or collapsed (icons only)
     @AppStorage("tabSidebarExpanded") var tabSidebarExpanded: Bool = true
 
+    /// Whether the tab dock auto-hides (like macOS Dock)
+    @AppStorage("tabDockAutoHide") var tabDockAutoHide: Bool = false
+
     /// App appearance mode (system, light, or dark)
     @AppStorage("appearanceMode") var appearanceModeRaw: String = AppearanceMode.system.rawValue {
         didSet {

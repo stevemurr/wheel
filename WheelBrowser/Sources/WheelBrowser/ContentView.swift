@@ -1,5 +1,62 @@
 import SwiftUI
 
+// MARK: - Auto-hiding Dock Container
+
+private struct AutoHidingDock: View {
+    @ObservedObject var browserState: BrowserState
+    @ObservedObject var settings: AppSettings
+
+    @State private var isVisible: Bool = true
+    @State private var isHovering: Bool = false
+
+    private let edgeHitZoneWidth: CGFloat = 8
+    private let dockWidth: CGFloat = 70
+
+    var body: some View {
+        GeometryReader { geometry in
+            ZStack(alignment: .leading) {
+                // Invisible hit zone at left edge to trigger dock appearance
+                if settings.tabDockAutoHide && !isVisible {
+                    Color.clear
+                        .frame(width: edgeHitZoneWidth, height: geometry.size.height)
+                        .contentShape(Rectangle())
+                        .onHover { hovering in
+                            if hovering {
+                                withAnimation(.easeOut(duration: 0.2)) {
+                                    isVisible = true
+                                }
+                            }
+                        }
+                }
+
+                // The actual dock
+                DockTabBar(browserState: browserState)
+                    .padding(.leading, 12)
+                    .offset(x: shouldShowDock ? 0 : -dockWidth - 20)
+                    .animation(.easeInOut(duration: 0.2), value: shouldShowDock)
+                    .onHover { hovering in
+                        isHovering = hovering
+                        if settings.tabDockAutoHide && !hovering {
+                            // Delay hiding to allow moving between tabs
+                            DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+                                if !isHovering {
+                                    withAnimation(.easeIn(duration: 0.2)) {
+                                        isVisible = false
+                                    }
+                                }
+                            }
+                        }
+                    }
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
+        }
+    }
+
+    private var shouldShowDock: Bool {
+        !settings.tabDockAutoHide || isVisible
+    }
+}
+
 // MARK: - Browser Content Area (extracted to help compiler with type checking)
 
 private struct BrowserContentArea: View {
@@ -35,9 +92,8 @@ private struct BrowserContentArea: View {
                 )
             }
 
-            // Floating tab dock on left side
-            DockTabBar(browserState: browserState)
-                .padding(.leading, 12)
+            // Floating tab dock on left side with auto-hide support
+            AutoHidingDock(browserState: browserState, settings: settings)
         }
     }
 }
