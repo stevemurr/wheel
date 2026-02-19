@@ -1,163 +1,150 @@
-# Wheel Browser
+<div align="center">
 
-A modern macOS browser built with Swift and SwiftUI, featuring an integrated AI assistant, semantic search, and workspace management.
+# Wheel
 
-![macOS](https://img.shields.io/badge/macOS-14.0+-blue?logo=apple)
-![Swift](https://img.shields.io/badge/Swift-5.9+-orange?logo=swift)
-![License](https://img.shields.io/badge/License-MIT-green)
+**A browser that thinks with you.**
+
+The macOS browser with an AI copilot, semantic memory, and workspaces built-in.
+
+![macOS](https://img.shields.io/badge/macOS-14.0+-000?logo=apple&logoColor=white)
+![Swift](https://img.shields.io/badge/Swift-5.9+-F05138?logo=swift&logoColor=white)
+![License](https://img.shields.io/badge/License-MIT-blue)
+
+</div>
+
+---
+
+## Why Wheel?
+
+Most browsers treat AI as an afterthought—a sidebar you open sometimes. Wheel makes AI native to how you browse. Ask questions about any page, search your history by meaning, and let agents handle multi-step tasks across tabs.
+
+---
+
+## The OmniBar
+
+One input. Five modes. Press **Tab** to cycle.
+
+| Mode | What it does |
+|------|--------------|
+| **Search** | URLs, fuzzy history search, open tabs |
+| **Chat** | AI assistant with full page context |
+| **Semantic** | Find pages by meaning, not keywords |
+| **Agent** | Autonomous tasks across your tabs |
+| **Reading List** | Save pages for later (Cmd+S) |
+
+The OmniBar floats at the bottom. It expands when focused, collapses when you're browsing.
+
+---
 
 ## Features
 
-### OmniBar - Unified Input System
+### AI Chat
+Talk to any webpage. Wheel extracts the content and gives the AI full context.
 
-The OmniBar is a tri-modal input bar at the bottom of the screen. Press **Tab** to cycle between modes:
-
-| Mode | Icon | Description |
-|------|------|-------------|
-| **Address** | Search | Navigate to URLs or search with fuzzy history matching |
-| **Chat** | Sparkles | AI assistant with page context and @mentions |
-| **Semantic** | Brain | Vector-based semantic search over browsing history |
-
-### AI Assistant
-
-- **Context-Aware Chat**: Ask questions about the current page with full content extraction
-- **@Mention System**: Reference multiple sources in your queries
-  - `@Page` - Current page context (default)
-  - `@[Tab Name]` - Content from other open tabs
-  - `@[History Result]` - Pages from semantic search
-- **Streaming Responses**: Real-time response streaming with markdown rendering
-- **Agent Studio**: Create custom AI agents with personalized system prompts and skills
+- **@mentions** — Pull in multiple tabs or history results
+- **Streaming** — Watch responses arrive in real-time
+- **Agent Studio** — Build custom agents with system prompts
 
 ### Semantic Search
+Every page you visit gets embedded. Search by concept, not exact text.
 
-- **Vector Embeddings**: Uses Apple's NLEmbedding for 512-dimensional sentence embeddings
-- **Automatic Indexing**: Pages are indexed as you browse
-- **Similarity Search**: Find pages by meaning, not just keywords
-- **Persistent Index**: Search index persists across app restarts
+- Uses sqlite-vec for fast vector search
+- Automatic background indexing
+- Persists across sessions
 
 ### Workspaces
+Keep contexts separate. Each workspace has its own tabs, color, and default agent.
 
-- **Organize Your Work**: Group tabs into separate workspaces
-- **Custom Appearance**: Choose icons and colors for each workspace
-- **Agent Binding**: Assign a default AI agent per workspace
-- **State Persistence**: Tabs and workspace state saved automatically
+### Reading List
+Press **Cmd+S** to save any page. Press **Cmd+B** to browse your list. Search within it.
 
-### Additional Features
+### The Rest
+- **Downloads** — Progress tracking, auto-organized
+- **Content Blocking** — Built-in ad blocker with category controls
+- **Picture-in-Picture** — Float videos (Cmd+Shift+P)
+- **Dark Mode** — System-aware or forced
+- **Middle-click panel** — Quick tab switching and actions
 
-- **Tab Management**: Full tab support with reopen closed tabs (Cmd+Shift+T)
-- **Download Manager**: Track and manage downloads with progress indicators
-- **Content Blocking**: Built-in ad blocking with category controls
-- **Picture-in-Picture**: Float videos over other windows (Cmd+Shift+P)
-- **Find in Page**: Full-text search with highlighting (Cmd+F)
-- **Zoom Controls**: Page zoom with keyboard shortcuts
-- **Native macOS Design**: Built with SwiftUI for a clean, native experience
+---
 
-## Requirements
+## Shortcuts
 
-- macOS 14.0+
-- Xcode 15.0+
-- Swift 5.9+
+**Navigation**
+| | |
+|--|--|
+| `Cmd+L` | Address bar |
+| `Cmd+K` | AI chat |
+| `Cmd+J` | Semantic search |
+| `Cmd+B` | Reading list |
+| `Tab` | Next OmniBar mode |
 
-## Building
+**Tabs**
+| | |
+|--|--|
+| `Cmd+T` | New tab |
+| `Cmd+W` | Close tab |
+| `Cmd+1-9` | Jump to tab |
+| `Cmd+Shift+T` | Reopen closed |
+
+**Actions**
+| | |
+|--|--|
+| `Cmd+S` | Save to reading list |
+| `Cmd+F` | Find in page |
+| `Cmd+D` | Downloads |
+| `Cmd+Shift+P` | Picture-in-Picture |
+
+---
+
+## Install
 
 ```bash
-cd WheelBrowser
-swift build
+git clone https://github.com/stevemurr/wheel.git
+cd wheel/WheelBrowser
+make install
 ```
 
-## Running
+Or run directly:
 
 ```bash
 swift run WheelBrowser
 ```
 
-## Configuration
+**Requirements:** macOS 14+, Xcode 15+
 
-### LLM Setup
+---
 
-Wheel supports any OpenAI-compatible API endpoint. Configure in Settings:
+## LLM Setup
 
-1. **Local (Ollama)**: Default endpoint `http://localhost:11434/v1`
-2. **Cloud APIs**: Set your endpoint URL and API key
+Wheel works with any OpenAI-compatible API.
 
-### Settings Location
+| Provider | Endpoint |
+|----------|----------|
+| **Ollama** (local) | `http://localhost:11434/v1` |
+| **OpenAI** | `https://api.openai.com/v1` |
+| **OpenRouter** | `https://openrouter.ai/api/v1` |
 
-Settings are stored in:
-- **Preferences**: macOS UserDefaults
-- **API Keys**: macOS Keychain (secure)
-- **Data**: `~/Library/Application Support/WheelBrowser/`
+Configure in **Settings** → **AI**.
 
-## Keyboard Shortcuts
-
-### Navigation
-| Shortcut | Action |
-|----------|--------|
-| `Cmd+L` | Focus address bar |
-| `Cmd+R` | Reload page |
-| `Cmd+.` | Stop loading |
-| `Cmd+[` | Go back |
-| `Cmd+]` | Go forward |
-
-### Tabs
-| Shortcut | Action |
-|----------|--------|
-| `Cmd+T` | New tab |
-| `Cmd+W` | Close tab |
-| `Cmd+1-9` | Switch to tab 1-9 |
-| `Cmd+Shift+[` | Previous tab |
-| `Cmd+Shift+]` | Next tab |
-| `Cmd+Shift+T` | Reopen closed tab |
-
-### AI & Search
-| Shortcut | Action |
-|----------|--------|
-| `Cmd+K` | Focus AI chat |
-| `Cmd+J` | Focus semantic search |
-| `Tab` | Cycle OmniBar modes |
-
-### View
-| Shortcut | Action |
-|----------|--------|
-| `Cmd+Shift+S` | Toggle tab sidebar |
-| `Cmd+F` | Find in page |
-| `Cmd+D` | Toggle downloads |
-| `Cmd+Shift+P` | Picture-in-Picture |
-| `Cmd++` | Zoom in |
-| `Cmd+-` | Zoom out |
-| `Cmd+0` | Reset zoom |
+---
 
 ## Architecture
 
 ```
 WheelBrowser/
-├── Package.swift
-└── Sources/WheelBrowser/
-    ├── WheelBrowserApp.swift      # App entry point
-    ├── ContentView.swift          # Main window layout
-    ├── BrowserState.swift         # Tab & state management
-    ├── OmniBar/
-    │   ├── OmniBar.swift          # Unified input bar
-    │   ├── OmniBarState.swift     # OmniBar state management
-    │   ├── MentionTypes.swift     # @mention system types
-    │   ├── MentionChip.swift      # Mention UI components
-    │   └── ...
-    ├── Letta/
-    │   └── AgentManager.swift     # AI chat integration
-    ├── SemanticSearch/
-    │   └── SemanticSearchManager.swift  # Vector search
-    ├── Workspaces/
-    │   └── WorkspaceManager.swift # Workspace management
-    ├── History/
-    │   ├── BrowsingHistory.swift  # History storage
-    │   └── FuzzySearch.swift      # Fuzzy matching
-    ├── ContentBlocking/
-    │   └── ContentBlockerManager.swift  # Ad blocking
-    ├── Downloads/
-    │   └── DownloadManager.swift  # Download handling
-    └── Settings/
-        └── AppSettings.swift      # User preferences
+├── OmniBar/          # The unified input system
+├── SemanticSearch/   # sqlite-vec powered search
+├── Letta/            # AI agent integration
+├── Workspaces/       # Context management
+├── RightClickPanel/  # Quick actions overlay
+├── Downloads/        # Download handling
+└── ContentBlocking/  # Ad blocking
 ```
 
-## License
+---
 
-MIT
+<div align="center">
+
+MIT License
+
+</div>
