@@ -54,6 +54,8 @@ struct MentionChip: View {
             return .blue
         case .semanticResult:
             return .orange
+        case .history:
+            return .green
         }
     }
 
@@ -149,6 +151,8 @@ struct MentionSuggestionRow: View {
             return .blue
         case .semanticResult:
             return .orange
+        case .history:
+            return .green
         }
     }
 
@@ -189,6 +193,16 @@ struct MentionSuggestionRow: View {
                 .background(
                     RoundedRectangle(cornerRadius: 5)
                         .fill(Color.purple.opacity(0.1))
+                )
+
+        case .history:
+            Image(systemName: "clock.arrow.circlepath")
+                .font(.system(size: 12))
+                .foregroundColor(.green)
+                .frame(width: 24, height: 24)
+                .background(
+                    RoundedRectangle(cornerRadius: 5)
+                        .fill(Color.green.opacity(0.1))
                 )
         }
     }

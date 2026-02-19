@@ -937,6 +937,12 @@ struct OmniBar: View {
         // Capture mentions before clearing
         let currentMentions = omniState.mentions
 
+        // Check if @History is mentioned
+        let hasHistoryMention = currentMentions.contains {
+            if case .history = $0 { return true }
+            return false
+        }
+
         omniState.inputText = ""
         isSending = true
 
@@ -945,6 +951,27 @@ struct OmniBar: View {
         Task {
             // Extract content from all mentioned sources
             var pageContexts: [PageContext] = []
+
+            // Handle @History - search semantic index with user's question
+            if hasHistoryMention {
+                let searchResults = await SemanticSearchManagerV2.shared.search(
+                    query: content,
+                    limit: 5
+                )
+
+                for result in searchResults {
+                    let historyContext = PageContext(
+                        url: result.page.url,
+                        title: result.page.title,
+                        textContent: """
+                        [From browsing history]
+                        URL: \(result.page.url)
+                        \(result.page.snippet)
+                        """
+                    )
+                    pageContexts.append(historyContext)
+                }
+            }
 
             for mention in currentMentions {
                 switch mention {
@@ -970,6 +997,10 @@ struct OmniBar: View {
                         textContent: "[Content from browsing history - URL: \(url)]"
                     )
                     pageContexts.append(semanticContext)
+
+                case .history:
+                    // Already handled above
+                    break
                 }
             }
 

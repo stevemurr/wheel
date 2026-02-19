@@ -60,6 +60,21 @@ class MentionSuggestionsViewModel: ObservableObject {
                 }
             }
 
+            // Add "History" option if not already mentioned
+            if !excludedIds.contains(Mention.history.id) {
+                let historyScore: Int
+                if query.isEmpty {
+                    historyScore = 900 // Show when dropdown opens
+                } else {
+                    let targets = ["history", "search", "find", "past", "browsing"]
+                    let bestMatch = targets.map { FuzzySearch.score(query: query, target: $0) }.max() ?? 0
+                    historyScore = bestMatch > 0 ? bestMatch + 400 : 0
+                }
+                if historyScore > 0 {
+                    allSuggestions.append(MentionSuggestion(mention: .history, score: historyScore))
+                }
+            }
+
             // Search open tabs
             if let browserState = browserState {
                 let tabSuggestions = searchTabs(

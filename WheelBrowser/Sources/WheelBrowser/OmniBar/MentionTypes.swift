@@ -5,6 +5,7 @@ enum Mention: Identifiable, Equatable, Hashable {
     case currentPage
     case tab(id: UUID, title: String, url: String)
     case semanticResult(id: UUID, title: String, url: String)
+    case history
 
     var id: String {
         switch self {
@@ -14,6 +15,8 @@ enum Mention: Identifiable, Equatable, Hashable {
             return "tab-\(id.uuidString)"
         case .semanticResult(let id, _, _):
             return "semantic-\(id.uuidString)"
+        case .history:
+            return "history-search"
         }
     }
 
@@ -25,6 +28,8 @@ enum Mention: Identifiable, Equatable, Hashable {
             return title.isEmpty ? "Untitled" : String(title.prefix(30))
         case .semanticResult(_, let title, _):
             return title.isEmpty ? "Untitled" : String(title.prefix(30))
+        case .history:
+            return "History"
         }
     }
 
@@ -36,6 +41,8 @@ enum Mention: Identifiable, Equatable, Hashable {
             return "square.on.square"
         case .semanticResult:
             return "brain.head.profile"
+        case .history:
+            return "clock.arrow.circlepath"
         }
     }
 
@@ -47,6 +54,8 @@ enum Mention: Identifiable, Equatable, Hashable {
             return "Tab"
         case .semanticResult:
             return "History"
+        case .history:
+            return "Search"
         }
     }
 
@@ -58,6 +67,8 @@ enum Mention: Identifiable, Equatable, Hashable {
             return url
         case .semanticResult(_, _, let url):
             return url
+        case .history:
+            return nil
         }
     }
 
