@@ -83,6 +83,10 @@ struct DisplayConfig: Codable, Equatable {
         case markdown       // Raw markdown rendering
     }
 
+    enum CodingKeys: String, CodingKey {
+        case layout, template, itemLimit, showTitle, accentColor
+    }
+
     init(
         layout: LayoutType,
         template: String,
@@ -95,6 +99,25 @@ struct DisplayConfig: Codable, Equatable {
         self.itemLimit = itemLimit
         self.showTitle = showTitle
         self.accentColor = accentColor
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        layout = try container.decode(LayoutType.self, forKey: .layout)
+        template = try container.decodeIfPresent(String.self, forKey: .template) ?? ""
+        showTitle = try container.decodeIfPresent(Bool.self, forKey: .showTitle) ?? true
+        accentColor = try container.decodeIfPresent(String.self, forKey: .accentColor)
+
+        // Handle itemLimit being either Int or Bool (malformed data from AI generation)
+        if let intValue = try? container.decode(Int.self, forKey: .itemLimit) {
+            itemLimit = intValue
+        } else if let boolValue = try? container.decode(Bool.self, forKey: .itemLimit) {
+            // Convert boolean to default value (AI sometimes generates true/false instead of a number)
+            itemLimit = boolValue ? 5 : 0
+            print("[DisplayConfig] Warning: itemLimit was Bool(\(boolValue)), converted to \(itemLimit)")
+        } else {
+            itemLimit = 5  // Default
+        }
     }
 }
 

@@ -77,24 +77,40 @@ final class AIWidget: Widget, ObservableObject {
     // MARK: - Configuration Persistence
 
     func encodeConfiguration() -> [String: Any] {
-        guard let data = try? JSONEncoder().encode(config),
-              let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+        do {
+            let data = try JSONEncoder().encode(config)
+            guard let json = try JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+                print("[AIWidget] encodeConfiguration: Failed to convert to dictionary")
+                return [:]
+            }
+            return json
+        } catch {
+            print("[AIWidget] encodeConfiguration failed: \(error)")
             return [:]
         }
-        return json
     }
 
     func decodeConfiguration(_ data: [String: Any]) {
-        guard let jsonData = try? JSONSerialization.data(withJSONObject: data),
-              let decoded = try? JSONDecoder().decode(AIWidgetConfig.self, from: jsonData) else {
+        // Check for empty data (indicates previous encoding failure)
+        guard !data.isEmpty else {
+            print("[AIWidget] decodeConfiguration: Received empty data, keeping placeholder")
             return
         }
-        self.config = decoded
 
-        // Start refresh after loading config
-        Task {
-            await refresh()
-            startAutoRefresh()
+        do {
+            let jsonData = try JSONSerialization.data(withJSONObject: data)
+            let decoded = try JSONDecoder().decode(AIWidgetConfig.self, from: jsonData)
+            self.config = decoded
+            print("[AIWidget] Successfully decoded config: \(decoded.name)")
+
+            // Start refresh after loading config
+            Task {
+                await refresh()
+                startAutoRefresh()
+            }
+        } catch {
+            print("[AIWidget] decodeConfiguration failed: \(error)")
+            print("[AIWidget] Data was: \(data)")
         }
     }
 }
