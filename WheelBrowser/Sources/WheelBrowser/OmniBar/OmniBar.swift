@@ -10,6 +10,7 @@ struct OmniBar: View {
     @StateObject private var suggestionsVM = SuggestionsViewModel()
     @StateObject private var semanticSearchVM = SemanticSearchViewModel()
     @StateObject private var mentionSuggestionsVM = MentionSuggestionsViewModel()
+    @StateObject private var readingListVM = ReadingListViewModel()
     @ObservedObject private var semanticSearchManager = SemanticSearchManagerV2.shared
     @ObservedObject private var downloadManager = DownloadManager.shared
 
@@ -22,6 +23,8 @@ struct OmniBar: View {
     @State private var findText: String = ""
     /// Track if the view has appeared to prevent initial animation flash
     @State private var hasAppeared: Bool = false
+    /// Track if current page is saved to reading list
+    @State private var isCurrentPageSaved: Bool = false
 
     private var shouldExpand: Bool {
         isInputFocused || isHovering
@@ -45,6 +48,11 @@ struct OmniBar: View {
     /// Computed property to determine if agent panel should be visible
     private var isAgentPanelVisible: Bool {
         omniState.showAgentPanel && omniState.mode == .agent
+    }
+
+    /// Computed property to determine if reading list panel should be visible
+    private var isReadingListPanelVisible: Bool {
+        omniState.showReadingListPanel && omniState.mode == .readingList
     }
 
     private var historyPanelSubtitle: String {
@@ -95,6 +103,15 @@ struct OmniBar: View {
             return "\(agentEngine.steps.count) steps"
         }
         return "Ready"
+    }
+
+    private var readingListPanelSubtitle: String {
+        if readingListVM.isLoading {
+            return "Loading..."
+        } else if !readingListVM.items.isEmpty {
+            return "\(readingListVM.items.count) saved"
+        }
+        return ""
     }
 
     var body: some View {
@@ -245,6 +262,36 @@ struct OmniBar: View {
             .animation(hasAppeared ? .spring(response: 0.3, dampingFraction: 0.85) : nil, value: isAgentPanelVisible)
             .zIndex(999)
 
+            // Reading list panel - appears above OmniBar when in reading list mode
+            OmniPanel(
+                title: "Reading List",
+                icon: "bookmark.fill",
+                iconColor: .pink,
+                borderColor: .pink,
+                subtitle: readingListPanelSubtitle,
+                onDismiss: {
+                    omniState.dismissReadingListPanel()
+                }
+            ) {
+                ReadingListPanelContent(
+                    viewModel: readingListVM,
+                    searchText: omniState.inputText,
+                    onSelect: { item in
+                        handleReadingListSelection(item)
+                    }
+                )
+            }
+            .padding(.horizontal, 16)
+            .padding(.bottom, 8)
+            .opacity(isReadingListPanelVisible ? 1 : 0)
+            .scaleEffect(isReadingListPanelVisible ? 1 : 0.95)
+            .offset(y: isReadingListPanelVisible ? 0 : 10)
+            .allowsHitTesting(isReadingListPanelVisible)
+            .frame(maxHeight: isReadingListPanelVisible ? nil : 0)
+            .clipped()
+            .animation(hasAppeared ? .spring(response: 0.3, dampingFraction: 0.85) : nil, value: isReadingListPanelVisible)
+            .zIndex(999)
+
             // Downloads panel - appears above OmniBar when downloads are active
             OmniPanel(
                 title: "Downloads",
@@ -315,6 +362,10 @@ struct OmniBar: View {
             if !isInputFocused && omniState.mode == .address {
                 omniState.inputText = newURL?.absoluteString ?? ""
             }
+            // Check if new URL is saved
+            Task {
+                await checkIfCurrentPageIsSaved()
+            }
         }
         .onChange(of: omniState.inputText) { _, newValue in
             if isInputFocused {
@@ -327,6 +378,8 @@ struct OmniBar: View {
                     }
                 case .semantic:
                     semanticSearchVM.search(query: newValue)
+                case .readingList:
+                    readingListVM.search(query: newValue)
                 case .chat:
                     break
                 case .agent:
@@ -341,10 +394,13 @@ struct OmniBar: View {
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
                     suggestionsVM.hide()
                     semanticSearchVM.clear()
+                    readingListVM.clear()
                     if omniState.mode == .address {
                         omniState.dismissHistoryPanel()
                     } else if omniState.mode == .semantic {
                         omniState.dismissSemanticPanel()
+                    } else if omniState.mode == .readingList {
+                        omniState.dismissReadingListPanel()
                     }
                 }
             } else {
@@ -361,6 +417,9 @@ struct OmniBar: View {
                     if !omniState.inputText.isEmpty {
                         semanticSearchVM.search(query: omniState.inputText)
                     }
+                case .readingList:
+                    omniState.openReadingListPanel()
+                    readingListVM.loadSavedPages()
                 case .chat:
                     break
                 case .agent:
@@ -374,25 +433,31 @@ struct OmniBar: View {
             case .chat:
                 suggestionsVM.hide()
                 semanticSearchVM.clear()
+                readingListVM.clear()
                 omniState.dismissHistoryPanel()
                 omniState.dismissSemanticPanel()
                 omniState.dismissAgentPanel()
+                omniState.dismissReadingListPanel()
                 if !agentManager.messages.isEmpty {
                     omniState.openChatPanel()
                 }
             case .address:
                 semanticSearchVM.clear()
+                readingListVM.clear()
                 omniState.dismissChatPanel()
                 omniState.dismissSemanticPanel()
                 omniState.dismissAgentPanel()
+                omniState.dismissReadingListPanel()
                 if isInputFocused {
                     omniState.openHistoryPanel()
                 }
             case .semantic:
                 suggestionsVM.hide()
+                readingListVM.clear()
                 omniState.dismissChatPanel()
                 omniState.dismissHistoryPanel()
                 omniState.dismissAgentPanel()
+                omniState.dismissReadingListPanel()
                 omniState.openSemanticPanel()
                 if !omniState.inputText.isEmpty {
                     semanticSearchVM.search(query: omniState.inputText)
@@ -400,10 +465,21 @@ struct OmniBar: View {
             case .agent:
                 suggestionsVM.hide()
                 semanticSearchVM.clear()
+                readingListVM.clear()
                 omniState.dismissChatPanel()
                 omniState.dismissHistoryPanel()
                 omniState.dismissSemanticPanel()
+                omniState.dismissReadingListPanel()
                 omniState.openAgentPanel()
+            case .readingList:
+                suggestionsVM.hide()
+                semanticSearchVM.clear()
+                omniState.dismissChatPanel()
+                omniState.dismissHistoryPanel()
+                omniState.dismissSemanticPanel()
+                omniState.dismissAgentPanel()
+                omniState.openReadingListPanel()
+                readingListVM.loadSavedPages()
             }
         }
         .onAppear {
@@ -469,11 +545,15 @@ struct OmniBar: View {
                 omniState.dismissAgentPanel()
                 isInputFocused = false
                 omniState.inputText = ""
+            } else if omniState.showReadingListPanel {
+                omniState.dismissReadingListPanel()
+                isInputFocused = false
+                omniState.inputText = ""
             } else if isInputFocused {
                 isInputFocused = false
                 if omniState.mode == .address {
                     omniState.inputText = tab.url?.absoluteString ?? ""
-                } else if omniState.mode == .semantic || omniState.mode == .agent {
+                } else if omniState.mode == .semantic || omniState.mode == .agent || omniState.mode == .readingList {
                     omniState.inputText = ""
                 }
             }
@@ -485,6 +565,28 @@ struct OmniBar: View {
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
                 isFindFieldFocused = true
             }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .toggleSavePage)) { _ in
+            toggleSaveCurrentPage()
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .focusReadingList)) { _ in
+            omniState.setMode(.readingList)
+            isInputFocused = true
+            omniState.openReadingListPanel()
+            readingListVM.loadSavedPages()
+        }
+        .onReceive(NotificationCenter.default.publisher(for: Notification.Name("pageSaveStateChanged"))) { notification in
+            if let userInfo = notification.userInfo,
+               let url = userInfo["url"] as? String,
+               let isSaved = userInfo["isSaved"] as? Bool,
+               url == tab.url?.absoluteString {
+                withAnimation(.easeInOut(duration: 0.2)) {
+                    isCurrentPageSaved = isSaved
+                }
+            }
+        }
+        .task {
+            await checkIfCurrentPageIsSaved()
         }
     }
 
@@ -571,6 +673,36 @@ struct OmniBar: View {
                     .transition(.opacity.combined(with: .scale))
                 }
 
+                // Reading list panel toggle (only in reading list mode with items)
+                if omniState.mode == .readingList && !readingListVM.items.isEmpty {
+                    Button(action: {
+                        if omniState.showReadingListPanel {
+                            omniState.dismissReadingListPanel()
+                        } else {
+                            omniState.openReadingListPanel()
+                        }
+                    }) {
+                        Image(systemName: omniState.showReadingListPanel ? "chevron.down" : "chevron.up")
+                            .font(.system(size: 12, weight: .medium))
+                            .foregroundColor(.secondary)
+                            .frame(width: 28, height: 28)
+                            .background(
+                                Circle()
+                                    .fill(Color(nsColor: .controlBackgroundColor))
+                            )
+                    }
+                    .buttonStyle(.plain)
+                    .transition(.opacity.combined(with: .scale))
+                }
+
+                // Saved indicator
+                if isCurrentPageSaved {
+                    Image(systemName: "bookmark.fill")
+                        .font(.system(size: 12, weight: .medium))
+                        .foregroundColor(.pink)
+                        .transition(.opacity.combined(with: .scale))
+                }
+
                 // Zoom indicator (only show if not at 100%)
                 if tab.zoomLevel != 1.0 {
                     Text("\(Int(tab.zoomLevel * 100))%")
@@ -649,6 +781,7 @@ struct OmniBar: View {
                 suggestionsVM: suggestionsVM,
                 semanticSearchVM: semanticSearchVM,
                 mentionSuggestionsVM: mentionSuggestionsVM,
+                readingListVM: readingListVM,
                 omniState: omniState,
                 placeholder: omniState.mode == .chat && !omniState.mentions.isEmpty ? "Ask about these pages..." : omniState.placeholder,
                 onSubmit: handleSubmit,
@@ -883,6 +1016,20 @@ struct OmniBar: View {
             }
             .buttonStyle(.plain)
             .disabled(omniState.inputText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || agentEngine.isRunning)
+
+        case .readingList:
+            if isInputFocused && !omniState.inputText.isEmpty {
+                Button(action: {
+                    omniState.inputText = ""
+                    readingListVM.loadSavedPages()
+                }) {
+                    Image(systemName: "xmark.circle.fill")
+                        .foregroundColor(.secondary)
+                        .font(.system(size: 12))
+                }
+                .buttonStyle(.plain)
+                .transition(.opacity.combined(with: .scale))
+            }
         }
     }
 
@@ -898,6 +1045,8 @@ struct OmniBar: View {
             submitSemantic()
         case .agent:
             submitAgent()
+        case .readingList:
+            submitReadingList()
         }
     }
 
@@ -1026,6 +1175,14 @@ struct OmniBar: View {
         omniState.inputText = ""
     }
 
+    private func handleReadingListSelection(_ item: SavedPageRecord) {
+        tab.load(item.url.absoluteString)
+        isInputFocused = false
+        omniState.dismissReadingListPanel()
+        readingListVM.clear()
+        omniState.inputText = ""
+    }
+
     private func submitAgent() {
         let task = omniState.inputText.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !task.isEmpty else { return }
@@ -1035,6 +1192,63 @@ struct OmniBar: View {
 
         Task {
             _ = await agentEngine.run(task: task)
+        }
+    }
+
+    private func submitReadingList() {
+        if let selected = readingListVM.selectedItem {
+            handleReadingListSelection(selected)
+        }
+    }
+
+    private func toggleSaveCurrentPage() {
+        guard let url = tab.url else { return }
+
+        Task {
+            do {
+                let database = try SearchDatabase()
+                try await database.initialize()
+                let isSaved = try await database.toggleSaved(url: url.absoluteString)
+
+                // Show brief visual feedback
+                await MainActor.run {
+                    // Post notification for potential visual feedback
+                    NotificationCenter.default.post(
+                        name: Notification.Name("pageSaveStateChanged"),
+                        object: nil,
+                        userInfo: ["url": url.absoluteString, "isSaved": isSaved]
+                    )
+                }
+
+                print("Page \(isSaved ? "saved to" : "removed from") reading list: \(url.absoluteString)")
+            } catch {
+                print("Failed to toggle save state: \(error)")
+            }
+        }
+    }
+
+    private func checkIfCurrentPageIsSaved() async {
+        guard let url = tab.url else {
+            await MainActor.run {
+                isCurrentPageSaved = false
+            }
+            return
+        }
+
+        do {
+            let database = try SearchDatabase()
+            try await database.initialize()
+            let saved = try await database.isSaved(url: url.absoluteString)
+            await MainActor.run {
+                withAnimation(.easeInOut(duration: 0.2)) {
+                    isCurrentPageSaved = saved
+                }
+            }
+        } catch {
+            print("Failed to check save state: \(error)")
+            await MainActor.run {
+                isCurrentPageSaved = false
+            }
         }
     }
 }
@@ -1048,6 +1262,7 @@ struct OmniBarTextField: NSViewRepresentable {
     @ObservedObject var suggestionsVM: SuggestionsViewModel
     @ObservedObject var semanticSearchVM: SemanticSearchViewModel
     @ObservedObject var mentionSuggestionsVM: MentionSuggestionsViewModel
+    @ObservedObject var readingListVM: ReadingListViewModel
     @ObservedObject var omniState: OmniBarState
     let placeholder: String
     var onSubmit: () -> Void
@@ -1230,6 +1445,9 @@ struct OmniBarTextField: NSViewRepresentable {
                 case .semantic:
                     parent.semanticSearchVM.selectPrevious()
                     return true
+                case .readingList:
+                    parent.readingListVM.selectPrevious()
+                    return true
                 case .chat, .agent:
                     return false
                 }
@@ -1240,6 +1458,9 @@ struct OmniBarTextField: NSViewRepresentable {
                     return true
                 case .semantic:
                     parent.semanticSearchVM.selectNext()
+                    return true
+                case .readingList:
+                    parent.readingListVM.selectNext()
                     return true
                 case .chat, .agent:
                     return false

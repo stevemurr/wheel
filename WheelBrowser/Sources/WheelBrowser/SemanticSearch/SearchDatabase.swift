@@ -116,7 +116,9 @@ actor SearchDatabase {
             workspace_id TEXT,
             content_extracted INTEGER DEFAULT 0,
             summary_generated INTEGER DEFAULT 0,
-            embeddings_generated INTEGER DEFAULT 0
+            embeddings_generated INTEGER DEFAULT 0,
+            is_saved INTEGER DEFAULT 0,
+            saved_at INTEGER
         );
 
         CREATE TABLE IF NOT EXISTS chunks (
@@ -207,6 +209,43 @@ actor SearchDatabase {
                 DELETE FROM chunks_fts WHERE rowid = old.id;
             END
         """)
+
+        // Run migrations for existing databases (must happen before creating indexes on new columns)
+        try runMigrations()
+
+        // Create index for saved pages (after migrations have added the columns)
+        try execute("CREATE INDEX IF NOT EXISTS idx_pages_saved ON pages(is_saved, saved_at DESC) WHERE is_saved = 1")
+    }
+
+    private func runMigrations() throws {
+        // Check if is_saved column exists
+        var stmt: OpaquePointer?
+        defer { sqlite3_finalize(stmt) }
+
+        guard sqlite3_prepare_v2(db, "PRAGMA table_info(pages)", -1, &stmt, nil) == SQLITE_OK else {
+            return
+        }
+
+        var hasIsSaved = false
+        var hasSavedAt = false
+
+        while sqlite3_step(stmt) == SQLITE_ROW {
+            if let namePtr = sqlite3_column_text(stmt, 1) {
+                let name = String(cString: namePtr)
+                if name == "is_saved" { hasIsSaved = true }
+                if name == "saved_at" { hasSavedAt = true }
+            }
+        }
+
+        // Add missing columns
+        if !hasIsSaved {
+            try execute("ALTER TABLE pages ADD COLUMN is_saved INTEGER DEFAULT 0")
+            print("SearchDatabase: Added is_saved column")
+        }
+        if !hasSavedAt {
+            try execute("ALTER TABLE pages ADD COLUMN saved_at INTEGER")
+            print("SearchDatabase: Added saved_at column")
+        }
     }
 
     // MARK: - Page Operations
@@ -391,6 +430,166 @@ actor SearchDatabase {
             if let page = pageFromStatement(stmt) {
                 pages.append(page)
             }
+        }
+
+        return pages
+    }
+
+    // MARK: - Reading List Operations
+
+    /// Toggle the saved state of a page by URL
+    func toggleSaved(url: String) throws -> Bool {
+        // First check current state
+        let checkSql = "SELECT is_saved FROM pages WHERE url = ?"
+        var checkStmt: OpaquePointer?
+        defer { sqlite3_finalize(checkStmt) }
+
+        guard sqlite3_prepare_v2(db, checkSql, -1, &checkStmt, nil) == SQLITE_OK else {
+            throw SearchDBError.prepareFailed(String(cString: sqlite3_errmsg(db)))
+        }
+
+        sqlite3_bind_text(checkStmt, 1, url, -1, SQLITE_TRANSIENT)
+
+        guard sqlite3_step(checkStmt) == SQLITE_ROW else {
+            // Page doesn't exist - can't save it
+            return false
+        }
+
+        let currentState = sqlite3_column_int(checkStmt, 0) != 0
+        let newState = !currentState
+
+        try setSaved(url: url, saved: newState)
+        return newState
+    }
+
+    /// Set the saved state of a page
+    func setSaved(url: String, saved: Bool) throws {
+        let now = saved ? Int64(Date().timeIntervalSince1970) : 0
+        let sql = "UPDATE pages SET is_saved = ?, saved_at = ? WHERE url = ?"
+
+        var stmt: OpaquePointer?
+        defer { sqlite3_finalize(stmt) }
+
+        guard sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK else {
+            throw SearchDBError.prepareFailed(String(cString: sqlite3_errmsg(db)))
+        }
+
+        sqlite3_bind_int(stmt, 1, saved ? 1 : 0)
+        if saved {
+            sqlite3_bind_int64(stmt, 2, now)
+        } else {
+            sqlite3_bind_null(stmt, 2)
+        }
+        sqlite3_bind_text(stmt, 3, url, -1, SQLITE_TRANSIENT)
+
+        guard sqlite3_step(stmt) == SQLITE_DONE else {
+            throw SearchDBError.executeFailed(String(cString: sqlite3_errmsg(db)))
+        }
+    }
+
+    /// Check if a URL is saved
+    func isSaved(url: String) throws -> Bool {
+        let sql = "SELECT is_saved FROM pages WHERE url = ?"
+        var stmt: OpaquePointer?
+        defer { sqlite3_finalize(stmt) }
+
+        guard sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK else {
+            throw SearchDBError.prepareFailed(String(cString: sqlite3_errmsg(db)))
+        }
+
+        sqlite3_bind_text(stmt, 1, url, -1, SQLITE_TRANSIENT)
+
+        guard sqlite3_step(stmt) == SQLITE_ROW else {
+            return false
+        }
+
+        return sqlite3_column_int(stmt, 0) != 0
+    }
+
+    /// Get all saved pages ordered by save date
+    func getSavedPages(limit: Int = 100) throws -> [SavedPageRecord] {
+        let sql = """
+            SELECT id, url, title, domain, summary, saved_at, last_visited_at
+            FROM pages
+            WHERE is_saved = 1
+            ORDER BY saved_at DESC
+            LIMIT ?
+        """
+
+        var stmt: OpaquePointer?
+        defer { sqlite3_finalize(stmt) }
+
+        guard sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK else {
+            throw SearchDBError.prepareFailed(String(cString: sqlite3_errmsg(db)))
+        }
+
+        sqlite3_bind_int(stmt, 1, Int32(limit))
+
+        var pages: [SavedPageRecord] = []
+        while sqlite3_step(stmt) == SQLITE_ROW {
+            guard let urlString = sqlite3_column_text(stmt, 1),
+                  let url = URL(string: String(cString: urlString)) else {
+                continue
+            }
+
+            let page = SavedPageRecord(
+                id: sqlite3_column_int64(stmt, 0),
+                url: url,
+                title: sqlite3_column_text(stmt, 2).map { String(cString: $0) },
+                domain: String(cString: sqlite3_column_text(stmt, 3)),
+                summary: sqlite3_column_text(stmt, 4).map { String(cString: $0) },
+                savedAt: Date(timeIntervalSince1970: Double(sqlite3_column_int64(stmt, 5))),
+                lastVisitedAt: Date(timeIntervalSince1970: Double(sqlite3_column_int64(stmt, 6)))
+            )
+            pages.append(page)
+        }
+
+        return pages
+    }
+
+    /// Search saved pages using FTS
+    func searchSavedPages(query: String, limit: Int = 50) throws -> [SavedPageRecord] {
+        let sanitized = sanitizeFTSQuery(query)
+        guard !sanitized.isEmpty else {
+            return try getSavedPages(limit: limit)
+        }
+
+        let sql = """
+            SELECT p.id, p.url, p.title, p.domain, p.summary, p.saved_at, p.last_visited_at
+            FROM pages p
+            JOIN pages_fts fts ON fts.rowid = p.id
+            WHERE p.is_saved = 1 AND pages_fts MATCH ?
+            ORDER BY bm25(pages_fts)
+            LIMIT ?
+        """
+
+        var stmt: OpaquePointer?
+        defer { sqlite3_finalize(stmt) }
+
+        guard sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK else {
+            throw SearchDBError.prepareFailed(String(cString: sqlite3_errmsg(db)))
+        }
+
+        sqlite3_bind_text(stmt, 1, sanitized, -1, SQLITE_TRANSIENT)
+        sqlite3_bind_int(stmt, 2, Int32(limit))
+
+        var pages: [SavedPageRecord] = []
+        while sqlite3_step(stmt) == SQLITE_ROW {
+            guard let urlString = sqlite3_column_text(stmt, 1),
+                  let url = URL(string: String(cString: urlString)) else {
+                continue
+            }
+
+            let page = SavedPageRecord(
+                id: sqlite3_column_int64(stmt, 0),
+                url: url,
+                title: sqlite3_column_text(stmt, 2).map { String(cString: $0) },
+                domain: String(cString: sqlite3_column_text(stmt, 3)),
+                summary: sqlite3_column_text(stmt, 4).map { String(cString: $0) },
+                savedAt: Date(timeIntervalSince1970: Double(sqlite3_column_int64(stmt, 5))),
+                lastVisitedAt: Date(timeIntervalSince1970: Double(sqlite3_column_int64(stmt, 6)))
+            )
+            pages.append(page)
         }
 
         return pages
@@ -815,6 +1014,24 @@ struct ChunkRecord: Identifiable {
     let pageId: Int64
     let chunkIndex: Int
     let text: String
+}
+
+struct SavedPageRecord: Identifiable {
+    let id: Int64
+    let url: URL
+    let title: String?
+    let domain: String
+    let summary: String?
+    let savedAt: Date
+    let lastVisitedAt: Date
+
+    var displayTitle: String {
+        title ?? domain
+    }
+
+    var snippet: String {
+        summary ?? ""
+    }
 }
 
 struct SearchStats {

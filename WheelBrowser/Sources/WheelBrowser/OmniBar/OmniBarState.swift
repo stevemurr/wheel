@@ -7,6 +7,7 @@ enum OmniBarMode: Equatable {
     case chat
     case semantic
     case agent
+    case readingList
 }
 
 /// Manages the state of the OmniBar
@@ -19,6 +20,7 @@ class OmniBarState: ObservableObject {
     @Published var showHistoryPanel: Bool = false
     @Published var showSemanticPanel: Bool = false
     @Published var showAgentPanel: Bool = false
+    @Published var showReadingListPanel: Bool = false
 
     // MARK: - Mention State
     @Published var mentions: [Mention] = [.currentPage]
@@ -39,6 +41,9 @@ class OmniBarState: ObservableObject {
                 mode = .agent
                 inputText = ""
             case .agent:
+                mode = .readingList
+                inputText = ""
+            case .readingList:
                 mode = .address
                 inputText = ""
             }
@@ -50,7 +55,7 @@ class OmniBarState: ObservableObject {
         withAnimation(.easeInOut(duration: 0.15)) {
             switch mode {
             case .address:
-                mode = .agent
+                mode = .readingList
                 inputText = ""
             case .chat:
                 mode = .address
@@ -60,6 +65,9 @@ class OmniBarState: ObservableObject {
                 inputText = ""
             case .agent:
                 mode = .semantic
+                inputText = ""
+            case .readingList:
+                mode = .agent
                 inputText = ""
             }
         }
@@ -129,6 +137,7 @@ class OmniBarState: ObservableObject {
             showHistoryPanel = false
             showSemanticPanel = false
             showAgentPanel = false
+            showReadingListPanel = false
         }
     }
 
@@ -146,6 +155,7 @@ class OmniBarState: ObservableObject {
             showChatPanel = false
             showSemanticPanel = false
             showAgentPanel = false
+            showReadingListPanel = false
         }
     }
 
@@ -163,6 +173,7 @@ class OmniBarState: ObservableObject {
             showHistoryPanel = false
             showChatPanel = false
             showAgentPanel = false
+            showReadingListPanel = false
         }
     }
 
@@ -180,6 +191,25 @@ class OmniBarState: ObservableObject {
             showHistoryPanel = false
             showChatPanel = false
             showSemanticPanel = false
+            showReadingListPanel = false
+        }
+    }
+
+    /// Dismiss reading list panel
+    func dismissReadingListPanel() {
+        withAnimation(.spring(response: 0.3, dampingFraction: 0.85)) {
+            showReadingListPanel = false
+        }
+    }
+
+    /// Show reading list panel
+    func openReadingListPanel() {
+        withAnimation(.spring(response: 0.3, dampingFraction: 0.85)) {
+            showReadingListPanel = true
+            showHistoryPanel = false
+            showChatPanel = false
+            showSemanticPanel = false
+            showAgentPanel = false
         }
     }
 
@@ -194,6 +224,8 @@ class OmniBarState: ObservableObject {
             return "brain.head.profile"
         case .agent:
             return "wand.and.stars"
+        case .readingList:
+            return "bookmark.fill"
         }
     }
 
@@ -208,6 +240,8 @@ class OmniBarState: ObservableObject {
             return "Search history semantically..."
         case .agent:
             return "Describe a task for the agent..."
+        case .readingList:
+            return "Search reading list..."
         }
     }
 
@@ -222,6 +256,8 @@ class OmniBarState: ObservableObject {
             return .orange
         case .agent:
             return .green
+        case .readingList:
+            return .pink
         }
     }
 }

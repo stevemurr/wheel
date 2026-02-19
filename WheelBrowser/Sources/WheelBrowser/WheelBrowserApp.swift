@@ -188,6 +188,18 @@ struct WheelBrowserApp: App {
 
                 Divider()
 
+                Button("Save to Reading List") {
+                    NotificationCenter.default.post(name: .toggleSavePage, object: nil)
+                }
+                .keyboardShortcut("s", modifiers: .command)
+
+                Button("Show Reading List") {
+                    NotificationCenter.default.post(name: .focusReadingList, object: nil)
+                }
+                .keyboardShortcut("b", modifiers: .command)
+
+                Divider()
+
                 Button("Toggle Dark Mode") {
                     NotificationCenter.default.post(name: .toggleDarkMode, object: nil)
                 }
@@ -243,4 +255,8 @@ extension Notification.Name {
 
     // Downloads
     static let toggleDownloads = Notification.Name("toggleDownloads")
+
+    // Reading list
+    static let toggleSavePage = Notification.Name("toggleSavePage")
+    static let focusReadingList = Notification.Name("focusReadingList")
 }
