@@ -101,6 +101,9 @@ struct PageSnapshot: Codable {
 class AccessibilityBridge {
     private weak var webView: WKWebView?
 
+    /// Track the last element we interacted with for pressEnter
+    private var lastInteractedElementId: Int?
+
     init(webView: WKWebView) {
         self.webView = webView
     }
@@ -234,6 +237,9 @@ class AccessibilityBridge {
             throw AgentError.webViewUnavailable
         }
 
+        // Track for pressEnter
+        lastInteractedElementId = elementId
+
         let script = """
         (function() {
             const el = document.querySelector('[data-agent-id="\(elementId)"]');
@@ -241,8 +247,16 @@ class AccessibilityBridge {
                 return { success: false, error: 'Element not found' };
             }
 
+            // Store as last interacted element globally
+            window.__agentLastElement = el;
+
             // Scroll into view if needed
             el.scrollIntoView({ behavior: 'instant', block: 'center' });
+
+            // Focus the element first (helps with background tabs)
+            if (el.focus) {
+                el.focus();
+            }
 
             // Create and dispatch click event
             const rect = el.getBoundingClientRect();
@@ -292,6 +306,9 @@ class AccessibilityBridge {
             throw AgentError.webViewUnavailable
         }
 
+        // Track for pressEnter
+        lastInteractedElementId = elementId
+
         // Escape the text for JavaScript
         let escapedText = text
             .replacingOccurrences(of: "\\", with: "\\\\")
@@ -306,7 +323,10 @@ class AccessibilityBridge {
                 return { success: false, error: 'Element not found' };
             }
 
-            // Focus the element
+            // Store as last interacted element globally
+            window.__agentLastElement = el;
+
+            // Focus the element explicitly
             el.focus();
 
             // Clear existing content
@@ -350,18 +370,34 @@ class AccessibilityBridge {
 
     // MARK: - Press Enter
 
-    /// Press enter on the currently focused element
+    /// Press enter on the last interacted element (or focused element as fallback)
     func pressEnter() async throws {
         guard let webView = webView else {
             throw AgentError.webViewUnavailable
         }
 
+        // Build selector for last interacted element if available
+        let elementSelector: String
+        if let lastId = lastInteractedElementId {
+            elementSelector = """
+            window.__agentLastElement ||
+            document.querySelector('[data-agent-id="\(lastId)"]') ||
+            document.activeElement
+            """
+        } else {
+            elementSelector = "window.__agentLastElement || document.activeElement"
+        }
+
         let script = """
         (function() {
-            const el = document.activeElement;
-            if (!el) {
-                return { success: false, error: 'No element focused' };
+            // Try to get the last interacted element, fall back to activeElement
+            const el = \(elementSelector);
+            if (!el || el === document.body) {
+                return { success: false, error: 'No element to press enter on' };
             }
+
+            // Re-focus the element in case focus was lost
+            el.focus();
 
             // Dispatch keydown event
             const keydownEvent = new KeyboardEvent('keydown', {
@@ -398,6 +434,10 @@ class AccessibilityBridge {
 
             // If it's a form element, try submitting the form
             if (el.form) {
+                // Try both requestSubmit (modern) and submit event
+                if (el.form.requestSubmit) {
+                    try { el.form.requestSubmit(); } catch(e) {}
+                }
                 el.form.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }));
             }
 

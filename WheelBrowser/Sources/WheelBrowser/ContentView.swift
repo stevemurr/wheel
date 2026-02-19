@@ -1,100 +1,78 @@
 import SwiftUI
 
-// MARK: - Auto-hiding Dock Container
-
-private struct AutoHidingDock: View {
-    @ObservedObject var browserState: BrowserState
-    @ObservedObject var settings: AppSettings
-
-    @State private var isVisible: Bool = true
-    @State private var isHovering: Bool = false
-
-    private let edgeHitZoneWidth: CGFloat = 8
-    private let dockWidth: CGFloat = 70
-
-    var body: some View {
-        GeometryReader { geometry in
-            ZStack(alignment: .leading) {
-                // Invisible hit zone at left edge to trigger dock appearance
-                if settings.tabDockAutoHide && !isVisible {
-                    Color.clear
-                        .frame(width: edgeHitZoneWidth, height: geometry.size.height)
-                        .contentShape(Rectangle())
-                        .onHover { hovering in
-                            if hovering {
-                                withAnimation(.easeOut(duration: 0.2)) {
-                                    isVisible = true
-                                }
-                            }
-                        }
-                }
-
-                // The actual dock
-                DockTabBar(browserState: browserState)
-                    .padding(.leading, 12)
-                    .offset(x: shouldShowDock ? 0 : -dockWidth - 20)
-                    .animation(.easeInOut(duration: 0.2), value: shouldShowDock)
-                    .onHover { hovering in
-                        isHovering = hovering
-                        if settings.tabDockAutoHide && !hovering {
-                            // Delay hiding to allow moving between tabs
-                            DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
-                                if !isHovering {
-                                    withAnimation(.easeIn(duration: 0.2)) {
-                                        isVisible = false
-                                    }
-                                }
-                            }
-                        }
-                    }
-            }
-            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
-        }
-    }
-
-    private var shouldShowDock: Bool {
-        !settings.tabDockAutoHide || isVisible
-    }
-}
-
 // MARK: - Browser Content Area (extracted to help compiler with type checking)
 
 private struct BrowserContentArea: View {
-    @ObservedObject var tab: Tab
+    @ObservedObject var activeTab: Tab
     @ObservedObject var agentManager: AgentManager
     @ObservedObject var browserState: BrowserState
     @ObservedObject var settings: AppSettings
     @ObservedObject var agentEngine: AgentEngine
+    @ObservedObject var panelState: RightClickPanelState
     let contentExtractor: ContentExtractor
 
     var body: some View {
-        ZStack(alignment: .leading) {
-            // Main content area - full width
-            ZStack(alignment: .bottom) {
-                // Web content - extends full window including behind title bar
-                VStack(spacing: 0) {
-                    if tab.url == nil {
-                        NewTabPageView()
-                    } else {
-                        WebViewRepresentable(tab: tab)
-                            .id(tab.id)
+        GeometryReader { geometry in
+            ZStack {
+                // Main content area - full width
+                ZStack(alignment: .bottom) {
+                    // Web content - render ALL tabs to keep webviews in hierarchy
+                    // This is critical for agent automation on background tabs
+                    ZStack {
+                        ForEach(browserState.tabs) { tab in
+                            TabWebViewContainer(
+                                tab: tab,
+                                isActive: tab.id == browserState.activeTabId
+                            )
+                        }
                     }
-                }
-                .ignoresSafeArea()
+                    .ignoresSafeArea()
 
-                // Bottom controls: OmniBar only
-                OmniBar(
-                    tab: tab,
-                    agentManager: agentManager,
+                    // Bottom controls: OmniBar only (uses active tab)
+                    OmniBar(
+                        tab: activeTab,
+                        agentManager: agentManager,
+                        browserState: browserState,
+                        agentEngine: agentEngine,
+                        contentExtractor: contentExtractor
+                    )
+                }
+
+                // Right-click interceptor (full overlay, passes through clicks)
+                RightClickInterceptorView { position, size in
+                    panelState.show(at: position)
+                }
+
+                // Right-click panel container
+                RightClickPanelContainer(
+                    state: panelState,
                     browserState: browserState,
-                    agentEngine: agentEngine,
-                    contentExtractor: contentExtractor
+                    containerSize: geometry.size
                 )
             }
-
-            // Floating tab dock on left side with auto-hide support
-            AutoHidingDock(browserState: browserState, settings: settings)
         }
+    }
+}
+
+/// Container for a single tab's web view - keeps it in hierarchy even when not active
+private struct TabWebViewContainer: View {
+    @ObservedObject var tab: Tab
+    let isActive: Bool
+
+    var body: some View {
+        Group {
+            if tab.url == nil {
+                NewTabPageView()
+            } else {
+                WebViewRepresentable(tab: tab)
+            }
+        }
+        // Keep inactive tabs in hierarchy but hidden
+        // Using opacity instead of removing from hierarchy preserves JS execution
+        .opacity(isActive ? 1 : 0)
+        .allowsHitTesting(isActive)
+        // Ensure the view stays the same identity
+        .id(tab.id)
     }
 }
 
@@ -200,6 +178,7 @@ struct ContentView: View {
     @ObservedObject private var workspaceManager = WorkspaceManager.shared
     @ObservedObject private var settings = AppSettings.shared
     @ObservedObject private var downloadManager = DownloadManager.shared
+    @ObservedObject private var panelState = RightClickPanelState.shared
     private let contentExtractor = ContentExtractor()
 
     init() {
@@ -220,13 +199,14 @@ struct ContentView: View {
     @ViewBuilder
     private var mainContent: some View {
         VStack(spacing: 0) {
-            if let tab = state.activeTab {
+            if let activeTab = state.activeTab {
                 BrowserContentArea(
-                    tab: tab,
+                    activeTab: activeTab,
                     agentManager: agentManager,
                     browserState: state,
                     settings: settings,
                     agentEngine: agentEngine,
+                    panelState: panelState,
                     contentExtractor: contentExtractor
                 )
             }

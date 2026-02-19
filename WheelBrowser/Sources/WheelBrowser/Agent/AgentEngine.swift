@@ -777,7 +777,12 @@ class AgentEngine: ObservableObject {
                 url = "https://\(url)"
             }
             if let parsedURL = URL(string: url) {
-                browserState.navigate(to: parsedURL)
+                // Navigate the bound tab, not the active tab
+                guard let boundTabId = boundTabId,
+                      let tab = browserState.tab(for: boundTabId) else {
+                    throw AgentError.webViewUnavailable
+                }
+                tab.load(parsedURL.absoluteString)
                 try await bridge.waitForLoad(timeout: 10.0)
                 return "Navigated to \(url)"
             } else {
