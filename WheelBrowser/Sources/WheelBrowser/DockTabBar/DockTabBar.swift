@@ -8,7 +8,7 @@ struct DockTabBar: View {
     private let dockCornerRadius: CGFloat = 14
 
     var body: some View {
-        HStack(spacing: 6) {
+        VStack(spacing: 6) {
             ForEach(browserState.tabs) { tab in
                 DockTabItem(
                     tab: tab,
@@ -29,7 +29,7 @@ struct DockTabBar: View {
         .background(
             RoundedRectangle(cornerRadius: dockCornerRadius)
                 .fill(Color(nsColor: .controlBackgroundColor).opacity(0.95))
-                .shadow(color: .black.opacity(0.15), radius: 8, y: 2)
+                .shadow(color: .black.opacity(0.15), radius: 8, x: 2)
         )
         .overlay(
             RoundedRectangle(cornerRadius: dockCornerRadius)

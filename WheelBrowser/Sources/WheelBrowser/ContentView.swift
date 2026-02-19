@@ -11,22 +11,21 @@ private struct BrowserContentArea: View {
     let contentExtractor: ContentExtractor
 
     var body: some View {
-        ZStack(alignment: .bottom) {
-            // Main content area - extends full window including behind title bar
-            VStack(spacing: 0) {
-                if tab.url == nil {
-                    NewTabPageView()
-                } else {
-                    WebViewRepresentable(tab: tab)
-                        .id(tab.id)
+        ZStack(alignment: .leading) {
+            // Main content area - full width
+            ZStack(alignment: .bottom) {
+                // Web content - extends full window including behind title bar
+                VStack(spacing: 0) {
+                    if tab.url == nil {
+                        NewTabPageView()
+                    } else {
+                        WebViewRepresentable(tab: tab)
+                            .id(tab.id)
+                    }
                 }
-            }
-            .ignoresSafeArea()
+                .ignoresSafeArea()
 
-            // Bottom controls: Dock + OmniBar
-            VStack(spacing: 8) {
-                DockTabBar(browserState: browserState)
-
+                // Bottom controls: OmniBar only
                 OmniBar(
                     tab: tab,
                     agentManager: agentManager,
@@ -35,6 +34,10 @@ private struct BrowserContentArea: View {
                     contentExtractor: contentExtractor
                 )
             }
+
+            // Floating tab dock on left side
+            DockTabBar(browserState: browserState)
+                .padding(.leading, 12)
         }
     }
 }
