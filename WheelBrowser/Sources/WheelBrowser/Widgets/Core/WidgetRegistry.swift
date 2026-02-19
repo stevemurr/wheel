@@ -66,5 +66,6 @@ final class WidgetRegistry {
         register(ShortcutsWidget.self) { ShortcutsWidget() }
         register(QuickNoteWidget.self) { QuickNoteWidget() }
         register(DailyNotesWidget.self) { DailyNotesWidget() }
+        register(AIWidget.self) { AIWidget(config: .placeholder) }
     }
 }

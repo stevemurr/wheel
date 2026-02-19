@@ -120,9 +120,11 @@ struct NewTabPageView: View {
 struct WidgetGallerySheet: View {
     @ObservedObject var manager: NewTabPageManager
     @Environment(\.dismiss) private var dismiss
+    @State private var showAIWidgetCreator = false
 
     private var availableWidgets: [WidgetRegistry.WidgetMetadata] {
-        WidgetRegistry.shared.availableWidgets
+        // Filter out AI Widget from regular list - it gets special treatment
+        WidgetRegistry.shared.availableWidgets.filter { $0.typeIdentifier != AIWidget.typeIdentifier }
     }
 
     var body: some View {
@@ -143,18 +145,85 @@ struct WidgetGallerySheet: View {
 
             // Widget list
             ScrollView {
-                LazyVGrid(columns: [GridItem(.adaptive(minimum: 160), spacing: 16)], spacing: 16) {
-                    ForEach(availableWidgets, id: \.typeIdentifier) { widgetMeta in
-                        WidgetGalleryItem(metadata: widgetMeta) {
-                            manager.addWidget(typeIdentifier: widgetMeta.typeIdentifier)
-                            dismiss()
+                VStack(spacing: 16) {
+                    // AI Widget Creator - Featured at top
+                    aiWidgetCreatorCard
+
+                    Divider()
+                        .padding(.horizontal)
+
+                    // Regular widgets
+                    LazyVGrid(columns: [GridItem(.adaptive(minimum: 160), spacing: 16)], spacing: 16) {
+                        ForEach(availableWidgets, id: \.typeIdentifier) { widgetMeta in
+                            WidgetGalleryItem(metadata: widgetMeta) {
+                                manager.addWidget(typeIdentifier: widgetMeta.typeIdentifier)
+                                dismiss()
+                            }
                         }
                     }
                 }
                 .padding()
             }
         }
-        .frame(width: 500, height: 400)
+        .frame(width: 500, height: 450)
+        .sheet(isPresented: $showAIWidgetCreator) {
+            AIWidgetCreatorSheet(manager: manager)
+        }
+    }
+
+    private var aiWidgetCreatorCard: some View {
+        Button {
+            showAIWidgetCreator = true
+        } label: {
+            HStack(spacing: 16) {
+                ZStack {
+                    RoundedRectangle(cornerRadius: 12)
+                        .fill(LinearGradient(
+                            colors: [.purple.opacity(0.2), .blue.opacity(0.2)],
+                            startPoint: .topLeading,
+                            endPoint: .bottomTrailing
+                        ))
+                        .frame(width: 56, height: 56)
+
+                    Image(systemName: "sparkles")
+                        .font(.system(size: 24))
+                        .foregroundStyle(.purple)
+                }
+
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("AI Widget Creator")
+                        .font(.system(size: 15, weight: .semibold))
+                        .foregroundStyle(.primary)
+
+                    Text("Describe any widget in natural language")
+                        .font(.system(size: 12))
+                        .foregroundStyle(.secondary)
+                }
+
+                Spacer()
+
+                Image(systemName: "chevron.right")
+                    .font(.system(size: 14, weight: .semibold))
+                    .foregroundStyle(.tertiary)
+            }
+            .padding(16)
+            .background {
+                RoundedRectangle(cornerRadius: 14)
+                    .fill(Color(nsColor: .controlBackgroundColor))
+            }
+            .overlay {
+                RoundedRectangle(cornerRadius: 14)
+                    .strokeBorder(
+                        LinearGradient(
+                            colors: [.purple.opacity(0.3), .blue.opacity(0.3)],
+                            startPoint: .topLeading,
+                            endPoint: .bottomTrailing
+                        ),
+                        lineWidth: 1
+                    )
+            }
+        }
+        .buttonStyle(.plain)
     }
 }
 
