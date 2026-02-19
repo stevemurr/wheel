@@ -14,8 +14,12 @@ private struct BrowserContentArea: View {
         ZStack(alignment: .bottom) {
             // Main content area
             VStack(spacing: 0) {
-                WebViewRepresentable(tab: tab)
-                    .id(tab.id)
+                if tab.url == nil {
+                    NewTabPageView()
+                } else {
+                    WebViewRepresentable(tab: tab)
+                        .id(tab.id)
+                }
             }
 
             // Bottom controls: Dock + OmniBar

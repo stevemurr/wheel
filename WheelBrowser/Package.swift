@@ -19,7 +19,10 @@ let package = Package(
                 .product(name: "USearch", package: "usearch"),
                 "SqliteVec"
             ],
-            path: "Sources/WheelBrowser"
+            path: "Sources/WheelBrowser",
+            resources: [
+                .copy("Resources/AppIcon.icns")
+            ]
         )
     ]
 )
