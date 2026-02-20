@@ -168,6 +168,19 @@ class SemanticSearchManagerV2: ObservableObject {
         }
     }
 
+    /// Register a page without content extraction (for PDFs and other non-indexable content)
+    /// This creates a minimal database record so the page can be saved to reading list
+    func registerPage(url: String, title: String, workspaceID: UUID? = nil) async {
+        guard isAvailable, let db = db else { return }
+        guard let pageURL = URL(string: url) else { return }
+
+        do {
+            _ = try await db.upsertPage(url: pageURL, title: title, workspaceID: workspaceID)
+        } catch {
+            print("Failed to register page: \(error)")
+        }
+    }
+
     // MARK: - Search
 
     /// Search for pages semantically similar to the query

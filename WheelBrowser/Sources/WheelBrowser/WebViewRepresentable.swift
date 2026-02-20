@@ -145,6 +145,22 @@ struct WebViewRepresentable: NSViewRepresentable {
                 if urlString.hasPrefix(prefix) { return }
             }
 
+            // Check if this is a PDF - we can't extract content via JavaScript
+            // but we still want to register it so it can be saved to reading list
+            let isPDF = url.pathExtension.lowercased() == "pdf" ||
+                        urlString.lowercased().contains(".pdf")
+
+            if isPDF {
+                Task { @MainActor in
+                    await SemanticSearchManagerV2.shared.registerPage(
+                        url: urlString,
+                        title: title,
+                        workspaceID: workspaceID
+                    )
+                }
+                return
+            }
+
             // Extract content via JavaScript
             let extractionScript = """
             (function() {
