@@ -289,6 +289,13 @@ class Tab: Identifiable, ObservableObject {
         )
     }
 
+    // MARK: - Screenshot Capture
+
+    /// Captures a screenshot of this tab for preview purposes
+    func captureScreenshot() async {
+        await TabScreenshotManager.shared.captureScreenshot(for: self)
+    }
+
     // MARK: - Picture in Picture
 
     func togglePictureInPicture() {

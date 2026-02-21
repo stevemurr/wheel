@@ -2,13 +2,14 @@ import SwiftUI
 
 struct RightClickPanel: View {
     @ObservedObject var browserState: BrowserState
+    @ObservedObject var screenshotManager = TabScreenshotManager.shared
     let onDismiss: () -> Void
 
     @State private var hoveredTabId: UUID?
     @State private var isCurrentPageSaved: Bool = false
 
     private let panelCornerRadius: CGFloat = 10
-    private let panelPadding: CGFloat = 6
+    private let panelPadding: CGFloat = 12
 
     var body: some View {
         VStack(spacing: 4) {
@@ -140,13 +141,14 @@ struct RightClickPanel: View {
     // MARK: - Tab Grid
 
     private var tabGrid: some View {
-        let columns = min(browserState.tabs.count + 1, 5) // Max 5 per row
-        let gridColumns = Array(repeating: GridItem(.fixed(32), spacing: 4), count: columns)
+        let columns = min(browserState.tabs.count + 1, 4) // Max 4 per row for larger previews
+        let gridColumns = Array(repeating: GridItem(.fixed(160), spacing: 12), count: columns)
 
-        return LazyVGrid(columns: gridColumns, spacing: 4) {
+        return LazyVGrid(columns: gridColumns, spacing: 12) {
             ForEach(browserState.tabs) { tab in
-                CompactTabButton(
+                TabPreviewCard(
                     tab: tab,
+                    screenshotManager: screenshotManager,
                     isActive: tab.id == browserState.activeTabId,
                     isHovered: tab.id == hoveredTabId,
                     canClose: browserState.tabs.count > 1,
@@ -164,7 +166,7 @@ struct RightClickPanel: View {
             }
 
             // Add tab button
-            CompactAddButton {
+            LargeAddButton {
                 browserState.addTab()
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
                     onDismiss()
@@ -196,105 +198,6 @@ private struct CompactNavButton: View {
         }
         .buttonStyle(.plain)
         .disabled(!enabled)
-    }
-}
-
-// MARK: - Compact Tab Button
-
-private struct CompactTabButton: View {
-    @ObservedObject var tab: Tab
-    let isActive: Bool
-    let isHovered: Bool
-    let canClose: Bool
-    let onSelect: () -> Void
-    let onClose: () -> Void
-
-    @State private var showClose = false
-
-    private let size: CGFloat = 32
-    private let cornerRadius: CGFloat = 7
-
-    private var background: Color {
-        if isActive {
-            return Color(nsColor: .controlAccentColor)
-        } else {
-            return Color(nsColor: .unemphasizedSelectedContentBackgroundColor)
-        }
-    }
-
-    private var textColor: Color {
-        isActive ? .white : Color(nsColor: .secondaryLabelColor)
-    }
-
-    var body: some View {
-        ZStack {
-            RoundedRectangle(cornerRadius: cornerRadius)
-                .fill(background)
-                .frame(width: size, height: size)
-
-            // Agent indicator
-            if tab.hasActiveAgent {
-                RoundedRectangle(cornerRadius: cornerRadius)
-                    .strokeBorder(Color.green, lineWidth: 1.5)
-                    .frame(width: size, height: size)
-            }
-
-            // Favicon or initial
-            faviconContent
-
-            // Close button on hover
-            if showClose && canClose && !tab.hasActiveAgent {
-                Button(action: onClose) {
-                    Image(systemName: "xmark.circle.fill")
-                        .font(.system(size: 10))
-                        .foregroundColor(textColor.opacity(0.8))
-                }
-                .buttonStyle(.plain)
-                .offset(x: size / 2 - 5, y: -size / 2 + 5)
-            }
-        }
-        .scaleEffect(isHovered ? 1.1 : 1.0)
-        .animation(.spring(response: 0.2, dampingFraction: 0.7), value: isHovered)
-        .onTapGesture(perform: onSelect)
-        .onHover { showClose = $0 }
-        .help(tab.title)
-    }
-
-    private var faviconContent: some View {
-        Group {
-            if let url = tab.url, let host = url.host {
-                Text(String(host.replacingOccurrences(of: "www.", with: "").prefix(1)).uppercased())
-                    .font(.system(size: 13, weight: .semibold))
-                    .foregroundColor(textColor)
-            } else {
-                Image(systemName: "globe")
-                    .font(.system(size: 13))
-                    .foregroundColor(textColor)
-            }
-        }
-    }
-}
-
-// MARK: - Compact Add Button
-
-private struct CompactAddButton: View {
-    let action: () -> Void
-
-    private let size: CGFloat = 32
-    private let cornerRadius: CGFloat = 7
-
-    var body: some View {
-        Button(action: action) {
-            RoundedRectangle(cornerRadius: cornerRadius)
-                .fill(Color(nsColor: .quaternaryLabelColor).opacity(0.4))
-                .frame(width: size, height: size)
-                .overlay(
-                    Image(systemName: "plus")
-                        .font(.system(size: 12, weight: .medium))
-                        .foregroundColor(Color(nsColor: .secondaryLabelColor))
-                )
-        }
-        .buttonStyle(.plain)
     }
 }
 

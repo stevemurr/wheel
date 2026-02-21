@@ -72,6 +72,8 @@ struct WebViewRepresentable: NSViewRepresentable {
         func webView(_ webView: WKWebView, didStartProvisionalNavigation navigation: WKNavigation!) {
             DispatchQueue.main.async {
                 self.tab.isLoading = true
+                // Invalidate screenshot when navigation starts (keeps old one until new capture)
+                TabScreenshotManager.shared.invalidateScreenshot(for: self.tab.id)
             }
         }
 
@@ -108,6 +110,14 @@ struct WebViewRepresentable: NSViewRepresentable {
 
                     // Index for semantic search (extract content and embed)
                     self.indexPageForSemanticSearch(webView: webView, url: url, title: title, workspaceID: workspaceID)
+                }
+
+                // Capture screenshot for tab preview after a short delay
+                // to allow page rendering to complete
+                let tab = self.tab
+                Task { @MainActor in
+                    try? await Task.sleep(nanoseconds: 500_000_000) // 0.5 second delay
+                    await TabScreenshotManager.shared.captureScreenshot(for: tab)
                 }
             }
         }

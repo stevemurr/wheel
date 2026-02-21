@@ -102,9 +102,14 @@ class OmniBarState: ObservableObject {
         mentions.removeAll { $0 == mention }
     }
 
-    /// Reset mentions to default state (current page only)
-    func resetMentions() {
-        mentions = [.currentPage]
+    /// Reset mentions to default state
+    /// - Parameter includeCurrentPage: Whether to include the current page mention. Set to false when on new tab page (no URL).
+    func resetMentions(includeCurrentPage: Bool = true) {
+        if includeCurrentPage {
+            mentions = [.currentPage]
+        } else {
+            mentions = []
+        }
     }
 
     /// Open the mention dropdown

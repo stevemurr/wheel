@@ -451,6 +451,10 @@ struct OmniBar: View {
                 omniState.dismissSemanticPanel()
                 omniState.dismissAgentPanel()
                 omniState.dismissReadingListPanel()
+                // Remove current page mention if on new tab (no URL)
+                if tab.url == nil {
+                    omniState.removeMention(.currentPage)
+                }
                 if !agentManager.messages.isEmpty {
                     omniState.openChatPanel()
                 }
@@ -521,6 +525,10 @@ struct OmniBar: View {
         .onReceive(NotificationCenter.default.publisher(for: .focusAISidebar)) { _ in
             omniState.setMode(.chat)
             isInputFocused = true
+            // Remove current page mention if on new tab (no URL)
+            if tab.url == nil {
+                omniState.removeMention(.currentPage)
+            }
             if !agentManager.messages.isEmpty {
                 omniState.openChatPanel()
             }
@@ -528,6 +536,10 @@ struct OmniBar: View {
         .onReceive(NotificationCenter.default.publisher(for: .focusChatInput)) { _ in
             omniState.setMode(.chat)
             isInputFocused = true
+            // Remove current page mention if on new tab (no URL)
+            if tab.url == nil {
+                omniState.removeMention(.currentPage)
+            }
         }
         .onReceive(NotificationCenter.default.publisher(for: .focusSemanticSearch)) { _ in
             omniState.setMode(.semantic)
@@ -1171,8 +1183,8 @@ struct OmniBar: View {
             await agentManager.sendMessage(content, pageContexts: pageContexts)
             isSending = false
 
-            // Reset mentions to default after sending
-            omniState.resetMentions()
+            // Reset mentions to default after sending (exclude current page if on new tab)
+            omniState.resetMentions(includeCurrentPage: tab.url != nil)
         }
     }
 

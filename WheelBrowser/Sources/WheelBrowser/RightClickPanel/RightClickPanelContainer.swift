@@ -32,14 +32,21 @@ struct RightClickPanelContainer: View {
         )
     }
 
-    // Estimated panel size for bounds checking
+    // Estimated panel size for bounds checking (larger preview cards)
     private var estimatedPanelSize: CGSize {
         let tabCount = browserState.tabs.count + 1
-        let columns = min(tabCount, 5)
-        let rows = (tabCount + 4) / 5
+        let columns = min(tabCount, 4)
+        let rows = (tabCount + 3) / 4
 
-        let width = CGFloat(columns) * 32 + CGFloat(max(0, columns - 1)) * 4 + 12
-        let height = 30.0 + 9.0 + CGFloat(rows) * 32 + CGFloat(max(0, rows - 1)) * 4 + 12
+        // Card dimensions: 160w x 124h (100 thumbnail + 24 title)
+        let cardWidth: CGFloat = 160
+        let cardHeight: CGFloat = 124
+        let spacing: CGFloat = 12
+        let padding: CGFloat = 24 // 12 on each side
+
+        let width = CGFloat(columns) * cardWidth + CGFloat(max(0, columns - 1)) * spacing + padding
+        // Navigation bar (~30) + dividers (~18) + actions row (~30) + tab grid
+        let height = 30.0 + 18.0 + 30.0 + CGFloat(rows) * cardHeight + CGFloat(max(0, rows - 1)) * spacing + padding
 
         return CGSize(width: width, height: height)
     }
