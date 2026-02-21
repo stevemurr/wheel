@@ -6,6 +6,9 @@ enum Mention: Identifiable, Equatable, Hashable {
     case tab(id: UUID, title: String, url: String)
     case semanticResult(id: UUID, title: String, url: String)
     case history
+    case web           // Search all indexed web content
+    case readingList   // Search reading list items
+    case domain(String) // Search within a specific domain
 
     var id: String {
         switch self {
@@ -17,6 +20,12 @@ enum Mention: Identifiable, Equatable, Hashable {
             return "semantic-\(id.uuidString)"
         case .history:
             return "history-search"
+        case .web:
+            return "web-search"
+        case .readingList:
+            return "reading-list-search"
+        case .domain(let domain):
+            return "domain-\(domain)"
         }
     }
 
@@ -30,6 +39,12 @@ enum Mention: Identifiable, Equatable, Hashable {
             return title.isEmpty ? "Untitled" : String(title.prefix(30))
         case .history:
             return "History"
+        case .web:
+            return "Web"
+        case .readingList:
+            return "Reading List"
+        case .domain(let domain):
+            return domain
         }
     }
 
@@ -43,6 +58,12 @@ enum Mention: Identifiable, Equatable, Hashable {
             return "brain.head.profile"
         case .history:
             return "clock.arrow.circlepath"
+        case .web:
+            return "globe"
+        case .readingList:
+            return "bookmark"
+        case .domain:
+            return "link"
         }
     }
 
@@ -56,6 +77,12 @@ enum Mention: Identifiable, Equatable, Hashable {
             return "History"
         case .history:
             return "Search"
+        case .web:
+            return "Search"
+        case .readingList:
+            return "Search"
+        case .domain:
+            return "Domain"
         }
     }
 
@@ -67,7 +94,9 @@ enum Mention: Identifiable, Equatable, Hashable {
             return url
         case .semanticResult(_, _, let url):
             return url
-        case .history:
+        case .history, .web, .readingList:
+            return nil
+        case .domain:
             return nil
         }
     }
@@ -78,6 +107,20 @@ enum Mention: Identifiable, Equatable, Hashable {
             return id
         }
         return nil
+    }
+
+    /// Returns the embedding category for this mention type, if applicable
+    var embeddingCategory: EmbeddingCategory? {
+        switch self {
+        case .history:
+            return .history
+        case .web:
+            return .web
+        case .readingList:
+            return .readingList
+        default:
+            return nil
+        }
     }
 
     static func == (lhs: Mention, rhs: Mention) -> Bool {

@@ -75,6 +75,36 @@ class MentionSuggestionsViewModel: ObservableObject {
                 }
             }
 
+            // Add "Web" option if not already mentioned
+            if !excludedIds.contains(Mention.web.id) {
+                let webScore: Int
+                if query.isEmpty {
+                    webScore = 850 // Show when dropdown opens
+                } else {
+                    let targets = ["web", "all", "pages", "sites", "internet"]
+                    let bestMatch = targets.map { FuzzySearch.score(query: query, target: $0) }.max() ?? 0
+                    webScore = bestMatch > 0 ? bestMatch + 350 : 0
+                }
+                if webScore > 0 {
+                    allSuggestions.append(MentionSuggestion(mention: .web, score: webScore))
+                }
+            }
+
+            // Add "Reading List" option if not already mentioned
+            if !excludedIds.contains(Mention.readingList.id) {
+                let readingListScore: Int
+                if query.isEmpty {
+                    readingListScore = 800 // Show when dropdown opens
+                } else {
+                    let targets = ["reading", "list", "saved", "bookmarks", "later"]
+                    let bestMatch = targets.map { FuzzySearch.score(query: query, target: $0) }.max() ?? 0
+                    readingListScore = bestMatch > 0 ? bestMatch + 300 : 0
+                }
+                if readingListScore > 0 {
+                    allSuggestions.append(MentionSuggestion(mention: .readingList, score: readingListScore))
+                }
+            }
+
             // Search open tabs
             if let browserState = browserState {
                 let tabSuggestions = searchTabs(

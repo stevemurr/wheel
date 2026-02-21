@@ -1113,10 +1113,12 @@ struct OmniBar: View {
         // Capture mentions before clearing
         let currentMentions = omniState.mentions
 
-        // Check if @History is mentioned
-        let hasHistoryMention = currentMentions.contains {
-            if case .history = $0 { return true }
-            return false
+        // Collect embedding categories from mentions
+        var embeddingCategories: Set<EmbeddingCategory> = []
+        for mention in currentMentions {
+            if let category = mention.embeddingCategory {
+                embeddingCategories.insert(category)
+            }
         }
 
         omniState.inputText = ""
@@ -1128,19 +1130,21 @@ struct OmniBar: View {
             // Extract content from all mentioned sources
             var pageContexts: [PageContext] = []
 
-            // Handle @History - search semantic index with user's question
-            if hasHistoryMention {
-                let searchResults = await SemanticSearchManagerV2.shared.search(
+            // Handle category-based semantic search (@History, @Web, @ReadingList)
+            if !embeddingCategories.isEmpty {
+                let searchResults = await SemanticSearchManagerV2.shared.searchWithCategories(
                     query: content,
+                    categories: embeddingCategories,
                     limit: 5
                 )
 
                 for result in searchResults {
+                    let categoryNames = embeddingCategories.map { $0.displayName }.joined(separator: ", ")
                     let historyContext = PageContext(
                         url: result.page.url,
                         title: result.page.title,
                         textContent: """
-                        [From browsing history]
+                        [From \(categoryNames)]
                         URL: \(result.page.url)
                         \(result.page.snippet)
                         """
@@ -1174,8 +1178,12 @@ struct OmniBar: View {
                     )
                     pageContexts.append(semanticContext)
 
-                case .history:
-                    // Already handled above
+                case .history, .web, .readingList:
+                    // Already handled above via category filtering
+                    break
+
+                case .domain:
+                    // Domain filtering could be added as URL prefix filter in future
                     break
                 }
             }

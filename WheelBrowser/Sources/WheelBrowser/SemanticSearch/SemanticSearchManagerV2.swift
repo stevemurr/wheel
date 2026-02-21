@@ -1,7 +1,7 @@
 import Foundation
 import SwiftUI
 
-/// Manages semantic search using sqlite-vec and configurable embedding services
+/// Manages semantic search using remote DIndex server
 @MainActor
 class SemanticSearchManagerV2: ObservableObject {
     static let shared = SemanticSearchManagerV2()
@@ -11,20 +11,12 @@ class SemanticSearchManagerV2: ObservableObject {
     @Published private(set) var pendingCount: Int = 0
     @Published private(set) var lastError: String?
     @Published private(set) var isAvailable = false
+    @Published private(set) var isDIndexConnected = false
 
-    private var db: SearchDatabase?
-    private var embeddingService: (any EmbeddingService)?
-    private var searchEngine: SearchEngine?
-    private var indexingPipeline: IndexingPipeline?
+    private var dindexService: DIndexService?
 
     private var settings: AppSettings { AppSettings.shared }
     private var settingsObserver: NSObjectProtocol?
-    private var dimensionsObserver: NSObjectProtocol?
-
-    /// Prevents concurrent initialization/reinitialization
-    private var isReinitializing = false
-    /// Skip the next settings change notification (used when dimensions change triggers both notifications)
-    private var skipNextSettingsChange = false
 
     private init() {
         // Listen for settings changes
@@ -35,27 +27,7 @@ class SemanticSearchManagerV2: ObservableObject {
         ) { [weak self] _ in
             Task { @MainActor in
                 guard let self = self else { return }
-                // Skip if this was triggered by a dimension change (which handles its own reinitialization)
-                if self.skipNextSettingsChange {
-                    self.skipNextSettingsChange = false
-                    return
-                }
                 await self.reinitialize()
-            }
-        }
-
-        // Listen for dimension changes - requires clearing the index
-        dimensionsObserver = NotificationCenter.default.addObserver(
-            forName: .embeddingDimensionsChanged,
-            object: nil,
-            queue: .main
-        ) { [weak self] _ in
-            Task { @MainActor in
-                guard let self = self else { return }
-                // Mark to skip the settings change notification that follows dimension changes
-                self.skipNextSettingsChange = true
-                print("Embedding dimensions changed - clearing index")
-                await self.clearAndReinitialize()
             }
         }
 
@@ -68,98 +40,85 @@ class SemanticSearchManagerV2: ObservableObject {
         if let observer = settingsObserver {
             NotificationCenter.default.removeObserver(observer)
         }
-        if let observer = dimensionsObserver {
-            NotificationCenter.default.removeObserver(observer)
-        }
     }
 
     // MARK: - Initialization
 
     private func initialize() async {
-        print("SemanticSearchManagerV2: initialize() called, enabled=\(settings.semanticSearchEnabled)")
-        guard settings.semanticSearchEnabled else {
+        guard settings.dindexEnabled else {
+            isAvailable = false
+            isDIndexConnected = false
+            return
+        }
+
+        await initializeDIndex()
+    }
+
+    /// Initialize remote DIndex service
+    private func initializeDIndex() async {
+        guard settings.dindexEnabled,
+              let endpoint = URL(string: settings.dindexEndpoint) else {
+            dindexService = nil
+            isDIndexConnected = false
             isAvailable = false
             return
         }
 
-        do {
-            // Initialize database with configured dimensions
-            let dimensions = settings.embeddingDimensions
-            print("SemanticSearchManagerV2: Creating SearchDatabase with dimensions=\(dimensions)")
-            let database = try SearchDatabase(embeddingDimension: dimensions)
-            try await database.initialize()
-            db = database
-            print("SemanticSearchManagerV2: Database initialized successfully")
+        let apiKey = settings.dindexAPIKey.isEmpty ? nil : settings.dindexAPIKey
+        let service = DIndexService(endpoint: endpoint, apiKey: apiKey)
 
-            // Create embedding service based on settings
-            embeddingService = settings.makeEmbeddingService()
+        // Verify connection
+        let healthy = await service.checkHealth()
+        if healthy {
+            dindexService = service
+            isDIndexConnected = true
+            isAvailable = true
+            lastError = nil
+            print("SemanticSearchManagerV2: DIndex connected at \(settings.dindexEndpoint)")
 
-            // Initialize search engine and indexing pipeline
-            if let db = db, let embeddingService = embeddingService {
-                searchEngine = SearchEngine(db: db, embeddingService: embeddingService)
-                indexingPipeline = IndexingPipeline(db: db, embeddingService: embeddingService)
-                isAvailable = true
-
-                // Update stats
-                await updateStats()
-
-                // Process any pending pages from previous sessions
-                await indexingPipeline?.processPendingPages()
-            }
-        } catch {
-            lastError = error.localizedDescription
+            // Fetch initial stats
+            await updateStats()
+        } else {
+            dindexService = nil
+            isDIndexConnected = false
             isAvailable = false
-            print("Failed to initialize SemanticSearchManagerV2: \(error)")
+            lastError = "Could not connect to DIndex server"
+            print("SemanticSearchManagerV2: DIndex health check failed")
         }
     }
 
-    /// Reinitialize with new settings (call after changing embedding provider)
+    /// Reinitialize with new settings
     func reinitialize() async {
-        // Prevent concurrent reinitializations
-        guard !isReinitializing else {
-            print("SemanticSearchManagerV2: Skipping reinitialize, already in progress")
-            return
-        }
-        isReinitializing = true
-        defer { isReinitializing = false }
-
-        // Close existing database connection first
-        await closeDatabase()
-
-        embeddingService = nil
-        searchEngine = nil
-        indexingPipeline = nil
+        dindexService = nil
+        isDIndexConnected = false
         isAvailable = false
         lastError = nil
 
         await initialize()
     }
 
-    /// Close the database connection properly
-    private func closeDatabase() async {
-        if let db = db {
-            // Give the actor a chance to clean up
-            await db.close()
-        }
-        db = nil
-    }
-
     // MARK: - Indexing
 
     /// Index a page for semantic search
-    func indexPage(url: String, title: String, content: String, workspaceID: UUID? = nil) async {
-        guard isAvailable, let indexingPipeline = indexingPipeline else { return }
+    func indexPage(
+        url: String,
+        title: String,
+        content: String,
+        workspaceID: UUID? = nil,
+        categories: Set<EmbeddingCategory> = [.history, .web]
+    ) async {
+        guard isAvailable, let dindex = dindexService else { return }
         guard let pageURL = URL(string: url) else { return }
 
         isIndexing = true
         defer { isIndexing = false }
 
         do {
-            try await indexingPipeline.indexPage(
+            try await dindex.indexPage(
                 url: pageURL,
                 title: title,
                 content: content,
-                workspaceID: workspaceID
+                categories: categories
             )
             await updateStats()
         } catch {
@@ -169,38 +128,32 @@ class SemanticSearchManagerV2: ObservableObject {
     }
 
     /// Register a page without content extraction (for PDFs and other non-indexable content)
-    /// This creates a minimal database record so the page can be saved to reading list
     func registerPage(url: String, title: String, workspaceID: UUID? = nil) async {
-        guard isAvailable, let db = db else { return }
-        guard let pageURL = URL(string: url) else { return }
-
-        do {
-            _ = try await db.upsertPage(url: pageURL, title: title, workspaceID: workspaceID)
-        } catch {
-            print("Failed to register page: \(error)")
-        }
+        // No-op for DIndex-only mode - pages are indexed with content
     }
 
     // MARK: - Search
 
     /// Search for pages semantically similar to the query
     func search(query: String, limit: Int = 20) async -> [SemanticSearchResult] {
-        guard isAvailable, let searchEngine = searchEngine else { return [] }
+        guard isAvailable, let dindex = dindexService else { return [] }
 
         do {
-            let results = try await searchEngine.search(query: query)
-            return results.prefix(limit).map { result in
-                SemanticSearchResult(
-                    id: result.id,
+            let results = try await dindex.search(query: query, limit: limit)
+            return results.map { item in
+                let hashValue = item.id.hashValue
+                let id = UInt64(bitPattern: Int64(hashValue))
+                return SemanticSearchResult(
+                    id: id,
                     page: IndexedPage(
-                        id: result.id,
-                        url: result.page.url.absoluteString,
-                        title: result.page.title ?? "",
-                        snippet: result.snippet,
-                        timestamp: result.page.lastVisitedAt,
-                        workspaceID: result.page.workspaceID
+                        id: id,
+                        url: item.url ?? "",
+                        title: item.title ?? "",
+                        snippet: String(item.content.prefix(200)),
+                        timestamp: Date(),
+                        workspaceID: nil
                     ),
-                    score: result.score
+                    score: item.score
                 )
             }
         } catch {
@@ -210,28 +163,39 @@ class SemanticSearchManagerV2: ObservableObject {
         }
     }
 
-    /// Quick keyword search (FTS only, no embeddings)
-    func quickSearch(query: String, limit: Int = 10) async -> [SemanticSearchResult] {
-        guard isAvailable, let searchEngine = searchEngine else { return [] }
+    /// Search with category filtering
+    func searchWithCategories(
+        query: String,
+        categories: Set<EmbeddingCategory>,
+        limit: Int = 20
+    ) async -> [SemanticSearchResult] {
+        guard isAvailable, let dindex = dindexService else { return [] }
 
         do {
-            let results = try await searchEngine.quickSearch(query: query, limit: limit)
-            return results.map { result in
-                SemanticSearchResult(
-                    id: result.id,
+            let results = try await dindex.search(
+                query: query,
+                categories: categories.isEmpty ? nil : categories,
+                limit: limit
+            )
+            return results.map { item in
+                let hashValue = item.id.hashValue
+                let id = UInt64(bitPattern: Int64(hashValue))
+                return SemanticSearchResult(
+                    id: id,
                     page: IndexedPage(
-                        id: result.id,
-                        url: result.page.url.absoluteString,
-                        title: result.page.title ?? "",
-                        snippet: result.snippet,
-                        timestamp: result.page.lastVisitedAt,
-                        workspaceID: result.page.workspaceID
+                        id: id,
+                        url: item.url ?? "",
+                        title: item.title ?? "",
+                        snippet: String(item.content.prefix(200)),
+                        timestamp: Date(),
+                        workspaceID: nil
                     ),
-                    score: result.score
+                    score: item.score
                 )
             }
         } catch {
             lastError = error.localizedDescription
+            print("DIndex search error: \(error)")
             return []
         }
     }
@@ -243,71 +207,29 @@ class SemanticSearchManagerV2: ObservableObject {
     }
 
     private func updateStats() async {
-        guard let db = db else { return }
+        guard let dindex = dindexService else {
+            indexedCount = 0
+            return
+        }
 
         do {
-            let stats = try await db.getStats()
-            indexedCount = stats.indexedCount
-            pendingCount = stats.pendingCount
+            let stats = try await dindex.getStats()
+            indexedCount = stats.totalChunks
         } catch {
-            print("Failed to get stats: \(error)")
+            print("Failed to get DIndex stats: \(error)")
         }
     }
 
     // MARK: - Maintenance
 
-    /// Clear the entire index and reinitialize (used when dimensions change)
-    func clearAndReinitialize() async {
-        // Prevent concurrent reinitializations
-        guard !isReinitializing else {
-            print("SemanticSearchManagerV2: Skipping clearAndReinitialize, already in progress")
-            return
-        }
-        isReinitializing = true
-        defer { isReinitializing = false }
-
-        // Close existing database connection properly before deleting
-        await closeDatabase()
-
-        embeddingService = nil
-        searchEngine = nil
-        indexingPipeline = nil
-        isAvailable = false
-
-        // Delete the database file
-        let appSupport = FileManager.default.urls(
-            for: .applicationSupportDirectory,
-            in: .userDomainMask
-        ).first!.appendingPathComponent("WheelBrowser")
-
-        let dbPath = appSupport.appendingPathComponent("semantic_search.db")
-        let walPath = appSupport.appendingPathComponent("semantic_search.db-wal")
-        let shmPath = appSupport.appendingPathComponent("semantic_search.db-shm")
-
-        // Small delay to ensure database file handles are released
-        try? await Task.sleep(nanoseconds: 100_000_000) // 100ms
-
-        // Remove database and WAL files
-        try? FileManager.default.removeItem(at: dbPath)
-        try? FileManager.default.removeItem(at: walPath)
-        try? FileManager.default.removeItem(at: shmPath)
-
-        indexedCount = 0
-        pendingCount = 0
-
-        // Reinitialize with new settings
-        await initialize()
-    }
-
-    /// Clear the entire index
+    /// Clear the index - not supported in DIndex mode
     func clearIndex() async {
-        await clearAndReinitialize()
+        // No-op - DIndex manages its own storage
     }
 
     /// Save/sync the index (called on app termination)
     func save() async {
-        // SQLite with WAL handles this automatically
-        // This is here for API compatibility with the old manager
+        // No-op - DIndex handles persistence
     }
 }
 
@@ -319,4 +241,23 @@ extension SemanticSearchManagerV2 {
     static var current: SemanticSearchManagerV2 {
         shared
     }
+}
+
+// MARK: - Result Types
+
+/// A semantic search result
+struct SemanticSearchResult: Identifiable {
+    let id: UInt64
+    let page: IndexedPage
+    let score: Float
+}
+
+/// An indexed page
+struct IndexedPage: Identifiable {
+    let id: UInt64
+    let url: String
+    let title: String
+    let snippet: String
+    let timestamp: Date
+    let workspaceID: UUID?
 }

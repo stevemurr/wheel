@@ -146,7 +146,7 @@ struct WebViewRepresentable: NSViewRepresentable {
 
         private func indexPageForSemanticSearch(webView: WKWebView, url: URL, title: String, workspaceID: UUID?) {
             // Check if semantic search is enabled
-            guard AppSettings.shared.semanticSearchEnabled else { return }
+            guard AppSettings.shared.dindexEnabled else { return }
 
             // Skip certain URLs
             let urlString = url.absoluteString

@@ -1,6 +1,7 @@
 import Foundation
 import SwiftUI
 import AppKit
+import DIndexClient
 
 // MARK: - Appearance Mode
 
@@ -35,33 +36,28 @@ class AppSettings: ObservableObject {
     @AppStorage("sidebarVisible") var sidebarVisible: Bool = false
     @AppStorage("agentId") var agentId: String = ""
 
-    // MARK: - Embedding Configuration
+    // MARK: - Semantic Search (DIndex) Configuration
 
-    /// Embedding provider: "openai", "voyage", "local", or "custom"
-    @AppStorage("embeddingProvider") var embeddingProvider: String = "openai" {
+    /// Whether to use remote DIndex server for embedding storage/search
+    @AppStorage("dindexEnabled") var dindexEnabled: Bool = false {
         didSet { notifyEmbeddingSettingsChanged() }
     }
 
-    /// Custom embedding endpoint URL (used when provider is "custom")
-    @AppStorage("embeddingEndpoint") var embeddingEndpoint: String = "https://api.openai.com/v1/embeddings"
+    /// DIndex server endpoint URL
+    @AppStorage("dindexEndpoint") var dindexEndpoint: String = "http://localhost:8080"
 
-    /// Embedding model name
-    @AppStorage("embeddingModel") var embeddingModel: String = "text-embedding-3-small"
+    /// DIndex API key (stored in UserDefaults for simplicity; move to Keychain for production)
+    @AppStorage("dindexAPIKey") var dindexAPIKey: String = ""
 
-    /// Embedding dimensions
-    @AppStorage("embeddingDimensions") var embeddingDimensions: Int = 1536 {
-        didSet {
-            if oldValue != embeddingDimensions {
-                // Dimensions changed - must clear index
-                NotificationCenter.default.post(name: .embeddingDimensionsChanged, object: nil)
-            }
-            notifyEmbeddingSettingsChanged()
-        }
-    }
-
-    /// Whether semantic search indexing is enabled
-    @AppStorage("semanticSearchEnabled") var semanticSearchEnabled: Bool = true {
-        didSet { notifyEmbeddingSettingsChanged() }
+    /// Create a DIndexClient based on current settings
+    /// Returns nil if DIndex is disabled or the endpoint is invalid
+    func makeDIndexClient() -> DIndexClient? {
+        guard dindexEnabled else { return nil }
+        guard let url = URL(string: dindexEndpoint) else { return nil }
+        return DIndexClient(
+            baseURL: url,
+            apiKey: dindexAPIKey.isEmpty ? nil : dindexAPIKey
+        )
     }
 
     private func notifyEmbeddingSettingsChanged() {
@@ -115,75 +111,6 @@ class AppSettings: ObservableObject {
     /// Whether an API key is currently configured
     var hasAPIKey: Bool {
         !llmAPIKey.isEmpty
-    }
-
-    // MARK: - Embedding API Key (stored securely in Keychain)
-
-    /// The Embedding API key stored securely in the Keychain
-    var embeddingAPIKey: String {
-        get {
-            KeychainHelper.shared.retrieve(forKey: KeychainHelper.Keys.embeddingAPIKey) ?? ""
-        }
-        set {
-            objectWillChange.send()
-            if newValue.isEmpty {
-                KeychainHelper.shared.delete(forKey: KeychainHelper.Keys.embeddingAPIKey)
-            } else {
-                KeychainHelper.shared.save(newValue, forKey: KeychainHelper.Keys.embeddingAPIKey)
-            }
-        }
-    }
-
-    /// Whether an embedding API key is configured
-    var hasEmbeddingAPIKey: Bool {
-        !embeddingAPIKey.isEmpty
-    }
-
-    /// Create an embedding service based on current settings
-    func makeEmbeddingService() -> any EmbeddingService {
-        switch embeddingProvider {
-        case "openai":
-            return APIEmbeddingService(
-                endpoint: URL(string: "https://api.openai.com/v1/embeddings")!,
-                apiKey: embeddingAPIKey,
-                modelName: embeddingModel,
-                dimensions: embeddingDimensions
-            )
-        case "voyage":
-            return APIEmbeddingService(
-                endpoint: URL(string: "https://api.voyageai.com/v1/embeddings")!,
-                apiKey: embeddingAPIKey,
-                modelName: embeddingModel,
-                dimensions: embeddingDimensions
-            )
-        case "local":
-            return LocalEmbeddingService()
-        case "custom":
-            // Auto-append /embeddings if the endpoint doesn't already have it
-            let endpoint = normalizeEmbeddingEndpoint(embeddingEndpoint)
-            return APIEmbeddingService(
-                endpoint: URL(string: endpoint) ?? URL(string: "http://localhost:8080/embeddings")!,
-                apiKey: embeddingAPIKey.isEmpty ? nil : embeddingAPIKey,
-                modelName: embeddingModel,
-                dimensions: embeddingDimensions
-            )
-        default:
-            return LocalEmbeddingService()
-        }
-    }
-
-    /// Normalize embedding endpoint to ensure it ends with /embeddings
-    private func normalizeEmbeddingEndpoint(_ endpoint: String) -> String {
-        var url = endpoint.trimmingCharacters(in: .whitespacesAndNewlines)
-        // Remove trailing slash if present
-        while url.hasSuffix("/") {
-            url.removeLast()
-        }
-        // Append /embeddings if not already present
-        if !url.hasSuffix("/embeddings") {
-            url += "/embeddings"
-        }
-        return url
     }
 
     // MARK: - Dark Mode Settings (Web Content)

@@ -56,6 +56,12 @@ struct MentionChip: View {
             return .orange
         case .history:
             return .green
+        case .web:
+            return .teal
+        case .readingList:
+            return .indigo
+        case .domain:
+            return .cyan
         }
     }
 
@@ -153,6 +159,12 @@ struct MentionSuggestionRow: View {
             return .orange
         case .history:
             return .green
+        case .web:
+            return .teal
+        case .readingList:
+            return .indigo
+        case .domain:
+            return .cyan
         }
     }
 
@@ -203,6 +215,36 @@ struct MentionSuggestionRow: View {
                 .background(
                     RoundedRectangle(cornerRadius: 5)
                         .fill(Color.green.opacity(0.1))
+                )
+
+        case .web:
+            Image(systemName: "globe")
+                .font(.system(size: 12))
+                .foregroundColor(.teal)
+                .frame(width: 24, height: 24)
+                .background(
+                    RoundedRectangle(cornerRadius: 5)
+                        .fill(Color.teal.opacity(0.1))
+                )
+
+        case .readingList:
+            Image(systemName: "bookmark")
+                .font(.system(size: 12))
+                .foregroundColor(.indigo)
+                .frame(width: 24, height: 24)
+                .background(
+                    RoundedRectangle(cornerRadius: 5)
+                        .fill(Color.indigo.opacity(0.1))
+                )
+
+        case .domain:
+            Image(systemName: "link")
+                .font(.system(size: 12))
+                .foregroundColor(.cyan)
+                .frame(width: 24, height: 24)
+                .background(
+                    RoundedRectangle(cornerRadius: 5)
+                        .fill(Color.cyan.opacity(0.1))
                 )
         }
     }

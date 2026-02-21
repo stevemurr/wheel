@@ -48,9 +48,10 @@ Talk to any webpage. Wheel extracts the content and gives the AI full context.
 ### Semantic Search
 Every page you visit gets embedded. Search by concept, not exact text.
 
-- Uses sqlite-vec for fast vector search
-- Automatic background indexing
-- Persists across sessions
+- Powered by [DIndex](https://github.com/stevemurr/dindex) for semantic vector search
+- Automatic background indexing as you browse
+- Category filtering with `@Web`, `@History`, `@ReadingList` mentions
+- Requires a running DIndex server (configure in Settings)
 
 ### Workspaces
 Keep contexts separate. Each workspace has its own tabs, color, and default agent.
@@ -128,12 +129,27 @@ Configure in **Settings** → **AI**.
 
 ---
 
+## DIndex Setup
+
+Semantic search requires a running [DIndex](https://github.com/stevemurr/dindex) server.
+
+```bash
+# Clone and run DIndex
+git clone https://github.com/stevemurr/dindex.git
+cd dindex
+cargo run --release
+```
+
+By default, DIndex runs on `http://localhost:8080`. Configure the endpoint in **Settings** → **Semantic Search**.
+
+---
+
 ## Architecture
 
 ```
 WheelBrowser/
 ├── OmniBar/          # The unified input system
-├── SemanticSearch/   # sqlite-vec powered search
+├── SemanticSearch/   # DIndex-powered semantic search
 ├── Letta/            # AI agent integration
 ├── Workspaces/       # Context management
 ├── RightClickPanel/  # Quick actions overlay

@@ -9,16 +9,27 @@ struct SettingsView: View {
     @State private var isLoadingModels = false
     @State private var connectionStatus: ConnectionStatus = .unknown
     @State private var showingResetStatsAlert = false
-    @State private var showingClearIndexAlert = false
     @State private var apiKeyInput: String = ""
     @State private var showAPIKey = false
     @State private var llmConnectionStatus: LLMConnectionStatus = .unknown
+    @State private var dindexConnectionStatus: DIndexConnectionStatus = .unknown
+    @State private var dindexAPIKeyInput: String = ""
+    @State private var showDIndexAPIKey = false
 
     enum ConnectionStatus {
         case unknown, checking, connected, failed
     }
 
     enum LLMConnectionStatus {
+        case unknown, checking, connected, failed(String)
+
+        var isChecking: Bool {
+            if case .checking = self { return true }
+            return false
+        }
+    }
+
+    enum DIndexConnectionStatus {
         case unknown, checking, connected, failed(String)
 
         var isChecking: Bool {
@@ -361,154 +372,107 @@ struct SettingsView: View {
                 }
             }
 
-            // MARK: - Semantic Search Section
+            // MARK: - Semantic Search (DIndex) Section
             Section("Semantic Search") {
-                Toggle("Enable Semantic Search", isOn: $settings.semanticSearchEnabled)
+                Toggle("Enable Semantic Search", isOn: $settings.dindexEnabled)
 
-                Text("Index your browsing history for semantic search. Uses embeddings to find pages by meaning, not just keywords.")
+                Text("Index your browsing history for semantic search. Uses DIndex to find pages by meaning, not just keywords. Supports @Web, @History, @ReadingList mentions.")
                     .font(.caption)
                     .foregroundColor(.secondary)
 
-                Picker("Embedding Provider", selection: $settings.embeddingProvider) {
-                    Text("OpenAI").tag("openai")
-                    Text("Voyage AI").tag("voyage")
-                    Text("Local (macOS)").tag("local")
-                    Text("Custom").tag("custom")
-                }
-
-                if settings.embeddingProvider == "local" {
-                    HStack {
-                        Image(systemName: "exclamationmark.triangle")
-                            .foregroundColor(.orange)
-                        Text("Local embeddings have lower quality than API-based options")
-                            .font(.caption)
-                            .foregroundColor(.secondary)
-                    }
-                }
-
-                if settings.embeddingProvider == "custom" {
-                    TextField("Endpoint URL", text: $settings.embeddingEndpoint)
-                        .textFieldStyle(.roundedBorder)
-                }
-
-                if settings.embeddingProvider != "local" {
-                    TextField("Model", text: $settings.embeddingModel)
+                if settings.dindexEnabled {
+                    TextField("Endpoint URL", text: $settings.dindexEndpoint)
                         .textFieldStyle(.roundedBorder)
 
-                    HStack {
-                        Text("Dimensions")
-                        Spacer()
-                        TextField("", value: $settings.embeddingDimensions, format: .number)
-                            .textFieldStyle(.roundedBorder)
-                            .frame(width: 80)
-                    }
-
-                    Text("Changing dimensions will clear the search index")
-                        .font(.caption2)
-                        .foregroundColor(.orange)
-
-                    // API Key
-                    EmbeddingAPIKeyField(settings: settings)
-                }
-
-                // Presets
-                if settings.embeddingProvider == "openai" {
-                    HStack {
-                        Text("Presets:")
-                            .font(.caption)
-                            .foregroundColor(.secondary)
-
-                        Button("Small (1536d)") {
-                            settings.embeddingModel = "text-embedding-3-small"
-                            settings.embeddingDimensions = 1536
-                        }
-                        .buttonStyle(.borderless)
-                        .font(.caption)
-
-                        Button("Large (3072d)") {
-                            settings.embeddingModel = "text-embedding-3-large"
-                            settings.embeddingDimensions = 3072
-                        }
-                        .buttonStyle(.borderless)
-                        .font(.caption)
-                    }
-                }
-
-                if settings.embeddingProvider == "voyage" {
-                    HStack {
-                        Text("Presets:")
-                            .font(.caption)
-                            .foregroundColor(.secondary)
-
-                        Button("Lite (512d)") {
-                            settings.embeddingModel = "voyage-3-lite"
-                            settings.embeddingDimensions = 512
-                        }
-                        .buttonStyle(.borderless)
-                        .font(.caption)
-
-                        Button("Standard (1024d)") {
-                            settings.embeddingModel = "voyage-3"
-                            settings.embeddingDimensions = 1024
-                        }
-                        .buttonStyle(.borderless)
-                        .font(.caption)
-                    }
-                }
-
-                // Index stats
-                Divider()
-
-                HStack {
-                    VStack(alignment: .leading, spacing: 4) {
+                    // API Key (optional)
+                    VStack(alignment: .leading, spacing: 8) {
                         HStack {
-                            Image(systemName: semanticSearch.isAvailable ? "checkmark.circle.fill" : "xmark.circle.fill")
-                                .foregroundColor(semanticSearch.isAvailable ? .green : .red)
-                            Text(semanticSearch.isAvailable ? "Search available" : "Search unavailable")
-                                .font(.caption)
+                            if showDIndexAPIKey {
+                                TextField("API Key (optional)", text: $dindexAPIKeyInput)
+                                    .textFieldStyle(.roundedBorder)
+                                    .font(.system(.body, design: .monospaced))
+                            } else {
+                                SecureField("API Key (optional)", text: $dindexAPIKeyInput)
+                                    .textFieldStyle(.roundedBorder)
+                            }
+
+                            Button(action: { showDIndexAPIKey.toggle() }) {
+                                Image(systemName: showDIndexAPIKey ? "eye.slash" : "eye")
+                                    .foregroundColor(.secondary)
+                            }
+                            .buttonStyle(.borderless)
+
+                            Button("Save") {
+                                settings.dindexAPIKey = dindexAPIKeyInput
+                            }
                         }
 
-                        HStack(spacing: 16) {
-                            Label("\(semanticSearch.indexedCount) indexed", systemImage: "doc.text.fill")
+                        if !settings.dindexAPIKey.isEmpty {
+                            HStack {
+                                Image(systemName: "checkmark.circle.fill")
+                                    .foregroundColor(.green)
+                                    .font(.caption)
+                                Text("API key configured")
+                                    .font(.caption)
+                                    .foregroundColor(.secondary)
+
+                                Spacer()
+
+                                Button("Clear", role: .destructive) {
+                                    settings.dindexAPIKey = ""
+                                    dindexAPIKeyInput = ""
+                                }
+                                .font(.caption)
+                                .buttonStyle(.borderless)
+                            }
+                        }
+                    }
+
+                    Divider()
+
+                    // Connection status
+                    HStack {
+                        switch dindexConnectionStatus {
+                        case .unknown:
+                            if semanticSearch.isDIndexConnected {
+                                Image(systemName: "checkmark.circle.fill")
+                                    .foregroundColor(.green)
+                                Text("Connected")
+                                    .font(.caption)
+                                    .foregroundColor(.green)
+                            } else {
+                                Text("Connection not tested")
+                                    .font(.caption)
+                                    .foregroundColor(.secondary)
+                            }
+                        case .checking:
+                            ProgressView()
+                                .scaleEffect(0.6)
+                            Text("Testing connection...")
                                 .font(.caption)
                                 .foregroundColor(.secondary)
-
-                            if semanticSearch.pendingCount > 0 {
-                                Label("\(semanticSearch.pendingCount) pending", systemImage: "clock.fill")
-                                    .font(.caption)
-                                    .foregroundColor(.orange)
-                            }
-
-                            if semanticSearch.isIndexing {
-                                ProgressView()
-                                    .scaleEffect(0.6)
-                            }
-                        }
-
-                        if let error = semanticSearch.lastError {
-                            Text(error)
-                                .font(.caption2)
+                        case .connected:
+                            Image(systemName: "checkmark.circle.fill")
+                                .foregroundColor(.green)
+                            Text("Connected to DIndex")
+                                .font(.caption)
+                                .foregroundColor(.green)
+                        case .failed(let message):
+                            Image(systemName: "xmark.circle.fill")
+                                .foregroundColor(.red)
+                            Text(message)
+                                .font(.caption)
                                 .foregroundColor(.red)
                                 .lineLimit(2)
                         }
-                    }
 
-                    Spacer()
+                        Spacer()
 
-                    Button("Clear Index", role: .destructive) {
-                        showingClearIndexAlert = true
-                    }
-                    .buttonStyle(.borderless)
-                }
-                .alert("Clear Search Index", isPresented: $showingClearIndexAlert) {
-                    Button("Cancel", role: .cancel) { }
-                    Button("Clear", role: .destructive) {
-                        Task {
-                            await semanticSearch.clearIndex()
+                        Button("Test Connection") {
+                            testDIndexConnection()
                         }
+                        .disabled(dindexConnectionStatus.isChecking)
                     }
-                } message: {
-                    Text("This will delete all indexed pages. They will be re-indexed as you browse.")
                 }
             }
 
@@ -568,11 +532,13 @@ struct SettingsView: View {
             }
         }
         .formStyle(.grouped)
-        .frame(width: 500, height: 800)
+        .frame(width: 500, height: 900)
         .onAppear {
             fetchModels()
             // Load the existing API key from Keychain into the input field
             apiKeyInput = settings.llmAPIKey
+            // Load DIndex API key
+            dindexAPIKeyInput = settings.dindexAPIKey
         }
     }
 
@@ -705,6 +671,62 @@ struct SettingsView: View {
             }
         }.resume()
     }
+
+    private func testDIndexConnection() {
+        guard let endpointURL = URL(string: settings.dindexEndpoint) else {
+            dindexConnectionStatus = .failed("Invalid endpoint URL")
+            return
+        }
+
+        dindexConnectionStatus = .checking
+
+        let healthURL = endpointURL.appendingPathComponent("api/v1/health")
+        var request = URLRequest(url: healthURL)
+        request.httpMethod = "GET"
+        request.timeoutInterval = 10
+
+        // Add API key if configured
+        if !settings.dindexAPIKey.isEmpty {
+            request.setValue("Bearer \(settings.dindexAPIKey)", forHTTPHeaderField: "Authorization")
+        }
+
+        URLSession.shared.dataTask(with: request) { data, response, error in
+            DispatchQueue.main.async {
+                if let error = error {
+                    dindexConnectionStatus = .failed(error.localizedDescription)
+                    return
+                }
+
+                guard let httpResponse = response as? HTTPURLResponse else {
+                    dindexConnectionStatus = .failed("Invalid response")
+                    return
+                }
+
+                switch httpResponse.statusCode {
+                case 200:
+                    // Parse the health response
+                    if let data = data,
+                       let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                       let healthy = json["healthy"] as? Bool,
+                       healthy {
+                        dindexConnectionStatus = .connected
+                        // Trigger re-initialization to connect
+                        Task {
+                            await semanticSearch.reinitialize()
+                        }
+                    } else {
+                        dindexConnectionStatus = .failed("Server unhealthy")
+                    }
+                case 401:
+                    dindexConnectionStatus = .failed("Unauthorized - check API key")
+                case 403:
+                    dindexConnectionStatus = .failed("Forbidden - invalid API key")
+                default:
+                    dindexConnectionStatus = .failed("HTTP \(httpResponse.statusCode)")
+                }
+            }
+        }.resume()
+    }
 }
 
 // MARK: - Supporting Views
@@ -772,66 +794,6 @@ struct StatsRow: View {
                 .font(.system(.body, design: .rounded))
                 .fontWeight(.medium)
                 .foregroundColor(.primary)
-        }
-    }
-}
-
-/// Field for entering embedding API key
-struct EmbeddingAPIKeyField: View {
-    @ObservedObject var settings: AppSettings
-    @State private var apiKeyInput: String = ""
-    @State private var showAPIKey = false
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            HStack {
-                if showAPIKey {
-                    TextField("Embedding API Key", text: $apiKeyInput)
-                        .textFieldStyle(.roundedBorder)
-                        .font(.system(.body, design: .monospaced))
-                } else {
-                    SecureField("Embedding API Key", text: $apiKeyInput)
-                        .textFieldStyle(.roundedBorder)
-                }
-
-                Button(action: { showAPIKey.toggle() }) {
-                    Image(systemName: showAPIKey ? "eye.slash" : "eye")
-                        .foregroundColor(.secondary)
-                }
-                .buttonStyle(.borderless)
-
-                Button("Save") {
-                    settings.embeddingAPIKey = apiKeyInput
-                }
-                .disabled(apiKeyInput.isEmpty)
-            }
-
-            if settings.hasEmbeddingAPIKey {
-                HStack {
-                    Image(systemName: "checkmark.circle.fill")
-                        .foregroundColor(.green)
-                        .font(.caption)
-                    Text("API key configured")
-                        .font(.caption)
-                        .foregroundColor(.secondary)
-
-                    Spacer()
-
-                    Button("Clear", role: .destructive) {
-                        settings.embeddingAPIKey = ""
-                        apiKeyInput = ""
-                    }
-                    .font(.caption)
-                    .buttonStyle(.borderless)
-                }
-            }
-
-            Text("API key is stored securely in your system Keychain")
-                .font(.caption2)
-                .foregroundColor(.secondary)
-        }
-        .onAppear {
-            apiKeyInput = settings.embeddingAPIKey
         }
     }
 }

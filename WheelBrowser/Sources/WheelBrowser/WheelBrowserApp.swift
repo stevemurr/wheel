@@ -216,7 +216,6 @@ struct WheelBrowserApp: App {
 extension Notification.Name {
     static let newTab = Notification.Name("newTab")
     static let closeTab = Notification.Name("closeTab")
-    static let toggleSidebar = Notification.Name("toggleSidebar")
     static let toggleTabSidebar = Notification.Name("toggleTabSidebar")
 
     // Navigation
@@ -243,7 +242,6 @@ extension Notification.Name {
     // Semantic search
     static let focusSemanticSearch = Notification.Name("focusSemanticSearch")
     static let embeddingSettingsChanged = Notification.Name("embeddingSettingsChanged")
-    static let embeddingDimensionsChanged = Notification.Name("embeddingDimensionsChanged")
 
     // Zoom controls
     static let zoomIn = Notification.Name("zoomIn")
