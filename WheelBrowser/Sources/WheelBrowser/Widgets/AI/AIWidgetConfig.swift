@@ -28,11 +28,33 @@ struct DataSource: Codable, Equatable {
     var type: SourceType
     var url: String
     var headers: [String: String]
+    var localConfig: LocalConfig?
 
     enum SourceType: String, Codable {
         case urlFetch   // HTML pages with CSS selector extraction
         case jsonApi    // JSON APIs with JSONPath extraction
         case rssFeed    // RSS/Atom feeds with built-in parsing
+        case local      // Locally computed content (clocks, timers, etc.)
+    }
+
+    init(type: SourceType, url: String, headers: [String: String], localConfig: LocalConfig? = nil) {
+        self.type = type
+        self.url = url
+        self.headers = headers
+        self.localConfig = localConfig
+    }
+}
+
+/// Configuration for locally computed widgets
+struct LocalConfig: Codable, Equatable {
+    var widgetType: LocalWidgetType
+    var parameters: [String: String]
+
+    enum LocalWidgetType: String, Codable {
+        case worldClock     // Multiple timezone clocks
+        case countdown      // Countdown to a date
+        case stopwatch      // Stopwatch/timer
+        case dateDisplay    // Current date in various formats
     }
 }
 

@@ -39,28 +39,53 @@ final class AIWidget: Widget, ObservableObject {
     }
 
     func refresh() async {
-        guard !config.source.url.isEmpty else { return }
+        // Local widgets don't need a URL, remote widgets do
+        guard config.source.type == .local || !config.source.url.isEmpty else {
+            print("[AIWidget] refresh skipped - no URL and not local")
+            return
+        }
 
+        print("[AIWidget] refresh starting for '\(config.name)'")
         isLoading = true
         defer { isLoading = false }
 
         do {
             content = try await fetcher.fetch(config: config)
+            print("[AIWidget] refresh complete - \(content.items.count) items")
         } catch {
+            print("[AIWidget] refresh error: \(error)")
             content = ExtractedContent(error: error.localizedDescription)
         }
     }
 
     /// Start auto-refresh timer if configured
     func startAutoRefresh() {
-        guard config.refresh.autoRefresh, config.refresh.intervalMinutes > 0 else { return }
+        guard config.refresh.autoRefresh else {
+            print("[AIWidget] startAutoRefresh skipped - autoRefresh disabled")
+            return
+        }
 
+        print("[AIWidget] startAutoRefresh called for '\(config.name)'")
         refreshTask?.cancel()
         refreshTask = Task { [weak self] in
             while !Task.isCancelled {
                 guard let self = self else { break }
 
-                try? await Task.sleep(nanoseconds: UInt64(config.refresh.intervalMinutes) * 60 * 1_000_000_000)
+                // Use faster refresh for local time-based widgets (clocks, countdowns)
+                let refreshInterval: UInt64
+                if self.config.source.type == .local,
+                   let localConfig = self.config.source.localConfig,
+                   localConfig.widgetType == .worldClock || localConfig.widgetType == .countdown {
+                    // Refresh every 5 seconds for clocks/countdowns
+                    refreshInterval = 5 * 1_000_000_000
+                } else if self.config.refresh.intervalMinutes > 0 {
+                    refreshInterval = UInt64(self.config.refresh.intervalMinutes) * 60 * 1_000_000_000
+                } else {
+                    // Default to 30 minutes if not specified
+                    refreshInterval = 30 * 60 * 1_000_000_000
+                }
+
+                try? await Task.sleep(nanoseconds: refreshInterval)
 
                 if !Task.isCancelled {
                     await self.refresh()

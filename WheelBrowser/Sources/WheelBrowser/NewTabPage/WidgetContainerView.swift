@@ -10,8 +10,12 @@ struct WidgetContainerView: View {
     @State private var isHovered = false
     @State private var showSizeMenu = false
 
+    // Track content updates to force view refresh
+    @State private var contentVersion: Int = 0
+
     var body: some View {
         widget.makeContent()
+            .id(contentVersion) // Force view recreation on content change
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
             .background(Color(nsColor: .windowBackgroundColor))
             .clipShape(RoundedRectangle(cornerRadius: 16))
@@ -26,6 +30,9 @@ struct WidgetContainerView: View {
                 }
             }
             .onHover { isHovered = $0 }
+            .onReceive(widget.objectWillChange) { _ in
+                contentVersion += 1
+            }
     }
 
     private var editOverlay: some View {

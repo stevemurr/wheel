@@ -38,10 +38,10 @@ private struct BrowserContentArea: View {
                     )
                 }
 
-                // Right-click interceptor (full overlay, passes through clicks)
-                RightClickInterceptorView { position, size in
+                // Middle-click interceptor (full overlay, passes through other clicks)
+                RightClickInterceptorView(onMiddleClick: { position, size in
                     panelState.show(at: position)
-                }
+                })
 
                 // Right-click panel container
                 RightClickPanelContainer(

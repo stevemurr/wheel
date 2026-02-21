@@ -155,52 +155,102 @@ struct ListItemView: View {
 
     @State private var isHovered = false
 
+    // Support multiple field naming conventions
+    private var primaryText: String? {
+        item.fields["title"] ?? item.fields["label"] ?? item.fields["name"]
+    }
+
+    private var secondaryText: String? {
+        item.fields["description"] ?? item.fields["value"] ?? item.fields["subtitle"]
+    }
+
+    private var metaText: String? {
+        item.fields["date"] ?? item.fields["author"] ?? item.fields["timezone"]
+    }
+
+    // Check if this looks like a label/value pair (e.g., world clock)
+    private var isLabelValuePair: Bool {
+        item.fields["label"] != nil && item.fields["value"] != nil
+    }
+
     var body: some View {
         Button {
             if let link = item.link {
                 NotificationCenter.default.post(name: .openURL, object: link)
             }
         } label: {
-            HStack(alignment: .top, spacing: 8) {
-                Circle()
-                    .fill(accentColor.opacity(0.3))
-                    .frame(width: 6, height: 6)
-                    .padding(.top, 5)
-
-                VStack(alignment: .leading, spacing: 2) {
-                    if let title = item.fields["title"] {
-                        Text(title)
-                            .font(.system(size: 13, weight: .medium))
-                            .foregroundStyle(.primary)
-                            .lineLimit(2)
-                    }
-
-                    if let description = item.fields["description"] {
-                        Text(description)
-                            .font(.system(size: 11))
-                            .foregroundStyle(.secondary)
-                            .lineLimit(1)
-                    }
-
-                    if let meta = item.fields["date"] ?? item.fields["author"] {
-                        Text(meta)
-                            .font(.system(size: 10))
-                            .foregroundStyle(.tertiary)
-                    }
-                }
-
-                Spacer()
-            }
-            .padding(.vertical, 4)
-            .padding(.horizontal, 6)
-            .background {
-                RoundedRectangle(cornerRadius: 6)
-                    .fill(isHovered ? Color(nsColor: .controlBackgroundColor) : Color.clear)
+            if isLabelValuePair {
+                // Special layout for label/value pairs (clocks, single values)
+                labelValueLayout
+            } else {
+                // Standard list item layout
+                standardLayout
             }
         }
         .buttonStyle(.plain)
         .onHover { isHovered = $0 }
-        .disabled(item.link == nil)
+        .disabled(item.link == nil && !isLabelValuePair)
+    }
+
+    private var labelValueLayout: some View {
+        HStack {
+            if let label = item.fields["label"] {
+                Text(label)
+                    .font(.system(size: 13, weight: .medium))
+                    .foregroundStyle(.secondary)
+            }
+            Spacer()
+            if let value = item.fields["value"] {
+                Text(value)
+                    .font(.system(size: 15, weight: .semibold, design: .rounded))
+                    .foregroundStyle(.primary)
+            }
+        }
+        .padding(.vertical, 6)
+        .padding(.horizontal, 10)
+        .background {
+            RoundedRectangle(cornerRadius: 8)
+                .fill(isHovered ? Color(nsColor: .controlBackgroundColor) : Color(nsColor: .controlBackgroundColor).opacity(0.5))
+        }
+    }
+
+    private var standardLayout: some View {
+        HStack(alignment: .top, spacing: 8) {
+            Circle()
+                .fill(accentColor.opacity(0.3))
+                .frame(width: 6, height: 6)
+                .padding(.top, 5)
+
+            VStack(alignment: .leading, spacing: 2) {
+                if let title = primaryText {
+                    Text(title)
+                        .font(.system(size: 13, weight: .medium))
+                        .foregroundStyle(.primary)
+                        .lineLimit(2)
+                }
+
+                if let description = secondaryText, !isLabelValuePair {
+                    Text(description)
+                        .font(.system(size: 11))
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                }
+
+                if let meta = metaText {
+                    Text(meta)
+                        .font(.system(size: 10))
+                        .foregroundStyle(.tertiary)
+                }
+            }
+
+            Spacer()
+        }
+        .padding(.vertical, 4)
+        .padding(.horizontal, 6)
+        .background {
+            RoundedRectangle(cornerRadius: 6)
+                .fill(isHovered ? Color(nsColor: .controlBackgroundColor) : Color.clear)
+        }
     }
 }
 

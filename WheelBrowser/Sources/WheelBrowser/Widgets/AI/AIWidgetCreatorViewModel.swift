@@ -157,11 +157,15 @@ final class AIWidgetCreatorViewModel: ObservableObject {
         {
           "name": "Widget Name",
           "description": "Brief description",
-          "iconName": "SF Symbol name (e.g., newspaper, cloud.sun, chart.line, bitcoinsign.circle)",
+          "iconName": "SF Symbol name (e.g., newspaper, cloud.sun, chart.line, bitcoinsign.circle, clock)",
           "source": {
-            "type": "urlFetch" or "jsonApi" or "rssFeed",
-            "url": "https://...",
-            "headers": {}
+            "type": "urlFetch" or "jsonApi" or "rssFeed" or "local",
+            "url": "https://..." (empty string for local),
+            "headers": {},
+            "localConfig": {
+              "widgetType": "worldClock" or "countdown" or "dateDisplay",
+              "parameters": {"key": "value"}
+            }
           },
           "extraction": {
             "type": "css" or "jsonPath" or "rss",
@@ -182,6 +186,58 @@ final class AIWidgetCreatorViewModel: ObservableObject {
         }
 
         IMPORTANT EXAMPLES:
+
+        For CLOCKS/TIME with multiple timezones, use "local" source type:
+        {
+          "name": "World Clock",
+          "description": "Time in multiple cities",
+          "iconName": "clock",
+          "source": {
+            "type": "local",
+            "url": "",
+            "headers": {},
+            "localConfig": {
+              "widgetType": "worldClock",
+              "parameters": {
+                "timezones": "America/Los_Angeles,Asia/Shanghai,Europe/Copenhagen",
+                "label_America/Los_Angeles": "PST",
+                "label_Asia/Shanghai": "Beijing",
+                "label_Europe/Copenhagen": "Copenhagen"
+              }
+            }
+          },
+          "extraction": {"type": "css", "selectors": {}},
+          "display": {"layout": "list", "template": "", "itemLimit": 10, "showTitle": true},
+          "refresh": {"intervalMinutes": 1, "autoRefresh": true}
+        }
+
+        Common timezone identifiers:
+        - America/New_York (EST/EDT), America/Los_Angeles (PST/PDT), America/Chicago (CST/CDT)
+        - Europe/London (GMT/BST), Europe/Paris, Europe/Berlin, Europe/Copenhagen
+        - Asia/Tokyo, Asia/Shanghai (Beijing), Asia/Singapore, Asia/Dubai
+        - Australia/Sydney, Pacific/Auckland
+
+        For COUNTDOWN timers:
+        {
+          "name": "Event Countdown",
+          "description": "Days until event",
+          "iconName": "timer",
+          "source": {
+            "type": "local",
+            "url": "",
+            "headers": {},
+            "localConfig": {
+              "widgetType": "countdown",
+              "parameters": {
+                "targetDate": "2024-12-31T00:00:00Z",
+                "eventName": "New Year"
+              }
+            }
+          },
+          "extraction": {"type": "css", "selectors": {}},
+          "display": {"layout": "singleValue", "template": "", "itemLimit": 1, "showTitle": true},
+          "refresh": {"intervalMinutes": 1, "autoRefresh": true}
+        }
 
         For Bitcoin/Crypto prices, use CoinGecko API:
         {
@@ -274,20 +330,60 @@ final class AIWidgetCreatorViewModel: ObservableObject {
 
         let (data, response) = try await URLSession.shared.data(for: request)
 
-        guard let httpResponse = response as? HTTPURLResponse,
-              (200..<300).contains(httpResponse.statusCode) else {
-            throw GenerationError.llmRequestFailed
+        guard let httpResponse = response as? HTTPURLResponse else {
+            throw GenerationError.llmRequestFailed("No HTTP response received")
         }
 
-        guard let json = try JSONSerialization.jsonObject(with: data) as? [String: Any],
-              let choices = json["choices"] as? [[String: Any]],
-              let firstChoice = choices.first,
-              let message = firstChoice["message"] as? [String: Any],
-              let content = message["content"] as? String else {
-            throw GenerationError.invalidResponse
+        let responseString = String(data: data, encoding: .utf8) ?? "(non-UTF8 data)"
+        print("[AIWidgetCreator] LLM response status: \(httpResponse.statusCode)")
+        print("[AIWidgetCreator] LLM response body: \(responseString.prefix(500))...")
+
+        guard (200..<300).contains(httpResponse.statusCode) else {
+            // Try to extract error message from response
+            if let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+               let error = json["error"] as? [String: Any],
+               let message = error["message"] as? String {
+                throw GenerationError.llmRequestFailed("API error: \(message)")
+            }
+            throw GenerationError.llmRequestFailed("HTTP \(httpResponse.statusCode)")
         }
 
-        return content
+        guard let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+            throw GenerationError.invalidResponse("Response is not valid JSON: \(responseString.prefix(200))")
+        }
+
+        // Try standard OpenAI format: choices[0].message.content
+        if let choices = json["choices"] as? [[String: Any]],
+           let firstChoice = choices.first,
+           let message = firstChoice["message"] as? [String: Any],
+           let content = message["content"] as? String {
+            return content
+        }
+
+        // Try Anthropic format: content[0].text
+        if let content = json["content"] as? [[String: Any]],
+           let firstContent = content.first,
+           let text = firstContent["text"] as? String {
+            return text
+        }
+
+        // Try simple text response
+        if let text = json["text"] as? String {
+            return text
+        }
+
+        // Try response field
+        if let response = json["response"] as? String {
+            return response
+        }
+
+        // Check for error in response
+        if let error = json["error"] as? [String: Any],
+           let message = error["message"] as? String {
+            throw GenerationError.llmRequestFailed("API error: \(message)")
+        }
+
+        throw GenerationError.invalidResponse("Unrecognized response format. Keys: \(json.keys.joined(separator: ", "))")
     }
 
     private func parseConfigFromResponse(_ response: String) throws -> AIWidgetConfig {
@@ -357,12 +453,23 @@ final class AIWidgetCreatorViewModel: ObservableObject {
         // Parse source
         guard let sourceDict = json["source"] as? [String: Any],
               let sourceTypeStr = sourceDict["type"] as? String,
-              let sourceType = DataSource.SourceType(rawValue: sourceTypeStr),
-              let url = sourceDict["url"] as? String else {
+              let sourceType = DataSource.SourceType(rawValue: sourceTypeStr) else {
             throw GenerationError.invalidJSON("Missing or invalid 'source' configuration")
         }
+
+        let url = sourceDict["url"] as? String ?? ""
         let headers = sourceDict["headers"] as? [String: String] ?? [:]
-        let source = DataSource(type: sourceType, url: url, headers: headers)
+
+        // Parse localConfig if present (for local widgets)
+        var localConfig: LocalConfig? = nil
+        if let localConfigDict = sourceDict["localConfig"] as? [String: Any],
+           let widgetTypeStr = localConfigDict["widgetType"] as? String,
+           let widgetType = LocalConfig.LocalWidgetType(rawValue: widgetTypeStr) {
+            let parameters = localConfigDict["parameters"] as? [String: String] ?? [:]
+            localConfig = LocalConfig(widgetType: widgetType, parameters: parameters)
+        }
+
+        let source = DataSource(type: sourceType, url: url, headers: headers, localConfig: localConfig)
 
         // Parse extraction
         guard let extractionDict = json["extraction"] as? [String: Any] else {
@@ -434,18 +541,18 @@ final class AIWidgetCreatorViewModel: ObservableObject {
 
     enum GenerationError: LocalizedError {
         case llmNotConfigured
-        case llmRequestFailed
-        case invalidResponse
+        case llmRequestFailed(String)
+        case invalidResponse(String)
         case invalidJSON(String)
 
         var errorDescription: String? {
             switch self {
             case .llmNotConfigured:
                 return "LLM endpoint not configured. Check Settings."
-            case .llmRequestFailed:
-                return "Failed to get response from LLM"
-            case .invalidResponse:
-                return "Invalid response format from LLM"
+            case .llmRequestFailed(let detail):
+                return "LLM request failed: \(detail)"
+            case .invalidResponse(let detail):
+                return "Invalid LLM response: \(detail)"
             case .invalidJSON(let detail):
                 return "Could not parse widget configuration: \(detail)"
             }
@@ -460,8 +567,8 @@ extension AIWidgetCreatorViewModel {
         "Show top 5 Hacker News stories",
         "Latest posts from r/programming",
         "Display Bitcoin price",
-        "Weather forecast for my location",
-        "Trending GitHub repositories",
+        "World clock for NYC, London, Tokyo",
+        "Countdown to New Year 2025",
         "Latest tech news headlines"
     ]
 }

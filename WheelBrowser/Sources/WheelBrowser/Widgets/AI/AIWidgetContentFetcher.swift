@@ -16,6 +16,11 @@ actor AIWidgetContentFetcher {
 
     /// Fetch and extract content based on the widget configuration
     func fetch(config: AIWidgetConfig) async throws -> ExtractedContent {
+        // Handle local widgets that don't need network requests
+        if config.source.type == .local {
+            return try generateLocalContent(config: config)
+        }
+
         guard let url = URL(string: config.source.url) else {
             throw FetchError.invalidURL(config.source.url)
         }
@@ -44,9 +49,155 @@ actor AIWidgetContentFetcher {
             content = try extractFromJSON(data: data, config: config)
         case .rssFeed:
             content = try extractFromRSS(data: data, config: config)
+        case .local:
+            // Already handled above
+            content = ExtractedContent()
         }
 
         return content
+    }
+
+    // MARK: - Local Content Generation
+
+    private func generateLocalContent(config: AIWidgetConfig) throws -> ExtractedContent {
+        guard let localConfig = config.source.localConfig else {
+            throw FetchError.extractionFailed("Missing local configuration")
+        }
+
+        switch localConfig.widgetType {
+        case .worldClock:
+            return generateWorldClockContent(parameters: localConfig.parameters, limit: config.display.itemLimit)
+        case .countdown:
+            return generateCountdownContent(parameters: localConfig.parameters)
+        case .stopwatch:
+            return generateStopwatchContent(parameters: localConfig.parameters)
+        case .dateDisplay:
+            return generateDateDisplayContent(parameters: localConfig.parameters)
+        }
+    }
+
+    private func generateWorldClockContent(parameters: [String: String], limit: Int) -> ExtractedContent {
+        // Parse timezone identifiers from parameters
+        // Expected format: "timezones": "America/Los_Angeles,Asia/Shanghai,Europe/Copenhagen"
+        // Or individual: "tz1": "America/Los_Angeles", "tz2": "Asia/Shanghai", etc.
+        var timezones: [(id: String, label: String)] = []
+
+        if let tzList = parameters["timezones"] {
+            for tz in tzList.split(separator: ",") {
+                let tzString = String(tz).trimmingCharacters(in: .whitespaces)
+                let label = parameters["label_\(tzString)"] ?? formatTimezoneLabel(tzString)
+                timezones.append((id: tzString, label: label))
+            }
+        } else {
+            // Look for individual timezone parameters
+            for i in 1...10 {
+                if let tz = parameters["tz\(i)"] {
+                    let label = parameters["label\(i)"] ?? formatTimezoneLabel(tz)
+                    timezones.append((id: tz, label: label))
+                }
+            }
+        }
+
+        // Default timezones if none specified
+        if timezones.isEmpty {
+            timezones = [
+                ("America/Los_Angeles", "PST"),
+                ("Asia/Shanghai", "Beijing"),
+                ("Europe/Copenhagen", "Copenhagen")
+            ]
+        }
+
+        var items: [ExtractedItem] = []
+        let now = Date()
+        let timeFormatter = DateFormatter()
+        timeFormatter.dateFormat = "h:mm a"
+
+        for (tzId, label) in timezones.prefix(limit) {
+            if let timezone = TimeZone(identifier: tzId) {
+                timeFormatter.timeZone = timezone
+                let timeString = timeFormatter.string(from: now)
+
+                items.append(ExtractedItem(fields: [
+                    "label": label,
+                    "value": timeString,
+                    "timezone": tzId
+                ]))
+            }
+        }
+
+        return ExtractedContent(items: items, fetchedAt: now)
+    }
+
+    private func formatTimezoneLabel(_ identifier: String) -> String {
+        // Convert "America/Los_Angeles" to "Los Angeles"
+        let parts = identifier.split(separator: "/")
+        if let last = parts.last {
+            return String(last).replacingOccurrences(of: "_", with: " ")
+        }
+        return identifier
+    }
+
+    private func generateCountdownContent(parameters: [String: String]) -> ExtractedContent {
+        let now = Date()
+
+        guard let targetDateString = parameters["targetDate"],
+              let targetDate = ISO8601DateFormatter().date(from: targetDateString) else {
+            return ExtractedContent(items: [
+                ExtractedItem(fields: ["value": "No target date set", "label": "Countdown"])
+            ], fetchedAt: now)
+        }
+
+        let eventName = parameters["eventName"] ?? "Event"
+        let interval = targetDate.timeIntervalSince(now)
+
+        if interval <= 0 {
+            return ExtractedContent(items: [
+                ExtractedItem(fields: ["value": "Completed!", "label": eventName])
+            ], fetchedAt: now)
+        }
+
+        let days = Int(interval / 86400)
+        let hours = Int((interval.truncatingRemainder(dividingBy: 86400)) / 3600)
+        let minutes = Int((interval.truncatingRemainder(dividingBy: 3600)) / 60)
+
+        var countdownString = ""
+        if days > 0 {
+            countdownString = "\(days)d \(hours)h \(minutes)m"
+        } else if hours > 0 {
+            countdownString = "\(hours)h \(minutes)m"
+        } else {
+            countdownString = "\(minutes)m"
+        }
+
+        return ExtractedContent(items: [
+            ExtractedItem(fields: ["value": countdownString, "label": eventName])
+        ], fetchedAt: now)
+    }
+
+    private func generateStopwatchContent(parameters: [String: String]) -> ExtractedContent {
+        // Stopwatch would need state management; for now just show current time
+        let now = Date()
+        let formatter = DateFormatter()
+        formatter.dateFormat = "HH:mm:ss"
+
+        return ExtractedContent(items: [
+            ExtractedItem(fields: ["value": formatter.string(from: now), "label": "Current Time"])
+        ], fetchedAt: now)
+    }
+
+    private func generateDateDisplayContent(parameters: [String: String]) -> ExtractedContent {
+        let now = Date()
+        let format = parameters["format"] ?? "EEEE, MMMM d, yyyy"
+        let formatter = DateFormatter()
+        formatter.dateFormat = format
+
+        if let tzId = parameters["timezone"], let tz = TimeZone(identifier: tzId) {
+            formatter.timeZone = tz
+        }
+
+        return ExtractedContent(items: [
+            ExtractedItem(fields: ["value": formatter.string(from: now), "label": parameters["label"] ?? "Date"])
+        ], fetchedAt: now)
     }
 
     // MARK: - HTML Extraction
