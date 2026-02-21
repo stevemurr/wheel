@@ -117,218 +117,231 @@ struct OmniBar: View {
     var body: some View {
         VStack(spacing: 0) {
             // Suggestions panel - appears above OmniBar when in address mode (shows tabs + history)
-            OmniPanel(
-                title: "Go to",
-                icon: "magnifyingglass",
-                iconColor: .accentColor,
-                borderColor: .blue,
-                subtitle: historyPanelSubtitle,
-                onDismiss: {
-                    omniState.dismissHistoryPanel()
-                }
-            ) {
-                HistoryPanelContent(
-                    viewModel: suggestionsVM,
-                    searchText: omniState.inputText,
-                    onSelect: { suggestion in
-                        handleSuggestionSelection(suggestion)
+            // Only render panel content after view has appeared to prevent initial flash
+            if hasAppeared {
+                OmniPanel(
+                    title: "Go to",
+                    icon: "magnifyingglass",
+                    iconColor: .accentColor,
+                    borderColor: .blue,
+                    subtitle: historyPanelSubtitle,
+                    onDismiss: {
+                        omniState.dismissHistoryPanel()
                     }
-                )
+                ) {
+                    HistoryPanelContent(
+                        viewModel: suggestionsVM,
+                        searchText: omniState.inputText,
+                        onSelect: { suggestion in
+                            handleSuggestionSelection(suggestion)
+                        }
+                    )
+                }
+                .padding(.horizontal, 16)
+                .padding(.bottom, 8)
+                .opacity(isHistoryPanelVisible ? 1 : 0)
+                .scaleEffect(isHistoryPanelVisible ? 1 : 0.95)
+                .offset(y: isHistoryPanelVisible ? 0 : 10)
+                .allowsHitTesting(isHistoryPanelVisible)
+                .frame(maxHeight: isHistoryPanelVisible ? nil : 0)
+                .clipped()
+                .animation(.spring(response: 0.3, dampingFraction: 0.85), value: isHistoryPanelVisible)
+                .zIndex(999)
             }
-            .padding(.horizontal, 16)
-            .padding(.bottom, 8)
-            .opacity(isHistoryPanelVisible ? 1 : 0)
-            .scaleEffect(isHistoryPanelVisible ? 1 : 0.95)
-            .offset(y: isHistoryPanelVisible ? 0 : 10)
-            .allowsHitTesting(isHistoryPanelVisible)
-            .frame(maxHeight: isHistoryPanelVisible ? nil : 0)
-            .clipped()
-            .animation(hasAppeared ? .spring(response: 0.3, dampingFraction: 0.85) : nil, value: isHistoryPanelVisible)
-            .zIndex(999)
 
             // Chat panel - appears above OmniBar when in chat mode
-            OmniPanel(
-                title: "Chat",
-                icon: "bubble.left.and.bubble.right.fill",
-                iconColor: .purple,
-                borderColor: .purple,
-                subtitle: agentManager.isLoading ? "Thinking..." : nil,
-                menuContent: {
-                    AnyView(
-                        Group {
-                            Button("Clear Chat") {
-                                agentManager.clearMessages()
-                            }
-                            Divider()
-                            Button("Reset Agent", role: .destructive) {
-                                Task { await agentManager.resetAgent() }
-                            }
-                        }
-                    )
-                },
-                onDismiss: {
-                    omniState.dismissChatPanel()
-                }
-            ) {
-                ChatPanelContent(agentManager: agentManager)
-            }
-            .padding(.horizontal, 16)
-            .padding(.bottom, 8)
-            .opacity(isChatPanelVisible ? 1 : 0)
-            .scaleEffect(isChatPanelVisible ? 1 : 0.95)
-            .offset(y: isChatPanelVisible ? 0 : 10)
-            .allowsHitTesting(isChatPanelVisible)
-            .frame(maxHeight: isChatPanelVisible ? nil : 0)
-            .clipped()
-            .animation(hasAppeared ? .spring(response: 0.3, dampingFraction: 0.85) : nil, value: isChatPanelVisible)
-            .zIndex(999)
-
-            // Semantic search panel - appears above OmniBar when in semantic mode
-            OmniPanel(
-                title: "Semantic Search",
-                icon: "brain.head.profile",
-                iconColor: .orange,
-                borderColor: .orange,
-                subtitle: semanticPanelSubtitle,
-                menuContent: {
-                    AnyView(
-                        Group {
-                            Button("Clear Index") {
-                                Task { await semanticSearchManager.clearIndex() }
-                            }
-                        }
-                    )
-                },
-                onDismiss: {
-                    omniState.dismissSemanticPanel()
-                }
-            ) {
-                SemanticSearchPanelContent(
-                    viewModel: semanticSearchVM,
-                    searchManager: semanticSearchManager,
-                    searchText: omniState.inputText,
-                    onSelect: { result in
-                        handleSemanticSelection(result)
-                    }
-                )
-            }
-            .padding(.horizontal, 16)
-            .padding(.bottom, 8)
-            .opacity(isSemanticPanelVisible ? 1 : 0)
-            .scaleEffect(isSemanticPanelVisible ? 1 : 0.95)
-            .offset(y: isSemanticPanelVisible ? 0 : 10)
-            .allowsHitTesting(isSemanticPanelVisible)
-            .frame(maxHeight: isSemanticPanelVisible ? nil : 0)
-            .clipped()
-            .animation(hasAppeared ? .spring(response: 0.3, dampingFraction: 0.85) : nil, value: isSemanticPanelVisible)
-            .zIndex(999)
-
-            // Agent panel - appears above OmniBar when in agent mode
-            OmniPanel(
-                title: "Agent",
-                icon: "wand.and.stars",
-                iconColor: .green,
-                borderColor: .green,
-                subtitle: agentPanelSubtitle,
-                menuContent: {
-                    AnyView(
-                        Group {
-                            Button("Cancel Task") {
-                                agentEngine.cancel()
-                            }
-                            .disabled(!agentEngine.isRunning)
-                            Divider()
-                            Button("Clear History") {
-                                agentEngine.steps = []
-                            }
-                            .disabled(agentEngine.steps.isEmpty)
-                        }
-                    )
-                },
-                onDismiss: {
-                    omniState.dismissAgentPanel()
-                }
-            ) {
-                AgentPanelContent(agentEngine: agentEngine, browserState: browserState)
-            }
-            .padding(.horizontal, 16)
-            .padding(.bottom, 8)
-            .opacity(isAgentPanelVisible ? 1 : 0)
-            .scaleEffect(isAgentPanelVisible ? 1 : 0.95)
-            .offset(y: isAgentPanelVisible ? 0 : 10)
-            .allowsHitTesting(isAgentPanelVisible)
-            .frame(maxHeight: isAgentPanelVisible ? nil : 0)
-            .clipped()
-            .animation(hasAppeared ? .spring(response: 0.3, dampingFraction: 0.85) : nil, value: isAgentPanelVisible)
-            .zIndex(999)
-
-            // Reading list panel - appears above OmniBar when in reading list mode
-            OmniPanel(
-                title: "Reading List",
-                icon: "bookmark.fill",
-                iconColor: .pink,
-                borderColor: .pink,
-                subtitle: readingListPanelSubtitle,
-                onDismiss: {
-                    omniState.dismissReadingListPanel()
-                }
-            ) {
-                ReadingListPanelContent(
-                    viewModel: readingListVM,
-                    searchText: omniState.inputText,
-                    onSelect: { item in
-                        handleReadingListSelection(item)
-                    }
-                )
-            }
-            .padding(.horizontal, 16)
-            .padding(.bottom, 8)
-            .opacity(isReadingListPanelVisible ? 1 : 0)
-            .scaleEffect(isReadingListPanelVisible ? 1 : 0.95)
-            .offset(y: isReadingListPanelVisible ? 0 : 10)
-            .allowsHitTesting(isReadingListPanelVisible)
-            .frame(maxHeight: isReadingListPanelVisible ? nil : 0)
-            .clipped()
-            .animation(hasAppeared ? .spring(response: 0.3, dampingFraction: 0.85) : nil, value: isReadingListPanelVisible)
-            .zIndex(999)
-
-            // Downloads panel - appears above OmniBar when downloads are active
-            OmniPanel(
-                title: "Downloads",
-                icon: "arrow.down.circle.fill",
-                iconColor: .blue,
-                borderColor: .blue,
-                subtitle: downloadsPanelSubtitle,
-                menuContent: {
-                    AnyView(
-                        Group {
-                            Button("Clear Completed") {
-                                downloadManager.clearCompleted()
-                            }
-                            Button("Show in Finder") {
-                                if let url = FileManager.default.urls(for: .downloadsDirectory, in: .userDomainMask).first {
-                                    NSWorkspace.shared.open(url)
+            if hasAppeared {
+                OmniPanel(
+                    title: "Chat",
+                    icon: "bubble.left.and.bubble.right.fill",
+                    iconColor: .purple,
+                    borderColor: .purple,
+                    subtitle: agentManager.isLoading ? "Thinking..." : nil,
+                    menuContent: {
+                        AnyView(
+                            Group {
+                                Button("Clear Chat") {
+                                    agentManager.clearMessages()
+                                }
+                                Divider()
+                                Button("Reset Agent", role: .destructive) {
+                                    Task { await agentManager.resetAgent() }
                                 }
                             }
+                        )
+                    },
+                    onDismiss: {
+                        omniState.dismissChatPanel()
+                    }
+                ) {
+                    ChatPanelContent(agentManager: agentManager)
+                }
+                .padding(.horizontal, 16)
+                .padding(.bottom, 8)
+                .opacity(isChatPanelVisible ? 1 : 0)
+                .scaleEffect(isChatPanelVisible ? 1 : 0.95)
+                .offset(y: isChatPanelVisible ? 0 : 10)
+                .allowsHitTesting(isChatPanelVisible)
+                .frame(maxHeight: isChatPanelVisible ? nil : 0)
+                .clipped()
+                .animation(.spring(response: 0.3, dampingFraction: 0.85), value: isChatPanelVisible)
+                .zIndex(999)
+            }
+
+            // Semantic search panel - appears above OmniBar when in semantic mode
+            if hasAppeared {
+                OmniPanel(
+                    title: "Semantic Search",
+                    icon: "brain.head.profile",
+                    iconColor: .orange,
+                    borderColor: .orange,
+                    subtitle: semanticPanelSubtitle,
+                    menuContent: {
+                        AnyView(
+                            Group {
+                                Button("Clear Index") {
+                                    Task { await semanticSearchManager.clearIndex() }
+                                }
+                            }
+                        )
+                    },
+                    onDismiss: {
+                        omniState.dismissSemanticPanel()
+                    }
+                ) {
+                    SemanticSearchPanelContent(
+                        viewModel: semanticSearchVM,
+                        searchManager: semanticSearchManager,
+                        searchText: omniState.inputText,
+                        onSelect: { result in
+                            handleSemanticSelection(result)
                         }
                     )
-                },
-                onDismiss: {
-                    downloadManager.dismissPanel()
                 }
-            ) {
-                DownloadsPanelContent(manager: downloadManager)
+                .padding(.horizontal, 16)
+                .padding(.bottom, 8)
+                .opacity(isSemanticPanelVisible ? 1 : 0)
+                .scaleEffect(isSemanticPanelVisible ? 1 : 0.95)
+                .offset(y: isSemanticPanelVisible ? 0 : 10)
+                .allowsHitTesting(isSemanticPanelVisible)
+                .frame(maxHeight: isSemanticPanelVisible ? nil : 0)
+                .clipped()
+                .animation(.spring(response: 0.3, dampingFraction: 0.85), value: isSemanticPanelVisible)
+                .zIndex(999)
             }
-            .padding(.horizontal, 16)
-            .padding(.bottom, 8)
-            .opacity(downloadManager.showDownloadsPanel ? 1 : 0)
-            .scaleEffect(downloadManager.showDownloadsPanel ? 1 : 0.95)
-            .offset(y: downloadManager.showDownloadsPanel ? 0 : 10)
-            .allowsHitTesting(downloadManager.showDownloadsPanel)
-            .frame(maxHeight: downloadManager.showDownloadsPanel ? nil : 0)
-            .clipped()
-            .animation(hasAppeared ? .spring(response: 0.3, dampingFraction: 0.85) : nil, value: downloadManager.showDownloadsPanel)
-            .zIndex(999)
+
+            // Agent panel - appears above OmniBar when in agent mode
+            if hasAppeared {
+                OmniPanel(
+                    title: "Agent",
+                    icon: "wand.and.stars",
+                    iconColor: .green,
+                    borderColor: .green,
+                    subtitle: agentPanelSubtitle,
+                    menuContent: {
+                        AnyView(
+                            Group {
+                                Button("Cancel Task") {
+                                    agentEngine.cancel()
+                                }
+                                .disabled(!agentEngine.isRunning)
+                                Divider()
+                                Button("Clear History") {
+                                    agentEngine.steps = []
+                                }
+                                .disabled(agentEngine.steps.isEmpty)
+                            }
+                        )
+                    },
+                    onDismiss: {
+                        omniState.dismissAgentPanel()
+                    }
+                ) {
+                    AgentPanelContent(agentEngine: agentEngine, browserState: browserState)
+                }
+                .padding(.horizontal, 16)
+                .padding(.bottom, 8)
+                .opacity(isAgentPanelVisible ? 1 : 0)
+                .scaleEffect(isAgentPanelVisible ? 1 : 0.95)
+                .offset(y: isAgentPanelVisible ? 0 : 10)
+                .allowsHitTesting(isAgentPanelVisible)
+                .frame(maxHeight: isAgentPanelVisible ? nil : 0)
+                .clipped()
+                .animation(.spring(response: 0.3, dampingFraction: 0.85), value: isAgentPanelVisible)
+                .zIndex(999)
+            }
+
+            // Reading list panel - appears above OmniBar when in reading list mode
+            if hasAppeared {
+                OmniPanel(
+                    title: "Reading List",
+                    icon: "bookmark.fill",
+                    iconColor: .pink,
+                    borderColor: .pink,
+                    subtitle: readingListPanelSubtitle,
+                    onDismiss: {
+                        omniState.dismissReadingListPanel()
+                    }
+                ) {
+                    ReadingListPanelContent(
+                        viewModel: readingListVM,
+                        searchText: omniState.inputText,
+                        onSelect: { item in
+                            handleReadingListSelection(item)
+                        }
+                    )
+                }
+                .padding(.horizontal, 16)
+                .padding(.bottom, 8)
+                .opacity(isReadingListPanelVisible ? 1 : 0)
+                .scaleEffect(isReadingListPanelVisible ? 1 : 0.95)
+                .offset(y: isReadingListPanelVisible ? 0 : 10)
+                .allowsHitTesting(isReadingListPanelVisible)
+                .frame(maxHeight: isReadingListPanelVisible ? nil : 0)
+                .clipped()
+                .animation(.spring(response: 0.3, dampingFraction: 0.85), value: isReadingListPanelVisible)
+                .zIndex(999)
+            }
+
+            // Downloads panel - appears above OmniBar when downloads are active
+            if hasAppeared {
+                OmniPanel(
+                    title: "Downloads",
+                    icon: "arrow.down.circle.fill",
+                    iconColor: .blue,
+                    borderColor: .blue,
+                    subtitle: downloadsPanelSubtitle,
+                    menuContent: {
+                        AnyView(
+                            Group {
+                                Button("Clear Completed") {
+                                    downloadManager.clearCompleted()
+                                }
+                                Button("Show in Finder") {
+                                    if let url = FileManager.default.urls(for: .downloadsDirectory, in: .userDomainMask).first {
+                                        NSWorkspace.shared.open(url)
+                                    }
+                                }
+                            }
+                        )
+                    },
+                    onDismiss: {
+                        downloadManager.dismissPanel()
+                    }
+                ) {
+                    DownloadsPanelContent(manager: downloadManager)
+                }
+                .padding(.horizontal, 16)
+                .padding(.bottom, 8)
+                .opacity(downloadManager.showDownloadsPanel ? 1 : 0)
+                .scaleEffect(downloadManager.showDownloadsPanel ? 1 : 0.95)
+                .offset(y: downloadManager.showDownloadsPanel ? 0 : 10)
+                .allowsHitTesting(downloadManager.showDownloadsPanel)
+                .frame(maxHeight: downloadManager.showDownloadsPanel ? nil : 0)
+                .clipped()
+                .animation(.spring(response: 0.3, dampingFraction: 0.85), value: downloadManager.showDownloadsPanel)
+                .zIndex(999)
+            }
 
             // Mention dropdown panel - appears above OmniBar input when in chat mode with @ trigger
             if omniState.mode == .chat && omniState.showMentionDropdown {
@@ -820,7 +833,7 @@ struct OmniBar: View {
         .overlay {
             Capsule()
                 .strokeBorder(
-                    isInputFocused ? omniState.modeColor.opacity(0.6) : Color.white.opacity(0.1),
+                    isInputFocused ? omniState.modeColor.opacity(0.6) : Color.primary.opacity(0.1),
                     lineWidth: isInputFocused ? 2 : 1
                 )
         }
@@ -1283,6 +1296,15 @@ struct OmniBarTextField: NSViewRepresentable {
         textField.delegate = context.coordinator
         textField.target = context.coordinator
         textField.action = #selector(Coordinator.textFieldAction(_:))
+
+        // Disable macOS text completion to prevent flash on first focus
+        textField.isAutomaticTextCompletionEnabled = false
+        textField.allowsEditingTextAttributes = false
+        if let cell = textField.cell as? NSTextFieldCell {
+            cell.isScrollable = true
+            cell.usesSingleLineMode = true
+        }
+
         return textField
     }
 
@@ -1561,7 +1583,7 @@ struct OmniBarFindBar: View {
                 .overlay {
                     Capsule()
                         .strokeBorder(
-                            isFocused ? Color.accentColor.opacity(0.5) : Color.white.opacity(0.1),
+                            isFocused ? Color.accentColor.opacity(0.5) : Color.primary.opacity(0.1),
                             lineWidth: 1
                         )
                 }

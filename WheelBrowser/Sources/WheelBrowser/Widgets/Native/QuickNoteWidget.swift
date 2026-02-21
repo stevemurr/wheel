@@ -226,9 +226,20 @@ struct StickyNoteView: View {
     let onUpdateColor: (UUID, QuickNoteWidget.StickyColor) -> Void
     let onDelete: (UUID) -> Void
 
+    @Environment(\.colorScheme) private var colorScheme
     @State private var text: String
     @State private var isHovered = false
     @FocusState private var isFocused: Bool
+
+    /// Text color for sticky notes - always dark since backgrounds are light pastels
+    private var stickyTextColor: Color {
+        Color(white: 0.1)
+    }
+
+    /// Background color adapts slightly for dark mode
+    private var stickyBackgroundColor: Color {
+        colorScheme == .dark ? sticky.color.darkColor : sticky.color.color
+    }
 
     init(
         sticky: QuickNoteWidget.Sticky,
@@ -269,7 +280,7 @@ struct StickyNoteView: View {
                 } label: {
                     Image(systemName: "paintpalette")
                         .font(.system(size: 9))
-                        .foregroundStyle(.black.opacity(0.5))
+                        .foregroundStyle(stickyTextColor.opacity(0.5))
                 }
                 .menuStyle(.borderlessButton)
                 .frame(width: 16)
@@ -283,7 +294,7 @@ struct StickyNoteView: View {
                 } label: {
                     Image(systemName: "xmark")
                         .font(.system(size: 9, weight: .semibold))
-                        .foregroundStyle(.black.opacity(0.5))
+                        .foregroundStyle(stickyTextColor.opacity(0.5))
                 }
                 .buttonStyle(.plain)
                 .opacity(isHovered || isFocused ? 1 : 0)
@@ -297,14 +308,14 @@ struct StickyNoteView: View {
                 if text.isEmpty && !isFocused {
                     Text("Note...")
                         .font(.system(size: compact ? 11 : 12))
-                        .foregroundStyle(.black.opacity(0.3))
+                        .foregroundStyle(stickyTextColor.opacity(0.3))
                         .padding(.horizontal, 6)
                         .padding(.top, 2)
                 }
 
                 TextEditor(text: $text)
                     .font(.system(size: compact ? 11 : 12))
-                    .foregroundStyle(.black.opacity(0.85))
+                    .foregroundStyle(stickyTextColor.opacity(0.85))
                     .scrollContentBackground(.hidden)
                     .focused($isFocused)
                     .onChange(of: text) { _, newValue in
@@ -317,7 +328,7 @@ struct StickyNoteView: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background {
             RoundedRectangle(cornerRadius: 4)
-                .fill(sticky.color.color)
+                .fill(stickyBackgroundColor)
                 .shadow(color: .black.opacity(0.15), radius: 2, y: 1)
         }
         .overlay {
