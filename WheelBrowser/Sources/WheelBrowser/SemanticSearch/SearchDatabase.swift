@@ -375,6 +375,68 @@ actor SearchDatabase {
         return pages
     }
 
+    // MARK: - Summary Operations
+
+    /// Update the summary for a page by URL
+    func updateSummary(url: String, summary: String) throws {
+        let sql = "UPDATE pages SET summary = ? WHERE url = ?"
+
+        var stmt: OpaquePointer?
+        defer { sqlite3_finalize(stmt) }
+
+        guard sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK else {
+            throw SearchDBError.prepareFailed(String(cString: sqlite3_errmsg(db)))
+        }
+
+        sqlite3_bind_text(stmt, 1, summary, -1, SQLITE_TRANSIENT)
+        sqlite3_bind_text(stmt, 2, url, -1, SQLITE_TRANSIENT)
+
+        guard sqlite3_step(stmt) == SQLITE_DONE else {
+            throw SearchDBError.executeFailed(String(cString: sqlite3_errmsg(db)))
+        }
+    }
+
+    /// Get saved pages that don't have a summary yet
+    func getSavedPagesWithoutSummary(limit: Int = 20) throws -> [SavedPageRecord] {
+        let sql = """
+            SELECT id, url, title, domain, summary, saved_at, last_visited_at
+            FROM pages
+            WHERE is_saved = 1 AND (summary IS NULL OR summary = '')
+            ORDER BY saved_at DESC
+            LIMIT ?
+        """
+
+        var stmt: OpaquePointer?
+        defer { sqlite3_finalize(stmt) }
+
+        guard sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK else {
+            throw SearchDBError.prepareFailed(String(cString: sqlite3_errmsg(db)))
+        }
+
+        sqlite3_bind_int(stmt, 1, Int32(limit))
+
+        var pages: [SavedPageRecord] = []
+        while sqlite3_step(stmt) == SQLITE_ROW {
+            guard let urlString = sqlite3_column_text(stmt, 1),
+                  let url = URL(string: String(cString: urlString)) else {
+                continue
+            }
+
+            let page = SavedPageRecord(
+                id: sqlite3_column_int64(stmt, 0),
+                url: url,
+                title: sqlite3_column_text(stmt, 2).map { String(cString: $0) },
+                domain: String(cString: sqlite3_column_text(stmt, 3)),
+                summary: sqlite3_column_text(stmt, 4).map { String(cString: $0) },
+                savedAt: Date(timeIntervalSince1970: Double(sqlite3_column_int64(stmt, 5))),
+                lastVisitedAt: Date(timeIntervalSince1970: Double(sqlite3_column_int64(stmt, 6)))
+            )
+            pages.append(page)
+        }
+
+        return pages
+    }
+
     // MARK: - Maintenance
 
     func vacuum() throws {

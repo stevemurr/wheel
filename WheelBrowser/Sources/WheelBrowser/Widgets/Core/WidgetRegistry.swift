@@ -61,6 +61,7 @@ final class WidgetRegistry {
         register(SearchWidget.self) { SearchWidget() }
         register(QuickLinksWidget.self) { QuickLinksWidget() }
         register(RecentHistoryWidget.self) { RecentHistoryWidget() }
+        register(ReadingListWidget.self) { ReadingListWidget() }
         register(ClockWidget.self) { ClockWidget() }
         register(CalendarWidget.self) { CalendarWidget() }
         register(ShortcutsWidget.self) { ShortcutsWidget() }

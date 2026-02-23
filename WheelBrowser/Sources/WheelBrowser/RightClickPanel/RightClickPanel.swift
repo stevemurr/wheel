@@ -113,6 +113,13 @@ struct RightClickPanel: View {
                         userInfo: ["url": url.absoluteString, "isSaved": isSaved]
                     )
                 }
+
+                // Generate summary in background if page was saved
+                if isSaved {
+                    Task.detached {
+                        await SummaryGenerator.shared.backfillSummaries()
+                    }
+                }
             } catch {
                 print("Failed to toggle save state: \(error)")
             }
