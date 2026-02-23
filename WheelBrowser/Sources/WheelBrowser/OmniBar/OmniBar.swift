@@ -1238,12 +1238,13 @@ struct OmniBar: View {
 
     private func toggleSaveCurrentPage() {
         guard let url = tab.url else { return }
+        let title = tab.title
 
         Task {
             do {
                 let database = try SearchDatabase()
                 try await database.initialize()
-                let isSaved = try await database.toggleSaved(url: url.absoluteString)
+                let isSaved = try await database.toggleSaved(url: url.absoluteString, title: title)
 
                 // Show brief visual feedback
                 await MainActor.run {

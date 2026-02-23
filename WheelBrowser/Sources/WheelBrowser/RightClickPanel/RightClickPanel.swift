@@ -95,12 +95,13 @@ struct RightClickPanel: View {
 
     private func toggleSaveCurrentPage() {
         guard let url = browserState.activeTab?.url else { return }
+        let title = browserState.activeTab?.title
 
         Task {
             do {
                 let database = try SearchDatabase()
                 try await database.initialize()
-                let isSaved = try await database.toggleSaved(url: url.absoluteString)
+                let isSaved = try await database.toggleSaved(url: url.absoluteString, title: title)
 
                 await MainActor.run {
                     withAnimation(.easeInOut(duration: 0.2)) {
