@@ -8,6 +8,11 @@ struct WebViewRepresentable: NSViewRepresentable {
     func makeNSView(context: Context) -> WKWebView {
         tab.webView.navigationDelegate = context.coordinator
         tab.webView.uiDelegate = context.coordinator
+
+        // Register link hover message handler
+        let contentController = tab.webView.configuration.userContentController
+        contentController.add(context.coordinator, name: "linkHover")
+
         return tab.webView
     }
 
@@ -19,7 +24,7 @@ struct WebViewRepresentable: NSViewRepresentable {
         Coordinator(tab: tab)
     }
 
-    class Coordinator: NSObject, WKNavigationDelegate, WKUIDelegate, WKDownloadDelegate {
+    class Coordinator: NSObject, WKNavigationDelegate, WKUIDelegate, WKDownloadDelegate, WKScriptMessageHandler {
         let tab: Tab
         private var currentDownload: WKDownload?
         private var downloadFilename: String = ""
@@ -27,6 +32,35 @@ struct WebViewRepresentable: NSViewRepresentable {
 
         init(tab: Tab) {
             self.tab = tab
+        }
+
+        // MARK: - WKScriptMessageHandler (Link Preview)
+
+        func userContentController(_ userContentController: WKUserContentController, didReceive message: WKScriptMessage) {
+            guard message.name == "linkHover",
+                  let body = message.body as? [String: Any],
+                  let type = body["type"] as? String else {
+                return
+            }
+
+            Task { @MainActor in
+                if type == "hover" {
+                    guard let urlString = body["url"] as? String,
+                          let url = URL(string: urlString),
+                          let x = body["x"] as? Double,
+                          let y = body["y"] as? Double else {
+                        return
+                    }
+
+                    let linkText = body["text"] as? String ?? ""
+                    let position = CGPoint(x: x, y: y)
+
+                    LinkPreviewState.shared.requestPreview(url: url, linkText: linkText, position: position)
+
+                } else if type == "leave" {
+                    LinkPreviewState.shared.hide()
+                }
+            }
         }
 
         // MARK: - Download MIME Types

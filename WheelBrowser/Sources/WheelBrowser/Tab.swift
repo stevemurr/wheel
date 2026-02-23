@@ -33,6 +33,10 @@ class Tab: Identifiable, ObservableObject {
         let darkModeScript = Tab.createDarkModeUserScript()
         config.userContentController.addUserScript(darkModeScript)
 
+        // Inject link hover detection script for link previews
+        let linkHoverScript = Tab.createLinkHoverUserScript()
+        config.userContentController.addUserScript(linkHoverScript)
+
         self.webView = WKWebView(frame: .zero, configuration: config)
         self.webView.allowsBackForwardNavigationGestures = true
 
@@ -286,6 +290,74 @@ class Tab: Identifiable, ObservableObject {
             source: script,
             injectionTime: .atDocumentStart,
             forMainFrameOnly: false
+        )
+    }
+
+    /// Creates a link hover detection script for link previews
+    private static func createLinkHoverUserScript() -> WKUserScript {
+        let script = """
+        (function() {
+            if (window.__wheelLinkHoverInstalled) return;
+            window.__wheelLinkHoverInstalled = true;
+
+            let currentLink = null;
+            let hoverTimeout = null;
+
+            function findLinkElement(el) {
+                while (el && el !== document.body) {
+                    if (el.tagName === 'A' && el.href) return el;
+                    el = el.parentElement;
+                }
+                return null;
+            }
+
+            document.addEventListener('mouseover', function(e) {
+                const link = findLinkElement(e.target);
+                if (link && link !== currentLink) {
+                    currentLink = link;
+                    clearTimeout(hoverTimeout);
+                    hoverTimeout = setTimeout(function() {
+                        if (!link.href.startsWith('http')) return;
+                        // Skip same-page anchors
+                        if (link.href.includes('#') && link.href.split('#')[0] === window.location.href.split('#')[0]) return;
+                        const rect = link.getBoundingClientRect();
+                        window.webkit.messageHandlers.linkHover.postMessage({
+                            type: 'hover',
+                            url: link.href,
+                            text: link.textContent?.trim() || '',
+                            x: rect.left + rect.width / 2,
+                            y: rect.bottom + 10
+                        });
+                    }, 300);
+                }
+            }, true);
+
+            document.addEventListener('mouseout', function(e) {
+                const link = findLinkElement(e.target);
+                if (link === currentLink) {
+                    const related = findLinkElement(e.relatedTarget);
+                    if (related !== currentLink) {
+                        currentLink = null;
+                        clearTimeout(hoverTimeout);
+                        window.webkit.messageHandlers.linkHover.postMessage({ type: 'leave' });
+                    }
+                }
+            }, true);
+
+            window.addEventListener('scroll', function() {
+                if (currentLink) {
+                    currentLink = null;
+                    clearTimeout(hoverTimeout);
+                    window.webkit.messageHandlers.linkHover.postMessage({ type: 'leave' });
+                }
+            }, { passive: true });
+        })();
+        """
+
+        return WKUserScript(
+            source: script,
+            injectionTime: .atDocumentEnd,
+            forMainFrameOnly: true
         )
     }
 

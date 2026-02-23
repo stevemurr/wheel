@@ -3,6 +3,7 @@ import SwiftUI
 struct RightClickPanel: View {
     @ObservedObject var browserState: BrowserState
     @ObservedObject var screenshotManager = TabScreenshotManager.shared
+    @ObservedObject var settings = AppSettings.shared
     let onDismiss: () -> Void
 
     @State private var hoveredTabId: UUID?
@@ -76,6 +77,13 @@ struct RightClickPanel: View {
                 label: isCurrentPageSaved ? "Saved" : "Save",
                 color: .pink,
                 action: toggleSaveCurrentPage
+            )
+
+            CompactActionButton(
+                icon: settings.linkPreviewEnabled ? "eye.fill" : "eye.slash",
+                label: "Previews",
+                color: .blue,
+                action: { settings.linkPreviewEnabled.toggle() }
             )
         }
         .onAppear {

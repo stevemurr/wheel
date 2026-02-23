@@ -4,12 +4,117 @@ import Foundation
 actor SummaryGenerator {
     static let shared = SummaryGenerator()
 
-    private let maxSummaryLength = 150
+    private let maxSummaryLength = 200
     private var isBackfilling = false
 
     private init() {}
 
-    // MARK: - Summary Generation
+    // MARK: - Summary Generation (Streaming)
+
+    /// Generate a summary with streaming output
+    /// Yields partial content as it arrives from the LLM
+    func generateSummaryStream(content: String) -> AsyncThrowingStream<String, Error> {
+        AsyncThrowingStream { continuation in
+            Task {
+                do {
+                    let settings = await MainActor.run { AppSettings.shared }
+
+                    guard let baseURL = await MainActor.run(body: { settings.llmBaseURL }) else {
+                        continuation.finish(throwing: SummaryError.invalidEndpoint)
+                        return
+                    }
+
+                    let chatEndpoint = baseURL.appendingPathComponent("chat/completions")
+                    let model = await MainActor.run { settings.selectedModel }
+                    let useAPIKey = await MainActor.run { settings.useAPIKey }
+                    let apiKey = await MainActor.run { settings.llmAPIKey }
+
+                    let truncatedContent = String(content.prefix(3000))
+
+                    let prompt = """
+                    Write a 1-2 sentence summary of this article. Output ONLY the summary, nothing else.
+
+                    Article:
+                    \(truncatedContent)
+
+                    Summary:
+                    """
+
+                    let requestBody: [String: Any] = [
+                        "model": model,
+                        "messages": [
+                            ["role": "user", "content": prompt]
+                        ],
+                        "max_tokens": 150,
+                        "temperature": 0.3,
+                        "stream": true
+                    ]
+
+                    guard let jsonData = try? JSONSerialization.data(withJSONObject: requestBody) else {
+                        continuation.finish(throwing: SummaryError.serializationFailed)
+                        return
+                    }
+
+                    var request = URLRequest(url: chatEndpoint)
+                    request.httpMethod = "POST"
+                    request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+
+                    if useAPIKey && !apiKey.isEmpty {
+                        request.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
+                    }
+
+                    request.httpBody = jsonData
+                    request.timeoutInterval = 30
+
+                    let (bytes, response) = try await URLSession.shared.bytes(for: request)
+
+                    guard let httpResponse = response as? HTTPURLResponse,
+                          (200...299).contains(httpResponse.statusCode) else {
+                        continuation.finish(throwing: SummaryError.httpError((response as? HTTPURLResponse)?.statusCode ?? 0))
+                        return
+                    }
+
+                    var buffer = ""
+
+                    for try await line in bytes.lines {
+                        // SSE format: "data: {...}" or "data: [DONE]"
+                        guard line.hasPrefix("data: ") else { continue }
+
+                        let jsonString = String(line.dropFirst(6))
+
+                        if jsonString == "[DONE]" {
+                            break
+                        }
+
+                        guard let data = jsonString.data(using: .utf8),
+                              let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                              let choices = json["choices"] as? [[String: Any]],
+                              let firstChoice = choices.first,
+                              let delta = firstChoice["delta"] as? [String: Any],
+                              let content = delta["content"] as? String else {
+                            continue
+                        }
+
+                        buffer += content
+                        continuation.yield(content)
+                    }
+
+                    continuation.finish()
+
+                } catch {
+                    continuation.finish(throwing: error)
+                }
+            }
+        }
+    }
+
+    enum SummaryError: Error {
+        case invalidEndpoint
+        case serializationFailed
+        case httpError(Int)
+    }
+
+    // MARK: - Summary Generation (Non-streaming)
 
     /// Generate a summary for the given content
     /// Returns nil on failure (network error, invalid response, etc.)
@@ -27,16 +132,24 @@ actor SummaryGenerator {
         let apiKey = await MainActor.run { settings.llmAPIKey }
 
         // Truncate content to avoid overwhelming the LLM
-        let truncatedContent = String(content.prefix(2000))
+        let truncatedContent = String(content.prefix(3000))
 
-        let prompt = "Summarize this article in 1-2 sentences (max 150 characters): \(truncatedContent)"
+        // Simple, direct prompt - less likely to be echoed
+        let prompt = """
+        Write a 1-2 sentence summary of this article. Output ONLY the summary, nothing else.
+
+        Article:
+        \(truncatedContent)
+
+        Summary:
+        """
 
         let requestBody: [String: Any] = [
             "model": model,
             "messages": [
                 ["role": "user", "content": prompt]
             ],
-            "max_tokens": 100,
+            "max_tokens": 150,
             "temperature": 0.3
         ]
 
@@ -86,10 +199,10 @@ actor SummaryGenerator {
 
                 // Try content field first (check it's not NSNull)
                 if let content = message["content"] as? String, !content.isEmpty {
-                    let summary = content
-                        .trimmingCharacters(in: .whitespacesAndNewlines)
-                        .replacingOccurrences(of: "\n", with: " ")
-                    return String(summary.prefix(maxSummaryLength))
+                    print("[SummaryGenerator] Raw response: \(content.prefix(300))")
+                    if let cleaned = cleanSummaryResponse(content) {
+                        return String(cleaned.prefix(maxSummaryLength))
+                    }
                 }
 
                 // For reasoning models: extract from reasoning_content
@@ -105,18 +218,16 @@ actor SummaryGenerator {
             // Try Ollama native format (message.content)
             if let message = json["message"] as? [String: Any],
                let content = message["content"] as? String {
-                let summary = content
-                    .trimmingCharacters(in: .whitespacesAndNewlines)
-                    .replacingOccurrences(of: "\n", with: " ")
-                return String(summary.prefix(maxSummaryLength))
+                if let cleaned = cleanSummaryResponse(content) {
+                    return String(cleaned.prefix(maxSummaryLength))
+                }
             }
 
             // Try direct response format (response)
             if let content = json["response"] as? String {
-                let summary = content
-                    .trimmingCharacters(in: .whitespacesAndNewlines)
-                    .replacingOccurrences(of: "\n", with: " ")
-                return String(summary.prefix(maxSummaryLength))
+                if let cleaned = cleanSummaryResponse(content) {
+                    return String(cleaned.prefix(maxSummaryLength))
+                }
             }
 
             print("[SummaryGenerator] Unexpected response format. Keys: \(json.keys.joined(separator: ", "))")
@@ -125,6 +236,94 @@ actor SummaryGenerator {
         } catch {
             print("[SummaryGenerator] Network error: \(error.localizedDescription)")
             return nil
+        }
+    }
+
+    // MARK: - Regeneration
+
+    /// Regenerate summary for a specific URL
+    /// Returns the new summary on success, nil on failure
+    func regenerateSummary(for url: URL) async -> String? {
+        print("[SummaryGenerator] Regenerating summary for: \(url)")
+
+        guard let content = await fetchPageContent(url: url) else {
+            print("[SummaryGenerator] Could not fetch content for: \(url)")
+            return nil
+        }
+
+        guard let summary = await generateSummary(content: content) else {
+            print("[SummaryGenerator] Could not generate summary for: \(url)")
+            return nil
+        }
+
+        do {
+            let database = try SearchDatabase()
+            try await database.initialize()
+            try await database.updateSummary(url: url.absoluteString, summary: summary)
+            print("[SummaryGenerator] Regenerated summary for: \(url.host ?? url.absoluteString)")
+            return summary
+        } catch {
+            print("[SummaryGenerator] Failed to save regenerated summary: \(error)")
+            return nil
+        }
+    }
+
+    /// Regenerate summaries for all saved pages
+    /// Clears existing summaries and regenerates them
+    func regenerateAllSummaries(progressHandler: ((Int, Int) -> Void)? = nil) async {
+        guard !isBackfilling else {
+            print("[SummaryGenerator] Regeneration already in progress")
+            return
+        }
+
+        isBackfilling = true
+        defer { isBackfilling = false }
+
+        print("[SummaryGenerator] Starting full regeneration...")
+
+        do {
+            let database = try SearchDatabase()
+            try await database.initialize()
+
+            // Clear all existing summaries
+            try await database.clearAllSummaries()
+
+            let allPages = try await database.getSavedPages(limit: 100)
+
+            guard !allPages.isEmpty else {
+                print("[SummaryGenerator] No pages to regenerate")
+                return
+            }
+
+            print("[SummaryGenerator] Regenerating \(allPages.count) summaries")
+
+            for (index, page) in allPages.enumerated() {
+                progressHandler?(index + 1, allPages.count)
+
+                guard let content = await fetchPageContent(url: page.url) else {
+                    print("[SummaryGenerator] Could not fetch content for: \(page.url)")
+                    continue
+                }
+
+                guard let summary = await generateSummary(content: content) else {
+                    print("[SummaryGenerator] Could not generate summary for: \(page.url)")
+                    continue
+                }
+
+                do {
+                    try await database.updateSummary(url: page.url.absoluteString, summary: summary)
+                    print("[SummaryGenerator] [\(index + 1)/\(allPages.count)] Regenerated: \(page.url.host ?? page.url.absoluteString)")
+                } catch {
+                    print("[SummaryGenerator] Failed to save summary: \(error)")
+                }
+
+                try? await Task.sleep(for: .milliseconds(300))
+            }
+
+            print("[SummaryGenerator] Full regeneration complete")
+
+        } catch {
+            print("[SummaryGenerator] Regeneration error: \(error)")
         }
     }
 
@@ -244,6 +443,67 @@ actor SummaryGenerator {
         text = text.replacingOccurrences(of: whitespacePattern, with: " ", options: .regularExpression)
 
         return text.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    /// Clean up a summary response, removing prompt echoes and formatting issues
+    private func cleanSummaryResponse(_ raw: String) -> String? {
+        var text = raw
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .replacingOccurrences(of: "\n", with: " ")
+            .replacingOccurrences(of: "\\s+", with: " ", options: .regularExpression)
+
+        // If the response contains "Article:" it's echoing the prompt - extract after "Summary:"
+        if text.contains("Article:") {
+            if let summaryRange = text.range(of: "Summary:", options: .caseInsensitive) {
+                text = String(text[summaryRange.upperBound...]).trimmingCharacters(in: .whitespacesAndNewlines)
+            } else {
+                print("[SummaryGenerator] Response echoed prompt, no summary found")
+                return nil
+            }
+        }
+
+        // Remove common prefixes
+        let prefixesToRemove = [
+            "summary:",
+            "here is the summary:",
+            "here's the summary:",
+            "the summary is:",
+            "sure!",
+            "sure,",
+            "here you go:",
+            "certainly!",
+            "of course!",
+            "okay,",
+            "ok,",
+        ]
+
+        for prefix in prefixesToRemove {
+            if text.lowercased().hasPrefix(prefix) {
+                text = String(text.dropFirst(prefix.count)).trimmingCharacters(in: .whitespacesAndNewlines)
+            }
+        }
+
+        // Remove surrounding quotes if present
+        if text.hasPrefix("\"") && text.hasSuffix("\"") && text.count > 2 {
+            text = String(text.dropFirst().dropLast())
+        }
+
+        // Check for prompt contamination
+        let badPatterns = ["write a", "output only", "1-2 sentence", "nothing else"]
+        let lowerText = text.lowercased()
+        for pattern in badPatterns {
+            if lowerText.contains(pattern) {
+                print("[SummaryGenerator] Response contains prompt fragment: \(pattern)")
+                return nil
+            }
+        }
+
+        guard text.count >= 10 else {
+            print("[SummaryGenerator] Summary too short after cleaning: \(text)")
+            return nil
+        }
+
+        return text
     }
 
     /// Extract a summary from reasoning model output

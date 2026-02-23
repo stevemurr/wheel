@@ -49,6 +49,9 @@ private struct BrowserContentArea: View {
                     browserState: browserState,
                     containerSize: geometry.size
                 )
+
+                // Link preview overlay
+                LinkPreviewOverlay(containerSize: geometry.size)
             }
         }
     }

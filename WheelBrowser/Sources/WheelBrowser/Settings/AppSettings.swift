@@ -70,6 +70,9 @@ class AppSettings: ObservableObject {
     /// Whether the tab dock auto-hides (like macOS Dock)
     @AppStorage("tabDockAutoHide") var tabDockAutoHide: Bool = false
 
+    /// Whether link previews are enabled (Wikipedia-style hover previews)
+    @AppStorage("linkPreviewEnabled") var linkPreviewEnabled: Bool = true
+
     /// App appearance mode (system, light, or dark)
     @AppStorage("appearanceMode") var appearanceModeRaw: String = AppearanceMode.system.rawValue {
         didSet {
