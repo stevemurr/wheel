@@ -302,6 +302,7 @@ class Tab: Identifiable, ObservableObject {
 
             let currentLink = null;
             let hoverTimeout = null;
+            let optionKeyDown = false;
 
             function findLinkElement(el) {
                 while (el && el !== document.body) {
@@ -311,24 +312,53 @@ class Tab: Identifiable, ObservableObject {
                 return null;
             }
 
+            function triggerPreview(link) {
+                if (!link.href.startsWith('http')) return;
+                // Skip same-page anchors
+                if (link.href.includes('#') && link.href.split('#')[0] === window.location.href.split('#')[0]) return;
+                const rect = link.getBoundingClientRect();
+                window.webkit.messageHandlers.linkHover.postMessage({
+                    type: 'hover',
+                    url: link.href,
+                    text: link.textContent?.trim() || '',
+                    x: rect.left + rect.width / 2,
+                    y: rect.bottom + 10
+                });
+            }
+
+            // Track Option key state
+            document.addEventListener('keydown', function(e) {
+                if (e.key === 'Alt') {
+                    optionKeyDown = true;
+                    // If already hovering a link, show preview immediately
+                    if (currentLink) {
+                        clearTimeout(hoverTimeout);
+                        hoverTimeout = setTimeout(function() {
+                            triggerPreview(currentLink);
+                        }, 100);
+                    }
+                }
+            }, true);
+
+            document.addEventListener('keyup', function(e) {
+                if (e.key === 'Alt') {
+                    optionKeyDown = false;
+                    clearTimeout(hoverTimeout);
+                    window.webkit.messageHandlers.linkHover.postMessage({ type: 'leave' });
+                }
+            }, true);
+
             document.addEventListener('mouseover', function(e) {
                 const link = findLinkElement(e.target);
                 if (link && link !== currentLink) {
                     currentLink = link;
                     clearTimeout(hoverTimeout);
-                    hoverTimeout = setTimeout(function() {
-                        if (!link.href.startsWith('http')) return;
-                        // Skip same-page anchors
-                        if (link.href.includes('#') && link.href.split('#')[0] === window.location.href.split('#')[0]) return;
-                        const rect = link.getBoundingClientRect();
-                        window.webkit.messageHandlers.linkHover.postMessage({
-                            type: 'hover',
-                            url: link.href,
-                            text: link.textContent?.trim() || '',
-                            x: rect.left + rect.width / 2,
-                            y: rect.bottom + 10
-                        });
-                    }, 300);
+                    // Only show preview if Option key is held
+                    if (optionKeyDown) {
+                        hoverTimeout = setTimeout(function() {
+                            triggerPreview(link);
+                        }, 100);
+                    }
                 }
             }, true);
 
@@ -351,6 +381,13 @@ class Tab: Identifiable, ObservableObject {
                     window.webkit.messageHandlers.linkHover.postMessage({ type: 'leave' });
                 }
             }, { passive: true });
+
+            // Hide preview when window loses focus
+            window.addEventListener('blur', function() {
+                optionKeyDown = false;
+                clearTimeout(hoverTimeout);
+                window.webkit.messageHandlers.linkHover.postMessage({ type: 'leave' });
+            });
         })();
         """
 
