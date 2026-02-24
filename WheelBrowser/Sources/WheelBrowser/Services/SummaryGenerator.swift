@@ -4,7 +4,7 @@ import Foundation
 actor SummaryGenerator {
     static let shared = SummaryGenerator()
 
-    private let maxSummaryLength = 200
+    private let maxSummaryLength = 500  // Generous limit, rely on prompt to enforce length
     private var isBackfilling = false
 
     private init() {}
@@ -19,33 +19,24 @@ actor SummaryGenerator {
                 do {
                     let settings = await MainActor.run { AppSettings.shared }
 
-                    guard let baseURL = await MainActor.run(body: { settings.llmBaseURL }) else {
+                    // Use dedicated summarization endpoint
+                    guard let baseURL = await MainActor.run(body: { settings.summarizationBaseURL }) else {
                         continuation.finish(throwing: SummaryError.invalidEndpoint)
                         return
                     }
 
                     let chatEndpoint = baseURL.appendingPathComponent("chat/completions")
-                    let model = await MainActor.run { settings.selectedModel }
-                    let useAPIKey = await MainActor.run { settings.useAPIKey }
-                    let apiKey = await MainActor.run { settings.llmAPIKey }
+                    let model = await MainActor.run { settings.summarizationModel }
 
                     let truncatedContent = String(content.prefix(3000))
-
-                    let prompt = """
-                    Write a 1-2 sentence summary of this article. Output ONLY the summary, nothing else.
-
-                    Article:
-                    \(truncatedContent)
-
-                    Summary:
-                    """
 
                     let requestBody: [String: Any] = [
                         "model": model,
                         "messages": [
-                            ["role": "user", "content": prompt]
+                            ["role": "system", "content": "You are a concise summarizer. Provide brief, clear summaries in 2-3 sentences. Keep summaries under 100 words."],
+                            ["role": "user", "content": "Summarize the following text:\n\n\(truncatedContent)"]
                         ],
-                        "max_tokens": 150,
+                        "max_tokens": 256,
                         "temperature": 0.3,
                         "stream": true
                     ]
@@ -58,50 +49,74 @@ actor SummaryGenerator {
                     var request = URLRequest(url: chatEndpoint)
                     request.httpMethod = "POST"
                     request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-
-                    if useAPIKey && !apiKey.isEmpty {
-                        request.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
-                    }
-
                     request.httpBody = jsonData
                     request.timeoutInterval = 30
 
+                    print("[SummaryGenerator] Starting streaming request to: \(chatEndpoint)")
                     let (bytes, response) = try await URLSession.shared.bytes(for: request)
 
                     guard let httpResponse = response as? HTTPURLResponse,
                           (200...299).contains(httpResponse.statusCode) else {
-                        continuation.finish(throwing: SummaryError.httpError((response as? HTTPURLResponse)?.statusCode ?? 0))
+                        let statusCode = (response as? HTTPURLResponse)?.statusCode ?? 0
+                        print("[SummaryGenerator] HTTP error: \(statusCode)")
+                        continuation.finish(throwing: SummaryError.httpError(statusCode))
                         return
                     }
 
-                    var buffer = ""
+                    print("[SummaryGenerator] Got response, reading stream...")
 
                     for try await line in bytes.lines {
-                        // SSE format: "data: {...}" or "data: [DONE]"
-                        guard line.hasPrefix("data: ") else { continue }
+                        // Skip empty lines
+                        guard !line.isEmpty else { continue }
 
-                        let jsonString = String(line.dropFirst(6))
+                        print("[SummaryGenerator] Raw line: \(line.prefix(100))")
 
-                        if jsonString == "[DONE]" {
-                            break
+                        var jsonString = line
+
+                        // Handle OpenAI SSE format: "data: {...}" or "data: [DONE]"
+                        if line.hasPrefix("data: ") {
+                            jsonString = String(line.dropFirst(6))
+                            if jsonString == "[DONE]" {
+                                print("[SummaryGenerator] Got [DONE]")
+                                break
+                            }
                         }
 
                         guard let data = jsonString.data(using: .utf8),
-                              let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-                              let choices = json["choices"] as? [[String: Any]],
-                              let firstChoice = choices.first,
-                              let delta = firstChoice["delta"] as? [String: Any],
-                              let content = delta["content"] as? String else {
+                              let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+                            print("[SummaryGenerator] Failed to parse JSON")
                             continue
                         }
 
-                        buffer += content
-                        continuation.yield(content)
+                        // Try OpenAI format: choices[0].delta.content
+                        if let choices = json["choices"] as? [[String: Any]],
+                           let firstChoice = choices.first,
+                           let delta = firstChoice["delta"] as? [String: Any],
+                           let content = delta["content"] as? String {
+                            print("[SummaryGenerator] OpenAI chunk: \(content)")
+                            continuation.yield(content)
+                            continue
+                        }
+
+                        // Try Ollama format: message.content (with done flag)
+                        if let message = json["message"] as? [String: Any],
+                           let content = message["content"] as? String {
+                            print("[SummaryGenerator] Ollama chunk: \(content)")
+                            continuation.yield(content)
+                            // Check if done
+                            if let done = json["done"] as? Bool, done {
+                                print("[SummaryGenerator] Ollama done flag received")
+                                break
+                            }
+                            continue
+                        }
                     }
 
+                    print("[SummaryGenerator] Stream finished successfully")
                     continuation.finish()
 
                 } catch {
+                    print("[SummaryGenerator] Stream error: \(error)")
                     continuation.finish(throwing: error)
                 }
             }
@@ -121,35 +136,25 @@ actor SummaryGenerator {
     func generateSummary(content: String) async -> String? {
         let settings = await MainActor.run { AppSettings.shared }
 
-        guard let baseURL = await MainActor.run(body: { settings.llmBaseURL }) else {
-            print("[SummaryGenerator] Invalid LLM endpoint URL")
+        // Use dedicated summarization endpoint
+        guard let baseURL = await MainActor.run(body: { settings.summarizationBaseURL }) else {
+            print("[SummaryGenerator] Invalid summarization endpoint URL")
             return nil
         }
 
         let chatEndpoint = baseURL.appendingPathComponent("chat/completions")
-        let model = await MainActor.run { settings.selectedModel }
-        let useAPIKey = await MainActor.run { settings.useAPIKey }
-        let apiKey = await MainActor.run { settings.llmAPIKey }
+        let model = await MainActor.run { settings.summarizationModel }
 
         // Truncate content to avoid overwhelming the LLM
         let truncatedContent = String(content.prefix(3000))
 
-        // Simple, direct prompt - less likely to be echoed
-        let prompt = """
-        Write a 1-2 sentence summary of this article. Output ONLY the summary, nothing else.
-
-        Article:
-        \(truncatedContent)
-
-        Summary:
-        """
-
         let requestBody: [String: Any] = [
             "model": model,
             "messages": [
-                ["role": "user", "content": prompt]
+                ["role": "system", "content": "You are a concise summarizer. Provide brief, clear summaries in 2-3 sentences. Keep summaries under 100 words."],
+                ["role": "user", "content": "Summarize the following text:\n\n\(truncatedContent)"]
             ],
-            "max_tokens": 150,
+            "max_tokens": 256,
             "temperature": 0.3
         ]
 
@@ -161,11 +166,6 @@ actor SummaryGenerator {
         var request = URLRequest(url: chatEndpoint)
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-
-        if useAPIKey && !apiKey.isEmpty {
-            request.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
-        }
-
         request.httpBody = jsonData
         request.timeoutInterval = 30
 

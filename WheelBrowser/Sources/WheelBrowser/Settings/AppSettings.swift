@@ -33,6 +33,14 @@ class AppSettings: ObservableObject {
     @AppStorage("llmEndpoint") var llmEndpoint: String = "http://localhost:11434/v1"
     @AppStorage("lettaServerURL") var lettaServerURL: String = "http://localhost:8283"
     @AppStorage("selectedModel") var selectedModel: String = "llama3.2:latest"
+
+    // MARK: - Summarization Endpoint
+    @AppStorage("summarizationEndpoint") var summarizationEndpoint: String = "http://192.168.1.237:8003/v1"
+    @AppStorage("summarizationModel") var summarizationModel: String = "qwen-summarizer"
+
+    var summarizationBaseURL: URL? {
+        URL(string: summarizationEndpoint)
+    }
     @AppStorage("sidebarVisible") var sidebarVisible: Bool = false
     @AppStorage("agentId") var agentId: String = ""
 

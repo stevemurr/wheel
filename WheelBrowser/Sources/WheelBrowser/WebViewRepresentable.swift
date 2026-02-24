@@ -37,11 +37,16 @@ struct WebViewRepresentable: NSViewRepresentable {
         // MARK: - WKScriptMessageHandler (Link Preview)
 
         func userContentController(_ userContentController: WKUserContentController, didReceive message: WKScriptMessage) {
+            print("[LinkPreview] Received message: \(message.name)")
+
             guard message.name == "linkHover",
                   let body = message.body as? [String: Any],
                   let type = body["type"] as? String else {
+                print("[LinkPreview] Invalid message format")
                 return
             }
+
+            print("[LinkPreview] Message type: \(type)")
 
             Task { @MainActor in
                 if type == "hover" {
@@ -49,12 +54,14 @@ struct WebViewRepresentable: NSViewRepresentable {
                           let url = URL(string: urlString),
                           let x = body["x"] as? Double,
                           let y = body["y"] as? Double else {
+                        print("[LinkPreview] Invalid hover data")
                         return
                     }
 
                     let linkText = body["text"] as? String ?? ""
                     let position = CGPoint(x: x, y: y)
 
+                    print("[LinkPreview] Hover on: \(urlString) at (\(x), \(y))")
                     LinkPreviewState.shared.requestPreview(url: url, linkText: linkText, position: position)
 
                 } else if type == "leave" {

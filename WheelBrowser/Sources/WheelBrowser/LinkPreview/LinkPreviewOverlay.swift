@@ -43,11 +43,10 @@ struct LinkPreviewOverlay: View {
                 .lineLimit(1)
 
             // Summary or loading state
-            if let summary = state.summary {
+            if let summary = state.summary, !summary.isEmpty {
                 Text(summary)
                     .font(.system(size: 12))
                     .foregroundColor(Color(nsColor: .secondaryLabelColor))
-                    .lineLimit(4)
                     .fixedSize(horizontal: false, vertical: true)
             } else if let error = state.error {
                 Text(error)

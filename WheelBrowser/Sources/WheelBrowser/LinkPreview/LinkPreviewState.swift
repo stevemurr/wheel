@@ -20,8 +20,13 @@ class LinkPreviewState: ObservableObject {
     private init() {}
 
     func requestPreview(url: URL, linkText: String, position: CGPoint) {
+        print("[LinkPreview] requestPreview called for: \(url.absoluteString)")
+
         // Check if link previews are enabled
-        guard AppSettings.shared.linkPreviewEnabled else { return }
+        guard AppSettings.shared.linkPreviewEnabled else {
+            print("[LinkPreview] Previews disabled, skipping")
+            return
+        }
 
         // Cancel any pending debounce
         debounceTask?.cancel()
@@ -31,6 +36,8 @@ class LinkPreviewState: ObservableObject {
             try? await Task.sleep(nanoseconds: 300_000_000)
 
             guard !Task.isCancelled else { return }
+
+            print("[LinkPreview] Showing preview at position: \(position)")
 
             // Show preview
             self.linkURL = url
@@ -74,14 +81,16 @@ class LinkPreviewState: ObservableObject {
 
         fetchTask = Task {
             do {
+                print("[LinkPreview] Fetching content for: \(url)")
                 // Fetch page content
                 let (title, content) = try await fetchPageTitleAndContent(url: url)
 
                 guard !Task.isCancelled else { return }
 
+                print("[LinkPreview] Got title: \(title ?? "nil"), content length: \(content?.count ?? 0)")
                 self.pageTitle = title
 
-                // Generate summary using existing SummaryGenerator with streaming
+                // Generate summary using SummaryGenerator
                 if let content = content, !content.isEmpty {
                     // Index page in DIndex since we're fetching it anyway
                     // This runs in background and doesn't block the preview
@@ -96,25 +105,45 @@ class LinkPreviewState: ObservableObject {
                         }
                     }
 
-                    // Stream summary content as it arrives
+                    // Try streaming first, fall back to non-streaming if it fails
+                    var streamingSucceeded = false
                     self.summary = ""
-                    let stream = await SummaryGenerator.shared.generateSummaryStream(content: content)
+
+                    print("[LinkPreview] Starting streaming summary generation")
 
                     do {
+                        let stream = await SummaryGenerator.shared.generateSummaryStream(content: content)
+
                         for try await chunk in stream {
                             guard !Task.isCancelled else { return }
                             self.summary = (self.summary ?? "") + chunk
+                            streamingSucceeded = true
+                            print("[LinkPreview] Got chunk: \(chunk)")
                         }
 
-                        // Clean up the final summary
+                        print("[LinkPreview] Streaming complete, summary: \(self.summary ?? "nil")")
+
+                        // Clean up the final summary (trim whitespace only, no truncation)
                         if let finalSummary = self.summary, !finalSummary.isEmpty {
-                            // Trim and limit length
-                            self.summary = String(finalSummary.trimmingCharacters(in: .whitespacesAndNewlines).prefix(200))
+                            self.summary = finalSummary.trimmingCharacters(in: .whitespacesAndNewlines)
                         }
                     } catch {
-                        // Streaming failed, try fallback to content snippet
-                        if self.summary?.isEmpty ?? true {
-                            self.summary = String(content.prefix(150)).trimmingCharacters(in: .whitespacesAndNewlines) + "..."
+                        print("[LinkPreview] Streaming failed: \(error), falling back to non-streaming")
+                        streamingSucceeded = false
+                    }
+
+                    // Fall back to non-streaming if streaming didn't work
+                    if !streamingSucceeded || (self.summary?.isEmpty ?? true) {
+                        guard !Task.isCancelled else { return }
+                        print("[LinkPreview] Using non-streaming summary generation")
+
+                        if let summary = await SummaryGenerator.shared.generateSummary(content: content) {
+                            print("[LinkPreview] Non-streaming summary: \(summary)")
+                            self.summary = summary
+                        } else {
+                            print("[LinkPreview] Summary generation failed, using content snippet")
+                            // Last resort: use content snippet
+                            self.summary = String(content.prefix(300)).trimmingCharacters(in: .whitespacesAndNewlines)
                         }
                     }
                 }
