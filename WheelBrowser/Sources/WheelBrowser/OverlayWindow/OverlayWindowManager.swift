@@ -36,7 +36,7 @@ class OverlayWindowManager: ObservableObject {
     private let maxWindows = 5
 
     // Default window dimensions
-    private let defaultSize = CGSize(width: 700, height: 600)
+    private let defaultSize = CGSize(width: 700, height: 750)
     private let cascadeOffset: CGFloat = 30
 
     /// Container size for calculating centered positions
@@ -71,10 +71,10 @@ class OverlayWindowManager: ObservableObject {
                 y: lastWindow.position.y + cascadeOffset
             )
         } else if containerSize.width > 0 && containerSize.height > 0 {
-            // Center in container with slight offset toward top-right
+            // Center in container, slightly above vertical center
             windowPosition = CGPoint(
-                x: (containerSize.width - windowSize.width) / 2 + 50,
-                y: (containerSize.height - windowSize.height) / 2 - 30
+                x: (containerSize.width - windowSize.width) / 2,
+                y: (containerSize.height - windowSize.height) / 2 - 50
             )
         } else {
             // Fallback if container size not yet known
