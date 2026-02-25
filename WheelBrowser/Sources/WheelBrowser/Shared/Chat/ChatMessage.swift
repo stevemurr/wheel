@@ -56,13 +56,17 @@ public struct ChatMessage: Identifiable, Equatable, Hashable {
     // MARK: - Equatable
 
     public static func == (lhs: ChatMessage, rhs: ChatMessage) -> Bool {
-        lhs.id == rhs.id
+        lhs.id == rhs.id &&
+        lhs.content == rhs.content &&
+        lhs.isStreaming == rhs.isStreaming
     }
 
     // MARK: - Hashable
 
     public func hash(into hasher: inout Hasher) {
         hasher.combine(id)
+        hasher.combine(content)
+        hasher.combine(isStreaming)
     }
 }
 
