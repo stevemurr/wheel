@@ -17,6 +17,18 @@ class Tab: Identifiable, ObservableObject {
 
     let webView: WKWebView
 
+    /// Computed display title that handles empty/default titles gracefully
+    /// Returns the URL host (without www.) if title is empty or "New Tab"
+    var displayTitle: String {
+        if title.isEmpty || title == "New Tab" {
+            if let host = url?.host {
+                return host.replacingOccurrences(of: "www.", with: "")
+            }
+            return "New Tab"
+        }
+        return title
+    }
+
     // Zoom constants
     private let minZoom: Double = 0.5
     private let maxZoom: Double = 3.0

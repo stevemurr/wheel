@@ -56,7 +56,7 @@ struct OmniPanel<Content: View>: View {
         )
         .overlay(
             RoundedRectangle(cornerRadius: 12, style: .continuous)
-                .stroke(borderColor.opacity(0.5), lineWidth: 1.5)
+                .stroke(borderColor.opacity(0.5), lineWidth: 1.0)
         )
         .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
         .onHover { hovering in

@@ -60,7 +60,7 @@ struct TabWheelItem: View {
 
             // Title with pill background
             if isSelected || scale > 0.7 {
-                Text(displayTitle)
+                Text(tab.displayTitle)
                     .font(.system(size: max(9, 11 * scale), weight: .semibold))
                     .foregroundColor(.white)
                     .lineLimit(1)
@@ -99,16 +99,6 @@ struct TabWheelItem: View {
     }
 
     // MARK: - Helpers
-
-    private var displayTitle: String {
-        if tab.title.isEmpty || tab.title == "New Tab" {
-            if let host = tab.url?.host {
-                return host.replacingOccurrences(of: "www.", with: "")
-            }
-            return "New Tab"
-        }
-        return tab.title
-    }
 
     private var domainInitial: String {
         DomainGradient.initial(for: tab.url?.host)

@@ -231,11 +231,11 @@ struct ChatResponsePanel: View {
         .background(
             RoundedRectangle(cornerRadius: 14, style: .continuous)
                 .fill(Color(nsColor: .windowBackgroundColor))
-                .shadow(color: .black.opacity(0.15), radius: 24, x: 0, y: -10)
+                .shadow(color: .black.opacity(0.12), radius: 12, x: 0, y: 4)
         )
         .overlay(
             RoundedRectangle(cornerRadius: 14, style: .continuous)
-                .stroke(Color(nsColor: .separatorColor).opacity(0.4), lineWidth: 0.5)
+                .stroke(Color(nsColor: .separatorColor).opacity(0.4), lineWidth: 1.0)
         )
         .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
         .onHover { hovering in
@@ -436,7 +436,7 @@ struct ChatPanelMessageBubble: View {
                 .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
                 .overlay(
                     RoundedRectangle(cornerRadius: 12, style: .continuous)
-                        .stroke(bubbleBorder, lineWidth: 0.5)
+                        .stroke(bubbleBorder, lineWidth: 1.0)
                 )
 
                 // Action toolbar for assistant messages (copy button)
@@ -490,11 +490,7 @@ struct ChatPanelMessageBubble: View {
     private var bubbleBackground: some View {
         switch message.role {
         case .user:
-            LinearGradient(
-                colors: [Color.accentColor, Color.accentColor.opacity(0.85)],
-                startPoint: .topLeading,
-                endPoint: .bottomTrailing
-            )
+            Color.accentColor
         case .assistant:
             Color(nsColor: .textBackgroundColor).opacity(0.5)
         case .system:

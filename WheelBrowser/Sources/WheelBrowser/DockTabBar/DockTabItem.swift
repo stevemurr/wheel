@@ -65,7 +65,7 @@ struct DockTabItem: View {
         .animation(.spring(response: 0.2, dampingFraction: 0.7), value: isHovered)
         .onTapGesture(perform: onSelect)
         .onHover { showClose = $0 }
-        .help(tab.hasActiveAgent ? "\(tab.title) (Agent running)" : tab.title)
+        .help(tab.hasActiveAgent ? "\(tab.displayTitle) (Agent running)" : tab.displayTitle)
         .onAppear {
             startAgentPulseAnimation()
         }

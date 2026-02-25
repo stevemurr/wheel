@@ -28,7 +28,6 @@ struct WebViewRepresentable: NSViewRepresentable {
     class Coordinator: NSObject, WKNavigationDelegate, WKUIDelegate, WKDownloadDelegate, WKScriptMessageHandler {
         let tab: Tab
         private var currentDownload: WKDownload?
-        private var downloadFilename: String = ""
         private var progressObservations: [WKDownload: NSKeyValueObservation] = [:]
 
         init(tab: Tab) {
@@ -370,8 +369,6 @@ struct WebViewRepresentable: NSViewRepresentable {
             suggestedFilename: String,
             completionHandler: @escaping (URL?) -> Void
         ) {
-            downloadFilename = suggestedFilename
-
             // Get Downloads folder
             guard let downloadsURL = FileManager.default.urls(
                 for: .downloadsDirectory,

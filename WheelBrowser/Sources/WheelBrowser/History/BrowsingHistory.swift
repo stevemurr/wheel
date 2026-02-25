@@ -104,9 +104,12 @@ class BrowsingHistory: ObservableObject {
         }
     }
 
+    // MARK: - Workspace Filtering (currently unused, preserved for future use)
+
     /// Get history entries for a specific workspace
+    /// Note: Currently not used by any view, kept for potential workspace-specific history views
     func entriesForWorkspace(_ workspaceID: UUID) -> [HistoryEntry] {
-        return entries.filter { $0.workspaceID == workspaceID }
+        entries.filter { $0.workspaceID == workspaceID }
     }
 
     /// Search history using fuzzy matching, optionally filtered by workspace

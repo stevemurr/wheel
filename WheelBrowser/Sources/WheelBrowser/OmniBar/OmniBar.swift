@@ -1,5 +1,13 @@
 import SwiftUI
 
+/// Consolidated animation state to reduce multiple animation modifiers to one
+/// Using a struct with Equatable conformance allows combining multiple values
+private struct OmniBarAnimationState: Equatable {
+    let shouldExpand: Bool
+    let isInputFocused: Bool
+    let visiblePanels: UInt8  // Bitmask for panel visibility
+}
+
 /// The OmniBar - a unified input bar for URL navigation, AI chat, and semantic search
 struct OmniBar: View {
     @ObservedObject var tab: Tab
@@ -36,6 +44,18 @@ struct OmniBar: View {
     private var isSemanticPanelVisible: Bool { omniState.isPanelVisible(for: .semantic) }
     private var isAgentPanelVisible: Bool { omniState.isPanelVisible(for: .agent) }
     private var isReadingListPanelVisible: Bool { omniState.isPanelVisible(for: .readingList) }
+
+    /// Bitmask combining all panel visibility states for animation consolidation
+    private var visiblePanelFlags: UInt8 {
+        var flags: UInt8 = 0
+        if isHistoryPanelVisible { flags |= 1 }
+        if isChatPanelVisible { flags |= 2 }
+        if isSemanticPanelVisible { flags |= 4 }
+        if isAgentPanelVisible { flags |= 8 }
+        if isReadingListPanelVisible { flags |= 16 }
+        if downloadManager.showDownloadsPanel { flags |= 32 }
+        return flags
+    }
 
     private var historyPanelSubtitle: String {
         // Single pass to count both tabs and history entries
@@ -321,16 +341,12 @@ struct OmniBar: View {
                 isHovering = hovering
             }
         }
-        // Consolidated animation for all panel state changes
-        .animation(.spring(response: 0.3, dampingFraction: 0.85), value: shouldExpand)
-        .animation(.spring(response: 0.3, dampingFraction: 0.85), value: isInputFocused)
-        // Animate panel visibility changes
-        .animation(.spring(response: 0.3, dampingFraction: 0.85), value: isHistoryPanelVisible)
-        .animation(.spring(response: 0.3, dampingFraction: 0.85), value: isChatPanelVisible)
-        .animation(.spring(response: 0.3, dampingFraction: 0.85), value: isSemanticPanelVisible)
-        .animation(.spring(response: 0.3, dampingFraction: 0.85), value: isAgentPanelVisible)
-        .animation(.spring(response: 0.3, dampingFraction: 0.85), value: isReadingListPanelVisible)
-        .animation(.spring(response: 0.3, dampingFraction: 0.85), value: downloadManager.showDownloadsPanel)
+        // Consolidated animation for all state changes - uses struct to combine multiple values
+        .animation(.spring(response: 0.3, dampingFraction: 0.85), value: OmniBarAnimationState(
+            shouldExpand: shouldExpand,
+            isInputFocused: isInputFocused,
+            visiblePanels: visiblePanelFlags
+        ))
         .onChange(of: tab.url) { _, newURL in
             if !isInputFocused && omniState.mode == .address {
                 omniState.inputText = newURL?.absoluteString ?? ""

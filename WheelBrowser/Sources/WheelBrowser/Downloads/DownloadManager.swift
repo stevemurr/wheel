@@ -13,37 +13,39 @@ struct DownloadItem: Identifiable {
     var status: DownloadStatus = .downloading
     let startTime: Date = Date()
 
+    /// Cached ByteCountFormatter to avoid creating new instances per call
+    private static let byteFormatter: ByteCountFormatter = {
+        let formatter = ByteCountFormatter()
+        formatter.countStyle = .file
+        return formatter
+    }()
+
     var progress: Double {
         guard totalBytes > 0 else { return 0 }
         return Double(bytesReceived) / Double(totalBytes)
     }
 
     var formattedSize: String {
-        let formatter = ByteCountFormatter()
-        formatter.countStyle = .file
         if totalBytes > 0 {
-            return "\(formatter.string(fromByteCount: bytesReceived)) / \(formatter.string(fromByteCount: totalBytes))"
+            return "\(Self.byteFormatter.string(fromByteCount: bytesReceived)) / \(Self.byteFormatter.string(fromByteCount: totalBytes))"
         } else if bytesReceived > 0 {
-            return formatter.string(fromByteCount: bytesReceived)
+            return Self.byteFormatter.string(fromByteCount: bytesReceived)
         }
         return "Calculating..."
     }
 
     /// Returns the final file size for completed downloads
     var completedSize: String? {
-        let formatter = ByteCountFormatter()
-        formatter.countStyle = .file
-
         // Try to get size from totalBytes first
         if totalBytes > 0 {
-            return formatter.string(fromByteCount: totalBytes)
+            return Self.byteFormatter.string(fromByteCount: totalBytes)
         }
 
         // Try to get actual file size from destination
         if let url = destinationURL,
            let attributes = try? FileManager.default.attributesOfItem(atPath: url.path),
            let size = attributes[.size] as? Int64 {
-            return formatter.string(fromByteCount: size)
+            return Self.byteFormatter.string(fromByteCount: size)
         }
 
         return nil
