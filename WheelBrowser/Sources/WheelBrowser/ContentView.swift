@@ -51,8 +51,10 @@ private struct BrowserContentArea: View {
                     containerSize: geometry.size
                 )
 
-                // Link preview overlay
-                LinkPreviewOverlay(containerSize: geometry.size)
+                // Link preview overlay (Shift+Click links)
+                LinkPreviewOverlay(containerSize: geometry.size) { url in
+                    browserState.addTab(withURL: url)
+                }
 
                 // Overlay windows (Cmd+Click links)
                 OverlayWindowContainer(

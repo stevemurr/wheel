@@ -15,7 +15,7 @@ struct LinkPreviewDismissDetector: NSViewRepresentable {
             let expandedPanelFrame = panelFrame.insetBy(dx: -20, dy: -20)
             if !expandedPanelFrame.contains(location) {
                 Task { @MainActor in
-                    state.hide()
+                    state.dismiss()
                 }
             }
         }

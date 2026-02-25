@@ -293,16 +293,12 @@ class Tab: Identifiable, ObservableObject {
         )
     }
 
-    /// Creates a link hover detection script for link previews
+    /// Creates a link click detection script for link previews and overlay windows
     private static func createLinkHoverUserScript() -> WKUserScript {
         let script = """
         (function() {
             if (window.__wheelLinkHoverInstalled) return;
             window.__wheelLinkHoverInstalled = true;
-
-            let currentLink = null;
-            let hoverTimeout = null;
-            let optionKeyDown = false;
 
             function findLinkElement(el) {
                 while (el && el !== document.body) {
@@ -312,103 +308,48 @@ class Tab: Identifiable, ObservableObject {
                 return null;
             }
 
-            function triggerPreview(link) {
-                if (!link.href.startsWith('http')) return;
-                // Skip same-page anchors
-                if (link.href.includes('#') && link.href.split('#')[0] === window.location.href.split('#')[0]) return;
-                const rect = link.getBoundingClientRect();
-                window.webkit.messageHandlers.linkHover.postMessage({
-                    type: 'hover',
-                    url: link.href,
-                    text: link.textContent?.trim() || '',
-                    x: rect.left + rect.width / 2,
-                    y: rect.bottom + 10
-                });
-            }
-
-            // Track Option key state
-            document.addEventListener('keydown', function(e) {
-                if (e.key === 'Alt') {
-                    optionKeyDown = true;
-                    // If already hovering a link, show preview immediately
-                    if (currentLink) {
-                        clearTimeout(hoverTimeout);
-                        hoverTimeout = setTimeout(function() {
-                            triggerPreview(currentLink);
-                        }, 100);
-                    }
-                }
-            }, true);
-
-            document.addEventListener('keyup', function(e) {
-                if (e.key === 'Alt') {
-                    optionKeyDown = false;
-                    clearTimeout(hoverTimeout);
-                    window.webkit.messageHandlers.linkHover.postMessage({ type: 'leave' });
-                }
-            }, true);
-
-            document.addEventListener('mouseover', function(e) {
-                const link = findLinkElement(e.target);
-                if (link && link !== currentLink) {
-                    currentLink = link;
-                    clearTimeout(hoverTimeout);
-                    // Only show preview if Option key is held
-                    if (optionKeyDown) {
-                        hoverTimeout = setTimeout(function() {
-                            triggerPreview(link);
-                        }, 100);
-                    }
-                }
-            }, true);
-
-            document.addEventListener('mouseout', function(e) {
-                const link = findLinkElement(e.target);
-                if (link === currentLink) {
-                    const related = findLinkElement(e.relatedTarget);
-                    if (related !== currentLink) {
-                        currentLink = null;
-                        clearTimeout(hoverTimeout);
-                        window.webkit.messageHandlers.linkHover.postMessage({ type: 'leave' });
-                    }
-                }
-            }, true);
-
-            window.addEventListener('scroll', function() {
-                if (currentLink) {
-                    currentLink = null;
-                    clearTimeout(hoverTimeout);
-                    window.webkit.messageHandlers.linkHover.postMessage({ type: 'leave' });
-                }
-            }, { passive: true });
-
-            // Hide preview when window loses focus
-            window.addEventListener('blur', function() {
-                optionKeyDown = false;
-                clearTimeout(hoverTimeout);
-                window.webkit.messageHandlers.linkHover.postMessage({ type: 'leave' });
-            });
-
-            // Cmd+Click to open link in overlay window
+            // Handle click events for both Option+Click (summary) and Cmd+Click (overlay)
             document.addEventListener('click', function(e) {
-                if (!e.metaKey) return;  // metaKey is Cmd on Mac
-
                 let target = e.target;
                 while (target && target.tagName !== 'A') {
                     target = target.parentElement;
                 }
                 if (!target || !target.href || !target.href.startsWith('http')) return;
 
-                e.preventDefault();
-                e.stopPropagation();
+                // Skip same-page anchors for summary
+                const isSamePageAnchor = target.href.includes('#') &&
+                    target.href.split('#')[0] === window.location.href.split('#')[0];
 
-                window.webkit.messageHandlers.overlayWindow.postMessage({
-                    type: 'openOverlay',
-                    url: target.href,
-                    text: target.textContent?.trim() || target.href,
-                    x: e.clientX,
-                    y: e.clientY
-                });
+                // Shift+Click - Open summary window
+                if (e.shiftKey && !e.metaKey && !isSamePageAnchor) {
+                    e.preventDefault();
+                    e.stopPropagation();
+
+                    const rect = target.getBoundingClientRect();
+                    window.webkit.messageHandlers.linkHover.postMessage({
+                        type: 'summary',
+                        url: target.href,
+                        text: target.textContent?.trim() || '',
+                        x: rect.left + rect.width / 2,
+                        y: rect.bottom + 10
+                    });
+                    return;
+                }
+
+                // Cmd+Click (metaKey) - Open overlay window
+                if (e.metaKey) {
+                    e.preventDefault();
+                    e.stopPropagation();
+
+                    window.webkit.messageHandlers.overlayWindow.postMessage({
+                        type: 'openOverlay',
+                        url: target.href,
+                        text: target.textContent?.trim() || target.href,
+                        x: e.clientX,
+                        y: e.clientY
+                    });
+                    return;
+                }
             }, true);
         })();
         """

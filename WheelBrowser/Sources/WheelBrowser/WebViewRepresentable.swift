@@ -38,11 +38,9 @@ struct WebViewRepresentable: NSViewRepresentable {
         // MARK: - WKScriptMessageHandler (Link Preview)
 
         func userContentController(_ userContentController: WKUserContentController, didReceive message: WKScriptMessage) {
-            print("[LinkPreview] Received message: \(message.name)")
-
             guard let body = message.body as? [String: Any],
                   let type = body["type"] as? String else {
-                print("[LinkPreview] Invalid message format")
+                Log.LinkPreview.warning("Invalid message format")
                 return
             }
 
@@ -54,45 +52,40 @@ struct WebViewRepresentable: NSViewRepresentable {
                               let url = URL(string: urlString),
                               let x = body["x"] as? Double,
                               let y = body["y"] as? Double else {
-                            print("[OverlayWindow] Invalid overlay data")
+                            Log.Overlay.warning("Invalid overlay data")
                             return
                         }
 
                         let linkText = body["text"] as? String
                         let position = CGPoint(x: x, y: y)
 
-                        print("[OverlayWindow] Opening overlay for: \(urlString) at (\(x), \(y))")
+                        Log.Overlay.info("Opening overlay: \(urlString)")
                         OverlayWindowManager.shared.openOverlay(url: url, title: linkText, at: position)
                     }
                 }
                 return
             }
 
-            // Handle link hover messages
+            // Handle link summary messages (Option+Click)
             guard message.name == "linkHover" else {
                 return
             }
 
-            print("[LinkPreview] Message type: \(type)")
-
             Task { @MainActor in
-                if type == "hover" {
+                if type == "summary" {
                     guard let urlString = body["url"] as? String,
                           let url = URL(string: urlString),
                           let x = body["x"] as? Double,
                           let y = body["y"] as? Double else {
-                        print("[LinkPreview] Invalid hover data")
+                        Log.LinkPreview.warning("Invalid summary data")
                         return
                     }
 
                     let linkText = body["text"] as? String ?? ""
                     let position = CGPoint(x: x, y: y)
 
-                    print("[LinkPreview] Hover on: \(urlString) at (\(x), \(y))")
-                    LinkPreviewState.shared.requestPreview(url: url, linkText: linkText, position: position)
-
-                } else if type == "leave" {
-                    LinkPreviewState.shared.hide()
+                    Log.LinkPreview.info("Summary requested: \(urlString)")
+                    LinkPreviewState.shared.showSummary(url: url, linkText: linkText, position: position)
                 }
             }
         }
