@@ -120,9 +120,7 @@ struct ReadingListRow: View {
     }
 
     private var savedDateString: String {
-        let formatter = RelativeDateTimeFormatter()
-        formatter.unitsStyle = .abbreviated
-        return formatter.localizedString(for: item.savedAt, relativeTo: Date())
+        item.savedAt.abbreviatedRelativeTimeString()
     }
 
     var body: some View {

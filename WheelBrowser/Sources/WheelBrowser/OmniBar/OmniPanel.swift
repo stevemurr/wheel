@@ -442,25 +442,7 @@ struct SuggestionRow: View {
     private var relativeTimeString: String? {
         // Only for history entries
         guard case .history(let entry, _) = suggestion else { return nil }
-
-        let interval = Date().timeIntervalSince(entry.timestamp)
-
-        if interval < 60 {
-            return "now"
-        } else if interval < 3600 {
-            let minutes = Int(interval / 60)
-            return "\(minutes)m ago"
-        } else if interval < 86400 {
-            let hours = Int(interval / 3600)
-            return "\(hours)h ago"
-        } else if interval < 604800 {
-            let days = Int(interval / 86400)
-            return "\(days)d ago"
-        } else {
-            let formatter = DateFormatter()
-            formatter.dateStyle = .short
-            return formatter.string(from: entry.timestamp)
-        }
+        return entry.timestamp.relativeTimeString()
     }
 
     private func colorForDomain(_ domain: String) -> Color {
@@ -575,24 +557,7 @@ struct HistoryRow: View {
     }
 
     private var relativeTimeString: String? {
-        let interval = Date().timeIntervalSince(entry.timestamp)
-
-        if interval < 60 {
-            return "now"
-        } else if interval < 3600 {
-            let minutes = Int(interval / 60)
-            return "\(minutes)m ago"
-        } else if interval < 86400 {
-            let hours = Int(interval / 3600)
-            return "\(hours)h ago"
-        } else if interval < 604800 {
-            let days = Int(interval / 86400)
-            return "\(days)d ago"
-        } else {
-            let formatter = DateFormatter()
-            formatter.dateStyle = .short
-            return formatter.string(from: entry.timestamp)
-        }
+        entry.timestamp.relativeTimeString()
     }
 
     private func colorForDomain(_ domain: String) -> Color {

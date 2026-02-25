@@ -22,8 +22,8 @@ class TabScreenshotManager: ObservableObject {
         do {
             let image = try await webView.takeSnapshot(configuration: config)
 
-            // Resize to thumbnail size
-            let thumbnail = resizeImage(image, to: thumbnailSize)
+            // Resize to thumbnail size on background queue to avoid blocking main thread
+            let thumbnail = await resizeImageAsync(image, to: thumbnailSize)
 
             screenshots[tab.id] = thumbnail
         } catch {
@@ -48,8 +48,19 @@ class TabScreenshotManager: ObservableObject {
         screenshots.removeValue(forKey: tabId)
     }
 
-    /// Resizes an image to the specified size while maintaining aspect ratio
-    private func resizeImage(_ image: NSImage, to targetSize: CGSize) -> NSImage {
+    /// Resizes an image to the specified size while maintaining aspect ratio (async, runs on background queue)
+    private func resizeImageAsync(_ image: NSImage, to targetSize: CGSize) async -> NSImage {
+        await withCheckedContinuation { continuation in
+            DispatchQueue.global(qos: .userInitiated).async {
+                let resized = Self.resizeImageSync(image, to: targetSize)
+                continuation.resume(returning: resized)
+            }
+        }
+    }
+
+    /// Resizes an image to the specified size while maintaining aspect ratio (synchronous, for background use)
+    /// Note: This is nonisolated to allow calling from background queue
+    private nonisolated static func resizeImageSync(_ image: NSImage, to targetSize: CGSize) -> NSImage {
         let sourceSize = image.size
 
         // Calculate aspect-fit size
@@ -62,8 +73,28 @@ class TabScreenshotManager: ObservableObject {
             height: sourceSize.height * scale
         )
 
-        let newImage = NSImage(size: targetSize)
-        newImage.lockFocus()
+        // Use NSBitmapImageRep for thread-safe image creation
+        guard let bitmapRep = NSBitmapImageRep(
+            bitmapDataPlanes: nil,
+            pixelsWide: Int(targetSize.width),
+            pixelsHigh: Int(targetSize.height),
+            bitsPerSample: 8,
+            samplesPerPixel: 4,
+            hasAlpha: true,
+            isPlanar: false,
+            colorSpaceName: .deviceRGB,
+            bytesPerRow: 0,
+            bitsPerPixel: 0
+        ) else {
+            return image
+        }
+
+        NSGraphicsContext.saveGraphicsState()
+        guard let context = NSGraphicsContext(bitmapImageRep: bitmapRep) else {
+            NSGraphicsContext.restoreGraphicsState()
+            return image
+        }
+        NSGraphicsContext.current = context
 
         // Fill with a background color to handle any gaps
         NSColor.windowBackgroundColor.setFill()
@@ -83,8 +114,10 @@ class TabScreenshotManager: ObservableObject {
             fraction: 1.0
         )
 
-        newImage.unlockFocus()
+        NSGraphicsContext.restoreGraphicsState()
 
+        let newImage = NSImage(size: targetSize)
+        newImage.addRepresentation(bitmapRep)
         return newImage
     }
 

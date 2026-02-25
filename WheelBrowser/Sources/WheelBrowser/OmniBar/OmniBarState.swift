@@ -227,6 +227,22 @@ class OmniBarState: ObservableObject {
         }
     }
 
+    /// Check if a panel is visible for the given mode
+    func isPanelVisible(for mode: OmniBarMode) -> Bool {
+        switch mode {
+        case .address:
+            return showHistoryPanel && self.mode == .address
+        case .chat:
+            return showChatPanel && self.mode == .chat
+        case .semantic:
+            return showSemanticPanel && self.mode == .semantic
+        case .agent:
+            return showAgentPanel && self.mode == .agent
+        case .readingList:
+            return showReadingListPanel && self.mode == .readingList
+        }
+    }
+
     /// Icon for the current mode
     var modeIcon: String {
         switch mode {

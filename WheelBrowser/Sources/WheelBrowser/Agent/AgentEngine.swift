@@ -81,17 +81,69 @@ private struct NormalizedAction: Hashable {
     }
 }
 
+/// Batched state for AgentEngine to reduce SwiftUI redraws
+/// All state changes are published as a single update
+struct AgentState: Equatable {
+    var isRunning: Bool = false
+    var currentTask: String = ""
+    var steps: [AgentStep] = []
+    var progress: String = ""
+    var error: String?
+    var boundTabId: UUID?
+    var isWaitingForUser: Bool = false
+    var waitingReason: String = ""
+
+    static func == (lhs: AgentState, rhs: AgentState) -> Bool {
+        // Compare only the fields that should trigger redraws
+        lhs.isRunning == rhs.isRunning &&
+        lhs.currentTask == rhs.currentTask &&
+        lhs.steps.count == rhs.steps.count &&
+        lhs.progress == rhs.progress &&
+        lhs.error == rhs.error &&
+        lhs.boundTabId == rhs.boundTabId &&
+        lhs.isWaitingForUser == rhs.isWaitingForUser &&
+        lhs.waitingReason == rhs.waitingReason
+    }
+}
+
 /// The ReAct agent engine for browser automation
 @MainActor
 class AgentEngine: ObservableObject {
-    // MARK: - Published State
+    // MARK: - Published State (batched for performance)
 
-    @Published var isRunning: Bool = false
-    @Published var currentTask: String = ""
-    @Published var steps: [AgentStep] = []
-    @Published var progress: String = ""
-    @Published var error: String?
-    @Published var boundTabId: UUID?
+    @Published private(set) var state = AgentState()
+
+    // MARK: - Computed Properties for Backwards Compatibility
+
+    var isRunning: Bool {
+        get { state.isRunning }
+        set { state.isRunning = newValue }
+    }
+
+    var currentTask: String {
+        get { state.currentTask }
+        set { state.currentTask = newValue }
+    }
+
+    var steps: [AgentStep] {
+        get { state.steps }
+        set { state.steps = newValue }
+    }
+
+    var progress: String {
+        get { state.progress }
+        set { state.progress = newValue }
+    }
+
+    var error: String? {
+        get { state.error }
+        set { state.error = newValue }
+    }
+
+    var boundTabId: UUID? {
+        get { state.boundTabId }
+        set { state.boundTabId = newValue }
+    }
 
     // MARK: - Dependencies
 
@@ -111,9 +163,18 @@ class AgentEngine: ObservableObject {
     /// Track loop recovery attempts (how many times we've tried backing out)
     private var loopRecoveryAttempts: Int = 0
     private let maxLoopRecoveryAttempts = 2
-    /// Whether we're waiting for user to solve a captcha
-    @Published var isWaitingForUser: Bool = false
-    @Published var waitingReason: String = ""
+
+    // MARK: - Computed Properties for User Waiting State (using batched state)
+
+    var isWaitingForUser: Bool {
+        get { state.isWaitingForUser }
+        set { state.isWaitingForUser = newValue }
+    }
+
+    var waitingReason: String {
+        get { state.waitingReason }
+        set { state.waitingReason = newValue }
+    }
 
     // MARK: - Configuration
 

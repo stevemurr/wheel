@@ -30,30 +30,12 @@ struct OmniBar: View {
         isInputFocused || isHovering
     }
 
-    /// Computed property to determine if history panel should be visible
-    private var isHistoryPanelVisible: Bool {
-        omniState.showHistoryPanel && omniState.mode == .address
-    }
-
-    /// Computed property to determine if chat panel should be visible
-    private var isChatPanelVisible: Bool {
-        omniState.showChatPanel && omniState.mode == .chat
-    }
-
-    /// Computed property to determine if semantic panel should be visible
-    private var isSemanticPanelVisible: Bool {
-        omniState.showSemanticPanel && omniState.mode == .semantic
-    }
-
-    /// Computed property to determine if agent panel should be visible
-    private var isAgentPanelVisible: Bool {
-        omniState.showAgentPanel && omniState.mode == .agent
-    }
-
-    /// Computed property to determine if reading list panel should be visible
-    private var isReadingListPanelVisible: Bool {
-        omniState.showReadingListPanel && omniState.mode == .readingList
-    }
+    /// Panel visibility helpers using centralized state method
+    private var isHistoryPanelVisible: Bool { omniState.isPanelVisible(for: .address) }
+    private var isChatPanelVisible: Bool { omniState.isPanelVisible(for: .chat) }
+    private var isSemanticPanelVisible: Bool { omniState.isPanelVisible(for: .semantic) }
+    private var isAgentPanelVisible: Bool { omniState.isPanelVisible(for: .agent) }
+    private var isReadingListPanelVisible: Bool { omniState.isPanelVisible(for: .readingList) }
 
     private var historyPanelSubtitle: String {
         let tabCount = suggestionsVM.suggestions.filter { $0.isOpenTab }.count
