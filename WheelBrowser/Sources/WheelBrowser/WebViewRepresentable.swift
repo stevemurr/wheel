@@ -27,7 +27,6 @@ struct WebViewRepresentable: NSViewRepresentable {
 
     class Coordinator: NSObject, WKNavigationDelegate, WKUIDelegate, WKDownloadDelegate, WKScriptMessageHandler {
         let tab: Tab
-        private var currentDownload: WKDownload?
         private var progressObservations: [WKDownload: NSKeyValueObservation] = [:]
 
         init(tab: Tab) {
@@ -132,8 +131,6 @@ struct WebViewRepresentable: NSViewRepresentable {
         func webView(_ webView: WKWebView, didStartProvisionalNavigation navigation: WKNavigation!) {
             DispatchQueue.main.async {
                 self.tab.isLoading = true
-                // Invalidate screenshot when navigation starts (keeps old one until new capture)
-                TabScreenshotManager.shared.invalidateScreenshot(for: self.tab.id)
             }
         }
 
@@ -349,7 +346,6 @@ struct WebViewRepresentable: NSViewRepresentable {
             didBecome download: WKDownload
         ) {
             download.delegate = self
-            currentDownload = download
         }
 
         func webView(
@@ -358,7 +354,6 @@ struct WebViewRepresentable: NSViewRepresentable {
             didBecome download: WKDownload
         ) {
             download.delegate = self
-            currentDownload = download
         }
 
         // MARK: - WKDownloadDelegate
@@ -426,7 +421,6 @@ struct WebViewRepresentable: NSViewRepresentable {
             Task { @MainActor in
                 DownloadManager.shared.completeDownload(download)
             }
-            currentDownload = nil
         }
 
         func download(_ download: WKDownload, didFailWithError error: Error, resumeData: Data?) {
@@ -436,7 +430,6 @@ struct WebViewRepresentable: NSViewRepresentable {
             Task { @MainActor in
                 DownloadManager.shared.failDownload(download, error: error.localizedDescription)
             }
-            currentDownload = nil
         }
 
         private func getUniqueFileURL(basePath: URL) -> URL {

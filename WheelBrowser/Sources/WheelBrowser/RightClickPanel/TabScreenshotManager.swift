@@ -81,12 +81,6 @@ class TabScreenshotManager: ObservableObject {
         return screenshot
     }
 
-    /// Invalidates the cached screenshot for a tab (e.g., when navigation starts)
-    func invalidateScreenshot(for tabId: UUID) {
-        // Keep old screenshot until new one is captured
-        // This prevents flickering during navigation
-    }
-
     /// Removes the screenshot for a tab (e.g., when tab is closed)
     func removeScreenshot(for tabId: UUID) {
         screenshots.removeValue(forKey: tabId)
@@ -166,76 +160,5 @@ class TabScreenshotManager: ObservableObject {
         let newImage = NSImage(size: targetSize)
         newImage.addRepresentation(bitmapRep)
         return newImage
-    }
-
-    /// Creates a placeholder image for tabs without screenshots
-    func createPlaceholder(for tab: Tab) -> NSImage {
-        let size = thumbnailSize
-        let image = NSImage(size: size)
-
-        image.lockFocus()
-
-        // Create gradient background based on URL
-        let colors: [NSColor]
-        if let url = tab.url, let host = url.host {
-            // Generate consistent colors based on domain
-            let hash = abs(host.hashValue)
-            let hue1 = CGFloat(hash % 360) / 360.0
-            let hue2 = CGFloat((hash / 360) % 360) / 360.0
-
-            colors = [
-                NSColor(hue: hue1, saturation: 0.3, brightness: 0.4, alpha: 1.0),
-                NSColor(hue: hue2, saturation: 0.3, brightness: 0.3, alpha: 1.0)
-            ]
-        } else {
-            colors = [
-                NSColor.systemGray.withAlphaComponent(0.3),
-                NSColor.systemGray.withAlphaComponent(0.2)
-            ]
-        }
-
-        // Draw gradient
-        if let gradient = NSGradient(colors: colors) {
-            gradient.draw(in: NSRect(origin: .zero, size: size), angle: 45)
-        }
-
-        // Draw icon or initial
-        let iconSize: CGFloat = 32
-        let iconRect = NSRect(
-            x: (size.width - iconSize) / 2,
-            y: (size.height - iconSize) / 2,
-            width: iconSize,
-            height: iconSize
-        )
-
-        if let url = tab.url, let host = url.host {
-            // Draw domain initial
-            let initial = String(host.replacingOccurrences(of: "www.", with: "").prefix(1)).uppercased()
-            let font = NSFont.systemFont(ofSize: 20, weight: .semibold)
-            let attributes: [NSAttributedString.Key: Any] = [
-                .font: font,
-                .foregroundColor: NSColor.white.withAlphaComponent(0.8)
-            ]
-            let string = NSAttributedString(string: initial, attributes: attributes)
-            let stringSize = string.size()
-            let stringRect = NSRect(
-                x: (size.width - stringSize.width) / 2,
-                y: (size.height - stringSize.height) / 2,
-                width: stringSize.width,
-                height: stringSize.height
-            )
-            string.draw(in: stringRect)
-        } else {
-            // Draw globe icon
-            if let globeImage = NSImage(systemSymbolName: "globe", accessibilityDescription: nil) {
-                let config = NSImage.SymbolConfiguration(pointSize: 24, weight: .medium)
-                let tintedGlobe = globeImage.withSymbolConfiguration(config)
-                tintedGlobe?.draw(in: iconRect, from: .zero, operation: .sourceOver, fraction: 0.6)
-            }
-        }
-
-        image.unlockFocus()
-
-        return image
     }
 }

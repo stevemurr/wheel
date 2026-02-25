@@ -59,4 +59,38 @@ enum DateFormatterCache {
         shortDateTimeFormatter.string(from: date)
     }
 
+    // MARK: - Clock Widget Formatters
+
+    /// Time format for clock widget (e.g., "3:45")
+    private static let clockTimeFormatter: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.dateFormat = "h:mm"
+        return formatter
+    }()
+
+    static func clockTime(from date: Date) -> String {
+        clockTimeFormatter.string(from: date)
+    }
+
+    /// AM/PM format for clock widget
+    private static let clockAmPmFormatter: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.dateFormat = "a"
+        return formatter
+    }()
+
+    static func clockAmPm(from date: Date) -> String {
+        clockAmPmFormatter.string(from: date)
+    }
+
+    /// Full date format for clock widget (e.g., "Friday, January 5")
+    private static let clockDateFormatter: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.dateFormat = "EEEE, MMMM d"
+        return formatter
+    }()
+
+    static func clockFullDate(from date: Date) -> String {
+        clockDateFormatter.string(from: date)
+    }
 }

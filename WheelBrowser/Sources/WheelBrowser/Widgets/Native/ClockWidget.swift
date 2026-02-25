@@ -1,4 +1,5 @@
 import SwiftUI
+import Combine
 
 /// Clock widget displaying current time
 @MainActor
@@ -11,7 +12,7 @@ final class ClockWidget: Widget, ObservableObject {
     @Published var currentSize: WidgetSize = .small
     @Published var currentTime = Date()
 
-    private var timer: Timer?
+    private var cancellable: AnyCancellable?
 
     var supportedSizes: [WidgetSize] {
         [.small, .medium]
@@ -19,10 +20,6 @@ final class ClockWidget: Widget, ObservableObject {
 
     init() {
         startTimer()
-    }
-
-    deinit {
-        timer?.invalidate()
     }
 
     @ViewBuilder
@@ -35,11 +32,11 @@ final class ClockWidget: Widget, ObservableObject {
     }
 
     private func startTimer() {
-        timer = Timer.scheduledTimer(withTimeInterval: 1, repeats: true) { [weak self] _ in
-            Task { @MainActor in
+        cancellable = Timer.publish(every: 1, on: .main, in: .common)
+            .autoconnect()
+            .sink { [weak self] _ in
                 self?.currentTime = Date()
             }
-        }
     }
 }
 
@@ -47,38 +44,20 @@ struct ClockWidgetView: View {
     let currentTime: Date
     let size: WidgetSize
 
-    private var timeFormatter: DateFormatter {
-        let formatter = DateFormatter()
-        formatter.dateFormat = "h:mm"
-        return formatter
-    }
-
-    private var ampmFormatter: DateFormatter {
-        let formatter = DateFormatter()
-        formatter.dateFormat = "a"
-        return formatter
-    }
-
-    private var dateFormatter: DateFormatter {
-        let formatter = DateFormatter()
-        formatter.dateFormat = "EEEE, MMMM d"
-        return formatter
-    }
-
     var body: some View {
         VStack(spacing: size == .small ? 4 : 8) {
             HStack(alignment: .firstTextBaseline, spacing: 4) {
-                Text(timeFormatter.string(from: currentTime))
+                Text(DateFormatterCache.clockTime(from: currentTime))
                     .font(.system(size: size == .small ? 32 : 48, weight: .light, design: .rounded))
                     .monospacedDigit()
 
-                Text(ampmFormatter.string(from: currentTime))
+                Text(DateFormatterCache.clockAmPm(from: currentTime))
                     .font(.system(size: size == .small ? 14 : 18, weight: .medium))
                     .foregroundStyle(.secondary)
             }
 
             if size != .small {
-                Text(dateFormatter.string(from: currentTime))
+                Text(DateFormatterCache.clockFullDate(from: currentTime))
                     .font(.system(size: 14, weight: .medium))
                     .foregroundStyle(.secondary)
             }

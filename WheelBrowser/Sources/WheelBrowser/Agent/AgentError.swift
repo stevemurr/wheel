@@ -19,6 +19,11 @@ enum AgentError: LocalizedError {
     case maxIterationsReached
     case parseError(String)
 
+    // MARK: - Input/Safety Errors
+    case invalidInput(String)
+    case timeout(String)
+    case tabClosed
+
     // MARK: - MCP Errors
     case serverStartFailed(String)
     case invalidRequest(String)
@@ -56,6 +61,14 @@ enum AgentError: LocalizedError {
             return "Maximum iterations reached without completing task"
         case .parseError(let reason):
             return "Failed to parse: \(reason)"
+
+        // Input/Safety errors
+        case .invalidInput(let reason):
+            return "Invalid input: \(reason)"
+        case .timeout(let reason):
+            return "Timeout: \(reason)"
+        case .tabClosed:
+            return "The bound tab was closed"
 
         // MCP errors
         case .serverStartFailed(let reason):

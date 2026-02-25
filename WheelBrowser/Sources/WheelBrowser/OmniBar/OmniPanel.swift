@@ -449,8 +449,7 @@ struct SuggestionRow: View {
     }
 
     private func colorForDomain(_ domain: String) -> Color {
-        let hash = domain.utf8.reduce(0) { $0 &+ Int($1) }
-        return Self.domainColors[abs(hash) % Self.domainColors.count]
+        DomainColor.color(for: domain)
     }
 }
 
@@ -566,7 +565,6 @@ struct HistoryRow: View {
     }
 
     private func colorForDomain(_ domain: String) -> Color {
-        let hash = domain.utf8.reduce(0) { $0 &+ Int($1) }
-        return Self.domainColors[abs(hash) % Self.domainColors.count]
+        DomainColor.color(for: domain)
     }
 }

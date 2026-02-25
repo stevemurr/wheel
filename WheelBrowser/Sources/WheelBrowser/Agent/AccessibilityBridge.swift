@@ -401,12 +401,8 @@ class AccessibilityBridge {
         // Track for pressEnter
         lastInteractedElementId = elementId
 
-        // Escape the text for JavaScript
-        let escapedText = text
-            .replacingOccurrences(of: "\\", with: "\\\\")
-            .replacingOccurrences(of: "\"", with: "\\\"")
-            .replacingOccurrences(of: "\n", with: "\\n")
-            .replacingOccurrences(of: "\r", with: "\\r")
+        // Escape the text for JavaScript using secure escaper
+        let escapedText = JavaScriptEscaper.escape(text)
 
         let script = """
         (function() {
@@ -654,21 +650,58 @@ class AccessibilityBridge {
 
     // MARK: - Wait
 
-    /// Wait for the page to finish loading or for a specified duration
-    func waitForLoad(timeout: TimeInterval = 5.0) async throws {
+    /// Wait for the page to finish loading with DOM stability detection for SPAs
+    /// - Parameters:
+    ///   - timeout: Maximum time to wait for load
+    ///   - stableThreshold: Time the DOM must be stable before considering it loaded
+    func waitForLoad(timeout: TimeInterval = 5.0, stableThreshold: TimeInterval = 0.5) async throws {
         guard let webView = webView else {
             throw AgentError.webViewUnavailable
         }
 
         let startTime = Date()
+        var lastElementCount = -1
+        var lastChangeTime = Date()
 
         while Date().timeIntervalSince(startTime) < timeout {
-            if !webView.isLoading {
-                // Additional wait for dynamic content
-                try await Task.sleep(nanoseconds: 500_000_000) // 0.5 seconds
+            // First wait for basic loading to complete
+            if webView.isLoading {
+                try await Task.sleep(nanoseconds: 100_000_000) // 0.1 seconds
+                continue
+            }
+
+            // Then check for DOM stability (especially important for SPAs)
+            let currentCount = await getInteractiveElementCount()
+
+            if currentCount != lastElementCount {
+                // DOM changed, reset stability timer
+                lastElementCount = currentCount
+                lastChangeTime = Date()
+            } else if Date().timeIntervalSince(lastChangeTime) >= stableThreshold {
+                // DOM has been stable for threshold duration
                 return
             }
+
             try await Task.sleep(nanoseconds: 100_000_000) // 0.1 seconds
+        }
+    }
+
+    /// Get the count of interactive elements on the page
+    private func getInteractiveElementCount() async -> Int {
+        guard let webView = webView else { return -1 }
+
+        let script = """
+        (function() {
+            const selectors = 'a[href],button,input,select,textarea,[role="button"],[onclick],[tabindex]:not([tabindex="-1"])';
+            return document.querySelectorAll(selectors).length;
+        })();
+        """
+
+        do {
+            let result = try await webView.evaluateJavaScript(script)
+            return (result as? Int) ?? -1
+        } catch {
+            return -1
         }
     }
 

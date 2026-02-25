@@ -179,6 +179,8 @@ class AgentEngine: ObservableObject {
     // MARK: - Configuration
 
     private let maxIterations = 20
+    /// Wall-clock timeout for entire task execution (5 minutes)
+    private let wallClockTimeout: TimeInterval = 300
     private let systemPrompt = """
     You are a browser automation agent. Analyze the page snapshot and decide what action to take.
 
@@ -344,8 +346,20 @@ class AgentEngine: ObservableObject {
 
     // MARK: - Private Methods
 
+    /// Validates that the bound tab still exists and returns it
+    /// - Throws: AgentError.tabClosed if the tab no longer exists
+    private func requireBoundTab() throws -> Tab {
+        guard let tab = boundTab,
+              let tabId = boundTabId,
+              browserState.tabs.contains(where: { $0.id == tabId }) else {
+            throw AgentError.tabClosed
+        }
+        return tab
+    }
+
     private func executeTask(_ task: String) async throws -> AgentResult {
         var iteration = 0
+        let startTime = Date()
         Log.Agent.info("Starting task: \(task)")
 
         // Reset loop detection state
@@ -361,6 +375,11 @@ class AgentEngine: ObservableObject {
         }
 
         while iteration < maxIterations {
+            // Check wall-clock timeout
+            if Date().timeIntervalSince(startTime) > wallClockTimeout {
+                Log.Agent.error("Task exceeded wall-clock timeout of \(Int(wallClockTimeout))s")
+                throw AgentError.timeout("Task exceeded \(Int(wallClockTimeout / 60)) minute time limit")
+            }
             try Task.checkCancellation()
 
             iteration += 1
@@ -1135,28 +1154,17 @@ class AgentEngine: ObservableObject {
             return "Scrolled \(direction.rawValue)"
 
         case .navigate(let urlString):
-            var url = urlString
-            if !url.contains("://") {
-                url = "https://\(url)"
-            }
-            if let parsedURL = URL(string: url) {
-                // Navigate the bound tab, not the active tab
-                guard let boundTabId = boundTabId,
-                      let tab = browserState.tab(for: boundTabId) else {
-                    throw AgentError.webViewUnavailable
-                }
-                tab.load(parsedURL.absoluteString)
-                try await bridge.waitForLoad(timeout: 10.0)
-                return "Navigated to \(url)"
-            } else {
-                throw AgentError.navigationFailed("Invalid URL: \(urlString)")
-            }
+            // Validate URL against navigation policy
+            let validatedURL = try NavigationPolicy.validate(urlString)
+
+            // Navigate the bound tab, not the active tab
+            let tab = try requireBoundTab()
+            tab.load(validatedURL.absoluteString)
+            try await bridge.waitForLoad(timeout: 10.0)
+            return "Navigated to \(validatedURL.absoluteString)"
 
         case .back:
-            guard let boundTabId = boundTabId,
-                  let tab = browserState.tab(for: boundTabId) else {
-                throw AgentError.webViewUnavailable
-            }
+            let tab = try requireBoundTab()
             guard tab.canGoBack else {
                 return "Cannot go back - no history"
             }

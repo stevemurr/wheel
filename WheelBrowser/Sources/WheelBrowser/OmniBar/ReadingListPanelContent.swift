@@ -221,10 +221,6 @@ struct ReadingListRow: View {
     }
 
     private func colorForDomain(_ domain: String) -> Color {
-        let colors: [Color] = [
-            .blue, .purple, .pink, .red, .orange, .yellow, .green, .teal, .cyan, .indigo
-        ]
-        let hash = domain.utf8.reduce(0) { $0 &+ Int($1) }
-        return colors[abs(hash) % colors.count]
+        DomainColor.color(for: domain)
     }
 }
