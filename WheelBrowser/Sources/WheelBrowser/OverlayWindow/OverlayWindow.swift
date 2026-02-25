@@ -34,6 +34,7 @@ struct OverlayWindow: View {
     @State private var isHoveringOpenInTab = false
     @State private var isHoveringReaderMode = false
     @State private var isHoveringSaveButton = false
+    @State private var isHoveringCopyURL = false
 
     // Loading state
     @State private var isLoading = true
@@ -136,6 +137,9 @@ struct OverlayWindow: View {
 
                     // Save to reading list button
                     saveToReadingListButton
+
+                    // Copy URL button
+                    copyURLButton
 
                     // Open in tab button (needs to be clickable)
                     openInTabButton
@@ -260,6 +264,31 @@ struct OverlayWindow: View {
                 print("Failed to check saved state: \(error)")
             }
         }
+    }
+
+    // MARK: - Copy URL Button
+
+    private var copyURLButton: some View {
+        Button {
+            NSPasteboard.general.clearContents()
+            NSPasteboard.general.setString(item.url.absoluteString, forType: .string)
+        } label: {
+            Image(systemName: "doc.on.doc")
+                .font(.system(size: 12, weight: .medium))
+                .foregroundColor(isHoveringCopyURL ? .accentColor : .secondary)
+                .frame(width: 24, height: 24)
+                .background(
+                    RoundedRectangle(cornerRadius: 6)
+                        .fill(isHoveringCopyURL ? Color.accentColor.opacity(0.15) : Color(nsColor: .controlBackgroundColor))
+                )
+        }
+        .buttonStyle(.plain)
+        .onHover { hovering in
+            withAnimation(.easeInOut(duration: 0.1)) {
+                isHoveringCopyURL = hovering
+            }
+        }
+        .help("Copy URL")
     }
 
     // MARK: - Open in Tab Button
