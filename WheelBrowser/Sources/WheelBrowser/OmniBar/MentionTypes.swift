@@ -4,6 +4,7 @@ import Foundation
 enum Mention: Identifiable, Equatable, Hashable {
     case currentPage
     case tab(id: UUID, title: String, url: String)
+    case overlay(id: UUID, title: String, url: String) // Mini window
     case semanticResult(id: UUID, title: String, url: String)
     case history
     case web           // Search all indexed web content
@@ -16,6 +17,8 @@ enum Mention: Identifiable, Equatable, Hashable {
             return "current-page"
         case .tab(let id, _, _):
             return "tab-\(id.uuidString)"
+        case .overlay(let id, _, _):
+            return "overlay-\(id.uuidString)"
         case .semanticResult(let id, _, _):
             return "semantic-\(id.uuidString)"
         case .history:
@@ -35,6 +38,8 @@ enum Mention: Identifiable, Equatable, Hashable {
             return "Page"
         case .tab(_, let title, _):
             return title.isEmpty ? "Untitled" : String(title.prefix(30))
+        case .overlay(_, let title, _):
+            return title.isEmpty ? "Mini Window" : String(title.prefix(30))
         case .semanticResult(_, let title, _):
             return title.isEmpty ? "Untitled" : String(title.prefix(30))
         case .history:
@@ -54,6 +59,8 @@ enum Mention: Identifiable, Equatable, Hashable {
             return "doc.text"
         case .tab:
             return "square.on.square"
+        case .overlay:
+            return "pip"
         case .semanticResult:
             return "brain.head.profile"
         case .history:
@@ -73,6 +80,8 @@ enum Mention: Identifiable, Equatable, Hashable {
             return "Current"
         case .tab:
             return "Tab"
+        case .overlay:
+            return "Mini"
         case .semanticResult:
             return "History"
         case .history:
@@ -92,6 +101,8 @@ enum Mention: Identifiable, Equatable, Hashable {
             return nil
         case .tab(_, _, let url):
             return url
+        case .overlay(_, _, let url):
+            return url
         case .semanticResult(_, _, let url):
             return url
         case .history, .web, .readingList:
@@ -104,6 +115,14 @@ enum Mention: Identifiable, Equatable, Hashable {
     /// Returns the tab ID if this is a tab mention
     var tabId: UUID? {
         if case .tab(let id, _, _) = self {
+            return id
+        }
+        return nil
+    }
+
+    /// Returns the overlay ID if this is an overlay mention
+    var overlayId: UUID? {
+        if case .overlay(let id, _, _) = self {
             return id
         }
         return nil

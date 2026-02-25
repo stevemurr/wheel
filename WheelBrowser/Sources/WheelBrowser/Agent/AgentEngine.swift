@@ -36,11 +36,51 @@ enum AgentAction: Equatable {
     case pressEnter
     case scroll(direction: ScrollDirection)
     case navigate(url: String)
+    case back
+    case waitForUser(reason: String)
     case wait(seconds: Double)
     case done(summary: String)
 
     enum ScrollDirection: String {
         case up, down, top, bottom
+    }
+}
+
+/// Represents a normalized action for loop detection (ignores element ID specifics)
+private struct NormalizedAction: Hashable {
+    let type: String  // "click", "type", "scroll", etc.
+    let target: String  // Normalized target info (element text/role, not ID)
+
+    init(from action: AgentAction, elementDescription: String? = nil) {
+        switch action {
+        case .click:
+            self.type = "click"
+            self.target = elementDescription ?? "unknown"
+        case .type(_, let text):
+            self.type = "type"
+            self.target = text  // What text is being typed
+        case .pressEnter:
+            self.type = "pressEnter"
+            self.target = ""
+        case .scroll(let direction):
+            self.type = "scroll"
+            self.target = direction.rawValue
+        case .navigate(let url):
+            self.type = "navigate"
+            self.target = url
+        case .back:
+            self.type = "back"
+            self.target = ""
+        case .waitForUser(let reason):
+            self.type = "waitForUser"
+            self.target = reason
+        case .wait:
+            self.type = "wait"
+            self.target = ""
+        case .done:
+            self.type = "done"
+            self.target = ""
+        }
     }
 }
 
@@ -64,6 +104,20 @@ class AgentEngine: ObservableObject {
     private weak var boundTab: Tab?
     private var tabClosureObserver: AnyCancellable?
 
+    // MARK: - Loop Detection State
+
+    /// History of recent actions for semantic loop detection
+    private var recentNormalizedActions: [NormalizedAction] = []
+    /// Track consecutive parse failures for backoff
+    private var consecutiveParseFailures: Int = 0
+    private let maxConsecutiveParseFailures = 3
+    /// Track loop recovery attempts (how many times we've tried backing out)
+    private var loopRecoveryAttempts: Int = 0
+    private let maxLoopRecoveryAttempts = 2
+    /// Whether we're waiting for user to solve a captcha
+    @Published var isWaitingForUser: Bool = false
+    @Published var waitingReason: String = ""
+
     // MARK: - Configuration
 
     private let maxIterations = 20
@@ -80,6 +134,7 @@ class AgentEngine: ObservableObject {
     press_enter        - Press enter key
     scroll(up/down)    - Scroll the page
     navigate("url")    - Go to URL
+    back()             - Go back to the previous page (use when stuck or need to try a different path)
     done("summary")    - IMPORTANT: Call this when the task is complete!
 
     WHEN TO CALL done():
@@ -89,6 +144,15 @@ class AgentEngine: ObservableObject {
     - The search results are showing
     - There is nothing more to do
 
+    WHEN TO CALL back():
+    - You're stuck on a page that doesn't help with the task
+    - The current approach isn't working and you want to try a different path
+    - You accidentally navigated to the wrong page
+
+    CAPTCHA/CHALLENGE PAGES:
+    - If you see a captcha, challenge, or "verify you are human" page, call wait_for_user("reason")
+    - The user will solve the captcha and the page will update automatically
+
     CORRECT EXAMPLES:
     THOUGHT: I need to click the search button.
     ACTION: click(5)
@@ -96,9 +160,13 @@ class AgentEngine: ObservableObject {
     THOUGHT: The search results are now showing. Task complete.
     ACTION: done("Successfully searched and found results")
 
+    THOUGHT: This page isn't what I need, let me go back and try a different link.
+    ACTION: back()
+
     RULES:
     - Call done() as soon as the task objective is achieved
     - Do NOT keep taking actions after the task is complete
+    - If stuck in a loop, try back() to take a different approach
     - Output ONLY plain text with THOUGHT: and ACTION: labels
     - Do NOT use JSON, XML, special tokens, or <|tags|>
     """
@@ -225,6 +293,13 @@ class AgentEngine: ObservableObject {
         agentLog.info("[Agent] Starting task: \(task)")
         print("[Agent] 🚀 Starting task: \(task)")
 
+        // Reset loop detection state
+        recentNormalizedActions = []
+        consecutiveParseFailures = 0
+        loopRecoveryAttempts = 0
+        isWaitingForUser = false
+        waitingReason = ""
+
         // Ensure we have a bound tab
         guard let tabId = boundTabId else {
             throw AgentError.webViewUnavailable
@@ -264,12 +339,34 @@ class AgentEngine: ObservableObject {
 
             // Parse thought and action
             guard let (thought, action) = parseResponse(llmResponse) else {
-                agentLog.warning("[Agent] Parse failed (will retry). Raw response:\n\(llmResponse)")
-                print("[Agent] ⚠️ PARSE FAILED (will retry) - Raw response:\n\(llmResponse)")
-                let errorStep = AgentStep(type: .error, content: "Failed to parse LLM response (retrying...)", timestamp: Date())
+                self.consecutiveParseFailures += 1
+                let failureCount = self.consecutiveParseFailures
+                let maxFailures = self.maxConsecutiveParseFailures
+                agentLog.warning("[Agent] Parse failed (attempt \(failureCount)/\(maxFailures)). Raw response:\n\(llmResponse)")
+                print("[Agent] ⚠️ PARSE FAILED (attempt \(failureCount)/\(maxFailures)) - Raw response:\n\(llmResponse)")
+
+                // Check if we've exceeded max consecutive parse failures
+                if failureCount >= maxFailures {
+                    agentLog.error("[Agent] Max consecutive parse failures reached, aborting")
+                    print("[Agent] ❌ Max consecutive parse failures (\(maxFailures)) reached")
+                    let errorStep = AgentStep(type: .error, content: "Failed to parse LLM response after \(maxFailures) attempts", timestamp: Date())
+                    steps.append(errorStep)
+                    throw AgentError.invalidLLMResponse("Unable to parse response after \(maxFailures) attempts")
+                }
+
+                // Exponential backoff: 1s, 2s, 4s
+                let backoffSeconds = pow(2.0, Double(failureCount - 1))
+                agentLog.info("[Agent] Backing off for \(backoffSeconds)s before retry")
+                print("[Agent] Backing off for \(backoffSeconds)s before retry")
+                try await Task.sleep(nanoseconds: UInt64(backoffSeconds * 1_000_000_000))
+
+                let errorStep = AgentStep(type: .error, content: "Failed to parse LLM response (retrying after \(Int(backoffSeconds))s backoff...)", timestamp: Date())
                 steps.append(errorStep)
                 continue
             }
+
+            // Reset parse failure counter on successful parse
+            self.consecutiveParseFailures = 0
             agentLog.info("[Agent] Parsed - Thought: \(thought), Action: \(String(describing: action))")
             print("[Agent] Parsed - Thought: \(thought)")
 
@@ -280,14 +377,58 @@ class AgentEngine: ObservableObject {
             let actionStep = AgentStep(type: .action, content: actionDescription, timestamp: Date())
             steps.append(actionStep)
 
-            // Check for stuck loop (same action 4+ times)
-            let recentActions = steps.filter { $0.type == .action }.suffix(4).map { $0.content }
-            if recentActions.count >= 4 && Set(recentActions).count == 1 {
-                agentLog.warning("[Agent] Detected stuck loop - same action repeated 4 times")
-                print("[Agent] ⚠️ Stuck loop detected - forcing completion")
-                let doneStep = AgentStep(type: .done, content: "Task ended: Agent was repeating the same action", timestamp: Date())
+            // Build normalized action for loop detection
+            // For click actions, get the element description from the snapshot to compare semantically
+            var elementDescription: String? = nil
+            if case .click(let elementId) = action {
+                if let element = snapshot.elements.first(where: { $0.id == elementId }) {
+                    // Use element's semantic identifiers, not its numeric ID
+                    elementDescription = "\(element.tag):\(element.text ?? element.ariaLabel ?? element.placeholder ?? "unknown")"
+                }
+            }
+            let normalizedAction = NormalizedAction(from: action, elementDescription: elementDescription)
+            recentNormalizedActions.append(normalizedAction)
+
+            // Keep only last 8 actions for pattern detection
+            if recentNormalizedActions.count > 8 {
+                recentNormalizedActions.removeFirst()
+            }
+
+            // Enhanced loop detection: check for various stuck patterns
+            if let loopType = detectStuckLoop() {
+                agentLog.warning("[Agent] Detected stuck loop: \(loopType)")
+
+                // Try to recover by backing out if we haven't exhausted recovery attempts
+                if loopRecoveryAttempts < maxLoopRecoveryAttempts {
+                    loopRecoveryAttempts += 1
+                    print("[Agent] ⚠️ Stuck loop detected (\(loopType)) - attempting recovery \(loopRecoveryAttempts)/\(maxLoopRecoveryAttempts)")
+
+                    // Check if we can go back
+                    if let tab = boundTab, tab.canGoBack {
+                        let recoveryStep = AgentStep(type: .action, content: "Loop detected, going back to try different approach", timestamp: Date())
+                        steps.append(recoveryStep)
+
+                        // Go back
+                        tab.goBack()
+                        try await bridge.waitForLoad(timeout: 5.0)
+
+                        // Clear recent actions to give fresh start
+                        recentNormalizedActions = []
+
+                        let resultStep = AgentStep(type: .result, content: "Navigated back after loop detection", timestamp: Date())
+                        steps.append(resultStep)
+
+                        // Continue to next iteration with fresh state
+                        try await Task.sleep(nanoseconds: 500_000_000)
+                        continue
+                    }
+                }
+
+                // Exhausted recovery attempts or can't go back
+                print("[Agent] ⚠️ Stuck loop detected (\(loopType)) - forcing completion")
+                let doneStep = AgentStep(type: .done, content: "Task ended: \(loopType)", timestamp: Date())
                 steps.append(doneStep)
-                return AgentResult(success: false, summary: "Agent got stuck in a loop", steps: steps)
+                return AgentResult(success: false, summary: "Agent got stuck: \(loopType)", steps: steps)
             }
 
             // 3. Act - Execute the action
@@ -361,6 +502,125 @@ class AgentEngine: ObservableObject {
         return prompt
     }
 
+    /// Detect if the agent is stuck in a loop pattern
+    /// Returns a description of the loop type if detected, nil otherwise
+    private func detectStuckLoop() -> String? {
+        let actions = recentNormalizedActions
+
+        // Need at least 4 actions to detect patterns
+        guard actions.count >= 4 else { return nil }
+
+        // Pattern 1: Same action repeated 4+ times in a row
+        let lastFour = Array(actions.suffix(4))
+        if Set(lastFour).count == 1 {
+            return "Same action repeated 4 times"
+        }
+
+        // Pattern 2: Oscillating between 2 actions (A-B-A-B pattern)
+        if actions.count >= 4 {
+            let a1 = actions[actions.count - 4]
+            let a2 = actions[actions.count - 3]
+            let a3 = actions[actions.count - 2]
+            let a4 = actions[actions.count - 1]
+
+            if a1 == a3 && a2 == a4 && a1 != a2 {
+                return "Oscillating between two actions"
+            }
+        }
+
+        // Pattern 3: Same action type on different elements (click-click-click even if different targets)
+        if actions.count >= 5 {
+            let lastFiveTypes = actions.suffix(5).map { $0.type }
+            if Set(lastFiveTypes).count == 1 && lastFiveTypes[0] == "click" {
+                // All 5 recent actions are clicks - likely stuck trying different elements
+                let lastFiveTargets = Set(actions.suffix(5).map { $0.target })
+                if lastFiveTargets.count <= 2 {
+                    // Clicking same 1-2 elements repeatedly
+                    return "Repeatedly clicking same elements"
+                }
+            }
+        }
+
+        // Pattern 4: Scroll loop (scrolling same direction repeatedly without progress)
+        if actions.count >= 6 {
+            let lastSix = actions.suffix(6)
+            let scrollActions = lastSix.filter { $0.type == "scroll" }
+            if scrollActions.count >= 4 {
+                let directions = Set(scrollActions.map { $0.target })
+                if directions.count == 1 {
+                    return "Scroll loop without progress"
+                }
+            }
+        }
+
+        // Pattern 5: Three-action cycle (A-B-C-A-B-C)
+        if actions.count >= 6 {
+            let a1 = actions[actions.count - 6]
+            let a2 = actions[actions.count - 5]
+            let a3 = actions[actions.count - 4]
+            let a4 = actions[actions.count - 3]
+            let a5 = actions[actions.count - 2]
+            let a6 = actions[actions.count - 1]
+
+            if a1 == a4 && a2 == a5 && a3 == a6 {
+                return "Three-action cycle detected"
+            }
+        }
+
+        return nil
+    }
+
+    /// Try to extract an action from reasoning content that doesn't have THOUGHT/ACTION markers
+    /// This handles reasoning models that explain what they'll do without using the required format
+    private func extractActionFromReasoning(_ reasoning: String) -> String? {
+        // Look for explicit action mentions at the end of reasoning
+        // Common patterns: "Let's do X", "So we should X", "Thus: X", "ACTION: X"
+
+        // Pattern: navigate("url") or navigate(url)
+        if let match = reasoning.range(of: #"navigate\s*\(\s*[\"']?https?://[^\s\"'\)]+[\"']?\s*\)"#, options: [.regularExpression, .caseInsensitive]) {
+            return String(reasoning[match])
+        }
+
+        // Pattern: "Let's navigate to URL" or "navigate to URL"
+        if let match = reasoning.range(of: #"(?:let's\s+)?navigate\s+(?:to\s+)?[\"']?(https?://[^\s\"']+)[\"']?"#, options: [.regularExpression, .caseInsensitive]) {
+            let segment = String(reasoning[match])
+            // Extract URL from the match
+            if let urlMatch = segment.range(of: #"https?://[^\s\"']+"#, options: .regularExpression) {
+                let url = String(segment[urlMatch])
+                return "navigate(\"\(url)\")"
+            }
+        }
+
+        // Pattern: type(id, "text")
+        if let match = reasoning.range(of: #"type\s*\(\s*\d+\s*,\s*[\"'][^\"']+[\"']\s*\)"#, options: [.regularExpression, .caseInsensitive]) {
+            return String(reasoning[match])
+        }
+
+        // Pattern: click(id)
+        if let match = reasoning.range(of: #"click\s*\(\s*\d+\s*\)"#, options: [.regularExpression, .caseInsensitive]) {
+            return String(reasoning[match])
+        }
+
+        // Pattern: press_enter
+        if reasoning.range(of: #"press[_\s]?enter"#, options: [.regularExpression, .caseInsensitive]) != nil {
+            return "press_enter"
+        }
+
+        // Pattern: scroll(direction)
+        if let match = reasoning.range(of: #"scroll\s*\(\s*(up|down|top|bottom)\s*\)"#, options: [.regularExpression, .caseInsensitive]) {
+            return String(reasoning[match])
+        }
+
+        // Pattern: done("summary") or "task complete"
+        if reasoning.range(of: #"done\s*\([\"'][^\"']+[\"']\)"#, options: [.regularExpression, .caseInsensitive]) != nil {
+            if let match = reasoning.range(of: #"done\s*\([\"'][^\"']+[\"']\)"#, options: [.regularExpression, .caseInsensitive]) {
+                return String(reasoning[match])
+            }
+        }
+
+        return nil
+    }
+
     private func parseResponse(_ response: String) -> (thought: String, action: AgentAction)? {
         // Try standard THOUGHT/ACTION format first
         if let thoughtMatch = response.range(of: "THOUGHT:", options: .caseInsensitive),
@@ -431,7 +691,7 @@ class AgentEngine: ObservableObject {
 
             if let jsonEnd = jsonEnd {
                 let jsonString = String(response[jsonStart..<jsonEnd])
-                print("[Agent] parseHarmonyToolCall: Extracted JSON: \(jsonString)")
+                print("[Agent] parseHarmonyFormat: Extracted JSON: \(jsonString)")
 
                 // Try to parse as JSON with thought/action fields
                 if let jsonData = jsonString.data(using: .utf8),
@@ -440,7 +700,7 @@ class AgentEngine: ObservableObject {
                     // Check for thought/action structure
                     if let thought = json["thought"] as? String,
                        let actionStr = json["action"] as? String {
-                        print("[Agent] parseHarmonyToolCall: Found thought/action JSON - thought: \(thought), action: \(actionStr)")
+                        print("[Agent] parseHarmonyFormat: Found thought/action JSON - thought: \(thought), action: \(actionStr)")
 
                         if let action = parseAction(actionStr) {
                             return (thought, action)
@@ -449,9 +709,39 @@ class AgentEngine: ObservableObject {
 
                     // Check for just "action" field (thought might be missing)
                     if let actionStr = json["action"] as? String {
-                        print("[Agent] parseHarmonyToolCall: Found action-only JSON - action: \(actionStr)")
+                        print("[Agent] parseHarmonyFormat: Found action-only JSON - action: \(actionStr)")
                         if let action = parseAction(actionStr) {
                             return ("(from JSON)", action)
+                        }
+                    }
+
+                    // Handle case where there's only a "thought" with no action
+                    // Try to extract an action from the thought text itself
+                    if let thought = json["thought"] as? String {
+                        print("[Agent] parseHarmonyFormat: Found thought-only JSON, attempting to extract action from thought: \(thought)")
+
+                        // Try to extract action patterns from the thought
+                        if let extractedAction = extractActionFromReasoning(thought) {
+                            print("[Agent] parseHarmonyFormat: Extracted action from thought: \(extractedAction)")
+                            if let action = parseAction(extractedAction) {
+                                return (thought, action)
+                            }
+                        }
+
+                        // Check if the thought itself describes an action we can infer
+                        let thoughtLower = thought.lowercased()
+                        if thoughtLower.contains("type") && thoughtLower.contains("search") {
+                            // Try to find element ID for search box mentioned in recent context
+                            print("[Agent] parseHarmonyFormat: Thought mentions typing in search, but no specific action")
+                        }
+                        if thoughtLower.contains("press enter") || thoughtLower.contains("press_enter") {
+                            return (thought, .pressEnter)
+                        }
+                        if thoughtLower.contains("scroll down") {
+                            return (thought, .scroll(direction: .down))
+                        }
+                        if thoughtLower.contains("scroll up") {
+                            return (thought, .scroll(direction: .up))
                         }
                     }
                 }
@@ -463,7 +753,12 @@ class AgentEngine: ObservableObject {
             return ("(Harmony tool call)", action)
         }
 
-        print("[Agent] parseHarmonyToolCall: Could not extract action from Harmony format")
+        // Check for commentary-only responses (no actionable content)
+        if response.contains("<|channel|>commentary") {
+            print("[Agent] parseHarmonyFormat: Response is commentary-only with no action")
+        }
+
+        print("[Agent] parseHarmonyFormat: Could not extract action from Harmony format")
         return nil
     }
 
@@ -629,7 +924,16 @@ class AgentEngine: ObservableObject {
     }
 
     private func parseAction(_ actionString: String) -> AgentAction? {
-        let trimmed = actionString.trimmingCharacters(in: .whitespacesAndNewlines)
+        var trimmed = actionString.trimmingCharacters(in: .whitespacesAndNewlines)
+
+        // Handle multi-action responses: only parse the FIRST action
+        // If there's a newline followed by another THOUGHT or ACTION, truncate there
+        if let nextActionRange = trimmed.range(of: #"\n\s*(THOUGHT:|ACTION:)"#, options: .regularExpression) {
+            trimmed = String(trimmed[..<nextActionRange.lowerBound]).trimmingCharacters(in: .whitespacesAndNewlines)
+            agentLog.info("[Agent] parseAction: Truncated multi-action response to first action: '\(trimmed)'")
+            print("[Agent] parseAction: Truncated multi-action response to first action: '\(trimmed)'")
+        }
+
         agentLog.debug("[Agent] parseAction: Attempting to parse '\(trimmed)'")
         print("[Agent] parseAction: Attempting to parse '\(trimmed)'")
 
@@ -686,6 +990,22 @@ class AgentEngine: ObservableObject {
             return .navigate(url: url)
         }
 
+        // back()
+        if trimmed.lowercased().hasPrefix("back()") || trimmed.lowercased().hasPrefix("back") && trimmed.count < 10 {
+            return .back
+        }
+
+        // wait_for_user("reason")
+        if let match = trimmed.range(of: #"wait_for_user\s*\(\s*[\"'](.+?)[\"']\s*\)"#, options: .regularExpression) {
+            let reason = String(trimmed[match])
+                .replacingOccurrences(of: "wait_for_user", with: "")
+                .replacingOccurrences(of: "(", with: "")
+                .replacingOccurrences(of: ")", with: "")
+                .trimmingCharacters(in: .whitespaces)
+                .trimmingCharacters(in: CharacterSet(charactersIn: "\"'"))
+            return .waitForUser(reason: reason)
+        }
+
         // wait(seconds)
         if let match = trimmed.range(of: #"wait\s*\(\s*([\d.]+)\s*\)"#, options: .regularExpression) {
             let secStr = String(trimmed[match])
@@ -735,6 +1055,10 @@ class AgentEngine: ObservableObject {
             return "Scroll \(direction.rawValue)"
         case .navigate(let url):
             return "Navigate to \(url)"
+        case .back:
+            return "Go back to previous page"
+        case .waitForUser(let reason):
+            return "Waiting for user: \(reason)"
         case .wait(let seconds):
             return "Wait \(seconds) seconds"
         case .done(let summary):
@@ -789,6 +1113,49 @@ class AgentEngine: ObservableObject {
                 throw AgentError.navigationFailed("Invalid URL: \(urlString)")
             }
 
+        case .back:
+            guard let boundTabId = boundTabId,
+                  let tab = browserState.tab(for: boundTabId) else {
+                throw AgentError.webViewUnavailable
+            }
+            guard tab.canGoBack else {
+                return "Cannot go back - no history"
+            }
+            tab.goBack()
+            try await bridge.waitForLoad(timeout: 5.0)
+            // Clear recent actions when backing out to give fresh perspective
+            recentNormalizedActions = []
+            return "Navigated back to previous page"
+
+        case .waitForUser(let reason):
+            isWaitingForUser = true
+            waitingReason = reason
+            agentLog.info("[Agent] Waiting for user action: \(reason)")
+            print("[Agent] ⏸️ Waiting for user: \(reason)")
+
+            // Wait for the page to change (user solved captcha, etc.)
+            // Poll every 2 seconds for up to 2 minutes
+            let startURL = try? await bridge.snapshot().url
+            for _ in 0..<60 {
+                try Task.checkCancellation()
+                try await Task.sleep(nanoseconds: 2_000_000_000)
+
+                // Check if page URL changed
+                if let currentURL = try? await bridge.snapshot().url,
+                   currentURL != startURL {
+                    isWaitingForUser = false
+                    waitingReason = ""
+                    return "User completed action - page changed"
+                }
+
+                // Also check if page content changed significantly
+                // (some captchas stay on same URL but content changes)
+            }
+
+            isWaitingForUser = false
+            waitingReason = ""
+            return "Timed out waiting for user action"
+
         case .wait(let seconds):
             try await Task.sleep(nanoseconds: UInt64(seconds * 1_000_000_000))
             return "Waited \(seconds) seconds"
@@ -807,15 +1174,6 @@ class AgentEngine: ObservableObject {
 
         let endpoint = baseURL.appendingPathComponent("chat/completions")
 
-        var request = URLRequest(url: endpoint)
-        request.httpMethod = "POST"
-        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-
-        // Add API key if configured
-        if settings.useAPIKey && settings.hasAPIKey {
-            request.setValue("Bearer \(settings.llmAPIKey)", forHTTPHeaderField: "Authorization")
-        }
-
         let body: [String: Any] = [
             "model": settings.selectedModel,
             "messages": [
@@ -823,28 +1181,99 @@ class AgentEngine: ObservableObject {
                 ["role": "user", "content": prompt]
             ],
             "temperature": 0.3,
-            "max_tokens": 1500  // Increased for reasoning models that use tokens for chain-of-thought
+            "max_tokens": 4000  // Increased for reasoning models that use tokens for chain-of-thought
         ]
 
-        request.httpBody = try JSONSerialization.data(withJSONObject: body)
+        let bodyData = try JSONSerialization.data(withJSONObject: body)
 
-        let (data, response) = try await URLSession.shared.data(for: request)
+        // Retry logic for transient errors (5xx, network issues)
+        let maxRetries = 3
+        var lastError: Error?
 
-        guard let httpResponse = response as? HTTPURLResponse else {
-            agentLog.error("[Agent] callLLM: Invalid HTTP response type")
-            print("[Agent] callLLM: Invalid HTTP response type")
-            throw AgentError.llmRequestFailed("Invalid response")
+        for attempt in 1...maxRetries {
+            do {
+                var request = URLRequest(url: endpoint)
+                request.httpMethod = "POST"
+                request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+
+                // Add API key if configured
+                if settings.useAPIKey && settings.hasAPIKey {
+                    request.setValue("Bearer \(settings.llmAPIKey)", forHTTPHeaderField: "Authorization")
+                }
+
+                request.httpBody = bodyData
+
+                let (data, response) = try await URLSession.shared.data(for: request)
+
+                guard let httpResponse = response as? HTTPURLResponse else {
+                    agentLog.error("[Agent] callLLM: Invalid HTTP response type")
+                    print("[Agent] callLLM: Invalid HTTP response type")
+                    throw AgentError.llmRequestFailed("Invalid response")
+                }
+
+                agentLog.debug("[Agent] callLLM: HTTP status \(httpResponse.statusCode)")
+                print("[Agent] callLLM: HTTP status \(httpResponse.statusCode)")
+
+                // Handle retryable errors (5xx server errors, 429 rate limit)
+                if httpResponse.statusCode >= 500 || httpResponse.statusCode == 429 {
+                    let errorBody = String(data: data, encoding: .utf8) ?? "Unknown error"
+                    agentLog.warning("[Agent] callLLM: HTTP \(httpResponse.statusCode) (attempt \(attempt)/\(maxRetries))")
+
+                    // Log detailed error info for debugging
+                    print("[Agent] callLLM: ⚠️ HTTP \(httpResponse.statusCode) (attempt \(attempt)/\(maxRetries))")
+                    print("[Agent] callLLM: Request details:")
+                    print("  - Endpoint: \(endpoint)")
+                    print("  - Model: \(settings.selectedModel)")
+                    print("  - Prompt length: \(prompt.count) chars")
+                    print("  - max_tokens: 4000")
+                    print("[Agent] callLLM: Error response body:")
+                    print(errorBody)
+
+                    if attempt < maxRetries {
+                        // Exponential backoff: 1s, 2s, 4s
+                        let backoffSeconds = pow(2.0, Double(attempt - 1))
+                        try await Task.sleep(nanoseconds: UInt64(backoffSeconds * 1_000_000_000))
+                        continue
+                    } else {
+                        throw AgentError.llmRequestFailed("HTTP \(httpResponse.statusCode) after \(maxRetries) retries: \(errorBody)")
+                    }
+                }
+
+                guard httpResponse.statusCode == 200 else {
+                    let errorMessage = String(data: data, encoding: .utf8) ?? "Unknown error"
+                    agentLog.error("[Agent] callLLM: HTTP error \(httpResponse.statusCode): \(errorMessage)")
+                    print("[Agent] callLLM: HTTP error \(httpResponse.statusCode): \(errorMessage)")
+                    throw AgentError.llmRequestFailed("HTTP \(httpResponse.statusCode): \(errorMessage)")
+                }
+
+                // Success - parse the response (rest of the function continues below)
+                return try await parseLLMResponse(data: data)
+
+            } catch let error as AgentError {
+                lastError = error
+                // Don't retry AgentErrors that aren't network-related
+                if case .llmRequestFailed(let msg) = error, msg.contains("HTTP 5") || msg.contains("HTTP 429") {
+                    continue
+                }
+                throw error
+            } catch {
+                // Network errors - retry
+                lastError = error
+                agentLog.warning("[Agent] callLLM: Network error (attempt \(attempt)/\(maxRetries)): \(error.localizedDescription)")
+                print("[Agent] callLLM: ⚠️ Network error (attempt \(attempt)/\(maxRetries)): \(error.localizedDescription)")
+
+                if attempt < maxRetries {
+                    let backoffSeconds = pow(2.0, Double(attempt - 1))
+                    try await Task.sleep(nanoseconds: UInt64(backoffSeconds * 1_000_000_000))
+                    continue
+                }
+            }
         }
 
-        agentLog.debug("[Agent] callLLM: HTTP status \(httpResponse.statusCode)")
-        print("[Agent] callLLM: HTTP status \(httpResponse.statusCode)")
+        throw lastError ?? AgentError.llmRequestFailed("Unknown error after \(maxRetries) retries")
+    }
 
-        guard httpResponse.statusCode == 200 else {
-            let errorMessage = String(data: data, encoding: .utf8) ?? "Unknown error"
-            agentLog.error("[Agent] callLLM: HTTP error \(httpResponse.statusCode): \(errorMessage)")
-            print("[Agent] callLLM: HTTP error \(httpResponse.statusCode): \(errorMessage)")
-            throw AgentError.llmRequestFailed("HTTP \(httpResponse.statusCode): \(errorMessage)")
-        }
+    private func parseLLMResponse(data: Data) async throws -> String {
 
         // Log raw response for debugging
         let rawResponse = String(data: data, encoding: .utf8) ?? "<binary data>"
@@ -865,6 +1294,13 @@ class AgentEngine: ObservableObject {
         if finishReason == "length" {
             agentLog.warning("[Agent] callLLM: Response truncated (finish_reason=length)")
             print("[Agent] callLLM: ⚠️ Response truncated due to token limit")
+
+            // If content is null and response was truncated, don't try to use reasoning_content
+            // The reasoning chain is incomplete and will likely fail to parse
+            if message["content"] == nil || (message["content"] as? String) == nil {
+                print("[Agent] callLLM: Truncated response with no content - will retry")
+                throw AgentError.invalidLLMResponse("Response truncated before generating action (finish_reason=length)")
+            }
         }
 
         // For reasoning models (like gpt-oss-20b):
@@ -889,10 +1325,18 @@ class AgentEngine: ObservableObject {
                 return reasoningContent
             }
 
-            // reasoning_content exists but doesn't have proper format
-            // Return it anyway and let parseResponse handle the failure gracefully
-            print("[Agent] callLLM: reasoning_content lacks markers, returning for parse attempt")
-            return reasoningContent
+            // Try to extract an action from the reasoning content
+            // Look for patterns like "Let's do navigate" or "We should type" or "click(N)"
+            if let extractedAction = extractActionFromReasoning(reasoningContent) {
+                print("[Agent] callLLM: Extracted action from reasoning_content: \(extractedAction)")
+                return "THOUGHT: (extracted from reasoning)\nACTION: \(extractedAction)"
+            }
+
+            // reasoning_content exists but couldn't extract an action
+            print("[Agent] callLLM: reasoning_content lacks markers and no action extractable")
+            // Don't return raw reasoning - it will just fail to parse
+            // Instead, throw an error so we can retry
+            throw AgentError.invalidLLMResponse("Model returned only reasoning_content without actionable output")
         }
 
         // Both content and reasoning_content are null/missing

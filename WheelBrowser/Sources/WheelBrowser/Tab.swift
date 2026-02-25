@@ -388,6 +388,28 @@ class Tab: Identifiable, ObservableObject {
                 clearTimeout(hoverTimeout);
                 window.webkit.messageHandlers.linkHover.postMessage({ type: 'leave' });
             });
+
+            // Cmd+Click to open link in overlay window
+            document.addEventListener('click', function(e) {
+                if (!e.metaKey) return;  // metaKey is Cmd on Mac
+
+                let target = e.target;
+                while (target && target.tagName !== 'A') {
+                    target = target.parentElement;
+                }
+                if (!target || !target.href || !target.href.startsWith('http')) return;
+
+                e.preventDefault();
+                e.stopPropagation();
+
+                window.webkit.messageHandlers.overlayWindow.postMessage({
+                    type: 'openOverlay',
+                    url: target.href,
+                    text: target.textContent?.trim() || target.href,
+                    x: e.clientX,
+                    y: e.clientY
+                });
+            }, true);
         })();
         """
 

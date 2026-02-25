@@ -396,6 +396,22 @@ actor SearchDatabase {
         }
     }
 
+    /// Clear all summaries for saved pages (used before regeneration)
+    func clearAllSummaries() throws {
+        let sql = "UPDATE pages SET summary = NULL WHERE is_saved = 1"
+
+        var stmt: OpaquePointer?
+        defer { sqlite3_finalize(stmt) }
+
+        guard sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK else {
+            throw SearchDBError.prepareFailed(String(cString: sqlite3_errmsg(db)))
+        }
+
+        guard sqlite3_step(stmt) == SQLITE_DONE else {
+            throw SearchDBError.executeFailed(String(cString: sqlite3_errmsg(db)))
+        }
+    }
+
     /// Get saved pages that don't have a summary yet
     func getSavedPagesWithoutSummary(limit: Int = 20) throws -> [SavedPageRecord] {
         let sql = """
@@ -441,6 +457,17 @@ actor SearchDatabase {
 
     func vacuum() throws {
         try execute("VACUUM")
+    }
+
+    /// Clear all reading list items (unsave all saved pages)
+    func clearReadingList() throws {
+        try execute("UPDATE pages SET is_saved = 0, saved_at = NULL WHERE is_saved = 1")
+    }
+
+    /// Delete all data from the database
+    func clearAllData() throws {
+        try execute("DELETE FROM pages_fts")
+        try execute("DELETE FROM pages")
     }
 
     // MARK: - Private Helpers

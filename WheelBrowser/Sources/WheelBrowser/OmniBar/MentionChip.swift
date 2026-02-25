@@ -52,6 +52,8 @@ struct MentionChip: View {
             return .purple
         case .tab:
             return .blue
+        case .overlay:
+            return .mint
         case .semanticResult:
             return .orange
         case .history:
@@ -155,6 +157,8 @@ struct MentionSuggestionRow: View {
             return .purple
         case .tab:
             return .blue
+        case .overlay:
+            return .mint
         case .semanticResult:
             return .orange
         case .history:
@@ -186,6 +190,16 @@ struct MentionSuggestionRow: View {
             } else {
                 fallbackIcon
             }
+
+        case .overlay:
+            Image(systemName: "pip")
+                .font(.system(size: 12))
+                .foregroundColor(.mint)
+                .frame(width: 24, height: 24)
+                .background(
+                    RoundedRectangle(cornerRadius: 5)
+                        .fill(Color.mint.opacity(0.1))
+                )
 
         case .semanticResult:
             Image(systemName: "brain.head.profile")

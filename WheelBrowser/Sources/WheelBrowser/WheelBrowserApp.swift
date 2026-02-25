@@ -204,6 +204,13 @@ struct WheelBrowserApp: App {
                     NotificationCenter.default.post(name: .toggleDarkMode, object: nil)
                 }
                 .keyboardShortcut("d", modifiers: [.command, .shift])
+
+                Divider()
+
+                Button("Close All Overlays") {
+                    NotificationCenter.default.post(name: .closeAllOverlays, object: nil)
+                }
+                .keyboardShortcut("o", modifiers: [.command, .option])
             }
         }
 
@@ -257,4 +264,7 @@ extension Notification.Name {
     // Reading list
     static let toggleSavePage = Notification.Name("toggleSavePage")
     static let focusReadingList = Notification.Name("focusReadingList")
+
+    // Overlay windows
+    static let closeAllOverlays = Notification.Name("closeAllOverlays")
 }

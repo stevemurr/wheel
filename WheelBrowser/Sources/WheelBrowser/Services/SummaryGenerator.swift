@@ -52,6 +52,12 @@ actor SummaryGenerator {
                     request.httpBody = jsonData
                     request.timeoutInterval = 30
 
+                    // Add Authorization header if API key is configured
+                    let apiKey = await MainActor.run { settings.llmAPIKey }
+                    if !apiKey.isEmpty {
+                        request.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
+                    }
+
                     print("[SummaryGenerator] Starting streaming request to: \(chatEndpoint)")
                     let (bytes, response) = try await URLSession.shared.bytes(for: request)
 
@@ -168,6 +174,12 @@ actor SummaryGenerator {
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.httpBody = jsonData
         request.timeoutInterval = 30
+
+        // Add Authorization header if API key is configured
+        let apiKey = await MainActor.run { settings.llmAPIKey }
+        if !apiKey.isEmpty {
+            request.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
+        }
 
         do {
             let (data, response) = try await URLSession.shared.data(for: request)

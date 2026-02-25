@@ -3,12 +3,10 @@ import SwiftUI
 struct SettingsView: View {
     @ObservedObject private var settings = AppSettings.shared
     @ObservedObject private var contentBlocker = ContentBlockerManager.shared
-    @ObservedObject private var blockingStats = BlockingStats.shared
+    @ObservedObject private var filterListManager = FilterListManager.shared
     @ObservedObject private var semanticSearch = SemanticSearchManagerV2.shared
     @State private var availableModels: [String] = []
     @State private var isLoadingModels = false
-    @State private var connectionStatus: ConnectionStatus = .unknown
-    @State private var showingResetStatsAlert = false
     @State private var apiKeyInput: String = ""
     @State private var showAPIKey = false
     @State private var llmConnectionStatus: LLMConnectionStatus = .unknown
@@ -16,9 +14,10 @@ struct SettingsView: View {
     @State private var dindexAPIKeyInput: String = ""
     @State private var showDIndexAPIKey = false
 
-    enum ConnectionStatus {
-        case unknown, checking, connected, failed
-    }
+    // Debug section state
+    @State private var showClearHistoryAlert = false
+    @State private var showClearReadingListAlert = false
+    @State private var showClearSemanticIndexAlert = false
 
     enum LLMConnectionStatus {
         case unknown, checking, connected, failed(String)
@@ -98,7 +97,7 @@ struct SettingsView: View {
             }
 
             // MARK: - Content Blocking Section
-            Section("Privacy & Content Blocking") {
+            Section("Content Blocking") {
                 // Master toggle
                 Toggle("Enable Content Blocking", isOn: $settings.adBlockingEnabled)
 
@@ -136,34 +135,22 @@ struct SettingsView: View {
                     }
                 }
 
-                // Category toggles
+                // All blocking options in one flat list
                 if settings.adBlockingEnabled {
-                    DisclosureGroup("Blocking Categories") {
-                        ForEach(BlockingCategory.allCases, id: \.self) { category in
-                            CategoryToggleRow(
-                                category: category,
-                                isEnabled: contentBlocker.isEnabled(category),
-                                ruleCount: ContentBlockerManager.approximateRuleCounts[category] ?? 0
-                            ) {
-                                contentBlocker.toggle(category)
-                            }
+                    // Built-in blocking categories
+                    ForEach(BlockingCategory.allCases, id: \.self) { category in
+                        CategoryToggleRow(
+                            category: category,
+                            isEnabled: contentBlocker.isEnabled(category),
+                            ruleCount: ContentBlockerManager.approximateRuleCounts[category] ?? 0
+                        ) {
+                            contentBlocker.toggle(category)
                         }
+                    }
 
-                        HStack {
-                            Button("Enable All") {
-                                contentBlocker.enableAll()
-                            }
-                            .buttonStyle(.borderless)
-
-                            Spacer()
-
-                            Button("Disable All") {
-                                contentBlocker.disableAll()
-                            }
-                            .buttonStyle(.borderless)
-                            .foregroundColor(.secondary)
-                        }
-                        .padding(.top, 4)
+                    // Built-in filter lists (EasyList, EasyPrivacy)
+                    ForEach(filterListManager.filterLists.filter { $0.isBuiltIn }) { filterList in
+                        FilterListToggleRow(filterList: filterList)
                     }
                 }
 
@@ -173,75 +160,6 @@ struct SettingsView: View {
                     }
                 }
                 .disabled(contentBlocker.isCompiling)
-            }
-
-            // MARK: - External Filter Lists Section
-            if settings.adBlockingEnabled {
-                Section("External Filter Lists") {
-                    FilterListSettingsView()
-                }
-            }
-
-            // MARK: - Blocking Statistics Section
-            if settings.adBlockingEnabled {
-                Section("Blocking Statistics") {
-                    StatsRow(
-                        icon: "shield.fill",
-                        title: "Total Blocked",
-                        value: blockingStats.formattedTotalBlocked,
-                        subtitle: "Since \(formattedTrackingDate)"
-                    )
-
-                    StatsRow(
-                        icon: "clock.fill",
-                        title: "This Session",
-                        value: blockingStats.formattedSessionBlocked,
-                        subtitle: nil
-                    )
-
-                    StatsRow(
-                        icon: "doc.fill",
-                        title: "Pages Protected",
-                        value: "\(blockingStats.pagesProtected)",
-                        subtitle: nil
-                    )
-
-                    StatsRow(
-                        icon: "chart.line.uptrend.xyaxis",
-                        title: "Daily Average",
-                        value: blockingStats.formattedAveragePerDay,
-                        subtitle: "blocks per day"
-                    )
-
-                    // Category breakdown
-                    if !blockingStats.blockedByCategory.isEmpty {
-                        DisclosureGroup("By Category") {
-                            ForEach(BlockingCategory.allCases, id: \.self) { category in
-                                HStack {
-                                    Image(systemName: category.icon)
-                                        .frame(width: 20)
-                                        .foregroundColor(.secondary)
-                                    Text(category.displayName)
-                                    Spacer()
-                                    Text(formatCount(blockingStats.blockedByCategory[category] ?? 0))
-                                        .foregroundColor(.secondary)
-                                }
-                            }
-                        }
-                    }
-
-                    Button("Reset Statistics", role: .destructive) {
-                        showingResetStatsAlert = true
-                    }
-                    .alert("Reset Statistics", isPresented: $showingResetStatsAlert) {
-                        Button("Cancel", role: .cancel) { }
-                        Button("Reset", role: .destructive) {
-                            blockingStats.resetAllStats()
-                        }
-                    } message: {
-                        Text("This will clear all blocking statistics. This action cannot be undone.")
-                    }
-                }
             }
 
             // MARK: - LLM Configuration Section
@@ -476,37 +394,6 @@ struct SettingsView: View {
                 }
             }
 
-            // MARK: - Letta Server Section
-            Section("Letta Server") {
-                TextField("Letta Server URL", text: $settings.lettaServerURL)
-                    .textFieldStyle(.roundedBorder)
-
-                HStack {
-                    Text("Status:")
-                    switch connectionStatus {
-                    case .unknown:
-                        Text("Not checked")
-                            .foregroundColor(.secondary)
-                    case .checking:
-                        ProgressView()
-                            .scaleEffect(0.7)
-                    case .connected:
-                        Label("Connected", systemImage: "checkmark.circle.fill")
-                            .foregroundColor(.green)
-                    case .failed:
-                        Label("Failed", systemImage: "xmark.circle.fill")
-                            .foregroundColor(.red)
-                    }
-
-                    Spacer()
-
-                    Button("Test Connection") {
-                        testLettaConnection()
-                    }
-                    .disabled(connectionStatus == .checking)
-                }
-            }
-
             // MARK: - Agent Section
             Section("Agent") {
                 if settings.agentId.isEmpty {
@@ -530,9 +417,85 @@ struct SettingsView: View {
             Section("MCP Server") {
                 MCPSettingsView()
             }
+
+            // MARK: - Debug Section
+            Section("Debug") {
+                Button(role: .destructive) {
+                    showClearHistoryAlert = true
+                } label: {
+                    HStack {
+                        Image(systemName: "clock.arrow.circlepath")
+                            .frame(width: 20)
+                        Text("Clear Browsing History")
+                    }
+                }
+                .buttonStyle(.borderless)
+
+                Button(role: .destructive) {
+                    showClearReadingListAlert = true
+                } label: {
+                    HStack {
+                        Image(systemName: "bookmark.slash")
+                            .frame(width: 20)
+                        Text("Clear Reading List")
+                    }
+                }
+                .buttonStyle(.borderless)
+
+                Button(role: .destructive) {
+                    showClearSemanticIndexAlert = true
+                } label: {
+                    HStack {
+                        Image(systemName: "magnifyingglass")
+                            .frame(width: 20)
+                        Text("Clear Semantic Index")
+                    }
+                }
+                .buttonStyle(.borderless)
+            }
         }
         .formStyle(.grouped)
         .frame(width: 500, height: 900)
+        .alert("Clear Browsing History?", isPresented: $showClearHistoryAlert) {
+            Button("Cancel", role: .cancel) { }
+            Button("Clear", role: .destructive) {
+                BrowsingHistory.shared.clearHistory()
+            }
+        } message: {
+            Text("This will permanently delete all browsing history. This action cannot be undone.")
+        }
+        .alert("Clear Reading List?", isPresented: $showClearReadingListAlert) {
+            Button("Cancel", role: .cancel) { }
+            Button("Clear", role: .destructive) {
+                Task {
+                    do {
+                        let database = try SearchDatabase()
+                        try await database.initialize()
+                        try await database.clearReadingList()
+                    } catch {
+                        print("Failed to clear reading list: \(error)")
+                    }
+                }
+            }
+        } message: {
+            Text("This will remove all items from your reading list. This action cannot be undone.")
+        }
+        .alert("Clear Semantic Index?", isPresented: $showClearSemanticIndexAlert) {
+            Button("Cancel", role: .cancel) { }
+            Button("Clear", role: .destructive) {
+                Task {
+                    do {
+                        let database = try SearchDatabase()
+                        try await database.initialize()
+                        try await database.clearAllData()
+                    } catch {
+                        print("Failed to clear semantic index: \(error)")
+                    }
+                }
+            }
+        } message: {
+            Text("This will delete all indexed page data used for semantic search. This action cannot be undone.")
+        }
         .onAppear {
             fetchModels()
             // Load the existing API key from Keychain into the input field
@@ -540,26 +503,6 @@ struct SettingsView: View {
             // Load DIndex API key
             dindexAPIKeyInput = settings.dindexAPIKey
         }
-    }
-
-    // MARK: - Helper Properties
-
-    private var formattedTrackingDate: String {
-        guard let date = blockingStats.trackingSince else {
-            return "today"
-        }
-        let formatter = DateFormatter()
-        formatter.dateStyle = .medium
-        return formatter.string(from: date)
-    }
-
-    private func formatCount(_ count: Int) -> String {
-        if count >= 1_000_000 {
-            return String(format: "%.1fM", Double(count) / 1_000_000)
-        } else if count >= 1_000 {
-            return String(format: "%.1fK", Double(count) / 1_000)
-        }
-        return "\(count)"
     }
 
     // MARK: - Network Methods
@@ -597,31 +540,6 @@ struct SettingsView: View {
 
                 if !availableModels.contains(settings.selectedModel) && !availableModels.isEmpty {
                     settings.selectedModel = availableModels[0]
-                }
-            }
-        }.resume()
-    }
-
-    private func testLettaConnection() {
-        guard let baseURL = settings.lettaBaseURL else {
-            connectionStatus = .failed
-            return
-        }
-
-        connectionStatus = .checking
-        let healthURL = baseURL.appendingPathComponent("v1/health")
-
-        var request = URLRequest(url: healthURL)
-        request.httpMethod = "GET"
-        request.timeoutInterval = 5
-
-        URLSession.shared.dataTask(with: request) { data, response, error in
-            DispatchQueue.main.async {
-                if let httpResponse = response as? HTTPURLResponse,
-                   httpResponse.statusCode == 200 {
-                    connectionStatus = .connected
-                } else {
-                    connectionStatus = .failed
                 }
             }
         }.resume()
@@ -766,23 +684,25 @@ struct CategoryToggleRow: View {
     }
 }
 
-/// Row for displaying a statistic
-struct StatsRow: View {
-    let icon: String
-    let title: String
-    let value: String
-    let subtitle: String?
+/// Row for displaying a filter list with toggle (matching CategoryToggleRow style)
+struct FilterListToggleRow: View {
+    let filterList: FilterList
+    @ObservedObject private var manager = FilterListManager.shared
 
     var body: some View {
         HStack {
-            Image(systemName: icon)
+            Image(systemName: "list.bullet.rectangle")
                 .frame(width: 20)
-                .foregroundColor(.accentColor)
+                .foregroundColor(filterList.isEnabled ? .accentColor : .secondary)
 
             VStack(alignment: .leading, spacing: 2) {
-                Text(title)
-                if let subtitle = subtitle {
-                    Text(subtitle)
+                Text(filterList.name)
+                if filterList.ruleCount > 0 {
+                    Text("\(formatRuleCount(filterList.ruleCount)) rules - Community filter list")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                } else {
+                    Text("Community filter list")
                         .font(.caption)
                         .foregroundColor(.secondary)
                 }
@@ -790,11 +710,242 @@ struct StatsRow: View {
 
             Spacer()
 
-            Text(value)
-                .font(.system(.body, design: .rounded))
-                .fontWeight(.medium)
-                .foregroundColor(.primary)
+            Toggle("", isOn: Binding(
+                get: { filterList.isEnabled },
+                set: { newValue in
+                    manager.setEnabled(newValue, for: filterList)
+                }
+            ))
+            .labelsHidden()
         }
+        .contentShape(Rectangle())
+        .onTapGesture {
+            manager.toggleFilterList(filterList)
+        }
+    }
+
+    private func formatRuleCount(_ count: Int) -> String {
+        if count >= 1000 {
+            return String(format: "%.1fK", Double(count) / 1000)
+        }
+        return "\(count)"
+    }
+}
+
+// MARK: - External Filter Lists View (Inline)
+
+/// Inline view for external filter lists within the Content Blocking section
+struct ExternalFilterListsView: View {
+    @ObservedObject private var manager = FilterListManager.shared
+    @State private var showingAddSheet = false
+    @State private var newListURL = ""
+    @State private var newListName = ""
+    @State private var urlError: String?
+
+    var body: some View {
+        DisclosureGroup {
+            // Progress bar during update
+            if manager.isUpdating {
+                ProgressView(value: manager.updateProgress)
+                    .progressViewStyle(.linear)
+            }
+
+            // Filter list rows
+            ForEach(manager.filterLists) { filterList in
+                ExternalFilterListRow(filterList: filterList)
+            }
+
+            // Add button
+            Button(action: { showingAddSheet = true }) {
+                Label("Add Filter List", systemImage: "plus.circle")
+            }
+            .buttonStyle(.borderless)
+
+            // WebKit limit warning
+            if manager.totalEnabledRuleCount > 45_000 {
+                HStack {
+                    Image(systemName: "exclamationmark.triangle.fill")
+                        .foregroundColor(.orange)
+                    Text("Approaching WebKit's 50,000 rule limit. Some rules may be truncated.")
+                        .font(.caption)
+                        .foregroundColor(.orange)
+                }
+            }
+        } label: {
+            HStack {
+                Image(systemName: "list.bullet.rectangle")
+                    .frame(width: 20)
+                    .foregroundColor(manager.enabledCount > 0 ? .accentColor : .secondary)
+
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("External Filter Lists")
+                    Text("\(manager.enabledCount) enabled, \(formatRuleCount(manager.totalEnabledRuleCount)) rules")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                }
+
+                Spacer()
+
+                // Update all button
+                Button(action: {
+                    Task {
+                        await manager.updateAll(forceUpdate: true)
+                    }
+                }) {
+                    if manager.isUpdating {
+                        ProgressView()
+                            .scaleEffect(0.7)
+                    } else {
+                        Image(systemName: "arrow.clockwise")
+                    }
+                }
+                .buttonStyle(.borderless)
+                .disabled(manager.isUpdating)
+            }
+        }
+        .sheet(isPresented: $showingAddSheet) {
+            AddFilterListSheet(
+                url: $newListURL,
+                name: $newListName,
+                error: $urlError,
+                onAdd: addFilterList,
+                onCancel: { showingAddSheet = false }
+            )
+        }
+    }
+
+    private func formatRuleCount(_ count: Int) -> String {
+        if count >= 1000 {
+            return String(format: "%.1fK", Double(count) / 1000)
+        }
+        return "\(count)"
+    }
+
+    private func addFilterList() {
+        guard let url = URL(string: newListURL),
+              url.scheme == "http" || url.scheme == "https" else {
+            urlError = "Please enter a valid HTTP(S) URL"
+            return
+        }
+
+        let name = newListName.isEmpty ? url.lastPathComponent : newListName
+
+        manager.addFilterList(name: name, url: url)
+
+        // Fetch the new list
+        Task {
+            if let addedList = manager.filterLists.last {
+                _ = try? await manager.updateFilterList(addedList, forceUpdate: true)
+            }
+        }
+
+        // Reset and close
+        newListURL = ""
+        newListName = ""
+        urlError = nil
+        showingAddSheet = false
+    }
+}
+
+// MARK: - External Filter List Row
+
+struct ExternalFilterListRow: View {
+    let filterList: FilterList
+    @ObservedObject private var manager = FilterListManager.shared
+    @State private var showingDeleteConfirmation = false
+
+    var body: some View {
+        HStack(spacing: 12) {
+            // Enable toggle
+            Toggle("", isOn: Binding(
+                get: { filterList.isEnabled },
+                set: { _ in manager.toggleFilterList(filterList) }
+            ))
+            .labelsHidden()
+
+            // Info
+            VStack(alignment: .leading, spacing: 2) {
+                HStack(spacing: 6) {
+                    Text(filterList.name)
+                        .fontWeight(.medium)
+
+                    if filterList.isBuiltIn {
+                        Text("Built-in")
+                            .font(.caption2)
+                            .padding(.horizontal, 6)
+                            .padding(.vertical, 2)
+                            .background(Color.accentColor.opacity(0.2))
+                            .foregroundColor(.accentColor)
+                            .cornerRadius(4)
+                    }
+
+                    if filterList.lastError != nil {
+                        Image(systemName: "exclamationmark.triangle.fill")
+                            .foregroundColor(.orange)
+                            .font(.caption)
+                    }
+                }
+
+                HStack(spacing: 8) {
+                    if filterList.ruleCount > 0 {
+                        Text("\(formatRuleCount(filterList.ruleCount)) rules")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                    }
+
+                    if let lastUpdated = filterList.lastUpdated {
+                        Text("Updated \(formatRelativeDate(lastUpdated))")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                    } else if filterList.isEnabled {
+                        Text("Not downloaded")
+                            .font(.caption)
+                            .foregroundColor(.orange)
+                    }
+                }
+
+                if let error = filterList.lastError {
+                    Text(error)
+                        .font(.caption2)
+                        .foregroundColor(.red)
+                        .lineLimit(1)
+                }
+            }
+
+            Spacer()
+
+            // Delete button (for non-built-in lists)
+            if !filterList.isBuiltIn {
+                Button(action: { showingDeleteConfirmation = true }) {
+                    Image(systemName: "trash")
+                        .foregroundColor(.secondary)
+                }
+                .buttonStyle(.borderless)
+            }
+        }
+        .padding(.vertical, 4)
+        .contentShape(Rectangle())
+        .alert("Remove Filter List?", isPresented: $showingDeleteConfirmation) {
+            Button("Cancel", role: .cancel) { }
+            Button("Remove", role: .destructive) {
+                manager.removeFilterList(filterList)
+            }
+        } message: {
+            Text("This will remove \"\(filterList.name)\" and its rules.")
+        }
+    }
+
+    private func formatRuleCount(_ count: Int) -> String {
+        if count >= 1000 {
+            return String(format: "%.1fK", Double(count) / 1000)
+        }
+        return "\(count)"
+    }
+
+    private func formatRelativeDate(_ date: Date) -> String {
+        let formatter = RelativeDateTimeFormatter()
+        formatter.unitsStyle = .abbreviated
+        return formatter.localizedString(for: date, relativeTo: Date())
     }
 }
 

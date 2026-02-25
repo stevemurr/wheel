@@ -116,6 +116,14 @@ class MentionSuggestionsViewModel: ObservableObject {
                 allSuggestions.append(contentsOf: tabSuggestions)
             }
 
+            // Search open overlay windows (mini windows)
+            let overlaySuggestions = searchOverlays(
+                query: query,
+                overlays: OverlayWindowManager.shared.windows,
+                excludedIds: excludedIds
+            )
+            allSuggestions.append(contentsOf: overlaySuggestions)
+
             // Search semantic results (from history)
             let semanticSuggestions = await searchSemanticHistory(
                 query: query,
@@ -143,6 +151,43 @@ class MentionSuggestionsViewModel: ObservableObject {
             suggestions = allSuggestions
             selectedIndex = suggestions.isEmpty ? -1 : 0
             isSearching = false
+        }
+    }
+
+    /// Search open overlay windows using fuzzy matching
+    private func searchOverlays(
+        query: String,
+        overlays: [OverlayWindowItem],
+        excludedIds: Set<String>
+    ) -> [MentionSuggestion] {
+        return overlays.compactMap { overlay -> MentionSuggestion? in
+            let mention = Mention.overlay(
+                id: overlay.id,
+                title: overlay.title,
+                url: overlay.url.absoluteString
+            )
+
+            // Skip if already mentioned
+            if excludedIds.contains(mention.id) { return nil }
+
+            // Calculate score
+            let score: Int
+            if query.isEmpty {
+                score = 600 // Higher than tabs since mini windows are more focused
+            } else {
+                let titleScore = FuzzySearch.score(query: query, target: overlay.title)
+                let urlScore = FuzzySearch.score(query: query, target: overlay.url.absoluteString)
+                // Also match "mini", "window", "overlay", "pip"
+                let typeScore = ["mini", "window", "overlay", "pip", "popup"]
+                    .map { FuzzySearch.score(query: query, target: $0) }
+                    .max() ?? 0
+                score = max(titleScore, urlScore, typeScore)
+            }
+
+            // Filter out non-matches when there's a query
+            guard score > 0 else { return nil }
+
+            return MentionSuggestion(mention: mention, score: score)
         }
     }
 

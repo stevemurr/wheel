@@ -1168,6 +1168,16 @@ struct OmniBar: View {
                         }
                     }
 
+                case .overlay(let overlayId, let title, let url):
+                    // For overlay windows, include URL and title as context
+                    // The overlay content can be accessed via the OverlayWindowManager
+                    let overlayContext = PageContext(
+                        url: url,
+                        title: title,
+                        textContent: "[Content from mini window - URL: \(url)]"
+                    )
+                    pageContexts.append(overlayContext)
+
                 case .semanticResult(_, _, let url):
                     // For semantic results, we include the URL as context
                     // The actual content would need to be fetched, but for now we provide URL info

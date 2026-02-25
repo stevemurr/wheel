@@ -12,6 +12,7 @@ struct WebViewRepresentable: NSViewRepresentable {
         // Register link hover message handler
         let contentController = tab.webView.configuration.userContentController
         contentController.add(context.coordinator, name: "linkHover")
+        contentController.add(context.coordinator, name: "overlayWindow")
 
         return tab.webView
     }
@@ -39,10 +40,36 @@ struct WebViewRepresentable: NSViewRepresentable {
         func userContentController(_ userContentController: WKUserContentController, didReceive message: WKScriptMessage) {
             print("[LinkPreview] Received message: \(message.name)")
 
-            guard message.name == "linkHover",
-                  let body = message.body as? [String: Any],
+            guard let body = message.body as? [String: Any],
                   let type = body["type"] as? String else {
                 print("[LinkPreview] Invalid message format")
+                return
+            }
+
+            // Handle overlay window messages (Cmd+Click)
+            if message.name == "overlayWindow" {
+                Task { @MainActor in
+                    if type == "openOverlay" {
+                        guard let urlString = body["url"] as? String,
+                              let url = URL(string: urlString),
+                              let x = body["x"] as? Double,
+                              let y = body["y"] as? Double else {
+                            print("[OverlayWindow] Invalid overlay data")
+                            return
+                        }
+
+                        let linkText = body["text"] as? String
+                        let position = CGPoint(x: x, y: y)
+
+                        print("[OverlayWindow] Opening overlay for: \(urlString) at (\(x), \(y))")
+                        OverlayWindowManager.shared.openOverlay(url: url, title: linkText, at: position)
+                    }
+                }
+                return
+            }
+
+            // Handle link hover messages
+            guard message.name == "linkHover" else {
                 return
             }
 

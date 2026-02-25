@@ -77,6 +77,8 @@ struct ReadingListWidgetView: View {
     let onRefresh: () -> Void
 
     @State private var isConfiguring = false
+    @State private var isRegeneratingAll = false
+    @State private var regenerationProgress: (current: Int, total: Int)?
 
     private var visiblePages: [SavedPageRecord] {
         let limit: Int
@@ -167,9 +169,28 @@ struct ReadingListWidgetView: View {
                 }
             }
 
-            if isLoading {
+            if isLoading || isRegeneratingAll {
+                if let progress = regenerationProgress {
+                    Text("\(progress.current)/\(progress.total)")
+                        .font(.system(size: 10))
+                        .foregroundStyle(.tertiary)
+                }
                 ProgressView()
                     .scaleEffect(0.5)
+            } else {
+                Menu {
+                    Button {
+                        regenerateAllSummaries()
+                    } label: {
+                        Label("Regenerate All Summaries", systemImage: "arrow.clockwise")
+                    }
+                } label: {
+                    Image(systemName: "ellipsis.circle")
+                        .font(.system(size: 12))
+                        .foregroundStyle(.secondary)
+                }
+                .menuStyle(.borderlessButton)
+                .frame(width: 20, height: 20)
             }
         }
     }
@@ -177,7 +198,12 @@ struct ReadingListWidgetView: View {
     private var standardContent: some View {
         VStack(spacing: 2) {
             ForEach(visiblePages) { page in
-                ReadingListRowButton(page: page, compact: size == .small, expanded: false)
+                ReadingListRowButton(
+                    page: page,
+                    compact: size == .small,
+                    expanded: false,
+                    onRegenerateSummary: regenerateSummary
+                )
             }
         }
     }
@@ -186,8 +212,38 @@ struct ReadingListWidgetView: View {
         ScrollView(.vertical, showsIndicators: true) {
             VStack(spacing: 8) {
                 ForEach(visiblePages) { page in
-                    ReadingListRowButton(page: page, compact: false, expanded: true)
+                    ReadingListRowButton(
+                        page: page,
+                        compact: false,
+                        expanded: true,
+                        onRegenerateSummary: regenerateSummary
+                    )
                 }
+            }
+        }
+    }
+
+    private func regenerateSummary(for url: URL) {
+        Task {
+            _ = await SummaryGenerator.shared.regenerateSummary(for: url)
+            onRefresh()
+        }
+    }
+
+    private func regenerateAllSummaries() {
+        isRegeneratingAll = true
+        regenerationProgress = nil
+
+        Task {
+            await SummaryGenerator.shared.regenerateAllSummaries { current, total in
+                Task { @MainActor in
+                    regenerationProgress = (current, total)
+                }
+            }
+            await MainActor.run {
+                isRegeneratingAll = false
+                regenerationProgress = nil
+                onRefresh()
             }
         }
     }
@@ -212,8 +268,10 @@ struct ReadingListRowButton: View {
     let page: SavedPageRecord
     let compact: Bool
     var expanded: Bool = false
+    var onRegenerateSummary: ((URL) -> Void)?
 
     @State private var isHovered = false
+    @State private var isRegenerating = false
 
     private var domain: String {
         page.domain.replacingOccurrences(of: "www.", with: "")
@@ -300,5 +358,23 @@ struct ReadingListRowButton: View {
         }
         .buttonStyle(.plain)
         .onHover { isHovered = $0 }
+        .contextMenu {
+            Button {
+                isRegenerating = true
+                onRegenerateSummary?(page.url)
+            } label: {
+                Label("Regenerate Summary", systemImage: "arrow.clockwise")
+            }
+        }
+        .overlay(alignment: .trailing) {
+            if isRegenerating {
+                ProgressView()
+                    .scaleEffect(0.5)
+                    .padding(.trailing, 8)
+            }
+        }
+        .onChange(of: page.summary) { _, _ in
+            isRegenerating = false
+        }
     }
 }

@@ -65,6 +65,8 @@ struct PageSnapshot: Codable {
     let elements: [PageElement]
     let scrollPosition: ScrollPosition
     let viewportSize: ViewportSize
+    let captchaDetected: Bool
+    let captchaType: String?
 
     struct ScrollPosition: Codable {
         let x: Double
@@ -78,6 +80,18 @@ struct PageSnapshot: Codable {
         let height: Double
     }
 
+    // For backwards compatibility with existing snapshots that don't have captcha fields
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        url = try container.decode(String.self, forKey: .url)
+        title = try container.decode(String.self, forKey: .title)
+        elements = try container.decode([PageElement].self, forKey: .elements)
+        scrollPosition = try container.decode(ScrollPosition.self, forKey: .scrollPosition)
+        viewportSize = try container.decode(ViewportSize.self, forKey: .viewportSize)
+        captchaDetected = try container.decodeIfPresent(Bool.self, forKey: .captchaDetected) ?? false
+        captchaType = try container.decodeIfPresent(String.self, forKey: .captchaType)
+    }
+
     /// A text representation of the page for the LLM
     var textRepresentation: String {
         var lines: [String] = []
@@ -85,6 +99,13 @@ struct PageSnapshot: Codable {
         lines.append("Title: \(title)")
         lines.append("Viewport: \(Int(viewportSize.width))x\(Int(viewportSize.height))")
         lines.append("Scroll: \(Int(scrollPosition.y))/\(Int(scrollPosition.maxY))")
+
+        if captchaDetected {
+            lines.append("")
+            lines.append("⚠️ CAPTCHA/CHALLENGE DETECTED: \(captchaType ?? "unknown type")")
+            lines.append("   Call wait_for_user(\"Please solve the captcha\") to wait for the user to complete it.")
+        }
+
         lines.append("")
         lines.append("Interactive Elements:")
 
@@ -194,6 +215,55 @@ class AccessibilityBridge {
                 el.dataset.agentId = String(id - 1);
             });
 
+            // Detect captcha/challenge pages
+            let captchaDetected = false;
+            let captchaType = null;
+
+            // Check for reCAPTCHA
+            if (document.querySelector('iframe[src*="recaptcha"]') ||
+                document.querySelector('.g-recaptcha') ||
+                document.querySelector('[data-sitekey]')) {
+                captchaDetected = true;
+                captchaType = 'reCAPTCHA';
+            }
+
+            // Check for hCaptcha
+            if (document.querySelector('iframe[src*="hcaptcha"]') ||
+                document.querySelector('.h-captcha')) {
+                captchaDetected = true;
+                captchaType = 'hCaptcha';
+            }
+
+            // Check for Cloudflare challenge
+            if (document.querySelector('#challenge-running') ||
+                document.querySelector('#challenge-form') ||
+                document.title.includes('Just a moment') ||
+                document.title.includes('Attention Required') ||
+                document.body.innerText.includes('Checking your browser') ||
+                document.body.innerText.includes('Please wait while we verify')) {
+                captchaDetected = true;
+                captchaType = 'Cloudflare Challenge';
+            }
+
+            // Check for common captcha text patterns
+            const bodyText = document.body.innerText.toLowerCase();
+            if (!captchaDetected && (
+                bodyText.includes("i'm not a robot") ||
+                bodyText.includes("verify you are human") ||
+                bodyText.includes("prove you are human") ||
+                bodyText.includes("complete the security check") ||
+                bodyText.includes("please verify you are a human"))) {
+                captchaDetected = true;
+                captchaType = 'Human Verification';
+            }
+
+            // Check for Turnstile (Cloudflare's newer captcha)
+            if (document.querySelector('iframe[src*="turnstile"]') ||
+                document.querySelector('.cf-turnstile')) {
+                captchaDetected = true;
+                captchaType = 'Cloudflare Turnstile';
+            }
+
             return {
                 url: window.location.href,
                 title: document.title,
@@ -207,7 +277,9 @@ class AccessibilityBridge {
                 viewportSize: {
                     width: window.innerWidth,
                     height: window.innerHeight
-                }
+                },
+                captchaDetected: captchaDetected,
+                captchaType: captchaType
             };
         })();
         """
@@ -244,7 +316,20 @@ class AccessibilityBridge {
         (function() {
             const el = document.querySelector('[data-agent-id="\(elementId)"]');
             if (!el) {
-                return { success: false, error: 'Element not found' };
+                return { success: false, error: 'Element not found (ID: \(elementId)). The page may have changed since the last snapshot.' };
+            }
+
+            // Verify element is still visible and interactable
+            const rect = el.getBoundingClientRect();
+            const style = window.getComputedStyle(el);
+            const isVisible = rect.width > 0 &&
+                rect.height > 0 &&
+                style.visibility !== 'hidden' &&
+                style.display !== 'none' &&
+                style.opacity !== '0';
+
+            if (!isVisible) {
+                return { success: false, error: 'Element exists but is no longer visible (ID: \(elementId))' };
             }
 
             // Store as last interacted element globally
@@ -259,7 +344,6 @@ class AccessibilityBridge {
             }
 
             // Create and dispatch click event
-            const rect = el.getBoundingClientRect();
             const x = rect.x + rect.width / 2;
             const y = rect.y + rect.height / 2;
 
@@ -278,17 +362,25 @@ class AccessibilityBridge {
                 el.click();
             }
 
-            return { success: true };
+            return { success: true, elementTag: el.tagName, elementText: (el.innerText || '').substring(0, 50) };
         })();
         """
 
         do {
             let result = try await webView.evaluateJavaScript(script)
 
-            if let dict = result as? [String: Any],
-               let success = dict["success"] as? Bool,
-               !success,
-               let error = dict["error"] as? String {
+            // Handle nil result - JavaScript may have crashed or timed out
+            guard let dict = result as? [String: Any] else {
+                throw AgentError.clickFailed("JavaScript execution returned no result (element ID: \(elementId)). The page may be unresponsive.")
+            }
+
+            // Check for explicit failure
+            guard let success = dict["success"] as? Bool else {
+                throw AgentError.clickFailed("Invalid response from click script (missing success field)")
+            }
+
+            if !success {
+                let error = dict["error"] as? String ?? "Unknown click error"
                 throw AgentError.clickFailed(error)
             }
         } catch let error as AgentError {
@@ -320,7 +412,25 @@ class AccessibilityBridge {
         (function() {
             const el = document.querySelector('[data-agent-id="\(elementId)"]');
             if (!el) {
-                return { success: false, error: 'Element not found' };
+                return { success: false, error: 'Element not found (ID: \(elementId)). The page may have changed since the last snapshot.' };
+            }
+
+            // Verify element is still visible
+            const rect = el.getBoundingClientRect();
+            const style = window.getComputedStyle(el);
+            const isVisible = rect.width > 0 &&
+                rect.height > 0 &&
+                style.visibility !== 'hidden' &&
+                style.display !== 'none';
+
+            if (!isVisible) {
+                return { success: false, error: 'Element exists but is no longer visible (ID: \(elementId))' };
+            }
+
+            // Verify element is a text input type
+            const isTextInput = el.tagName === 'INPUT' || el.tagName === 'TEXTAREA' || el.isContentEditable;
+            if (!isTextInput) {
+                return { success: false, error: 'Element is not a text input (tag: ' + el.tagName + ')' };
             }
 
             // Store as last interacted element globally
@@ -348,17 +458,25 @@ class AccessibilityBridge {
             el.dispatchEvent(new Event('input', { bubbles: true }));
             el.dispatchEvent(new Event('change', { bubbles: true }));
 
-            return { success: true };
+            return { success: true, finalValue: el.value || el.textContent };
         })();
         """
 
         do {
             let result = try await webView.evaluateJavaScript(script)
 
-            if let dict = result as? [String: Any],
-               let success = dict["success"] as? Bool,
-               !success,
-               let error = dict["error"] as? String {
+            // Handle nil result - JavaScript may have crashed or timed out
+            guard let dict = result as? [String: Any] else {
+                throw AgentError.typeFailed("JavaScript execution returned no result (element ID: \(elementId)). The page may be unresponsive.")
+            }
+
+            // Check for explicit failure
+            guard let success = dict["success"] as? Bool else {
+                throw AgentError.typeFailed("Invalid response from type script (missing success field)")
+            }
+
+            if !success {
+                let error = dict["error"] as? String ?? "Unknown type error"
                 throw AgentError.typeFailed(error)
             }
         } catch let error as AgentError {
@@ -448,10 +566,17 @@ class AccessibilityBridge {
         do {
             let result = try await webView.evaluateJavaScript(script)
 
-            if let dict = result as? [String: Any],
-               let success = dict["success"] as? Bool,
-               !success,
-               let error = dict["error"] as? String {
+            // Handle nil result
+            guard let dict = result as? [String: Any] else {
+                throw AgentError.typeFailed("JavaScript execution returned no result for pressEnter. The page may be unresponsive.")
+            }
+
+            guard let success = dict["success"] as? Bool else {
+                throw AgentError.typeFailed("Invalid response from pressEnter script (missing success field)")
+            }
+
+            if !success {
+                let error = dict["error"] as? String ?? "Unknown pressEnter error"
                 throw AgentError.typeFailed(error)
             }
         } catch let error as AgentError {
