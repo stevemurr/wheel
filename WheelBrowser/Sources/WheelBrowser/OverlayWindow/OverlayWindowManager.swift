@@ -36,8 +36,11 @@ class OverlayWindowManager: ObservableObject {
     private let maxWindows = 5
 
     // Default window dimensions
-    private let defaultSize = CGSize(width: 700, height: 500)
+    private let defaultSize = CGSize(width: 700, height: 600)
     private let cascadeOffset: CGFloat = 30
+
+    /// Container size for calculating centered positions
+    var containerSize: CGSize = .zero
 
     private init() {}
 
@@ -56,16 +59,26 @@ class OverlayWindowManager: ObservableObject {
         // Calculate position with cascade offset if not specified
         let windowPosition: CGPoint
         if let position = position {
-            windowPosition = position
+            // Position passed in - offset slightly so window doesn't cover click location
+            windowPosition = CGPoint(
+                x: max(0, position.x - windowSize.width / 2 + 50),
+                y: max(0, position.y - 20)
+            )
         } else if let lastWindow = windows.last {
             // Cascade from the last window
             windowPosition = CGPoint(
                 x: lastWindow.position.x + cascadeOffset,
                 y: lastWindow.position.y + cascadeOffset
             )
+        } else if containerSize.width > 0 && containerSize.height > 0 {
+            // Center in container with slight offset toward top-right
+            windowPosition = CGPoint(
+                x: (containerSize.width - windowSize.width) / 2 + 50,
+                y: (containerSize.height - windowSize.height) / 2 - 30
+            )
         } else {
-            // Default starting position
-            windowPosition = CGPoint(x: 100, y: 100)
+            // Fallback if container size not yet known
+            windowPosition = CGPoint(x: 100, y: 80)
         }
 
         let windowTitle = title ?? url.host ?? url.absoluteString

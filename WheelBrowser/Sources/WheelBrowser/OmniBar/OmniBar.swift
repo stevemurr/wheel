@@ -525,10 +525,8 @@ struct OmniBar: View {
         .onReceive(NotificationCenter.default.publisher(for: .focusAISidebar)) { _ in
             omniState.setMode(.chat)
             isInputFocused = true
-            // Remove current page mention if on new tab (no URL)
-            if tab.url == nil {
-                omniState.removeMention(.currentPage)
-            }
+            // Reset mentions to use overlay if available, otherwise current page
+            omniState.resetMentions(includeCurrentPage: tab.url != nil)
             if !agentManager.messages.isEmpty {
                 omniState.openChatPanel()
             }
@@ -536,10 +534,8 @@ struct OmniBar: View {
         .onReceive(NotificationCenter.default.publisher(for: .focusChatInput)) { _ in
             omniState.setMode(.chat)
             isInputFocused = true
-            // Remove current page mention if on new tab (no URL)
-            if tab.url == nil {
-                omniState.removeMention(.currentPage)
-            }
+            // Reset mentions to use overlay if available, otherwise current page
+            omniState.resetMentions(includeCurrentPage: tab.url != nil)
         }
         .onReceive(NotificationCenter.default.publisher(for: .focusSemanticSearch)) { _ in
             omniState.setMode(.semantic)
@@ -813,10 +809,20 @@ struct OmniBar: View {
                 placeholder: omniState.mode == .chat && !omniState.mentions.isEmpty ? "Ask about these pages..." : omniState.placeholder,
                 onSubmit: handleSubmit,
                 onTabPress: {
+                    let wasChat = omniState.mode == .chat
                     omniState.nextMode()
+                    // Reset mentions when entering chat mode
+                    if !wasChat && omniState.mode == .chat {
+                        omniState.resetMentions(includeCurrentPage: tab.url != nil)
+                    }
                 },
                 onShiftTabPress: {
+                    let wasChat = omniState.mode == .chat
                     omniState.previousMode()
+                    // Reset mentions when entering chat mode
+                    if !wasChat && omniState.mode == .chat {
+                        omniState.resetMentions(includeCurrentPage: tab.url != nil)
+                    }
                 },
                 onAtTrigger: { query in
                     handleAtTrigger(query: query)
@@ -1493,6 +1499,20 @@ struct OmniBarTextField: NSViewRepresentable {
                         }
                     }
                     return true
+                } else if commandSelector == #selector(NSResponder.deleteBackward(_:)) {
+                    // If text is empty and there are mentions, remove the last one
+                    if parent.text.isEmpty && !parent.omniState.mentions.isEmpty {
+                        DispatchQueue.main.async {
+                            Task { @MainActor in
+                                // Remove the last mention
+                                if let lastMention = self.parent.omniState.mentions.last {
+                                    self.parent.omniState.removeMention(lastMention)
+                                }
+                            }
+                        }
+                        return true
+                    }
+                    return false // Let normal backspace behavior happen if text is not empty
                 }
             }
 

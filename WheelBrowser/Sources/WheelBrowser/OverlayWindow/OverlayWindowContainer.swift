@@ -51,6 +51,12 @@ struct OverlayWindowContainer: View {
             }
         }
         .animation(.spring(response: 0.3, dampingFraction: 0.8), value: manager.windows.map { $0.id })
+        .onAppear {
+            manager.containerSize = containerSize
+        }
+        .onChange(of: containerSize) { _, newSize in
+            manager.containerSize = newSize
+        }
     }
 
     /// Windows sorted by zIndex for proper layering

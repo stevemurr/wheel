@@ -106,7 +106,16 @@ class OmniBarState: ObservableObject {
     /// - Parameter includeCurrentPage: Whether to include the current page mention. Set to false when on new tab page (no URL).
     func resetMentions(includeCurrentPage: Bool = true) {
         if includeCurrentPage {
-            mentions = [.currentPage]
+            // If overlay windows are open, use the most recent one as default instead of current page
+            if let mostRecentOverlay = OverlayWindowManager.shared.windows.sorted(by: { $0.createdAt > $1.createdAt }).first {
+                mentions = [.overlay(
+                    id: mostRecentOverlay.id,
+                    title: mostRecentOverlay.title,
+                    url: mostRecentOverlay.url.absoluteString
+                )]
+            } else {
+                mentions = [.currentPage]
+            }
         } else {
             mentions = []
         }

@@ -44,11 +44,15 @@ class MentionSuggestionsViewModel: ObservableObject {
             // Get excluded IDs for filtering
             let excludedIds = Set(excluding.map { $0.id })
 
+            // Check if there are open overlay windows (mini windows should be default when present)
+            let hasOpenOverlays = !OverlayWindowManager.shared.windows.isEmpty
+
             // Add "Current Page" option if not already mentioned
             if !excludedIds.contains(Mention.currentPage.id) {
                 let pageScore: Int
                 if query.isEmpty {
-                    pageScore = 1000 // High score when no query
+                    // Lower score when overlays are open so they become the default
+                    pageScore = hasOpenOverlays ? 950 : 1000
                 } else {
                     // Check if query matches "page", "current", etc.
                     let targets = ["page", "current", "this"]
@@ -160,7 +164,11 @@ class MentionSuggestionsViewModel: ObservableObject {
         overlays: [OverlayWindowItem],
         excludedIds: Set<String>
     ) -> [MentionSuggestion] {
-        return overlays.compactMap { overlay -> MentionSuggestion? in
+        // When overlays exist, make them the default (score 1000+)
+        // Most recent overlay gets highest score
+        let sortedOverlays = overlays.sorted { $0.createdAt > $1.createdAt }
+
+        return sortedOverlays.enumerated().compactMap { index, overlay -> MentionSuggestion? in
             let mention = Mention.overlay(
                 id: overlay.id,
                 title: overlay.title,
@@ -173,7 +181,9 @@ class MentionSuggestionsViewModel: ObservableObject {
             // Calculate score
             let score: Int
             if query.isEmpty {
-                score = 600 // Higher than tabs since mini windows are more focused
+                // Most recent overlay gets score 1000 (becomes default)
+                // Subsequent overlays get decreasing scores but still above Page (900)
+                score = 1000 - (index * 10)
             } else {
                 let titleScore = FuzzySearch.score(query: query, target: overlay.title)
                 let urlScore = FuzzySearch.score(query: query, target: overlay.url.absoluteString)
