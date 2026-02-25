@@ -142,7 +142,7 @@ class AgentStudioManager: ObservableObject {
             agents = decoded.agents
             activeAgentID = decoded.activeAgentID
         } catch {
-            print("Failed to load agents: \(error)")
+            Log.Agent.error("Failed to load agents: \(error.localizedDescription)")
         }
     }
 
@@ -152,7 +152,7 @@ class AgentStudioManager: ObservableObject {
             let encoded = try JSONEncoder().encode(data)
             try encoded.write(to: agentsFileURL, options: .atomic)
         } catch {
-            print("Failed to save agents: \(error)")
+            Log.Agent.error("Failed to save agents: \(error.localizedDescription)")
         }
     }
 }

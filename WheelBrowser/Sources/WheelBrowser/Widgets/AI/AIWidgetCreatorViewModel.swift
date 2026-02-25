@@ -335,8 +335,8 @@ final class AIWidgetCreatorViewModel: ObservableObject {
         }
 
         let responseString = String(data: data, encoding: .utf8) ?? "(non-UTF8 data)"
-        print("[AIWidgetCreator] LLM response status: \(httpResponse.statusCode)")
-        print("[AIWidgetCreator] LLM response body: \(responseString.prefix(500))...")
+        Log.Widgets.debug("LLM response status: \(httpResponse.statusCode)")
+        Log.Widgets.debug("LLM response body: \(String(responseString.prefix(500)))...")
 
         guard (200..<300).contains(httpResponse.statusCode) else {
             // Try to extract error message from response
@@ -391,7 +391,7 @@ final class AIWidgetCreatorViewModel: ObservableObject {
         var jsonString = extractJSON(from: response)
         jsonString = jsonString.trimmingCharacters(in: .whitespacesAndNewlines)
 
-        print("[AIWidgetCreator] Extracted JSON:\n\(jsonString)")
+        Log.Widgets.debug("Extracted JSON:\n\(jsonString)")
 
         guard let data = jsonString.data(using: .utf8) else {
             throw GenerationError.invalidJSON("Could not convert to data")
@@ -402,7 +402,7 @@ final class AIWidgetCreatorViewModel: ObservableObject {
             let decoder = JSONDecoder()
             return try decoder.decode(AIWidgetConfig.self, from: data)
         } catch let decodingError as DecodingError {
-            print("[AIWidgetCreator] Strict decode failed: \(decodingError)")
+            Log.Widgets.warning("Strict decode failed: \(decodingError)")
 
             // Try flexible parsing as fallback
             if let config = try? parseFlexibleConfig(from: data) {
@@ -413,7 +413,7 @@ final class AIWidgetCreatorViewModel: ObservableObject {
             let errorDetail = describeDecodingError(decodingError)
             throw GenerationError.invalidJSON(errorDetail)
         } catch {
-            print("[AIWidgetCreator] Parse error: \(error)")
+            Log.Widgets.error("Parse error: \(error)")
             throw GenerationError.invalidJSON(error.localizedDescription)
         }
     }

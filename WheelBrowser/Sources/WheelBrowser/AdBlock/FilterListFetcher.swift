@@ -85,7 +85,7 @@ actor FilterListFetcher {
         updatedList.homepage = metadata.homepage
 
         if stats.truncated {
-            print("FilterListFetcher: \(filterList.name) truncated to \(WebKitRuleConverter.maxRulesPerList) rules")
+            Log.AdBlock.warning("\(filterList.name) truncated to \(WebKitRuleConverter.maxRulesPerList) rules")
         }
 
         return (updatedList, webkitRules)

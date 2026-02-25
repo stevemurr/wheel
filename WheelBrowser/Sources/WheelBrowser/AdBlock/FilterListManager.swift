@@ -46,7 +46,7 @@ class FilterListManager: ObservableObject {
     private func checkConverterVersion() {
         let storedVersion = UserDefaults.standard.integer(forKey: converterVersionKey)
         if storedVersion != currentConverterVersion {
-            print("FilterListManager: Converter version changed (\(storedVersion) -> \(currentConverterVersion)), clearing stored rules")
+            Log.AdBlock.info("Converter version changed (\(storedVersion) -> \(currentConverterVersion)), clearing stored rules")
             clearStoredRules()
             UserDefaults.standard.set(currentConverterVersion, forKey: converterVersionKey)
         }
@@ -113,7 +113,7 @@ class FilterListManager: ObservableObject {
                 if let listIndex = filterLists.firstIndex(where: { $0.id == filterList.id }) {
                     filterLists[listIndex].lastError = error.localizedDescription
                 }
-                print("FilterListManager: Failed to update \(filterList.name): \(error)")
+                Log.AdBlock.error("Failed to update \(filterList.name): \(error)")
             }
 
             updateProgress = Double(index + 1) / Double(enabledLists.count)

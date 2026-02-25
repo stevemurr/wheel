@@ -8,8 +8,22 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.activate(ignoringOtherApps: true)
+
+        // Configure logging sinks
+        Log.addSink(ConsoleSink(minimumLevel: .debug))
+        Log.addSink(OSLogSink())
+
+        // Log startup configuration
+        let settings = AppSettings.shared
+        Log.Services.info("LLM endpoint: \(settings.llmEndpoint)")
+        Log.Services.info("Summarization model: \(settings.summarizationModel)")
+        if settings.summarizationBaseURL == nil {
+            Log.Services.warning("Summarization endpoint URL is invalid!")
+        }
+        Log.LinkPreview.info("Link previews: \(settings.linkPreviewEnabled ? "enabled" : "disabled")")
+
         // Apply saved appearance mode
-        AppSettings.shared.applyAppearance()
+        settings.applyAppearance()
         // Set app icon from bundled resource
         if let iconURL = Bundle.module.url(forResource: "AppIcon", withExtension: "icns"),
            let icon = NSImage(contentsOf: iconURL) {

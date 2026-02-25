@@ -41,19 +41,19 @@ final class AIWidget: Widget, ObservableObject {
     func refresh() async {
         // Local widgets don't need a URL, remote widgets do
         guard config.source.type == .local || !config.source.url.isEmpty else {
-            print("[AIWidget] refresh skipped - no URL and not local")
+            Log.Widgets.debug("refresh skipped - no URL and not local")
             return
         }
 
-        print("[AIWidget] refresh starting for '\(config.name)'")
+        Log.Widgets.info("refresh starting for '\(config.name)'")
         isLoading = true
         defer { isLoading = false }
 
         do {
             content = try await fetcher.fetch(config: config)
-            print("[AIWidget] refresh complete - \(content.items.count) items")
+            Log.Widgets.info("refresh complete - \(content.items.count) items")
         } catch {
-            print("[AIWidget] refresh error: \(error)")
+            Log.Widgets.error("refresh error: \(error)")
             content = ExtractedContent(error: error.localizedDescription)
         }
     }
@@ -61,11 +61,11 @@ final class AIWidget: Widget, ObservableObject {
     /// Start auto-refresh timer if configured
     func startAutoRefresh() {
         guard config.refresh.autoRefresh else {
-            print("[AIWidget] startAutoRefresh skipped - autoRefresh disabled")
+            Log.Widgets.debug("startAutoRefresh skipped - autoRefresh disabled")
             return
         }
 
-        print("[AIWidget] startAutoRefresh called for '\(config.name)'")
+        Log.Widgets.info("startAutoRefresh called for '\(config.name)'")
         refreshTask?.cancel()
         refreshTask = Task { [weak self] in
             while !Task.isCancelled {
@@ -105,12 +105,12 @@ final class AIWidget: Widget, ObservableObject {
         do {
             let data = try JSONEncoder().encode(config)
             guard let json = try JSONSerialization.jsonObject(with: data) as? [String: Any] else {
-                print("[AIWidget] encodeConfiguration: Failed to convert to dictionary")
+                Log.Widgets.error("encodeConfiguration: Failed to convert to dictionary")
                 return [:]
             }
             return json
         } catch {
-            print("[AIWidget] encodeConfiguration failed: \(error)")
+            Log.Widgets.error("encodeConfiguration failed: \(error)")
             return [:]
         }
     }
@@ -118,7 +118,7 @@ final class AIWidget: Widget, ObservableObject {
     func decodeConfiguration(_ data: [String: Any]) {
         // Check for empty data (indicates previous encoding failure)
         guard !data.isEmpty else {
-            print("[AIWidget] decodeConfiguration: Received empty data, keeping placeholder")
+            Log.Widgets.warning("decodeConfiguration: Received empty data, keeping placeholder")
             return
         }
 
@@ -126,7 +126,7 @@ final class AIWidget: Widget, ObservableObject {
             let jsonData = try JSONSerialization.data(withJSONObject: data)
             let decoded = try JSONDecoder().decode(AIWidgetConfig.self, from: jsonData)
             self.config = decoded
-            print("[AIWidget] Successfully decoded config: \(decoded.name)")
+            Log.Widgets.info("Successfully decoded config: \(decoded.name)")
 
             // Start refresh after loading config
             Task {
@@ -134,8 +134,8 @@ final class AIWidget: Widget, ObservableObject {
                 startAutoRefresh()
             }
         } catch {
-            print("[AIWidget] decodeConfiguration failed: \(error)")
-            print("[AIWidget] Data was: \(data)")
+            Log.Widgets.error("decodeConfiguration failed: \(error)")
+            Log.Widgets.debug("Data was: \(data)")
         }
     }
 }

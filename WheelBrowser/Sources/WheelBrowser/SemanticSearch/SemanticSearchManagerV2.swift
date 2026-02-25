@@ -74,7 +74,7 @@ class SemanticSearchManagerV2: ObservableObject {
             isDIndexConnected = true
             isAvailable = true
             lastError = nil
-            print("SemanticSearchManagerV2: DIndex connected at \(settings.dindexEndpoint)")
+            Log.Search.info("DIndex connected at \(settings.dindexEndpoint)")
 
             // Fetch initial stats
             await updateStats()
@@ -83,7 +83,7 @@ class SemanticSearchManagerV2: ObservableObject {
             isDIndexConnected = false
             isAvailable = false
             lastError = "Could not connect to DIndex server"
-            print("SemanticSearchManagerV2: DIndex health check failed")
+            Log.Search.warning("DIndex health check failed")
         }
     }
 
@@ -123,7 +123,7 @@ class SemanticSearchManagerV2: ObservableObject {
             await updateStats()
         } catch {
             lastError = error.localizedDescription
-            print("Indexing error: \(error)")
+            Log.Search.error("Indexing error: \(error.localizedDescription)")
         }
     }
 
@@ -158,7 +158,7 @@ class SemanticSearchManagerV2: ObservableObject {
             }
         } catch {
             lastError = error.localizedDescription
-            print("Search error: \(error)")
+            Log.Search.error("Search error: \(error.localizedDescription)")
             return []
         }
     }
@@ -195,7 +195,7 @@ class SemanticSearchManagerV2: ObservableObject {
             }
         } catch {
             lastError = error.localizedDescription
-            print("DIndex search error: \(error)")
+            Log.Search.error("DIndex search error: \(error.localizedDescription)")
             return []
         }
     }
@@ -216,7 +216,7 @@ class SemanticSearchManagerV2: ObservableObject {
             let stats = try await dindex.getStats()
             indexedCount = stats.totalChunks
         } catch {
-            print("Failed to get DIndex stats: \(error)")
+            Log.Search.warning("Failed to get DIndex stats: \(error.localizedDescription)")
         }
     }
 

@@ -473,7 +473,7 @@ struct SettingsView: View {
                         try await database.initialize()
                         try await database.clearReadingList()
                     } catch {
-                        print("Failed to clear reading list: \(error)")
+                        Log.Settings.error("Failed to clear reading list: \(error.localizedDescription)")
                     }
                 }
             }
@@ -489,7 +489,7 @@ struct SettingsView: View {
                         try await database.initialize()
                         try await database.clearAllData()
                     } catch {
-                        print("Failed to clear semantic index: \(error)")
+                        Log.Settings.error("Failed to clear semantic index: \(error.localizedDescription)")
                     }
                 }
             }

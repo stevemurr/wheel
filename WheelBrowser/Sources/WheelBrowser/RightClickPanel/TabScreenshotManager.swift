@@ -28,7 +28,7 @@ class TabScreenshotManager: ObservableObject {
             screenshots[tab.id] = thumbnail
         } catch {
             // Capture failed - leave existing screenshot or placeholder
-            print("Screenshot capture failed for tab \(tab.id): \(error)")
+            Log.Screenshot.error("Screenshot capture failed for tab \(tab.id): \(error.localizedDescription)")
         }
     }
 

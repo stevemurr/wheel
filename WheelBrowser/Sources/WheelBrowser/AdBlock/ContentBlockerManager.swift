@@ -162,7 +162,7 @@ class ContentBlockerManager: ObservableObject {
 
         } catch {
             self.lastError = error
-            print("ContentBlockerManager: Failed to compile rules - \(error.localizedDescription)")
+            Log.AdBlock.error("Failed to compile rules: \(error.localizedDescription)")
         }
 
         isCompiling = false
@@ -221,7 +221,7 @@ class ContentBlockerManager: ObservableObject {
                 forIdentifier: BlockingRules.ruleSetIdentifier
             ) { error in
                 if let error = error {
-                    print("ContentBlockerManager: Failed to remove cached rules - \(error.localizedDescription)")
+                    Log.AdBlock.error("Failed to remove cached rules: \(error.localizedDescription)")
                 }
                 continuation.resume()
             }
@@ -284,18 +284,18 @@ class ContentBlockerManager: ObservableObject {
             // Truncate if we exceed WebKit's limit
             let maxRules = 50_000
             if allRules.count > maxRules {
-                print("ContentBlockerManager: Truncating rules from \(allRules.count) to \(maxRules)")
+                Log.AdBlock.info("Truncating rules from \(allRules.count) to \(maxRules)")
                 allRules = Array(allRules.prefix(maxRules))
             }
 
             // Try to compile with external rules
             if let result = try? await compileRulesJSON(allRules) {
-                print("ContentBlockerManager: Compiled \(allRules.count) rules (including external)")
+                Log.AdBlock.info("Compiled \(allRules.count) rules (including external)")
                 return result
             }
 
             // If that failed, try with just built-in rules
-            print("ContentBlockerManager: External rules caused compilation failure, falling back to built-in only")
+            Log.AdBlock.warning("External rules caused compilation failure, falling back to built-in only")
         }
 
         // Compile with built-in rules only

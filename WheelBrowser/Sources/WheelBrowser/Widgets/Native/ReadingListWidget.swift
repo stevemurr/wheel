@@ -53,7 +53,7 @@ final class ReadingListWidget: Widget, ObservableObject {
                 await SummaryGenerator.shared.backfillSummaries()
             }
         } catch {
-            print("[ReadingListWidget] Failed to load saved pages: \(error)")
+            Log.Widgets.error("Failed to load saved pages: \(error)")
             savedPages = []
         }
     }

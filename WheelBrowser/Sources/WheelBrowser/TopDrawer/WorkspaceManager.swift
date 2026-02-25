@@ -223,7 +223,7 @@ class WorkspaceManager: ObservableObject {
             workspaces = decoded.workspaces
             currentWorkspaceID = decoded.currentWorkspaceID
         } catch {
-            print("Failed to load workspaces: \(error)")
+            Log.Workspace.error("Failed to load workspaces: \(error.localizedDescription)")
             // Create a default workspace on error
             let defaultWorkspace = Workspace(
                 name: "Default",
@@ -242,7 +242,7 @@ class WorkspaceManager: ObservableObject {
             let data = try Data(contentsOf: tabStatesFileURL)
             workspaceTabStates = try JSONDecoder().decode([UUID: WorkspaceTabState].self, from: data)
         } catch {
-            print("Failed to load tab states: \(error)")
+            Log.Workspace.error("Failed to load tab states: \(error.localizedDescription)")
         }
     }
 
@@ -267,7 +267,7 @@ class WorkspaceManager: ObservableObject {
             let encoded = try JSONEncoder().encode(data)
             try encoded.write(to: workspacesFileURL, options: .atomic)
         } catch {
-            print("Failed to save workspaces: \(error)")
+            Log.Workspace.error("Failed to save workspaces: \(error.localizedDescription)")
         }
     }
 
@@ -276,7 +276,7 @@ class WorkspaceManager: ObservableObject {
             let encoded = try JSONEncoder().encode(workspaceTabStates)
             try encoded.write(to: tabStatesFileURL, options: .atomic)
         } catch {
-            print("Failed to save tab states: \(error)")
+            Log.Workspace.error("Failed to save tab states: \(error.localizedDescription)")
         }
     }
 }

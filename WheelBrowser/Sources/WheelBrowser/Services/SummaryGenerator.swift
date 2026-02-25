@@ -58,24 +58,24 @@ actor SummaryGenerator {
                         request.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
                     }
 
-                    print("[SummaryGenerator] Starting streaming request to: \(chatEndpoint)")
+                    Log.Services.info("Starting streaming request to: \(chatEndpoint)")
                     let (bytes, response) = try await URLSession.shared.bytes(for: request)
 
                     guard let httpResponse = response as? HTTPURLResponse,
                           (200...299).contains(httpResponse.statusCode) else {
                         let statusCode = (response as? HTTPURLResponse)?.statusCode ?? 0
-                        print("[SummaryGenerator] HTTP error: \(statusCode)")
+                        Log.Services.error("HTTP error: \(statusCode)")
                         continuation.finish(throwing: SummaryError.httpError(statusCode))
                         return
                     }
 
-                    print("[SummaryGenerator] Got response, reading stream...")
+                    Log.Services.debug("Got response, reading stream...")
 
                     for try await line in bytes.lines {
                         // Skip empty lines
                         guard !line.isEmpty else { continue }
 
-                        print("[SummaryGenerator] Raw line: \(line.prefix(100))")
+                        Log.Services.debug("Raw line: \(line.prefix(100))")
 
                         var jsonString = line
 
@@ -83,14 +83,14 @@ actor SummaryGenerator {
                         if line.hasPrefix("data: ") {
                             jsonString = String(line.dropFirst(6))
                             if jsonString == "[DONE]" {
-                                print("[SummaryGenerator] Got [DONE]")
+                                Log.Services.debug("Got [DONE]")
                                 break
                             }
                         }
 
                         guard let data = jsonString.data(using: .utf8),
                               let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
-                            print("[SummaryGenerator] Failed to parse JSON")
+                            Log.Services.warning("Failed to parse JSON")
                             continue
                         }
 
@@ -99,7 +99,7 @@ actor SummaryGenerator {
                            let firstChoice = choices.first,
                            let delta = firstChoice["delta"] as? [String: Any],
                            let content = delta["content"] as? String {
-                            print("[SummaryGenerator] OpenAI chunk: \(content)")
+                            Log.Services.debug("OpenAI chunk: \(content)")
                             continuation.yield(content)
                             continue
                         }
@@ -107,22 +107,22 @@ actor SummaryGenerator {
                         // Try Ollama format: message.content (with done flag)
                         if let message = json["message"] as? [String: Any],
                            let content = message["content"] as? String {
-                            print("[SummaryGenerator] Ollama chunk: \(content)")
+                            Log.Services.debug("Ollama chunk: \(content)")
                             continuation.yield(content)
                             // Check if done
                             if let done = json["done"] as? Bool, done {
-                                print("[SummaryGenerator] Ollama done flag received")
+                                Log.Services.debug("Ollama done flag received")
                                 break
                             }
                             continue
                         }
                     }
 
-                    print("[SummaryGenerator] Stream finished successfully")
+                    Log.Services.info("Stream finished successfully")
                     continuation.finish()
 
                 } catch {
-                    print("[SummaryGenerator] Stream error: \(error)")
+                    Log.Services.error("Stream error: \(error)")
                     continuation.finish(throwing: error)
                 }
             }
@@ -144,7 +144,7 @@ actor SummaryGenerator {
 
         // Use dedicated summarization endpoint
         guard let baseURL = await MainActor.run(body: { settings.summarizationBaseURL }) else {
-            print("[SummaryGenerator] Invalid summarization endpoint URL")
+            Log.Services.error("Invalid summarization endpoint URL")
             return nil
         }
 
@@ -165,7 +165,7 @@ actor SummaryGenerator {
         ]
 
         guard let jsonData = try? JSONSerialization.data(withJSONObject: requestBody) else {
-            print("[SummaryGenerator] Failed to serialize request")
+            Log.Services.error("Failed to serialize request")
             return nil
         }
 
@@ -186,14 +186,14 @@ actor SummaryGenerator {
 
             guard let httpResponse = response as? HTTPURLResponse,
                   (200...299).contains(httpResponse.statusCode) else {
-                print("[SummaryGenerator] HTTP error: \((response as? HTTPURLResponse)?.statusCode ?? 0)")
+                Log.Services.error("HTTP error: \((response as? HTTPURLResponse)?.statusCode ?? 0)")
                 return nil
             }
 
             guard let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
-                print("[SummaryGenerator] Failed to parse JSON response")
+                Log.Services.error("Failed to parse JSON response")
                 if let responseStr = String(data: data, encoding: .utf8) {
-                    print("[SummaryGenerator] Raw response: \(responseStr.prefix(500))")
+                    Log.Services.debug("Raw response: \(responseStr.prefix(500))")
                 }
                 return nil
             }
@@ -205,13 +205,13 @@ actor SummaryGenerator {
 
                 // Convert to NSDictionary for reliable access
                 guard let message = messageAny as? NSDictionary else {
-                    print("[SummaryGenerator] Could not convert message to dictionary")
+                    Log.Services.warning("Could not convert message to dictionary")
                     return nil
                 }
 
                 // Try content field first (check it's not NSNull)
                 if let content = message["content"] as? String, !content.isEmpty {
-                    print("[SummaryGenerator] Raw response: \(content.prefix(300))")
+                    Log.Services.debug("Raw response: \(content.prefix(300))")
                     if let cleaned = cleanSummaryResponse(content) {
                         return String(cleaned.prefix(maxSummaryLength))
                     }
@@ -242,11 +242,11 @@ actor SummaryGenerator {
                 }
             }
 
-            print("[SummaryGenerator] Unexpected response format. Keys: \(json.keys.joined(separator: ", "))")
+            Log.Services.warning("Unexpected response format. Keys: \(json.keys.joined(separator: ", "))")
             return nil
 
         } catch {
-            print("[SummaryGenerator] Network error: \(error.localizedDescription)")
+            Log.Services.error("Network error: \(error.localizedDescription)")
             return nil
         }
     }
@@ -256,15 +256,15 @@ actor SummaryGenerator {
     /// Regenerate summary for a specific URL
     /// Returns the new summary on success, nil on failure
     func regenerateSummary(for url: URL) async -> String? {
-        print("[SummaryGenerator] Regenerating summary for: \(url)")
+        Log.Services.info("Regenerating summary for: \(url)")
 
         guard let content = await fetchPageContent(url: url) else {
-            print("[SummaryGenerator] Could not fetch content for: \(url)")
+            Log.Services.warning("Could not fetch content for: \(url)")
             return nil
         }
 
         guard let summary = await generateSummary(content: content) else {
-            print("[SummaryGenerator] Could not generate summary for: \(url)")
+            Log.Services.warning("Could not generate summary for: \(url)")
             return nil
         }
 
@@ -272,10 +272,10 @@ actor SummaryGenerator {
             let database = try SearchDatabase()
             try await database.initialize()
             try await database.updateSummary(url: url.absoluteString, summary: summary)
-            print("[SummaryGenerator] Regenerated summary for: \(url.host ?? url.absoluteString)")
+            Log.Services.info("Regenerated summary for: \(url.host ?? url.absoluteString)")
             return summary
         } catch {
-            print("[SummaryGenerator] Failed to save regenerated summary: \(error)")
+            Log.Services.error("Failed to save regenerated summary: \(error)")
             return nil
         }
     }
@@ -284,14 +284,14 @@ actor SummaryGenerator {
     /// Clears existing summaries and regenerates them
     func regenerateAllSummaries(progressHandler: ((Int, Int) -> Void)? = nil) async {
         guard !isBackfilling else {
-            print("[SummaryGenerator] Regeneration already in progress")
+            Log.Services.warning("Regeneration already in progress")
             return
         }
 
         isBackfilling = true
         defer { isBackfilling = false }
 
-        print("[SummaryGenerator] Starting full regeneration...")
+        Log.Services.info("Starting full regeneration...")
 
         do {
             let database = try SearchDatabase()
@@ -303,39 +303,39 @@ actor SummaryGenerator {
             let allPages = try await database.getSavedPages(limit: 100)
 
             guard !allPages.isEmpty else {
-                print("[SummaryGenerator] No pages to regenerate")
+                Log.Services.info("No pages to regenerate")
                 return
             }
 
-            print("[SummaryGenerator] Regenerating \(allPages.count) summaries")
+            Log.Services.info("Regenerating \(allPages.count) summaries")
 
             for (index, page) in allPages.enumerated() {
                 progressHandler?(index + 1, allPages.count)
 
                 guard let content = await fetchPageContent(url: page.url) else {
-                    print("[SummaryGenerator] Could not fetch content for: \(page.url)")
+                    Log.Services.warning("Could not fetch content for: \(page.url)")
                     continue
                 }
 
                 guard let summary = await generateSummary(content: content) else {
-                    print("[SummaryGenerator] Could not generate summary for: \(page.url)")
+                    Log.Services.warning("Could not generate summary for: \(page.url)")
                     continue
                 }
 
                 do {
                     try await database.updateSummary(url: page.url.absoluteString, summary: summary)
-                    print("[SummaryGenerator] [\(index + 1)/\(allPages.count)] Regenerated: \(page.url.host ?? page.url.absoluteString)")
+                    Log.Services.info("[\(index + 1)/\(allPages.count)] Regenerated: \(page.url.host ?? page.url.absoluteString)")
                 } catch {
-                    print("[SummaryGenerator] Failed to save summary: \(error)")
+                    Log.Services.error("Failed to save summary: \(error)")
                 }
 
                 try? await Task.sleep(for: .milliseconds(300))
             }
 
-            print("[SummaryGenerator] Full regeneration complete")
+            Log.Services.info("Full regeneration complete")
 
         } catch {
-            print("[SummaryGenerator] Regeneration error: \(error)")
+            Log.Services.error("Regeneration error: \(error)")
         }
     }
 
@@ -345,14 +345,14 @@ actor SummaryGenerator {
     /// Runs in background, processing one page at a time
     func backfillSummaries() async {
         guard !isBackfilling else {
-            print("[SummaryGenerator] Backfill already in progress")
+            Log.Services.warning("Backfill already in progress")
             return
         }
 
         isBackfilling = true
         defer { isBackfilling = false }
 
-        print("[SummaryGenerator] Starting backfill...")
+        Log.Services.info("Starting backfill...")
 
         do {
             let database = try SearchDatabase()
@@ -361,41 +361,41 @@ actor SummaryGenerator {
             let pagesWithoutSummary = try await database.getSavedPagesWithoutSummary(limit: 20)
 
             guard !pagesWithoutSummary.isEmpty else {
-                print("[SummaryGenerator] No pages need summaries")
+                Log.Services.info("No pages need summaries")
                 return
             }
 
-            print("[SummaryGenerator] Found \(pagesWithoutSummary.count) pages without summaries")
+            Log.Services.info("Found \(pagesWithoutSummary.count) pages without summaries")
 
             for page in pagesWithoutSummary {
                 // Fetch page content
                 guard let content = await fetchPageContent(url: page.url) else {
-                    print("[SummaryGenerator] Could not fetch content for: \(page.url)")
+                    Log.Services.warning("Could not fetch content for: \(page.url)")
                     continue
                 }
 
                 // Generate summary
                 guard let summary = await generateSummary(content: content) else {
-                    print("[SummaryGenerator] Could not generate summary for: \(page.url)")
+                    Log.Services.warning("Could not generate summary for: \(page.url)")
                     continue
                 }
 
                 // Save summary to database
                 do {
                     try await database.updateSummary(url: page.url.absoluteString, summary: summary)
-                    print("[SummaryGenerator] Generated summary for: \(page.url.host ?? page.url.absoluteString)")
+                    Log.Services.info("Generated summary for: \(page.url.host ?? page.url.absoluteString)")
                 } catch {
-                    print("[SummaryGenerator] Failed to save summary: \(error)")
+                    Log.Services.error("Failed to save summary: \(error)")
                 }
 
                 // Small delay to avoid overwhelming the LLM
                 try? await Task.sleep(for: .milliseconds(500))
             }
 
-            print("[SummaryGenerator] Backfill complete")
+            Log.Services.info("Backfill complete")
 
         } catch {
-            print("[SummaryGenerator] Backfill error: \(error)")
+            Log.Services.error("Backfill error: \(error)")
         }
     }
 
@@ -469,7 +469,7 @@ actor SummaryGenerator {
             if let summaryRange = text.range(of: "Summary:", options: .caseInsensitive) {
                 text = String(text[summaryRange.upperBound...]).trimmingCharacters(in: .whitespacesAndNewlines)
             } else {
-                print("[SummaryGenerator] Response echoed prompt, no summary found")
+                Log.Services.warning("Response echoed prompt, no summary found")
                 return nil
             }
         }
@@ -505,13 +505,13 @@ actor SummaryGenerator {
         let lowerText = text.lowercased()
         for pattern in badPatterns {
             if lowerText.contains(pattern) {
-                print("[SummaryGenerator] Response contains prompt fragment: \(pattern)")
+                Log.Services.warning("Response contains prompt fragment: \(pattern)")
                 return nil
             }
         }
 
         guard text.count >= 10 else {
-            print("[SummaryGenerator] Summary too short after cleaning: \(text)")
+            Log.Services.warning("Summary too short after cleaning: \(text)")
             return nil
         }
 

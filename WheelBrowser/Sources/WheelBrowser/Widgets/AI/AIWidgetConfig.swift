@@ -136,7 +136,7 @@ struct DisplayConfig: Codable, Equatable {
         } else if let boolValue = try? container.decode(Bool.self, forKey: .itemLimit) {
             // Convert boolean to default value (AI sometimes generates true/false instead of a number)
             itemLimit = boolValue ? 5 : 0
-            print("[DisplayConfig] Warning: itemLimit was Bool(\(boolValue)), converted to \(itemLimit)")
+            Log.Widgets.warning("itemLimit was Bool(\(boolValue)), converted to \(itemLimit)")
         } else {
             itemLimit = 5  // Default
         }

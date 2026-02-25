@@ -89,7 +89,7 @@ class DarkModeManager: ObservableObject {
 
         tab.webView.evaluateJavaScript(script) { _, error in
             if let error = error {
-                print("[DarkMode] Error applying to tab: \(error.localizedDescription)")
+                Log.DarkMode.error("Error applying to tab: \(error.localizedDescription)")
             }
         }
 
