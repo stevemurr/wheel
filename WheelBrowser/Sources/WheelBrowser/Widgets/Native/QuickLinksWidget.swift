@@ -41,10 +41,10 @@ final class QuickLinksWidget: Widget, ObservableObject {
         // Count visits per domain
         var domainCounts: [String: (count: Int, entry: HistoryEntry)] = [:]
         for entry in entries {
-            guard let url = URL(string: entry.url),
-                  let host = url.host else { continue }
+            guard let url = URL(string: entry.url) else { continue }
+            let domain = url.cleanDomain
+            guard !domain.isEmpty else { continue }
 
-            let domain = host.replacingOccurrences(of: "www.", with: "")
             if let existing = domainCounts[domain] {
                 domainCounts[domain] = (existing.count + 1, existing.entry)
             } else {
@@ -89,7 +89,11 @@ struct QuickLinksWidgetView: View {
             }
 
             if visibleSites.isEmpty {
-                emptyState
+                EmptyStateView(
+                    icon: "globe",
+                    title: "No Recent Sites",
+                    subtitle: "Browse the web to see quick links"
+                )
             } else {
                 LazyVGrid(columns: columns, spacing: 12) {
                     ForEach(visibleSites) { site in
@@ -102,17 +106,6 @@ struct QuickLinksWidgetView: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
     }
 
-    private var emptyState: some View {
-        VStack(spacing: 8) {
-            Image(systemName: "globe")
-                .font(.system(size: 24))
-                .foregroundStyle(.tertiary)
-            Text("No recent sites")
-                .font(.system(size: 12))
-                .foregroundStyle(.secondary)
-        }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-    }
 }
 
 struct QuickLinkButton: View {
@@ -123,19 +116,15 @@ struct QuickLinkButton: View {
 
     var body: some View {
         Button {
-            NotificationCenter.default.post(name: .openURL, object: site.url)
+            NotificationHelpers.postOpenURL(site.url)
         } label: {
             VStack(spacing: 6) {
-                // Favicon placeholder
-                ZStack {
-                    RoundedRectangle(cornerRadius: 8)
-                        .fill(Color.accentColor.opacity(0.15))
-                        .frame(width: compact ? 36 : 44, height: compact ? 36 : 44)
-
-                    Text(site.domain.prefix(1).uppercased())
-                        .font(.system(size: compact ? 16 : 20, weight: .semibold))
-                        .foregroundStyle(Color.accentColor)
-                }
+                FaviconPlaceholder(
+                    domain: site.domain,
+                    size: compact ? 36 : 44,
+                    cornerRadius: 8,
+                    style: .accent
+                )
 
                 if !compact {
                     Text(site.title)

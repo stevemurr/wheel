@@ -22,11 +22,16 @@ struct HistoryEntry: Codable, Identifiable, Equatable {
 }
 
 /// Manages browsing history with persistence
+/// Uses an index for O(1) URL lookups instead of O(n) array scans
 @MainActor
 class BrowsingHistory: ObservableObject {
     static let shared = BrowsingHistory()
 
     @Published private(set) var entries: [HistoryEntry] = []
+
+    /// Index mapping URL strings to their position in the entries array
+    /// Enables O(1) lookup for duplicate detection instead of O(n) removeAll
+    private var urlIndex: [String: Int] = [:]
 
     /// Maximum number of history entries to store
     private let maxEntries = 1000
@@ -47,27 +52,55 @@ class BrowsingHistory: ObservableObject {
     }
 
     /// Add a new entry to history
+    /// Uses indexed lookup for O(1) duplicate detection instead of O(n) array scan
     func addEntry(url: URL, title: String, workspaceID: UUID? = nil) {
         let urlString = url.absoluteString
 
         // Skip certain URLs
         guard shouldRecordURL(urlString) else { return }
 
-        // Remove existing entry with same URL if present (to move it to top)
-        entries.removeAll { $0.url == urlString }
+        // Check if URL already exists using O(1) index lookup
+        if let existingIndex = urlIndex[urlString] {
+            // Remove existing entry at the known index
+            entries.remove(at: existingIndex)
+            // Rebuild index for entries that shifted (only indices >= existingIndex changed)
+            rebuildIndexFromPosition(existingIndex)
+        }
 
         // Create and insert new entry at the beginning
         let entry = HistoryEntry(url: urlString, title: title.isEmpty ? urlString : title, workspaceID: workspaceID)
         entries.insert(entry, at: 0)
 
+        // Update index: shift all existing indices by 1 and add new entry at index 0
+        var newIndex: [String: Int] = [urlString: 0]
+        for (url, idx) in urlIndex {
+            newIndex[url] = idx + 1
+        }
+        urlIndex = newIndex
+
         // Trim to max entries
         if entries.count > maxEntries {
+            // Remove entries and their index mappings beyond max
+            let removedEntries = entries.suffix(from: maxEntries)
+            for entry in removedEntries {
+                urlIndex.removeValue(forKey: entry.url)
+            }
             entries = Array(entries.prefix(maxEntries))
         }
 
         // Save asynchronously
         Task {
             await saveHistory()
+        }
+    }
+
+    /// Rebuilds the URL index starting from a specific position
+    /// Called after removing an entry to update shifted indices
+    private func rebuildIndexFromPosition(_ startIndex: Int) {
+        // Remove the old entry's URL from index (it was at startIndex before removal)
+        // Update indices for all entries from startIndex onward
+        for i in startIndex..<entries.count {
+            urlIndex[entries[i].url] = i
         }
     }
 
@@ -114,6 +147,7 @@ class BrowsingHistory: ObservableObject {
     /// Clear all history
     func clearHistory() {
         entries.removeAll()
+        urlIndex.removeAll()
         Task {
             await saveHistory()
         }
@@ -121,7 +155,12 @@ class BrowsingHistory: ObservableObject {
 
     /// Remove a specific entry
     func removeEntry(_ entry: HistoryEntry) {
-        entries.removeAll { $0.id == entry.id }
+        if let index = urlIndex[entry.url] {
+            entries.remove(at: index)
+            urlIndex.removeValue(forKey: entry.url)
+            // Update indices for shifted entries
+            rebuildIndexFromPosition(index)
+        }
         Task {
             await saveHistory()
         }
@@ -146,8 +185,18 @@ class BrowsingHistory: ObservableObject {
         do {
             let data = try Data(contentsOf: historyFileURL)
             entries = try JSONDecoder().decode([HistoryEntry].self, from: data)
+            // Build index after loading entries
+            rebuildFullIndex()
         } catch {
             Log.History.error("Failed to load history", error: error)
+        }
+    }
+
+    /// Rebuilds the entire URL index from the entries array
+    private func rebuildFullIndex() {
+        urlIndex.removeAll(keepingCapacity: true)
+        for (index, entry) in entries.enumerated() {
+            urlIndex[entry.url] = index
         }
     }
 

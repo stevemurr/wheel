@@ -51,7 +51,11 @@ struct RecentHistoryWidgetView: View {
             }
 
             if visibleEntries.isEmpty {
-                emptyState
+                EmptyStateView(
+                    icon: "clock",
+                    title: "No Recent History",
+                    subtitle: "Browse the web to build history"
+                )
             } else {
                 VStack(spacing: 2) {
                     ForEach(visibleEntries) { entry in
@@ -64,29 +68,14 @@ struct RecentHistoryWidgetView: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
     }
 
-    private var emptyState: some View {
-        VStack(spacing: 8) {
-            Image(systemName: "clock")
-                .font(.system(size: 24))
-                .foregroundStyle(.tertiary)
-            Text("No recent history")
-                .font(.system(size: 12))
-                .foregroundStyle(.secondary)
-        }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-    }
 }
 
 struct HistoryRowButton: View {
     let entry: HistoryEntry
     let compact: Bool
 
-    @State private var isHovered = false
-
     private var domain: String {
-        guard let url = URL(string: entry.url),
-              let host = url.host else { return "" }
-        return host.replacingOccurrences(of: "www.", with: "")
+        entry.url.urlCleanDomain
     }
 
     private var timeAgo: String {
@@ -97,21 +86,15 @@ struct HistoryRowButton: View {
 
     var body: some View {
         Button {
-            if let url = URL(string: entry.url) {
-                NotificationCenter.default.post(name: .openURL, object: url)
-            }
+            NotificationHelpers.postOpenURL(string: entry.url)
         } label: {
             HStack(spacing: 10) {
-                // Favicon placeholder
-                ZStack {
-                    RoundedRectangle(cornerRadius: 6)
-                        .fill(Color(nsColor: .controlBackgroundColor))
-                        .frame(width: 28, height: 28)
-
-                    Text(domain.prefix(1).uppercased())
-                        .font(.system(size: 12, weight: .medium))
-                        .foregroundStyle(.secondary)
-                }
+                FaviconPlaceholder(
+                    domain: domain,
+                    size: 28,
+                    cornerRadius: 6,
+                    style: .neutral
+                )
 
                 VStack(alignment: .leading, spacing: 2) {
                     Text(entry.title)
@@ -124,7 +107,7 @@ struct HistoryRowButton: View {
                         HStack(spacing: 4) {
                             Text(domain)
                                 .foregroundStyle(.secondary)
-                            Text("•")
+                            Text("\u{2022}")
                                 .foregroundStyle(.tertiary)
                             Text(timeAgo)
                                 .foregroundStyle(.tertiary)
@@ -135,14 +118,8 @@ struct HistoryRowButton: View {
 
                 Spacer(minLength: 0)
             }
-            .padding(.horizontal, 8)
-            .padding(.vertical, 6)
-            .background {
-                RoundedRectangle(cornerRadius: 8)
-                    .fill(isHovered ? Color(nsColor: .controlBackgroundColor) : Color.clear)
-            }
+            .hoverableListItem()
         }
         .buttonStyle(.plain)
-        .onHover { isHovered = $0 }
     }
 }

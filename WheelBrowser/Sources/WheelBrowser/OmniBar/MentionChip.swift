@@ -85,12 +85,7 @@ struct MentionSuggestionRow: View {
     @State private var isHovering = false
 
     private var domain: String {
-        guard let urlString = suggestion.mention.url,
-              let url = URL(string: urlString),
-              let host = url.host else {
-            return ""
-        }
-        return host.replacingOccurrences(of: "www.", with: "")
+        suggestion.mention.url?.urlCleanDomain ?? ""
     }
 
     var body: some View {

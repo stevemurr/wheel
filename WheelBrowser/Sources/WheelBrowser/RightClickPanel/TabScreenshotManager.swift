@@ -1,12 +1,19 @@
 import SwiftUI
 import WebKit
 
-/// Manages screenshot capture and caching for tab previews
+/// Manages screenshot capture and caching for tab previews with LRU eviction
 @MainActor
 class TabScreenshotManager: ObservableObject {
     static let shared = TabScreenshotManager()
 
+    /// Maximum number of screenshots to cache before evicting oldest entries
+    private let maxCacheSize = 25
+
+    /// Screenshots stored in a dictionary for O(1) lookup
     @Published private(set) var screenshots: [UUID: NSImage] = [:]
+
+    /// Tracks access order for LRU eviction (most recently used at end)
+    private var accessOrder: [UUID] = []
 
     private let thumbnailSize = CGSize(width: 160, height: 100)
 
@@ -25,16 +32,53 @@ class TabScreenshotManager: ObservableObject {
             // Resize to thumbnail size on background queue to avoid blocking main thread
             let thumbnail = await resizeImageAsync(image, to: thumbnailSize)
 
-            screenshots[tab.id] = thumbnail
+            // Update cache with LRU tracking
+            cacheScreenshot(thumbnail, for: tab.id)
         } catch {
             // Capture failed - leave existing screenshot or placeholder
             Log.Screenshot.error("Screenshot capture failed for tab \(tab.id): \(error.localizedDescription)")
         }
     }
 
+    /// Caches a screenshot with LRU eviction
+    private func cacheScreenshot(_ image: NSImage, for tabId: UUID) {
+        // Remove from current position in access order if it exists
+        if let index = accessOrder.firstIndex(of: tabId) {
+            accessOrder.remove(at: index)
+        }
+
+        // Add to end of access order (most recently used)
+        accessOrder.append(tabId)
+
+        // Store the screenshot
+        screenshots[tabId] = image
+
+        // Evict oldest entries if over capacity
+        evictIfNeeded()
+    }
+
+    /// Evicts least recently used screenshots if cache exceeds max size
+    private func evictIfNeeded() {
+        while accessOrder.count > maxCacheSize {
+            let oldestTabId = accessOrder.removeFirst()
+            screenshots.removeValue(forKey: oldestTabId)
+        }
+    }
+
     /// Returns the cached screenshot for a tab, or nil if not available
+    /// Also updates LRU access order to mark this screenshot as recently used
     func getScreenshot(for tabId: UUID) -> NSImage? {
-        return screenshots[tabId]
+        guard let screenshot = screenshots[tabId] else {
+            return nil
+        }
+
+        // Update access order (move to most recently used position)
+        if let index = accessOrder.firstIndex(of: tabId) {
+            accessOrder.remove(at: index)
+            accessOrder.append(tabId)
+        }
+
+        return screenshot
     }
 
     /// Invalidates the cached screenshot for a tab (e.g., when navigation starts)
@@ -46,6 +90,9 @@ class TabScreenshotManager: ObservableObject {
     /// Removes the screenshot for a tab (e.g., when tab is closed)
     func removeScreenshot(for tabId: UUID) {
         screenshots.removeValue(forKey: tabId)
+        if let index = accessOrder.firstIndex(of: tabId) {
+            accessOrder.remove(at: index)
+        }
     }
 
     /// Resizes an image to the specified size while maintaining aspect ratio (async, runs on background queue)

@@ -94,7 +94,7 @@ struct DailyNotesWidgetView: View {
     let onSelectDate: (Date) -> Void
     let onUpdateNote: (String) -> Void
 
-    private let calendar = Calendar.current
+    private var calendar: Calendar { Calendar.current }
 
     private func dateKey(for date: Date) -> String {
         let formatter = DateFormatter()

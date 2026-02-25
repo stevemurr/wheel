@@ -38,8 +38,16 @@ struct OmniBar: View {
     private var isReadingListPanelVisible: Bool { omniState.isPanelVisible(for: .readingList) }
 
     private var historyPanelSubtitle: String {
-        let tabCount = suggestionsVM.suggestions.filter { $0.isOpenTab }.count
-        let historyCount = suggestionsVM.suggestions.filter { !$0.isOpenTab }.count
+        // Single pass to count both tabs and history entries
+        var tabCount = 0
+        var historyCount = 0
+        for suggestion in suggestionsVM.suggestions {
+            if suggestion.isOpenTab {
+                tabCount += 1
+            } else {
+                historyCount += 1
+            }
+        }
 
         if !omniState.inputText.isEmpty && !suggestionsVM.suggestions.isEmpty {
             var parts: [String] = []
@@ -99,8 +107,8 @@ struct OmniBar: View {
     var body: some View {
         VStack(spacing: 0) {
             // Suggestions panel - appears above OmniBar when in address mode (shows tabs + history)
-            // Only render panel content after view has appeared to prevent initial flash
-            if hasAppeared {
+            // Only render panels when visible to avoid rendering overhead
+            if hasAppeared && isHistoryPanelVisible {
                 OmniPanel(
                     title: "Go to",
                     icon: "magnifyingglass",
@@ -121,12 +129,12 @@ struct OmniBar: View {
                 }
                 .padding(.horizontal, 16)
                 .padding(.bottom, 8)
-                .animatedPanel(isVisible: isHistoryPanelVisible)
+                .transition(.opacity.combined(with: .scale(scale: 0.95, anchor: .bottom)).combined(with: .offset(y: 10)))
                 .zIndex(999)
             }
 
             // Chat panel - appears above OmniBar when in chat mode
-            if hasAppeared {
+            if hasAppeared && isChatPanelVisible {
                 OmniPanel(
                     title: "Chat",
                     icon: "bubble.left.and.bubble.right.fill",
@@ -154,12 +162,12 @@ struct OmniBar: View {
                 }
                 .padding(.horizontal, 16)
                 .padding(.bottom, 8)
-                .animatedPanel(isVisible: isChatPanelVisible)
+                .transition(.opacity.combined(with: .scale(scale: 0.95, anchor: .bottom)).combined(with: .offset(y: 10)))
                 .zIndex(999)
             }
 
             // Semantic search panel - appears above OmniBar when in semantic mode
-            if hasAppeared {
+            if hasAppeared && isSemanticPanelVisible {
                 OmniPanel(
                     title: "Semantic Search",
                     icon: "brain.head.profile",
@@ -190,12 +198,12 @@ struct OmniBar: View {
                 }
                 .padding(.horizontal, 16)
                 .padding(.bottom, 8)
-                .animatedPanel(isVisible: isSemanticPanelVisible)
+                .transition(.opacity.combined(with: .scale(scale: 0.95, anchor: .bottom)).combined(with: .offset(y: 10)))
                 .zIndex(999)
             }
 
             // Agent panel - appears above OmniBar when in agent mode
-            if hasAppeared {
+            if hasAppeared && isAgentPanelVisible {
                 OmniPanel(
                     title: "Agent",
                     icon: "wand.and.stars",
@@ -225,12 +233,12 @@ struct OmniBar: View {
                 }
                 .padding(.horizontal, 16)
                 .padding(.bottom, 8)
-                .animatedPanel(isVisible: isAgentPanelVisible)
+                .transition(.opacity.combined(with: .scale(scale: 0.95, anchor: .bottom)).combined(with: .offset(y: 10)))
                 .zIndex(999)
             }
 
             // Reading list panel - appears above OmniBar when in reading list mode
-            if hasAppeared {
+            if hasAppeared && isReadingListPanelVisible {
                 OmniPanel(
                     title: "Reading List",
                     icon: "bookmark.fill",
@@ -251,12 +259,12 @@ struct OmniBar: View {
                 }
                 .padding(.horizontal, 16)
                 .padding(.bottom, 8)
-                .animatedPanel(isVisible: isReadingListPanelVisible)
+                .transition(.opacity.combined(with: .scale(scale: 0.95, anchor: .bottom)).combined(with: .offset(y: 10)))
                 .zIndex(999)
             }
 
             // Downloads panel - appears above OmniBar when downloads are active
-            if hasAppeared {
+            if hasAppeared && downloadManager.showDownloadsPanel {
                 OmniPanel(
                     title: "Downloads",
                     icon: "arrow.down.circle.fill",
@@ -285,7 +293,7 @@ struct OmniBar: View {
                 }
                 .padding(.horizontal, 16)
                 .padding(.bottom, 8)
-                .animatedPanel(isVisible: downloadManager.showDownloadsPanel)
+                .transition(.opacity.combined(with: .scale(scale: 0.95, anchor: .bottom)).combined(with: .offset(y: 10)))
                 .zIndex(999)
             }
 
@@ -316,6 +324,13 @@ struct OmniBar: View {
         // Consolidated animation for all panel state changes
         .animation(.spring(response: 0.3, dampingFraction: 0.85), value: shouldExpand)
         .animation(.spring(response: 0.3, dampingFraction: 0.85), value: isInputFocused)
+        // Animate panel visibility changes
+        .animation(.spring(response: 0.3, dampingFraction: 0.85), value: isHistoryPanelVisible)
+        .animation(.spring(response: 0.3, dampingFraction: 0.85), value: isChatPanelVisible)
+        .animation(.spring(response: 0.3, dampingFraction: 0.85), value: isSemanticPanelVisible)
+        .animation(.spring(response: 0.3, dampingFraction: 0.85), value: isAgentPanelVisible)
+        .animation(.spring(response: 0.3, dampingFraction: 0.85), value: isReadingListPanelVisible)
+        .animation(.spring(response: 0.3, dampingFraction: 0.85), value: downloadManager.showDownloadsPanel)
         .onChange(of: tab.url) { _, newURL in
             if !isInputFocused && omniState.mode == .address {
                 omniState.inputText = newURL?.absoluteString ?? ""

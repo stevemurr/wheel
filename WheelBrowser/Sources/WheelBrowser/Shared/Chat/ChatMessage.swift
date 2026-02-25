@@ -1,0 +1,91 @@
+import Foundation
+
+/// A unified chat message model for use across the application.
+/// Replaces duplicate ChatMessage definitions in LettaModels and AIWidgetCreatorViewModel.
+public struct ChatMessage: Identifiable, Equatable, Hashable {
+    public let id: UUID
+    public let role: MessageRole
+    public var content: String
+    public let timestamp: Date
+    public var isStreaming: Bool
+
+    /// The role of the message sender
+    public enum MessageRole: String, Codable, Hashable {
+        case user
+        case assistant
+        case system
+        case thinking
+    }
+
+    public init(
+        id: UUID = UUID(),
+        role: MessageRole,
+        content: String,
+        timestamp: Date = Date(),
+        isStreaming: Bool = false
+    ) {
+        self.id = id
+        self.role = role
+        self.content = content
+        self.timestamp = timestamp
+        self.isStreaming = isStreaming
+    }
+
+    // MARK: - Convenience Initializers
+
+    /// Create a user message
+    public static func user(_ content: String) -> ChatMessage {
+        ChatMessage(role: .user, content: content)
+    }
+
+    /// Create an assistant message
+    public static func assistant(_ content: String, streaming: Bool = false) -> ChatMessage {
+        ChatMessage(role: .assistant, content: content, isStreaming: streaming)
+    }
+
+    /// Create a system message
+    public static func system(_ content: String) -> ChatMessage {
+        ChatMessage(role: .system, content: content)
+    }
+
+    /// Create a thinking/reasoning message (for chain-of-thought display)
+    public static func thinking(_ content: String) -> ChatMessage {
+        ChatMessage(role: .thinking, content: content)
+    }
+
+    // MARK: - Equatable
+
+    public static func == (lhs: ChatMessage, rhs: ChatMessage) -> Bool {
+        lhs.id == rhs.id
+    }
+
+    // MARK: - Hashable
+
+    public func hash(into hasher: inout Hasher) {
+        hasher.combine(id)
+    }
+}
+
+// MARK: - Array Extension for Conversation
+
+extension Array where Element == ChatMessage {
+    /// Convert to LLM API message format
+    public func toAPIMessages() -> [[String: String]] {
+        map { message in
+            [
+                "role": message.role == .thinking ? "assistant" : message.role.rawValue,
+                "content": message.content
+            ]
+        }
+    }
+
+    /// Get the last message from a specific role
+    public func lastMessage(from role: ChatMessage.MessageRole) -> ChatMessage? {
+        last { $0.role == role }
+    }
+
+    /// Check if conversation has any streaming messages
+    public var hasStreamingMessages: Bool {
+        contains { $0.isStreaming }
+    }
+}

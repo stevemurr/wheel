@@ -204,6 +204,7 @@ public enum Log {
         case adBlock = "AdBlock"
         case browser = "Browser"
         case chat = "Chat"
+        case core = "Core"
         case darkMode = "DarkMode"
         case downloads = "Downloads"
         case history = "History"
@@ -308,6 +309,14 @@ public enum Log {
         public static func warning(_ message: String) { Log.warning(message, category: .chat) }
         public static func error(_ message: String) { Log.error(message, category: .chat) }
         public static func error(_ message: String, error: Error) { Log.error(message, error: error, category: .chat) }
+    }
+
+    public enum Core {
+        public static func debug(_ message: String) { Log.debug(message, category: .core) }
+        public static func info(_ message: String) { Log.info(message, category: .core) }
+        public static func warning(_ message: String) { Log.warning(message, category: .core) }
+        public static func error(_ message: String) { Log.error(message, category: .core) }
+        public static func error(_ message: String, error: Error) { Log.error(message, error: error, category: .core) }
     }
 
     public enum DarkMode {

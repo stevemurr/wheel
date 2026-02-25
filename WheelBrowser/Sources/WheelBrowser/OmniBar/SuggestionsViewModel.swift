@@ -75,19 +75,20 @@ class SuggestionsViewModel: ObservableObject {
     weak var browserState: BrowserState?
 
     private let history = BrowsingHistory.shared
-    private var searchTask: Task<Void, Never>?
+    private let searchDebouncer = Debouncer(delay: .milliseconds(50))
 
     /// Update suggestions based on user input
     func updateSuggestions(for query: String) {
-        // Cancel any pending search
-        searchTask?.cancel()
+        Task {
+            await searchDebouncer.debounce { [weak self] in
+                await self?.performSearch(for: query)
+            }
+        }
+    }
 
-        // Debounce the search for performance
-        searchTask = Task {
-            // Small delay to debounce rapid typing
-            try? await Task.sleep(nanoseconds: 50_000_000) // 50ms
-
-            guard !Task.isCancelled else { return }
+    /// Perform the actual search (called after debounce)
+    private func performSearch(for query: String) async {
+        guard !Task.isCancelled else { return }
 
             var allSuggestions: [Suggestion] = []
 
@@ -131,16 +132,15 @@ class SuggestionsViewModel: ObservableObject {
             // Limit total suggestions
             allSuggestions = Array(allSuggestions.prefix(20))
 
-            guard !Task.isCancelled else { return }
+        guard !Task.isCancelled else { return }
 
-            suggestions = allSuggestions
-            selectedIndex = -1
-        }
+        suggestions = allSuggestions
+        selectedIndex = -1
     }
 
     /// Load recent history and open tabs (for when search text is empty)
     func loadRecentHistory() {
-        searchTask?.cancel()
+        Task { await searchDebouncer.cancel() }
 
         var allSuggestions: [Suggestion] = []
 

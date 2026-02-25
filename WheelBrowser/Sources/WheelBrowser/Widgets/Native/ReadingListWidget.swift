@@ -249,18 +249,11 @@ struct ReadingListWidgetView: View {
     }
 
     private var emptyState: some View {
-        VStack(spacing: 8) {
-            Image(systemName: "bookmark")
-                .font(.system(size: 24))
-                .foregroundStyle(.tertiary)
-            Text("No saved pages")
-                .font(.system(size: 12))
-                .foregroundStyle(.secondary)
-            Text("Save pages to read later")
-                .font(.system(size: 10))
-                .foregroundStyle(.tertiary)
-        }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        EmptyStateView(
+            icon: "bookmark",
+            title: "No Saved Pages",
+            subtitle: "Save pages to read later"
+        )
     }
 }
 
@@ -270,11 +263,10 @@ struct ReadingListRowButton: View {
     var expanded: Bool = false
     var onRegenerateSummary: ((URL) -> Void)?
 
-    @State private var isHovered = false
     @State private var isRegenerating = false
 
     private var domain: String {
-        page.domain.replacingOccurrences(of: "www.", with: "")
+        page.url.cleanDomain
     }
 
     private var timeAgo: String {
@@ -285,19 +277,15 @@ struct ReadingListRowButton: View {
 
     var body: some View {
         Button {
-            NotificationCenter.default.post(name: .openURL, object: page.url)
+            NotificationHelpers.postOpenURL(page.url)
         } label: {
             HStack(spacing: 10) {
-                // Favicon placeholder
-                ZStack {
-                    RoundedRectangle(cornerRadius: 6)
-                        .fill(Color(nsColor: .controlBackgroundColor))
-                        .frame(width: expanded ? 32 : 28, height: expanded ? 32 : 28)
-
-                    Text(domain.prefix(1).uppercased())
-                        .font(.system(size: expanded ? 14 : 12, weight: .medium))
-                        .foregroundStyle(.secondary)
-                }
+                FaviconPlaceholder(
+                    domain: domain,
+                    size: expanded ? 32 : 28,
+                    cornerRadius: 6,
+                    style: .neutral
+                )
 
                 VStack(alignment: .leading, spacing: expanded ? 4 : 2) {
                     HStack(spacing: 8) {
@@ -349,15 +337,13 @@ struct ReadingListRowButton: View {
                     Spacer(minLength: 0)
                 }
             }
-            .padding(.horizontal, expanded ? 12 : 8)
-            .padding(.vertical, expanded ? 10 : 6)
-            .background {
-                RoundedRectangle(cornerRadius: expanded ? 10 : 8)
-                    .fill(isHovered ? Color(nsColor: .controlBackgroundColor) : Color.clear)
-            }
+            .hoverableListItem(
+                cornerRadius: expanded ? 10 : 8,
+                horizontalPadding: expanded ? 12 : 8,
+                verticalPadding: expanded ? 10 : 6
+            )
         }
         .buttonStyle(.plain)
-        .onHover { isHovered = $0 }
         .contextMenu {
             Button {
                 isRegenerating = true

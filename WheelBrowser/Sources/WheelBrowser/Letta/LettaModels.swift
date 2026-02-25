@@ -157,26 +157,5 @@ struct StreamingChunk: Codable {
 }
 
 // MARK: - Chat Message (Local)
-
-struct ChatMessage: Identifiable {
-    let id: UUID
-    let role: MessageRole
-    var content: String
-    let timestamp: Date
-    var isStreaming: Bool
-
-    init(id: UUID = UUID(), role: MessageRole, content: String, timestamp: Date, isStreaming: Bool = false) {
-        self.id = id
-        self.role = role
-        self.content = content
-        self.timestamp = timestamp
-        self.isStreaming = isStreaming
-    }
-
-    enum MessageRole: String {
-        case user
-        case assistant
-        case system
-        case thinking
-    }
-}
+// Note: ChatMessage is now defined in Shared/Chat/ChatMessage.swift
+// Use the unified ChatMessage type from that file for consistency across the app.

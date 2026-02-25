@@ -35,24 +35,24 @@ enum FuzzySearch {
             return 600
         }
 
-        // Fuzzy character matching
+        // Fuzzy character matching - use Array<Character> for O(1) indexing
+        let queryChars = Array(queryLower)
+        let targetChars = Array(targetLower)
+
         var score = 0
-        var queryIndex = queryLower.startIndex
-        var targetIndex = targetLower.startIndex
+        var queryIdx = 0
+        var targetIdx = 0
         var consecutiveMatches = 0
         var matchCount = 0
-        var lastMatchIndex: String.Index?
+        var lastMatchIdx: Int?
 
-        while queryIndex < queryLower.endIndex && targetIndex < targetLower.endIndex {
-            let queryChar = queryLower[queryIndex]
-            let targetChar = targetLower[targetIndex]
-
-            if queryChar == targetChar {
+        while queryIdx < queryChars.count && targetIdx < targetChars.count {
+            if queryChars[queryIdx] == targetChars[targetIdx] {
                 matchCount += 1
 
                 // Bonus for consecutive matches
-                if let lastIdx = lastMatchIndex {
-                    let distance = targetLower.distance(from: lastIdx, to: targetIndex)
+                if let lastIdx = lastMatchIdx {
+                    let distance = targetIdx - lastIdx
                     if distance == 1 {
                         consecutiveMatches += 1
                         score += 10 * consecutiveMatches // Increasing bonus for consecutive matches
@@ -64,31 +64,30 @@ enum FuzzySearch {
                 }
 
                 // Bonus for matching at word boundaries
-                if targetIndex == targetLower.startIndex {
+                if targetIdx == 0 {
                     score += 15
                 } else {
-                    let prevIndex = targetLower.index(before: targetIndex)
-                    let prevChar = targetLower[prevIndex]
+                    let prevChar = targetChars[targetIdx - 1]
                     if !prevChar.isLetter && !prevChar.isNumber {
                         score += 10 // Word boundary bonus
                     }
                 }
 
-                lastMatchIndex = targetIndex
-                queryIndex = queryLower.index(after: queryIndex)
+                lastMatchIdx = targetIdx
+                queryIdx += 1
                 score += 5 // Base score for each match
             }
 
-            targetIndex = targetLower.index(after: targetIndex)
+            targetIdx += 1
         }
 
         // All query characters must be matched
-        guard queryIndex == queryLower.endIndex else {
+        guard queryIdx == queryChars.count else {
             return 0
         }
 
         // Bonus based on match ratio
-        let matchRatio = Double(matchCount) / Double(targetLower.count)
+        let matchRatio = Double(matchCount) / Double(targetChars.count)
         score += Int(matchRatio * 50)
 
         return max(score, 1) // Ensure minimum score of 1 if we matched
