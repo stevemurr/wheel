@@ -53,9 +53,6 @@ class DarkModeManager: ObservableObject {
     func shouldApplyDarkMode(for url: URL? = nil) -> Bool {
         let settings = AppSettings.shared
 
-        // Check site exceptions (future feature)
-        // if let url = url, isExcluded(url) { return false }
-
         switch settings.darkModeMode {
         case .on:
             return true

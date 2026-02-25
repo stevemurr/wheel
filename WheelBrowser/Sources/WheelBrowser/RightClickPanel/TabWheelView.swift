@@ -42,8 +42,9 @@ struct TabWheelView: View {
 
     /// Get sorted tabs, using cache when rotation hasn't changed significantly
     private var sortedTabs: [TabWithIndex] {
-        // Only recalculate if rotation changed significantly (more than 1 degree) or tab count changed
-        let rotationChanged = abs(wheelState.rotationAngle - lastRotationAngle) > 1.0
+        // Only recalculate if rotation changed significantly (more than 5 degrees) or tab count changed
+        // Increased threshold from 1 to 5 degrees to reduce sort frequency during animations
+        let rotationChanged = abs(wheelState.rotationAngle - lastRotationAngle) > 5.0
         let tabCountChanged = browserState.tabs.count != lastTabCount
 
         if !rotationChanged && !tabCountChanged && !cachedSortedTabs.isEmpty {
@@ -108,7 +109,7 @@ struct TabWheelView: View {
 
     /// Update the cache when rotation or tabs change significantly
     private func updateCacheIfNeeded() {
-        let rotationChanged = abs(wheelState.rotationAngle - lastRotationAngle) > 1.0
+        let rotationChanged = abs(wheelState.rotationAngle - lastRotationAngle) > 5.0
         let tabCountChanged = browserState.tabs.count != lastTabCount
 
         if rotationChanged || tabCountChanged || cachedSortedTabs.isEmpty {

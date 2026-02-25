@@ -5,7 +5,7 @@ import Combine
 class AgentManager: ObservableObject {
     static let shared = AgentManager()
 
-    @Published var isReady = false
+    @Published var isReady = true
     @Published var isLoading = false
     @Published var error: String?
     @Published var messages: [ChatMessage] = []
@@ -26,10 +26,6 @@ class AgentManager: ObservableObject {
     """
 
     private init() {}
-
-    func initialize() async {
-        isReady = true
-    }
 
     /// Send a message with multiple page contexts
     func sendMessage(_ content: String, pageContexts: [PageContext]) async {
@@ -265,12 +261,6 @@ class AgentManager: ObservableObject {
         }
 
         return false
-    }
-
-    func storePageVisit(_ context: PageContext) async {
-        // Store in conversation context for future reference
-        let entry = "Previously visited: \(context.title) (\(context.url))"
-        conversationHistory.append(["role": "system", "content": entry])
     }
 
     func clearMessages() {

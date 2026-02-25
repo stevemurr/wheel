@@ -178,7 +178,8 @@ struct HistoryPanelContent: View {
                         }
                     } else {
                         // Show suggestions (either search results or recent history)
-                        ForEach(Array(viewModel.suggestions.enumerated()), id: \.element.id) { index, suggestion in
+                        ForEach(viewModel.suggestions.indices, id: \.self) { index in
+                            let suggestion = viewModel.suggestions[index]
                             SuggestionRow(
                                 suggestion: suggestion,
                                 isSelected: index == viewModel.selectedIndex,
@@ -236,7 +237,7 @@ struct ChatPanelContent: View {
                                 .multilineTextAlignment(.center)
 
                             Button("Retry") {
-                                Task { await agentManager.initialize() }
+                                agentManager.error = nil
                             }
                             .buttonStyle(.bordered)
                             .controlSize(.small)
@@ -435,14 +436,7 @@ struct SuggestionRow: View {
     }
 
     private var displayURL: String {
-        var url = suggestion.url
-        url = url.replacingOccurrences(of: "https://", with: "")
-        url = url.replacingOccurrences(of: "http://", with: "")
-        url = url.replacingOccurrences(of: "www.", with: "")
-        if url.count > 60 {
-            url = String(url.prefix(57)) + "..."
-        }
-        return url
+        URLFormatter.shared.displayURL(suggestion.url)
     }
 
     private var relativeTimeString: String? {
@@ -577,14 +571,7 @@ struct HistoryRow: View {
     }
 
     private var displayURL: String {
-        var url = entry.url
-        url = url.replacingOccurrences(of: "https://", with: "")
-        url = url.replacingOccurrences(of: "http://", with: "")
-        url = url.replacingOccurrences(of: "www.", with: "")
-        if url.count > 60 {
-            url = String(url.prefix(57)) + "..."
-        }
-        return url
+        URLFormatter.shared.displayURL(entry.url)
     }
 
     private var relativeTimeString: String? {

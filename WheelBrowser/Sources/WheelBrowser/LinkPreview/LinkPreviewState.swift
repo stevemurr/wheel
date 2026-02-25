@@ -15,7 +15,6 @@ class LinkPreviewState: ObservableObject {
     @Published var error: String?
 
     private var fetchTask: Task<Void, Never>?
-    private var requestCounter: Int = 0  // Track request IDs for debugging
 
     private init() {}
 
@@ -31,10 +30,7 @@ class LinkPreviewState: ObservableObject {
             fetchTask?.cancel()
         }
 
-        requestCounter += 1
-        let requestId = requestCounter
-
-        Log.LinkPreview.info("Summary #\(requestId): \(url.host ?? url.absoluteString)")
+        Log.LinkPreview.info("Summary: \(url.host ?? url.absoluteString)")
 
         // Show summary window immediately (no debounce for click-based trigger)
         self.linkURL = url
@@ -78,29 +74,27 @@ class LinkPreviewState: ObservableObject {
         }
         fetchTask?.cancel()
 
-        let requestId = requestCounter  // Capture current request ID
-
         fetchTask = Task {
             // Check LLM configuration before starting
             let settings = AppSettings.shared
             guard let llmURL = settings.summarizationBaseURL else {
-                Log.LinkPreview.error("Request #\(requestId): LLM endpoint not configured (llmEndpoint='\(settings.llmEndpoint)')")
+                Log.LinkPreview.error("LLM endpoint not configured (llmEndpoint='\(settings.llmEndpoint)')")
                 self.error = "LLM not configured"
                 self.isLoading = false
                 return
             }
-            Log.LinkPreview.debug("Request #\(requestId): Using LLM at \(llmURL.absoluteString)")
+            Log.LinkPreview.debug("Using LLM at \(llmURL.absoluteString)")
 
             do {
                 // Fetch page content
                 let (title, content) = try await fetchPageTitleAndContent(url: url)
 
                 guard !Task.isCancelled else {
-                    Log.LinkPreview.debug("Request #\(requestId) cancelled after fetch")
+                    Log.LinkPreview.debug("Request cancelled after fetch")
                     return
                 }
 
-                Log.LinkPreview.debug("Request #\(requestId): Fetched '\(title ?? "no title")' (\(content?.count ?? 0) chars)")
+                Log.LinkPreview.debug("Fetched '\(title ?? "no title")' (\(content?.count ?? 0) chars)")
                 self.pageTitle = title
 
                 // Generate summary using SummaryGenerator
@@ -123,12 +117,12 @@ class LinkPreviewState: ObservableObject {
                     self.summary = ""
 
                     do {
-                        Log.LinkPreview.debug("Request #\(requestId): Starting streaming summary...")
+                        Log.LinkPreview.debug("Starting streaming summary...")
                         let stream = await SummaryGenerator.shared.generateSummaryStream(content: content)
 
                         for try await chunk in stream {
                             guard !Task.isCancelled else {
-                                Log.LinkPreview.debug("Request #\(requestId) cancelled during streaming")
+                                Log.LinkPreview.debug("Request cancelled during streaming")
                                 return
                             }
                             self.summary = (self.summary ?? "") + chunk
@@ -138,12 +132,12 @@ class LinkPreviewState: ObservableObject {
                         // Clean up the final summary (trim whitespace only, no truncation)
                         if let finalSummary = self.summary, !finalSummary.isEmpty {
                             self.summary = finalSummary.trimmingCharacters(in: .whitespacesAndNewlines)
-                            Log.LinkPreview.info("Request #\(requestId): Summary complete (\(finalSummary.count) chars)")
+                            Log.LinkPreview.info("Summary complete (\(finalSummary.count) chars)")
                         } else {
-                            Log.LinkPreview.warning("Request #\(requestId): Streaming returned empty summary")
+                            Log.LinkPreview.warning("Streaming returned empty summary")
                         }
                     } catch {
-                        Log.LinkPreview.warning("Request #\(requestId): Streaming failed: \(error.localizedDescription)")
+                        Log.LinkPreview.warning("Streaming failed: \(error.localizedDescription)")
                         streamingSucceeded = false
                     }
 
@@ -151,17 +145,17 @@ class LinkPreviewState: ObservableObject {
                     if !streamingSucceeded || (self.summary?.isEmpty ?? true) {
                         guard !Task.isCancelled else { return }
 
-                        Log.LinkPreview.debug("Request #\(requestId): Falling back to non-streaming...")
+                        Log.LinkPreview.debug("Falling back to non-streaming...")
                         if let summary = await SummaryGenerator.shared.generateSummary(content: content) {
                             self.summary = summary
-                            Log.LinkPreview.info("Request #\(requestId): Non-streaming summary complete")
+                            Log.LinkPreview.info("Non-streaming summary complete")
                         } else {
-                            Log.LinkPreview.warning("Request #\(requestId): All summary methods failed, using snippet")
+                            Log.LinkPreview.warning("All summary methods failed, using snippet")
                             self.summary = String(content.prefix(300)).trimmingCharacters(in: .whitespacesAndNewlines)
                         }
                     }
                 } else {
-                    Log.LinkPreview.warning("Request #\(requestId): No content to summarize")
+                    Log.LinkPreview.warning("No content to summarize")
                 }
 
                 self.isLoading = false
@@ -169,7 +163,7 @@ class LinkPreviewState: ObservableObject {
             } catch {
                 guard !Task.isCancelled else { return }
 
-                Log.LinkPreview.error("Request #\(requestId): Fetch failed: \(error.localizedDescription)")
+                Log.LinkPreview.error("Fetch failed: \(error.localizedDescription)")
                 self.error = "Could not load preview"
                 self.isLoading = false
             }

@@ -371,7 +371,7 @@ struct ChatResponsePanel: View {
                     .multilineTextAlignment(.center)
 
                 Button("Retry") {
-                    Task { await agentManager.initialize() }
+                    agentManager.error = nil
                 }
                 .buttonStyle(.bordered)
                 .controlSize(.small)

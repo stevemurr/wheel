@@ -467,11 +467,6 @@ struct OmniBar: View {
             omniState.inputText = tab.url?.absoluteString ?? ""
             suggestionsVM.browserState = browserState
             mentionSuggestionsVM.browserState = browserState
-            Task {
-                if !agentManager.isReady && !agentManager.isLoading {
-                    await agentManager.initialize()
-                }
-            }
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
                 hasAppeared = true
             }
