@@ -42,7 +42,7 @@ final class ReadingListWidget: Widget, ObservableObject {
         defer { isLoading = false }
 
         do {
-            let database = try SearchDatabase()
+            let database = SearchDatabase.shared
             try await database.initialize()
             // Fetch more items for expanded mode scrolling
             let limit = (currentSize == .wide || currentSize == .extraLarge) ? max(wideItemCount, 20) : 8

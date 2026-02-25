@@ -313,10 +313,9 @@ struct OmniBar: View {
                 isHovering = hovering
             }
         }
-        .animation(.spring(response: 0.3, dampingFraction: 0.8), value: shouldExpand)
+        // Consolidated animation for all panel state changes
+        .animation(.spring(response: 0.3, dampingFraction: 0.85), value: shouldExpand)
         .animation(.spring(response: 0.3, dampingFraction: 0.85), value: isInputFocused)
-        .animation(.spring(response: 0.3, dampingFraction: 0.85), value: omniState.showChatPanel)
-        .animation(.spring(response: 0.3, dampingFraction: 0.85), value: omniState.showSemanticPanel)
         .onChange(of: tab.url) { _, newURL in
             if !isInputFocused && omniState.mode == .address {
                 omniState.inputText = newURL?.absoluteString ?? ""
@@ -1199,7 +1198,7 @@ struct OmniBar: View {
 
         Task {
             do {
-                let database = try SearchDatabase()
+                let database = SearchDatabase.shared
                 try await database.initialize()
                 let isSaved = try await database.toggleSaved(url: url.absoluteString, title: title)
 
@@ -1236,7 +1235,7 @@ struct OmniBar: View {
         }
 
         do {
-            let database = try SearchDatabase()
+            let database = SearchDatabase.shared
             try await database.initialize()
             let saved = try await database.isSaved(url: url.absoluteString)
             await MainActor.run {

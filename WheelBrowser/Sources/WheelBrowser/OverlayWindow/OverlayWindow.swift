@@ -228,7 +228,7 @@ struct OverlayWindow: View {
     private func toggleSaveToReadingList() {
         Task {
             do {
-                let database = try SearchDatabase()
+                let database = SearchDatabase.shared
                 try await database.initialize()
                 let newState = try await database.toggleSaved(url: item.url.absoluteString, title: item.title)
 
@@ -253,7 +253,7 @@ struct OverlayWindow: View {
     private func checkIfSaved() {
         Task {
             do {
-                let database = try SearchDatabase()
+                let database = SearchDatabase.shared
                 try await database.initialize()
                 let saved = try await database.isSaved(url: item.url.absoluteString)
 

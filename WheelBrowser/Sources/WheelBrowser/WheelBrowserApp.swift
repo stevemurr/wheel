@@ -225,6 +225,13 @@ struct WheelBrowserApp: App {
                     NotificationCenter.default.post(name: .closeAllOverlays, object: nil)
                 }
                 .keyboardShortcut("o", modifiers: [.command, .option])
+
+                Divider()
+
+                Button("Show Tab Wheel") {
+                    NotificationCenter.default.post(name: .showTabWheel, object: nil)
+                }
+                .keyboardShortcut("w", modifiers: [.command, .option])
             }
         }
 
@@ -281,4 +288,10 @@ extension Notification.Name {
 
     // Overlay windows
     static let closeAllOverlays = Notification.Name("closeAllOverlays")
+
+    // Tab wheel
+    static let showTabWheel = Notification.Name("showTabWheel")
+
+    // Open URL in active tab (for agent/MCP)
+    static let openURL = Notification.Name("openURL")
 }

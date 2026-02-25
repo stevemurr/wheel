@@ -469,7 +469,7 @@ struct SettingsView: View {
             Button("Clear", role: .destructive) {
                 Task {
                     do {
-                        let database = try SearchDatabase()
+                        let database = SearchDatabase.shared
                         try await database.initialize()
                         try await database.clearReadingList()
                     } catch {
@@ -485,7 +485,7 @@ struct SettingsView: View {
             Button("Clear", role: .destructive) {
                 Task {
                     do {
-                        let database = try SearchDatabase()
+                        let database = SearchDatabase.shared
                         try await database.initialize()
                         try await database.clearAllData()
                     } catch {

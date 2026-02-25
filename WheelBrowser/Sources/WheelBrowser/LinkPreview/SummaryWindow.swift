@@ -283,7 +283,7 @@ struct SummaryWindow: View {
 
         Task {
             do {
-                let database = try SearchDatabase()
+                let database = SearchDatabase.shared
                 try await database.initialize()
                 let title = state.pageTitle ?? url.host ?? "Untitled"
                 let newState = try await database.toggleSaved(url: url.absoluteString, title: title)
@@ -311,7 +311,7 @@ struct SummaryWindow: View {
 
         Task {
             do {
-                let database = try SearchDatabase()
+                let database = SearchDatabase.shared
                 try await database.initialize()
                 let saved = try await database.isSaved(url: url.absoluteString)
 

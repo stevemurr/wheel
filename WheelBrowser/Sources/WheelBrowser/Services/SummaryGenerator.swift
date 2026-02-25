@@ -269,7 +269,7 @@ actor SummaryGenerator {
         }
 
         do {
-            let database = try SearchDatabase()
+            let database = SearchDatabase.shared
             try await database.initialize()
             try await database.updateSummary(url: url.absoluteString, summary: summary)
             Log.Services.info("Regenerated summary for: \(url.host ?? url.absoluteString)")
@@ -294,7 +294,7 @@ actor SummaryGenerator {
         Log.Services.info("Starting full regeneration...")
 
         do {
-            let database = try SearchDatabase()
+            let database = SearchDatabase.shared
             try await database.initialize()
 
             // Clear all existing summaries
@@ -355,7 +355,7 @@ actor SummaryGenerator {
         Log.Services.info("Starting backfill...")
 
         do {
-            let database = try SearchDatabase()
+            let database = SearchDatabase.shared
             try await database.initialize()
 
             let pagesWithoutSummary = try await database.getSavedPagesWithoutSummary(limit: 20)

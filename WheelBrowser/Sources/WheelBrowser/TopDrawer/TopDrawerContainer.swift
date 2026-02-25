@@ -266,6 +266,7 @@ struct HoverTrackingView: NSViewRepresentable {
 // MARK: - Escape Key Handler
 
 /// A view that captures the Escape key press and triggers the provided action
+/// Uses specialKey instead of hardcoded keyCode for international keyboard compatibility
 struct EscapeKeyHandler: NSViewRepresentable {
     let action: () -> Void
 
@@ -287,11 +288,18 @@ struct EscapeKeyHandler: NSViewRepresentable {
         override var acceptsFirstResponder: Bool { true }
 
         override func keyDown(with event: NSEvent) {
-            if event.keyCode == 53 { // Escape key
+            // Use characters instead of keyCode for international keyboard compatibility
+            // Escape key sends character code 27 (0x1B)
+            if let chars = event.characters, chars.unicodeScalars.first?.value == 0x1B {
                 onEscape?()
             } else {
                 super.keyDown(with: event)
             }
+        }
+
+        override func cancelOperation(_ sender: Any?) {
+            // Also handle cancel operation (Cmd+.) which maps to escape
+            onEscape?()
         }
     }
 }

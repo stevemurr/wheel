@@ -178,14 +178,12 @@ struct HistoryPanelContent: View {
                         }
                     } else {
                         // Show suggestions (either search results or recent history)
-                        ForEach(viewModel.suggestions.indices, id: \.self) { index in
-                            let suggestion = viewModel.suggestions[index]
+                        ForEach(Array(viewModel.suggestions.enumerated()), id: \.element.id) { index, suggestion in
                             SuggestionRow(
                                 suggestion: suggestion,
                                 isSelected: index == viewModel.selectedIndex,
                                 onSelect: { onSelect(suggestion) }
                             )
-                            .id(suggestion.id)
                         }
                     }
                 }
@@ -300,6 +298,11 @@ struct SuggestionRow: View {
 
     @State private var isHovering = false
 
+    /// Cached colors array for domain coloring (avoids recreation on every call)
+    private static let domainColors: [Color] = [
+        .blue, .purple, .pink, .red, .orange, .yellow, .green, .teal, .cyan, .indigo
+    ]
+
     private var domain: String {
         if let url = URL(string: suggestion.url), let host = url.host {
             return host.replacingOccurrences(of: "www.", with: "")
@@ -367,7 +370,7 @@ struct SuggestionRow: View {
 
     private var backgroundColor: Color {
         if isSelected {
-            return Color.accentColor.opacity(0.2)
+            return Color.accentColor.opacity(0.35)
         } else if isHovering {
             return Color(nsColor: .controlBackgroundColor).opacity(0.5)
         }
@@ -446,11 +449,8 @@ struct SuggestionRow: View {
     }
 
     private func colorForDomain(_ domain: String) -> Color {
-        let colors: [Color] = [
-            .blue, .purple, .pink, .red, .orange, .yellow, .green, .teal, .cyan, .indigo
-        ]
         let hash = domain.utf8.reduce(0) { $0 &+ Int($1) }
-        return colors[abs(hash) % colors.count]
+        return Self.domainColors[abs(hash) % Self.domainColors.count]
     }
 }
 
@@ -462,6 +462,11 @@ struct HistoryRow: View {
     let onSelect: () -> Void
 
     @State private var isHovering = false
+
+    /// Cached colors array for domain coloring (avoids recreation on every call)
+    private static let domainColors: [Color] = [
+        .blue, .purple, .pink, .red, .orange, .yellow, .green, .teal, .cyan, .indigo
+    ]
 
     private var domain: String {
         if let url = URL(string: entry.url), let host = url.host {
@@ -521,7 +526,7 @@ struct HistoryRow: View {
 
     private var backgroundColor: Color {
         if isSelected {
-            return Color.accentColor.opacity(0.2)
+            return Color.accentColor.opacity(0.35)
         } else if isHovering {
             return Color(nsColor: .controlBackgroundColor).opacity(0.5)
         }
@@ -561,10 +566,7 @@ struct HistoryRow: View {
     }
 
     private func colorForDomain(_ domain: String) -> Color {
-        let colors: [Color] = [
-            .blue, .purple, .pink, .red, .orange, .yellow, .green, .teal, .cyan, .indigo
-        ]
         let hash = domain.utf8.reduce(0) { $0 &+ Int($1) }
-        return colors[abs(hash) % colors.count]
+        return Self.domainColors[abs(hash) % Self.domainColors.count]
     }
 }

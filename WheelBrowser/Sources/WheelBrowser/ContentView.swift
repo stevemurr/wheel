@@ -91,8 +91,6 @@ private struct TabWebViewContainer: View {
         // Using opacity instead of removing from hierarchy preserves JS execution
         .opacity(isActive ? 1 : 0)
         .allowsHitTesting(isActive)
-        // Ensure the view stays the same identity
-        .id(tab.id)
     }
 }
 
@@ -259,6 +257,11 @@ struct ContentView: View {
                     state.addTab(withURL: url)
                 }
             }
+            .onReceive(NotificationCenter.default.publisher(for: .showTabWheel)) { _ in
+                // Show tab wheel at center of window
+                let initialIndex = state.activeTabIndex ?? 0
+                wheelState.show(at: .zero, initialIndex: initialIndex, tabCount: state.tabs.count)
+            }
     }
 
     // MARK: - Handlers
@@ -266,24 +269,6 @@ struct ContentView: View {
     private func handleOnAppear() {
         if let currentWorkspaceId = workspaceManager.currentWorkspaceID {
             state.bindToWorkspace(currentWorkspaceId)
-        }
-    }
-
-    // MARK: - Workspace Switching
-
-    private func switchToWorkspace(_ workspaceId: UUID) {
-        // Save current tab state before switching
-        if let currentWorkspaceId = state.currentWorkspaceId {
-            saveCurrentTabState(to: currentWorkspaceId)
-        }
-
-        // Load tabs for the new workspace
-        state.loadStateForWorkspace(workspaceId)
-
-        // Switch to workspace's agent if one is assigned
-        if let workspace = workspaceManager.workspaces.first(where: { $0.id == workspaceId }),
-           let agentId = workspace.defaultAgentID {
-            agentStudioManager.setActiveAgent(id: agentId)
         }
     }
 

@@ -3,6 +3,17 @@ import SQLite3
 
 /// SQLite-based database for reading list and page metadata
 actor SearchDatabase {
+    /// Shared singleton instance for performance (avoids creating new connections)
+    static let shared: SearchDatabase = {
+        do {
+            let db = try SearchDatabase()
+            Task { try await db.initialize() }
+            return db
+        } catch {
+            fatalError("Failed to create SearchDatabase: \(error)")
+        }
+    }()
+
     private var db: OpaquePointer?
     private let dbPath: URL
     private var isInitialized = false

@@ -295,7 +295,7 @@ struct DebugWidgetView: View {
         isProcessing = true
         Task {
             do {
-                let db = try SearchDatabase()
+                let db = SearchDatabase.shared
                 try await db.initialize()
                 try await db.clearReadingList()
                 await MainActor.run {
@@ -313,7 +313,7 @@ struct DebugWidgetView: View {
         isProcessing = true
         Task {
             do {
-                let db = try SearchDatabase()
+                let db = SearchDatabase.shared
                 try await db.initialize()
                 try await db.clearAllData()
                 await MainActor.run {

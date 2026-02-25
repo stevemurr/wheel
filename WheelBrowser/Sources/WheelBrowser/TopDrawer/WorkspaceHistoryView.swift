@@ -240,12 +240,6 @@ struct HistoryEntryRow: View {
     }
 }
 
-// MARK: - Notification Extension
-
-extension Notification.Name {
-    static let openURL = Notification.Name("openURL")
-}
-
 // MARK: - Preview
 
 #Preview {

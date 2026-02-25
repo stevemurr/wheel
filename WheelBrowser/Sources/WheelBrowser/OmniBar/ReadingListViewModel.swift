@@ -24,7 +24,7 @@ class ReadingListViewModel: ObservableObject {
 
         searchTask = Task {
             do {
-                let database = try SearchDatabase()
+                let database = SearchDatabase.shared
                 try await database.initialize()
                 let pages = try await database.getSavedPages(limit: 100)
 
@@ -61,7 +61,7 @@ class ReadingListViewModel: ObservableObject {
             guard !Task.isCancelled else { return }
 
             do {
-                let database = try SearchDatabase()
+                let database = SearchDatabase.shared
                 try await database.initialize()
                 let pages = try await database.searchSavedPages(query: query, limit: 50)
 
@@ -84,7 +84,7 @@ class ReadingListViewModel: ObservableObject {
     func unsave(url: URL) {
         Task {
             do {
-                let database = try SearchDatabase()
+                let database = SearchDatabase.shared
                 try await database.initialize()
                 try await database.setSaved(url: url.absoluteString, saved: false)
 

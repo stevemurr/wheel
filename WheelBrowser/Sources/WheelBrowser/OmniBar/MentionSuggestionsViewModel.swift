@@ -5,7 +5,7 @@ import Combine
 @MainActor
 class MentionSuggestionsViewModel: ObservableObject {
     @Published var suggestions: [MentionSuggestion] = []
-    @Published var selectedIndex: Int = 0
+    @Published var selectedIndex: Int = -1
     @Published var isSearching = false
 
     /// Reference to browser state for accessing open tabs
