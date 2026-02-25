@@ -59,14 +59,14 @@ final class DailyNotesWidget: Widget, ObservableObject {
 
     // MARK: - Persistence
 
-    private var saveTask: Task<Void, Never>?
+    private let saveDebouncer = Debouncer(delay: .milliseconds(500))
 
     private func saveDebounced() {
-        saveTask?.cancel()
-        saveTask = Task {
-            try? await Task.sleep(nanoseconds: 500_000_000)
-            if !Task.isCancelled {
-                NewTabPageManager.shared.save()
+        Task {
+            await saveDebouncer.debounce {
+                await MainActor.run {
+                    NewTabPageManager.shared.save()
+                }
             }
         }
     }

@@ -87,4 +87,25 @@ extension Widget {
     func decodeConfiguration(_ data: [String: Any]) {
         // Default: no-op
     }
+
+    // MARK: - Encode/Decode Helpers
+
+    /// Helper to encode a Codable array to configuration dictionary
+    func encodeItems<T: Encodable>(_ items: [T], key: String) -> [String: Any] {
+        guard let data = try? JSONEncoder().encode(items),
+              let json = try? JSONSerialization.jsonObject(with: data) as? [[String: Any]] else {
+            return [:]
+        }
+        return [key: json]
+    }
+
+    /// Helper to decode a Codable array from configuration dictionary
+    func decodeItems<T: Decodable>(from data: [String: Any], key: String) -> [T]? {
+        guard let itemsData = data[key],
+              let jsonData = try? JSONSerialization.data(withJSONObject: itemsData),
+              let decoded = try? JSONDecoder().decode([T].self, from: jsonData) else {
+            return nil
+        }
+        return decoded
+    }
 }

@@ -3,11 +3,11 @@ import SwiftUI
 struct DockTabItem: View {
     @ObservedObject var tab: Tab
     let isActive: Bool
-    let isHovered: Bool
     let tabCount: Int
     let onSelect: () -> Void
     let onClose: () -> Void
 
+    @State private var isHovered = false
     @State private var showClose = false
     @State private var agentPulseScale: CGFloat = 1.0
 
@@ -62,9 +62,12 @@ struct DockTabItem: View {
             }
         }
         .scaleEffect(isHovered ? 1.15 : 1.0)
-        .animation(.spring(response: 0.2, dampingFraction: 0.7), value: isHovered)
+        .animation(AppAnimation.hoverSpring, value: isHovered)
         .onTapGesture(perform: onSelect)
-        .onHover { showClose = $0 }
+        .onHover { hovering in
+            isHovered = hovering
+            showClose = hovering
+        }
         .help(tab.hasActiveAgent ? "\(tab.displayTitle) (Agent running)" : tab.displayTitle)
         .onAppear {
             startAgentPulseAnimation()

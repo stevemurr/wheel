@@ -78,8 +78,8 @@ struct TabWheelItem: View {
             isHovered = hovering
         }
         .scaleEffect(isHovered && !isSelected ? 1.05 : 1.0)
-        .animation(.spring(response: 0.2, dampingFraction: 0.7), value: isHovered)
-        .animation(.spring(response: 0.25, dampingFraction: 0.7), value: scale)
+        .animation(AppAnimation.hoverSpring, value: isHovered)
+        .animation(AppAnimation.hoverSpring, value: scale)
     }
 
     // MARK: - Placeholder

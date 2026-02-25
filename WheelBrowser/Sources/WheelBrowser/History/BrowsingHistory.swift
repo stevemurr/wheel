@@ -71,12 +71,11 @@ class BrowsingHistory: ObservableObject {
         let entry = HistoryEntry(url: urlString, title: title.isEmpty ? urlString : title, workspaceID: workspaceID)
         entries.insert(entry, at: 0)
 
-        // Update index: shift all existing indices by 1 and add new entry at index 0
-        var newIndex: [String: Int] = [urlString: 0]
-        for (url, idx) in urlIndex {
-            newIndex[url] = idx + 1
+        // Update index in-place: shift all existing indices by 1 and add new entry at index 0
+        for key in urlIndex.keys {
+            urlIndex[key]! += 1
         }
-        urlIndex = newIndex
+        urlIndex[urlString] = 0
 
         // Trim to max entries
         if entries.count > maxEntries {
@@ -102,14 +101,6 @@ class BrowsingHistory: ObservableObject {
         for i in startIndex..<entries.count {
             urlIndex[entries[i].url] = i
         }
-    }
-
-    // MARK: - Workspace Filtering (currently unused, preserved for future use)
-
-    /// Get history entries for a specific workspace
-    /// Note: Currently not used by any view, kept for potential workspace-specific history views
-    func entriesForWorkspace(_ workspaceID: UUID) -> [HistoryEntry] {
-        entries.filter { $0.workspaceID == workspaceID }
     }
 
     /// Search history using fuzzy matching, optionally filtered by workspace

@@ -12,6 +12,10 @@ class SemanticSearchViewModel: ObservableObject {
     private var searchTask: Task<Void, Never>?
     private let debounceDelay: TimeInterval = 0.3
 
+    deinit {
+        searchTask?.cancel()
+    }
+
     var selectedResult: SemanticSearchResult? {
         guard selectedIndex >= 0 && selectedIndex < results.count else { return nil }
         return results[selectedIndex]
@@ -88,10 +92,10 @@ struct SemanticSearchPanelContent: View {
                                 .padding(.top, 30)
                         }
                     } else {
-                        ForEach(Array(viewModel.results.enumerated()), id: \.element.id) { index, result in
+                        ForEach(viewModel.results) { result in
                             SemanticResultRow(
                                 result: result,
-                                isSelected: index == viewModel.selectedIndex,
+                                isSelected: viewModel.results.firstIndex(where: { $0.id == result.id }) == viewModel.selectedIndex,
                                 onSelect: { onSelect(result) }
                             )
                             .id(result.id)
@@ -190,11 +194,43 @@ struct SemanticResultRow: View {
 
     @State private var isHovering = false
 
-    private var domain: String {
+    /// Cached domain extracted from URL (computed once at init)
+    private let cachedDomain: String
+    /// Cached display URL (computed once at init)
+    private let cachedDisplayURL: String
+    /// Cached domain color (computed once at init)
+    private let cachedDomainColor: Color
+
+    init(result: SemanticSearchResult, isSelected: Bool, onSelect: @escaping () -> Void) {
+        self.result = result
+        self.isSelected = isSelected
+        self.onSelect = onSelect
+
+        // Pre-compute expensive string operations
+        let domain: String
         if let url = URL(string: result.page.url), let host = url.host {
-            return host.replacingOccurrences(of: "www.", with: "")
+            domain = host.replacingOccurrences(of: "www.", with: "")
+        } else {
+            domain = ""
         }
-        return ""
+        self.cachedDomain = domain
+
+        // Pre-compute display URL
+        var displayURL = result.page.url
+        displayURL = displayURL.replacingOccurrences(of: "https://", with: "")
+        displayURL = displayURL.replacingOccurrences(of: "http://", with: "")
+        displayURL = displayURL.replacingOccurrences(of: "www.", with: "")
+        if displayURL.count > 50 {
+            displayURL = String(displayURL.prefix(47)) + "..."
+        }
+        self.cachedDisplayURL = displayURL
+
+        // Pre-compute domain color
+        let colors: [Color] = [
+            .blue, .purple, .pink, .red, .orange, .yellow, .green, .teal, .cyan, .indigo
+        ]
+        let hash = domain.utf8.reduce(0) { $0 &+ Int($1) }
+        self.cachedDomainColor = colors[abs(hash) % colors.count]
     }
 
     private var scorePercentage: Int {
@@ -209,7 +245,7 @@ struct SemanticResultRow: View {
 
             // Title, snippet, and URL
             VStack(alignment: .leading, spacing: 3) {
-                Text(result.page.title.isEmpty ? domain : result.page.title)
+                Text(result.page.title.isEmpty ? cachedDomain : result.page.title)
                     .font(.system(size: 13))
                     .foregroundColor(.primary)
                     .lineLimit(1)
@@ -221,7 +257,7 @@ struct SemanticResultRow: View {
                         .lineLimit(2)
                 }
 
-                Text(displayURL)
+                Text(cachedDisplayURL)
                     .font(.system(size: 10))
                     .foregroundColor(.secondary.opacity(0.7))
                     .lineLimit(1)
@@ -282,15 +318,15 @@ struct SemanticResultRow: View {
 
     @ViewBuilder
     private var faviconView: some View {
-        if !domain.isEmpty {
-            let initial = String(domain.prefix(1)).uppercased()
+        if !cachedDomain.isEmpty {
+            let initial = String(cachedDomain.prefix(1)).uppercased()
             Text(initial)
                 .font(.system(size: 12, weight: .semibold))
                 .foregroundColor(.white)
                 .frame(width: 28, height: 28)
                 .background(
                     RoundedRectangle(cornerRadius: 6)
-                        .fill(colorForDomain(domain))
+                        .fill(cachedDomainColor)
                 )
         } else {
             Image(systemName: "globe")
@@ -302,24 +338,5 @@ struct SemanticResultRow: View {
                         .fill(Color(nsColor: .controlBackgroundColor))
                 )
         }
-    }
-
-    private var displayURL: String {
-        var url = result.page.url
-        url = url.replacingOccurrences(of: "https://", with: "")
-        url = url.replacingOccurrences(of: "http://", with: "")
-        url = url.replacingOccurrences(of: "www.", with: "")
-        if url.count > 50 {
-            url = String(url.prefix(47)) + "..."
-        }
-        return url
-    }
-
-    private func colorForDomain(_ domain: String) -> Color {
-        let colors: [Color] = [
-            .blue, .purple, .pink, .red, .orange, .yellow, .green, .teal, .cyan, .indigo
-        ]
-        let hash = domain.utf8.reduce(0) { $0 &+ Int($1) }
-        return colors[abs(hash) % colors.count]
     }
 }

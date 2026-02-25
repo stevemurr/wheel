@@ -2,7 +2,6 @@ import SwiftUI
 
 struct DockTabBar: View {
     @ObservedObject var browserState: BrowserState
-    @State private var hoveredTabId: UUID?
 
     private let dockPadding: CGFloat = 8
     private let dockCornerRadius: CGFloat = 14
@@ -13,14 +12,10 @@ struct DockTabBar: View {
                 DockTabItem(
                     tab: tab,
                     isActive: tab.id == browserState.activeTabId,
-                    isHovered: tab.id == hoveredTabId,
                     tabCount: browserState.tabs.count,
                     onSelect: { browserState.selectTab(tab.id) },
                     onClose: { browserState.closeTab(tab.id) }
                 )
-                .onHover { hovering in
-                    hoveredTabId = hovering ? tab.id : nil
-                }
             }
 
             DockAddButton { browserState.addTab() }

@@ -57,7 +57,7 @@ struct TabPreviewCard: View {
         }
         .frame(width: cardWidth, height: cardHeight)
         .scaleEffect(isHovered ? 1.05 : 1.0)
-        .animation(.spring(response: 0.2, dampingFraction: 0.7), value: isHovered)
+        .animation(AppAnimation.hoverSpring, value: isHovered)
         .onTapGesture(perform: onSelect)
         .onHover { hovering in
             showClose = hovering
@@ -152,7 +152,7 @@ struct LargeAddButton: View {
         }
         .buttonStyle(.plain)
         .scaleEffect(isHovered ? 1.05 : 1.0)
-        .animation(.spring(response: 0.2, dampingFraction: 0.7), value: isHovered)
+        .animation(AppAnimation.hoverSpring, value: isHovered)
         .onHover { isHovered = $0 }
     }
 }

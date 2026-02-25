@@ -77,20 +77,13 @@ final class ShortcutsWidget: Widget, ObservableObject {
     // MARK: - Configuration Persistence
 
     func encodeConfiguration() -> [String: Any] {
-        guard let data = try? JSONEncoder().encode(shortcuts),
-              let json = try? JSONSerialization.jsonObject(with: data) as? [[String: Any]] else {
-            return [:]
-        }
-        return ["shortcuts": json]
+        encodeItems(shortcuts, key: "shortcuts")
     }
 
     func decodeConfiguration(_ data: [String: Any]) {
-        guard let shortcutsData = data["shortcuts"],
-              let jsonData = try? JSONSerialization.data(withJSONObject: shortcutsData),
-              let decoded = try? JSONDecoder().decode([ShortcutItem].self, from: jsonData) else {
-            return
+        if let decoded: [ShortcutItem] = decodeItems(from: data, key: "shortcuts") {
+            shortcuts = decoded
         }
-        shortcuts = decoded
     }
 }
 
@@ -248,7 +241,7 @@ struct ShortcutButton: View {
         }
         .buttonStyle(.plain)
         .scaleEffect(isHovered ? 1.05 : 1.0)
-        .animation(.easeInOut(duration: 0.15), value: isHovered)
+        .animation(AppAnimation.hoverSpring, value: isHovered)
         .onHover { isHovered = $0 }
         .help(shortcut.name)
     }

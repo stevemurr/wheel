@@ -114,20 +114,13 @@ final class QuickNoteWidget: Widget, ObservableObject {
     }
 
     func encodeConfiguration() -> [String: Any] {
-        guard let data = try? JSONEncoder().encode(stickies),
-              let json = try? JSONSerialization.jsonObject(with: data) as? [[String: Any]] else {
-            return [:]
-        }
-        return ["stickies": json]
+        encodeItems(stickies, key: "stickies")
     }
 
     func decodeConfiguration(_ data: [String: Any]) {
-        guard let stickiesData = data["stickies"],
-              let jsonData = try? JSONSerialization.data(withJSONObject: stickiesData),
-              let decoded = try? JSONDecoder().decode([Sticky].self, from: jsonData) else {
-            return
+        if let decoded: [Sticky] = decodeItems(from: data, key: "stickies") {
+            stickies = decoded
         }
-        stickies = decoded
     }
 }
 
