@@ -129,10 +129,10 @@ class MCPServer: ObservableObject {
             listener?.start(queue: .main)
             isRunning = true
             lastError = nil
-            print("[MCP] Server starting on port \(port)")
+            Log.MCP.info("Server starting on port \(port)")
         } catch {
             lastError = error.localizedDescription
-            print("[MCP] Failed to start server: \(error)")
+            Log.MCP.error("Failed to start server", error: error)
         }
     }
 
@@ -143,7 +143,7 @@ class MCPServer: ObservableObject {
         connections.removeAll()
         isRunning = false
         connectionCount = 0
-        print("[MCP] Server stopped")
+        Log.MCP.info("Server stopped")
     }
 
     // MARK: - Connection Handling
@@ -151,12 +151,12 @@ class MCPServer: ObservableObject {
     private func handleListenerState(_ state: NWListener.State) {
         switch state {
         case .ready:
-            print("[MCP] Server listening on port \(port)")
+            Log.MCP.info("Server listening on port \(port)")
             isRunning = true
         case .failed(let error):
             lastError = error.localizedDescription
             isRunning = false
-            print("[MCP] Server failed: \(error)")
+            Log.MCP.error("Server failed: \(error.localizedDescription)")
         case .cancelled:
             isRunning = false
         default:
@@ -167,7 +167,7 @@ class MCPServer: ObservableObject {
     private func handleNewConnection(_ connection: NWConnection) {
         connections.append(connection)
         connectionCount = connections.count
-        print("[MCP] New connection (\(connectionCount) total)")
+        Log.MCP.info("New connection (\(connectionCount) total)")
 
         connection.stateUpdateHandler = { [weak self] state in
             Task { @MainActor [weak self] in
@@ -182,9 +182,9 @@ class MCPServer: ObservableObject {
     private func handleConnectionState(_ connection: NWConnection, state: NWConnection.State) {
         switch state {
         case .ready:
-            print("[MCP] Connection ready")
+            Log.MCP.debug("Connection ready")
         case .failed(let error):
-            print("[MCP] Connection failed: \(error)")
+            Log.MCP.error("Connection failed: \(error.localizedDescription)")
             removeConnection(connection)
         case .cancelled:
             removeConnection(connection)
@@ -208,7 +208,7 @@ class MCPServer: ObservableObject {
                 }
 
                 if let error = error {
-                    print("[MCP] Receive error: \(error)")
+                    Log.MCP.error("Receive error: \(error.localizedDescription)")
                     return
                 }
 
@@ -433,7 +433,7 @@ class MCPServer: ObservableObject {
         if let responseData = httpResponse.data(using: .utf8) {
             connection.send(content: responseData, completion: .contentProcessed { error in
                 if let error = error {
-                    print("[MCP] Send error: \(error)")
+                    Log.MCP.error("Send error: \(error.localizedDescription)")
                 }
             })
         }

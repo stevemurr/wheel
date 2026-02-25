@@ -67,7 +67,7 @@ final class NewTabPageManager: ObservableObject {
                 let data = try JSONEncoder().encode(config)
                 try data.write(to: configFileURL, options: .atomic)
             } catch {
-                print("Failed to save new tab page config: \(error)")
+                Log.NewTabPage.error("Failed to save new tab page config", error: error)
             }
         }
     }

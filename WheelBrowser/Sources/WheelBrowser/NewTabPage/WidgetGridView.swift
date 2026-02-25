@@ -9,13 +9,27 @@ struct WidgetGridView: View {
     private let columnCount: Int = 4
     private let cellHeight: CGFloat = 160
 
+    /// Cached grid placements to avoid recalculating on every frame
+    @State private var cachedPlacements: [(widget: AnyWidget, col: Int, row: Int)] = []
+    @State private var lastWidgetIds: [UUID] = []
+
     private var cellWidth: CGFloat {
         let totalSpacing = spacing * CGFloat(columnCount + 1)
         return (containerWidth - totalSpacing) / CGFloat(columnCount)
     }
 
-    /// Calculate grid placements for all widgets
+    /// Calculate grid placements for all widgets (cached version)
     private var gridPlacements: [(widget: AnyWidget, col: Int, row: Int)] {
+        // Return cached if widgets haven't changed
+        let currentIds = manager.widgets.map { $0.id }
+        if currentIds == lastWidgetIds && !cachedPlacements.isEmpty {
+            return cachedPlacements
+        }
+        return calculateGridPlacements()
+    }
+
+    /// Calculate grid placements for all widgets
+    private func calculateGridPlacements() -> [(widget: AnyWidget, col: Int, row: Int)] {
         var placements: [(widget: AnyWidget, col: Int, row: Int)] = []
         var grid: [[Bool]] = [] // grid[row][col] = occupied
 
@@ -119,6 +133,16 @@ struct WidgetGridView: View {
         }
         .frame(height: totalGridHeight)
         .padding(.horizontal, spacing)
+        .onChange(of: manager.widgets.map { $0.id }) { _, newIds in
+            // Recalculate placements when widgets change
+            lastWidgetIds = newIds
+            cachedPlacements = calculateGridPlacements()
+        }
+        .onAppear {
+            // Initialize cache on appear
+            lastWidgetIds = manager.widgets.map { $0.id }
+            cachedPlacements = calculateGridPlacements()
+        }
     }
 
     private func widgetWidth(for size: WidgetSize) -> CGFloat {

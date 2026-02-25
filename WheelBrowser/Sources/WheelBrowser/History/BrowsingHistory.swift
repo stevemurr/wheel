@@ -76,8 +76,8 @@ class BrowsingHistory: ObservableObject {
         return entries.filter { $0.workspaceID == workspaceID }
     }
 
-    /// Search history for a specific workspace
-    func search(query: String, workspaceID: UUID?, limit: Int = 10) -> [HistoryEntry] {
+    /// Search history using fuzzy matching, optionally filtered by workspace
+    func search(query: String, workspaceID: UUID? = nil, limit: Int = 10) -> [HistoryEntry] {
         let filteredEntries: [HistoryEntry]
         if let workspaceID = workspaceID {
             filteredEntries = entries.filter { $0.workspaceID == workspaceID }
@@ -92,34 +92,6 @@ class BrowsingHistory: ObservableObject {
 
         // Use fuzzy search to score and filter entries
         let scoredEntries = filteredEntries.compactMap { entry -> (entry: HistoryEntry, score: Int)? in
-            let titleScore = FuzzySearch.score(query: query, target: entry.title)
-            let urlScore = FuzzySearch.score(query: query, target: entry.url)
-
-            // Use the better score of title or URL
-            let bestScore = max(titleScore, urlScore)
-
-            // Filter out entries with no match
-            guard bestScore > 0 else { return nil }
-
-            return (entry, bestScore)
-        }
-
-        // Sort by score (descending) and return limited results
-        return scoredEntries
-            .sorted { $0.score > $1.score }
-            .prefix(limit)
-            .map { $0.entry }
-    }
-
-    /// Search history using fuzzy matching
-    func search(query: String, limit: Int = 10) -> [HistoryEntry] {
-        guard !query.isEmpty else {
-            // Return recent entries if no query
-            return Array(entries.prefix(limit))
-        }
-
-        // Use fuzzy search to score and filter entries
-        let scoredEntries = entries.compactMap { entry -> (entry: HistoryEntry, score: Int)? in
             let titleScore = FuzzySearch.score(query: query, target: entry.title)
             let urlScore = FuzzySearch.score(query: query, target: entry.url)
 
@@ -175,7 +147,7 @@ class BrowsingHistory: ObservableObject {
             let data = try Data(contentsOf: historyFileURL)
             entries = try JSONDecoder().decode([HistoryEntry].self, from: data)
         } catch {
-            print("Failed to load history: \(error)")
+            Log.History.error("Failed to load history", error: error)
         }
     }
 
@@ -184,7 +156,7 @@ class BrowsingHistory: ObservableObject {
             let data = try JSONEncoder().encode(entries)
             try data.write(to: historyFileURL, options: .atomic)
         } catch {
-            print("Failed to save history: \(error)")
+            Log.History.error("Failed to save history", error: error)
         }
     }
 }

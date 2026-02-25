@@ -111,35 +111,10 @@ struct TabWheelItem: View {
     }
 
     private var domainInitial: String {
-        if let host = tab.url?.host {
-            let cleanHost = host.replacingOccurrences(of: "www.", with: "")
-            return String(cleanHost.prefix(1)).uppercased()
-        }
-        return "N"
+        DomainGradient.initial(for: tab.url?.host)
     }
 
     private var domainGradient: LinearGradient {
-        let colors: [Color]
-        if let host = tab.url?.host {
-            let hash = abs(host.hashValue)
-            let hue1 = Double(hash % 360) / 360.0
-            let hue2 = Double((hash / 360) % 360) / 360.0
-
-            colors = [
-                Color(hue: hue1, saturation: 0.5, brightness: 0.6),
-                Color(hue: hue2, saturation: 0.5, brightness: 0.4)
-            ]
-        } else {
-            colors = [
-                Color.gray.opacity(0.5),
-                Color.gray.opacity(0.3)
-            ]
-        }
-
-        return LinearGradient(
-            colors: colors,
-            startPoint: .topLeading,
-            endPoint: .bottomTrailing
-        )
+        DomainGradient.gradient(for: tab.url?.host)
     }
 }

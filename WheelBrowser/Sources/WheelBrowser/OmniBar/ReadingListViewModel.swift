@@ -35,7 +35,7 @@ class ReadingListViewModel: ObservableObject {
                 isLoading = false
                 hasLoaded = true
             } catch {
-                print("ReadingListViewModel: Failed to load saved pages: \(error)")
+                Log.OmniBar.error("ReadingListViewModel: Failed to load saved pages", error: error)
                 items = []
                 isLoading = false
                 hasLoaded = true
@@ -72,7 +72,7 @@ class ReadingListViewModel: ObservableObject {
                 isLoading = false
                 hasLoaded = true
             } catch {
-                print("ReadingListViewModel: Failed to search saved pages: \(error)")
+                Log.OmniBar.error("ReadingListViewModel: Failed to search saved pages", error: error)
                 items = []
                 isLoading = false
                 hasLoaded = true
@@ -94,7 +94,7 @@ class ReadingListViewModel: ObservableObject {
                     selectedIndex = items.count - 1
                 }
             } catch {
-                print("ReadingListViewModel: Failed to unsave page: \(error)")
+                Log.OmniBar.error("ReadingListViewModel: Failed to unsave page", error: error)
             }
         }
     }

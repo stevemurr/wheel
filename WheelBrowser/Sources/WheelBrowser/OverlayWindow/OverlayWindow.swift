@@ -245,7 +245,7 @@ struct OverlayWindow: View {
                     }
                 }
             } catch {
-                print("Failed to toggle save state: \(error)")
+                Log.Overlay.error("Failed to toggle save state", error: error)
             }
         }
     }
@@ -261,7 +261,7 @@ struct OverlayWindow: View {
                     isSavedToReadingList = saved
                 }
             } catch {
-                print("Failed to check saved state: \(error)")
+                Log.Overlay.error("Failed to check saved state", error: error)
             }
         }
     }

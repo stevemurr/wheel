@@ -83,15 +83,11 @@ struct TabPreviewCard: View {
     private var placeholderView: some View {
         ZStack {
             // Gradient background
-            LinearGradient(
-                colors: placeholderColors,
-                startPoint: .topLeading,
-                endPoint: .bottomTrailing
-            )
+            DomainGradient.placeholderGradient(for: tab.url?.host)
 
             // Icon or initial
-            if let url = tab.url, let host = url.host {
-                Text(String(host.replacingOccurrences(of: "www.", with: "").prefix(1)).uppercased())
+            if let host = tab.url?.host {
+                Text(DomainGradient.initial(for: host))
                     .font(.system(size: 28, weight: .semibold))
                     .foregroundColor(.white.opacity(0.8))
             } else {
@@ -103,24 +99,6 @@ struct TabPreviewCard: View {
     }
 
     // MARK: - Styling
-
-    private var placeholderColors: [Color] {
-        if let url = tab.url, let host = url.host {
-            let hash = abs(host.hashValue)
-            let hue1 = Double(hash % 360) / 360.0
-            let hue2 = Double((hash / 360) % 360) / 360.0
-
-            return [
-                Color(hue: hue1, saturation: 0.3, brightness: 0.4),
-                Color(hue: hue2, saturation: 0.3, brightness: 0.3)
-            ]
-        } else {
-            return [
-                Color(nsColor: .systemGray).opacity(0.3),
-                Color(nsColor: .systemGray).opacity(0.2)
-            ]
-        }
-    }
 
     private var borderColor: Color {
         if tab.hasActiveAgent {

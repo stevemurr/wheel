@@ -139,13 +139,7 @@ struct OmniBar: View {
                 }
                 .padding(.horizontal, 16)
                 .padding(.bottom, 8)
-                .opacity(isHistoryPanelVisible ? 1 : 0)
-                .scaleEffect(isHistoryPanelVisible ? 1 : 0.95)
-                .offset(y: isHistoryPanelVisible ? 0 : 10)
-                .allowsHitTesting(isHistoryPanelVisible)
-                .frame(maxHeight: isHistoryPanelVisible ? nil : 0)
-                .clipped()
-                .animation(.spring(response: 0.3, dampingFraction: 0.85), value: isHistoryPanelVisible)
+                .animatedPanel(isVisible: isHistoryPanelVisible)
                 .zIndex(999)
             }
 
@@ -178,13 +172,7 @@ struct OmniBar: View {
                 }
                 .padding(.horizontal, 16)
                 .padding(.bottom, 8)
-                .opacity(isChatPanelVisible ? 1 : 0)
-                .scaleEffect(isChatPanelVisible ? 1 : 0.95)
-                .offset(y: isChatPanelVisible ? 0 : 10)
-                .allowsHitTesting(isChatPanelVisible)
-                .frame(maxHeight: isChatPanelVisible ? nil : 0)
-                .clipped()
-                .animation(.spring(response: 0.3, dampingFraction: 0.85), value: isChatPanelVisible)
+                .animatedPanel(isVisible: isChatPanelVisible)
                 .zIndex(999)
             }
 
@@ -220,13 +208,7 @@ struct OmniBar: View {
                 }
                 .padding(.horizontal, 16)
                 .padding(.bottom, 8)
-                .opacity(isSemanticPanelVisible ? 1 : 0)
-                .scaleEffect(isSemanticPanelVisible ? 1 : 0.95)
-                .offset(y: isSemanticPanelVisible ? 0 : 10)
-                .allowsHitTesting(isSemanticPanelVisible)
-                .frame(maxHeight: isSemanticPanelVisible ? nil : 0)
-                .clipped()
-                .animation(.spring(response: 0.3, dampingFraction: 0.85), value: isSemanticPanelVisible)
+                .animatedPanel(isVisible: isSemanticPanelVisible)
                 .zIndex(999)
             }
 
@@ -261,13 +243,7 @@ struct OmniBar: View {
                 }
                 .padding(.horizontal, 16)
                 .padding(.bottom, 8)
-                .opacity(isAgentPanelVisible ? 1 : 0)
-                .scaleEffect(isAgentPanelVisible ? 1 : 0.95)
-                .offset(y: isAgentPanelVisible ? 0 : 10)
-                .allowsHitTesting(isAgentPanelVisible)
-                .frame(maxHeight: isAgentPanelVisible ? nil : 0)
-                .clipped()
-                .animation(.spring(response: 0.3, dampingFraction: 0.85), value: isAgentPanelVisible)
+                .animatedPanel(isVisible: isAgentPanelVisible)
                 .zIndex(999)
             }
 
@@ -293,13 +269,7 @@ struct OmniBar: View {
                 }
                 .padding(.horizontal, 16)
                 .padding(.bottom, 8)
-                .opacity(isReadingListPanelVisible ? 1 : 0)
-                .scaleEffect(isReadingListPanelVisible ? 1 : 0.95)
-                .offset(y: isReadingListPanelVisible ? 0 : 10)
-                .allowsHitTesting(isReadingListPanelVisible)
-                .frame(maxHeight: isReadingListPanelVisible ? nil : 0)
-                .clipped()
-                .animation(.spring(response: 0.3, dampingFraction: 0.85), value: isReadingListPanelVisible)
+                .animatedPanel(isVisible: isReadingListPanelVisible)
                 .zIndex(999)
             }
 
@@ -333,13 +303,7 @@ struct OmniBar: View {
                 }
                 .padding(.horizontal, 16)
                 .padding(.bottom, 8)
-                .opacity(downloadManager.showDownloadsPanel ? 1 : 0)
-                .scaleEffect(downloadManager.showDownloadsPanel ? 1 : 0.95)
-                .offset(y: downloadManager.showDownloadsPanel ? 0 : 10)
-                .allowsHitTesting(downloadManager.showDownloadsPanel)
-                .frame(maxHeight: downloadManager.showDownloadsPanel ? nil : 0)
-                .clipped()
-                .animation(.spring(response: 0.3, dampingFraction: 0.85), value: downloadManager.showDownloadsPanel)
+                .animatedPanel(isVisible: downloadManager.showDownloadsPanel)
                 .zIndex(999)
             }
 
@@ -1272,7 +1236,7 @@ struct OmniBar: View {
                     )
                 }
 
-                print("Page \(isSaved ? "saved to" : "removed from") reading list: \(url.absoluteString)")
+                Log.OmniBar.info("Page \(isSaved ? "saved to" : "removed from") reading list: \(url.absoluteString)")
 
                 // Generate summary in background if page was saved
                 if isSaved {
@@ -1281,7 +1245,7 @@ struct OmniBar: View {
                     }
                 }
             } catch {
-                print("Failed to toggle save state: \(error)")
+                Log.OmniBar.error("Failed to toggle save state", error: error)
             }
         }
     }
@@ -1304,7 +1268,7 @@ struct OmniBar: View {
                 }
             }
         } catch {
-            print("Failed to check save state: \(error)")
+            Log.OmniBar.error("Failed to check save state", error: error)
             await MainActor.run {
                 isCurrentPageSaved = false
             }

@@ -50,7 +50,7 @@ class ContentExtractor {
         return await withCheckedContinuation { continuation in
             tab.webView.evaluateJavaScript(extractionScript) { result, error in
                 if let error = error {
-                    print("Content extraction error: \(error)")
+                    Log.Browser.error("Content extraction error", error: error)
                     continuation.resume(returning: nil)
                     return
                 }
@@ -119,7 +119,7 @@ class ContentExtractor {
         return await withCheckedContinuation { continuation in
             tab.webView.evaluateJavaScript(metadataScript) { result, error in
                 if let error = error {
-                    print("Metadata extraction error: \(error)")
+                    Log.Browser.error("Metadata extraction error", error: error)
                     continuation.resume(returning: nil)
                     return
                 }

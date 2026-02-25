@@ -7,6 +7,11 @@ struct TabWheelView: View {
     let onSelectTab: (UUID) -> Void
     let onDismiss: () -> Void
 
+    /// Cached sorted tabs by depth to avoid recalculating on every frame
+    @State private var cachedSortedTabs: [TabWithIndex] = []
+    @State private var lastRotationAngle: Double = 0
+    @State private var lastTabCount: Int = 0
+
     // Dynamic radius based on tab count
     private var radius: CGFloat {
         let count = browserState.tabs.count
@@ -35,10 +40,22 @@ struct TabWheelView: View {
         radius * 2 + baseItemSize * 1.8 + 60
     }
 
+    /// Get sorted tabs, using cache when rotation hasn't changed significantly
+    private var sortedTabs: [TabWithIndex] {
+        // Only recalculate if rotation changed significantly (more than 1 degree) or tab count changed
+        let rotationChanged = abs(wheelState.rotationAngle - lastRotationAngle) > 1.0
+        let tabCountChanged = browserState.tabs.count != lastTabCount
+
+        if !rotationChanged && !tabCountChanged && !cachedSortedTabs.isEmpty {
+            return cachedSortedTabs
+        }
+        return sortedTabsByDepth()
+    }
+
     var body: some View {
         ZStack {
             // Tab items arranged in a circle, sorted by depth (back to front)
-            ForEach(sortedTabsByDepth(), id: \.tab.id) { item in
+            ForEach(sortedTabs, id: \.tab.id) { item in
                 let angle = angleForTab(at: item.index)
                 let scale = scaleForAngle(angle)
                 let adjustedRadius = radiusForScale(scale)
@@ -60,11 +77,20 @@ struct TabWheelView: View {
 
         }
         .frame(width: totalSize, height: totalSize)
+        .onChange(of: wheelState.rotationAngle) { _, _ in
+            updateCacheIfNeeded()
+        }
+        .onChange(of: browserState.tabs.count) { _, _ in
+            updateCacheIfNeeded()
+        }
+        .onAppear {
+            updateCacheIfNeeded()
+        }
     }
 
     // MARK: - Depth Sorting
 
-    private struct TabWithIndex {
+    struct TabWithIndex {
         let tab: Tab
         let index: Int
     }
@@ -77,6 +103,18 @@ struct TabWheelView: View {
             let angle2 = angleForTab(at: item2.index)
             // Items with higher y (more toward bottom) should render first (lower z)
             return sin(angle1.radians) > sin(angle2.radians)
+        }
+    }
+
+    /// Update the cache when rotation or tabs change significantly
+    private func updateCacheIfNeeded() {
+        let rotationChanged = abs(wheelState.rotationAngle - lastRotationAngle) > 1.0
+        let tabCountChanged = browserState.tabs.count != lastTabCount
+
+        if rotationChanged || tabCountChanged || cachedSortedTabs.isEmpty {
+            cachedSortedTabs = sortedTabsByDepth()
+            lastRotationAngle = wheelState.rotationAngle
+            lastTabCount = browserState.tabs.count
         }
     }
 
