@@ -8,7 +8,7 @@ private struct BrowserContentArea: View {
     @ObservedObject var browserState: BrowserState
     @ObservedObject var settings: AppSettings
     @ObservedObject var agentEngine: AgentEngine
-    @ObservedObject var panelState: RightClickPanelState
+    @ObservedObject var wheelState: TabWheelState
     let contentExtractor: ContentExtractor
 
     var body: some View {
@@ -40,12 +40,13 @@ private struct BrowserContentArea: View {
 
                 // Middle-click interceptor (full overlay, passes through other clicks)
                 RightClickInterceptorView(onMiddleClick: { position, size in
-                    panelState.show(at: position)
+                    let initialIndex = browserState.activeTabIndex ?? 0
+                    wheelState.show(at: position, initialIndex: initialIndex, tabCount: browserState.tabs.count)
                 })
 
-                // Right-click panel container
+                // Tab wheel container
                 RightClickPanelContainer(
-                    state: panelState,
+                    state: wheelState,
                     browserState: browserState,
                     containerSize: geometry.size
                 )
@@ -58,6 +59,14 @@ private struct BrowserContentArea: View {
                     manager: OverlayWindowManager.shared,
                     containerSize: geometry.size
                 )
+            }
+            .onAppear {
+                // Wire up wheel selection to tab switching
+                wheelState.onSelectionChanged = { index in
+                    if index < browserState.tabs.count {
+                        browserState.selectTab(browserState.tabs[index].id)
+                    }
+                }
             }
         }
     }
@@ -187,7 +196,7 @@ struct ContentView: View {
     @ObservedObject private var workspaceManager = WorkspaceManager.shared
     @ObservedObject private var settings = AppSettings.shared
     @ObservedObject private var downloadManager = DownloadManager.shared
-    @ObservedObject private var panelState = RightClickPanelState.shared
+    @ObservedObject private var wheelState = TabWheelState.shared
     private let contentExtractor = ContentExtractor()
 
     init() {
@@ -215,7 +224,7 @@ struct ContentView: View {
                     browserState: state,
                     settings: settings,
                     agentEngine: agentEngine,
-                    panelState: panelState,
+                    wheelState: wheelState,
                     contentExtractor: contentExtractor
                 )
             }
