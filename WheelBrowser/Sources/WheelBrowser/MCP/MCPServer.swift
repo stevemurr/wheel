@@ -67,6 +67,10 @@ class MCPServer: ObservableObject {
                         "type": "string",
                         "enum": ["up", "down", "top", "bottom"],
                         "description": "Scroll direction"
+                    ],
+                    "amount": [
+                        "type": "integer",
+                        "description": "Scroll pixels (default: 300)"
                     ]
                 ],
                 "required": ["direction"]
@@ -92,6 +96,24 @@ class MCPServer: ObservableObject {
                     "task": ["type": "string", "description": "Description of the task to perform"]
                 ],
                 "required": ["task"]
+            ]
+        ],
+        [
+            "name": "browser_status",
+            "description": "Get browser status including tabs and active tab info",
+            "inputSchema": [
+                "type": "object",
+                "properties": [:] as [String: Any],
+                "required": [] as [String]
+            ]
+        ],
+        [
+            "name": "agent_cancel",
+            "description": "Cancel a running agent task",
+            "inputSchema": [
+                "type": "object",
+                "properties": [:] as [String: Any],
+                "required": [] as [String]
             ]
         ]
     ]
@@ -165,6 +187,16 @@ class MCPServer: ObservableObject {
     }
 
     private func handleNewConnection(_ connection: NWConnection) {
+        // Verify connection is from localhost only
+        if case .hostPort(let host, _) = connection.endpoint {
+            let hostStr = "\(host)"
+            guard hostStr == "127.0.0.1" || hostStr == "::1" || hostStr == "localhost" else {
+                Log.MCP.warning("Rejecting non-localhost connection from \(hostStr)")
+                connection.cancel()
+                return
+            }
+        }
+
         connections.append(connection)
         connectionCount = connections.count
         Log.MCP.info("New connection (\(connectionCount) total)")
@@ -209,11 +241,14 @@ class MCPServer: ObservableObject {
 
                 if let error = error {
                     Log.MCP.error("Receive error: \(error.localizedDescription)")
+                    connection.cancel()
+                    self?.removeConnection(connection)
                     return
                 }
 
                 if isComplete {
                     connection.cancel()
+                    self?.removeConnection(connection)
                 } else {
                     self?.receiveData(from: connection)
                 }
@@ -333,11 +368,12 @@ class MCPServer: ObservableObject {
             guard let direction = arguments["direction"] as? String else {
                 throw AgentError.invalidRequest("Missing direction")
             }
+            let amount = (arguments["amount"] as? Int) ?? 300
             switch direction {
             case "up":
-                try await bridge.scroll(deltaY: -300)
+                try await bridge.scroll(deltaY: Double(-amount))
             case "down":
-                try await bridge.scroll(deltaY: 300)
+                try await bridge.scroll(deltaY: Double(amount))
             case "top":
                 try await bridge.scrollToTop()
             case "bottom":
@@ -355,18 +391,12 @@ class MCPServer: ObservableObject {
             guard let urlString = arguments["url"] as? String else {
                 throw AgentError.invalidRequest("Missing url")
             }
-            var url = urlString
-            if !url.contains("://") {
-                url = "https://\(url)"
-            }
-            guard let parsedURL = URL(string: url) else {
-                throw AgentError.navigationFailed("Invalid URL: \(urlString)")
-            }
-            browserState.navigate(to: parsedURL)
+            let validatedURL = try NavigationPolicy.validate(urlString)
+            browserState.navigate(to: validatedURL)
             try await bridge.waitForLoad(timeout: 10.0)
             return [
                 "content": [
-                    ["type": "text", "text": "Navigated to \(url)"]
+                    ["type": "text", "text": "Navigated to \(validatedURL.absoluteString)"]
                 ]
             ]
 
@@ -377,12 +407,41 @@ class MCPServer: ObservableObject {
             guard let task = arguments["task"] as? String else {
                 throw AgentError.invalidRequest("Missing task")
             }
-            let result = await agentEngine.run(task: task)
+            let validatedTask = try AgentInputValidator.validateTask(task)
+            let result = await agentEngine.run(task: validatedTask)
             return [
                 "content": [
                     ["type": "text", "text": result.summary]
                 ]
             ]
+
+        case "browser_status":
+            let tabs = browserState.tabs.map { tab in
+                [
+                    "id": tab.id.uuidString,
+                    "title": tab.title,
+                    "url": tab.url?.absoluteString ?? "",
+                    "isActive": tab.id == browserState.activeTabId
+                ] as [String: Any]
+            }
+            let activeTab = browserState.activeTab
+            return [
+                "content": [[
+                    "type": "text",
+                    "text": "Active: \(activeTab?.title ?? "None") (\(activeTab?.url?.absoluteString ?? ""))\nTabs: \(tabs.count)"
+                ]],
+                "tabs": tabs
+            ]
+
+        case "agent_cancel":
+            guard let agentEngine = agentEngine else {
+                throw AgentError.webViewUnavailable
+            }
+            guard agentEngine.isRunning else {
+                return ["content": [["type": "text", "text": "No agent task running"]]]
+            }
+            agentEngine.cancel()
+            return ["content": [["type": "text", "text": "Agent task cancelled"]]]
 
         default:
             throw AgentError.methodNotFound(name)
