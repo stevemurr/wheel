@@ -204,7 +204,11 @@ struct WebViewRepresentable: NSViewRepresentable {
             }
 
             let script = shouldEnable ? DarkModeScripts.enableScript() : DarkModeScripts.disableScript()
-            webView.evaluateJavaScript(script) { _, _ in }
+            webView.evaluateJavaScript(script) { _, error in
+                if let error = error {
+                    Log.Browser.debug("Dark mode JS failed: \(error.localizedDescription)")
+                }
+            }
         }
 
         private func indexPageForSemanticSearch(webView: WKWebView, url: URL, title: String, workspaceID: UUID?) {

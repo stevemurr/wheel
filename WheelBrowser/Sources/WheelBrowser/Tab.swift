@@ -204,7 +204,11 @@ class Tab: Identifiable, ObservableObject {
         })();
         """
 
-        webView.evaluateJavaScript(script) { _, _ in }
+        webView.evaluateJavaScript(script) { _, error in
+            if let error = error {
+                Log.Browser.debug("Find in page JS failed: \(error.localizedDescription)")
+            }
+        }
     }
 
     func findNext() {
@@ -229,7 +233,11 @@ class Tab: Identifiable, ObservableObject {
             nextEl.scrollIntoView({ behavior: 'smooth', block: 'center' });
         })();
         """
-        webView.evaluateJavaScript(script) { _, _ in }
+        webView.evaluateJavaScript(script) { _, error in
+            if let error = error {
+                Log.Browser.debug("Find next JS failed: \(error.localizedDescription)")
+            }
+        }
     }
 
     func findPrevious() {
@@ -254,7 +262,11 @@ class Tab: Identifiable, ObservableObject {
             prevEl.scrollIntoView({ behavior: 'smooth', block: 'center' });
         })();
         """
-        webView.evaluateJavaScript(script) { _, _ in }
+        webView.evaluateJavaScript(script) { _, error in
+            if let error = error {
+                Log.Browser.debug("Find previous JS failed: \(error.localizedDescription)")
+            }
+        }
     }
 
     private func clearFindHighlights() {
@@ -267,7 +279,11 @@ class Tab: Identifiable, ObservableObject {
             });
         })();
         """
-        webView.evaluateJavaScript(script) { _, _ in }
+        webView.evaluateJavaScript(script) { _, error in
+            if let error = error {
+                Log.Browser.debug("Clear find highlights JS failed: \(error.localizedDescription)")
+            }
+        }
     }
 
     // MARK: - Dark Mode Helper
@@ -439,6 +455,10 @@ class Tab: Identifiable, ObservableObject {
             return { success: true, action: 'enter', method: 'standard-async' };
         })();
         """
-        webView.evaluateJavaScript(script) { _, _ in }
+        webView.evaluateJavaScript(script) { _, error in
+            if let error = error {
+                Log.Browser.debug("Toggle PiP JS failed: \(error.localizedDescription)")
+            }
+        }
     }
 }

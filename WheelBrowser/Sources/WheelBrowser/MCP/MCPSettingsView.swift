@@ -114,6 +114,10 @@ struct MCPSettingsView: View {
                         name: "browser_navigate",
                         description: "Navigate to a URL"
                     )
+                    ToolInfoRow(
+                        name: "browser_status",
+                        description: "Get browser and tab status"
+                    )
                 }
                 .padding(.top, 4)
             }

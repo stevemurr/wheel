@@ -302,13 +302,13 @@ class MCPServer: ObservableObject {
         ["content": [["type": "text", "text": text]]]
     }
 
-    /// Normalize id to ensure it's a valid JSON-RPC id (string or number, never null)
+    /// Normalize id to ensure it's a valid JSON-RPC id (string, number, or null)
     private func normalizeId(_ id: Any?) -> Any {
         if let numId = id as? Int { return numId }
         if let numId = id as? Double { return numId }
         if let strId = id as? String { return strId }
-        // Fallback to 0 if id is nil or invalid type
-        return 0
+        // Preserve null distinction per JSON-RPC spec
+        return NSNull()
     }
 
     private func sendSuccessResponse(connection: NWConnection, id: Any?, result: Any) {
