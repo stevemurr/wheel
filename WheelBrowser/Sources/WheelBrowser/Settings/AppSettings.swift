@@ -78,6 +78,9 @@ class AppSettings: ObservableObject {
     /// Whether the tab dock auto-hides (like macOS Dock)
     @AppStorage("tabDockAutoHide") var tabDockAutoHide: Bool = false
 
+    /// Whether the MCP server should start automatically on app launch
+    @AppStorage("mcpServerEnabled") var mcpServerEnabled: Bool = true
+
     /// Whether link previews are enabled (Wikipedia-style hover previews)
     @AppStorage("linkPreviewEnabled") var linkPreviewEnabled: Bool = true
 

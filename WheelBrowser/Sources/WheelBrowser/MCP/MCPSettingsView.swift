@@ -12,6 +12,7 @@ struct MCPSettingsView: View {
                 Toggle("Enable MCP Server", isOn: Binding(
                     get: { mcpServer.isRunning },
                     set: { newValue in
+                        AppSettings.shared.mcpServerEnabled = newValue
                         if newValue {
                             mcpServer.start()
                         } else {

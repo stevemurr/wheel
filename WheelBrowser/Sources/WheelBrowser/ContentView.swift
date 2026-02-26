@@ -207,8 +207,12 @@ struct ContentView: View {
         _agentEngine = StateObject(wrappedValue: engine)
 
         // Configure the shared MCP server with browser dependencies
+        // and auto-start if enabled in settings
         Task { @MainActor in
             MCPServer.shared.configure(browserState: browserState, agentEngine: engine)
+            if AppSettings.shared.mcpServerEnabled {
+                MCPServer.shared.start()
+            }
         }
     }
 

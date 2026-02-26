@@ -86,6 +86,26 @@ let tools: [[String: Any]] = [
             "required": [] as [String]
         ]
     ],
+    [
+        "name": "agent_run",
+        "description": "Run an autonomous agent task that can browse and interact with web pages",
+        "inputSchema": [
+            "type": "object",
+            "properties": [
+                "task": ["type": "string", "description": "Description of the task to perform"]
+            ],
+            "required": ["task"]
+        ]
+    ],
+    [
+        "name": "agent_cancel",
+        "description": "Cancel a running agent task",
+        "inputSchema": [
+            "type": "object",
+            "properties": [:] as [String: Any],
+            "required": [] as [String]
+        ]
+    ],
 ]
 
 // MARK: - Response Helpers

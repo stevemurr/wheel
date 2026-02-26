@@ -22,6 +22,9 @@ class MCPServer: ObservableObject {
     private var listener: NWListener?
     private var connections: [NWConnection] = []
 
+    /// Buffer for accumulating partial HTTP requests per connection
+    private var connectionBuffers: [ObjectIdentifier: Data] = [:]
+
     // MARK: - Initialization
 
     private init() {}
@@ -131,6 +134,7 @@ class MCPServer: ObservableObject {
 
     private func removeConnection(_ connection: NWConnection) {
         connections.removeAll { $0 === connection }
+        connectionBuffers.removeValue(forKey: ObjectIdentifier(connection))
         connectionCount = connections.count
     }
 
@@ -139,38 +143,96 @@ class MCPServer: ObservableObject {
     private func receiveData(from connection: NWConnection) {
         connection.receive(minimumIncompleteLength: 1, maximumLength: 65536) { [weak self] data, _, isComplete, error in
             Task { @MainActor [weak self] in
+                guard let self = self else { return }
+
                 if let data = data, !data.isEmpty {
-                    await self?.handleRequest(data, connection: connection)
+                    // Append to buffer
+                    let connId = ObjectIdentifier(connection)
+                    var buffer = self.connectionBuffers[connId] ?? Data()
+                    buffer.append(data)
+                    self.connectionBuffers[connId] = buffer
+
+                    // Try to process complete HTTP request
+                    await self.tryProcessBuffer(connection: connection)
                 }
 
                 if let error = error {
                     Log.MCP.error("Receive error: \(error.localizedDescription)")
                     connection.cancel()
-                    self?.removeConnection(connection)
+                    self.removeConnection(connection)
                     return
                 }
 
                 if isComplete {
                     connection.cancel()
-                    self?.removeConnection(connection)
+                    self.removeConnection(connection)
                 } else {
-                    self?.receiveData(from: connection)
+                    self.receiveData(from: connection)
                 }
             }
         }
     }
 
-    private func handleRequest(_ data: Data, connection: NWConnection) async {
-        // Parse HTTP request to extract JSON-RPC body
-        guard let requestString = String(data: data, encoding: .utf8) else {
-            sendErrorResponse(connection: connection, id: nil, code: -32700, message: "Parse error")
+    /// Try to process a complete HTTP request from the buffer
+    private func tryProcessBuffer(connection: NWConnection) async {
+        let connId = ObjectIdentifier(connection)
+        guard let buffer = connectionBuffers[connId],
+              let requestString = String(data: buffer, encoding: .utf8) else {
             return
         }
 
-        // Find the JSON body (after the blank line in HTTP request)
-        let parts = requestString.components(separatedBy: "\r\n\r\n")
-        guard parts.count >= 2, let jsonData = parts[1].data(using: .utf8) else {
-            sendErrorResponse(connection: connection, id: nil, code: -32700, message: "No JSON body found")
+        // Check for header/body separator
+        let headerEndRange: Range<String.Index>?
+        if let range = requestString.range(of: "\r\n\r\n") {
+            headerEndRange = range
+        } else if let range = requestString.range(of: "\n\n") {
+            headerEndRange = range
+        } else {
+            // Haven't received full headers yet, wait for more data
+            return
+        }
+
+        guard let headerEnd = headerEndRange else { return }
+
+        let headers = String(requestString[..<headerEnd.lowerBound])
+        let bodyStart = headerEnd.upperBound
+
+        // Parse Content-Length from headers
+        var contentLength = 0
+        for line in headers.components(separatedBy: CharacterSet.newlines) {
+            let parts = line.split(separator: ":", maxSplits: 1)
+            if parts.count == 2 && parts[0].lowercased().trimmingCharacters(in: .whitespaces) == "content-length" {
+                contentLength = Int(parts[1].trimmingCharacters(in: .whitespaces)) ?? 0
+                break
+            }
+        }
+
+        // Check if we have the complete body
+        let bodyString = String(requestString[bodyStart...])
+        let bodyData = bodyString.data(using: .utf8) ?? Data()
+
+        guard bodyData.count >= contentLength else {
+            // Haven't received full body yet, wait for more data
+            return
+        }
+
+        // We have a complete request - clear buffer and process
+        connectionBuffers.removeValue(forKey: connId)
+
+        // Extract exactly contentLength bytes of body
+        let body: String
+        if contentLength > 0 {
+            body = String(bodyString.prefix(contentLength))
+        } else {
+            body = bodyString
+        }
+
+        await handleRequest(body: body, connection: connection)
+    }
+
+    private func handleRequest(body: String, connection: NWConnection) async {
+        guard !body.isEmpty, let jsonData = body.data(using: .utf8) else {
+            sendErrorResponse(connection: connection, id: nil, code: -32700, message: "Empty body")
             return
         }
 
@@ -290,6 +352,27 @@ class MCPServer: ObservableObject {
                 "tabs": tabs
             ]
 
+        case "agent_run":
+            guard let agentEngine = agentEngine else {
+                throw AgentError.webViewUnavailable
+            }
+            guard let task = arguments["task"] as? String else {
+                throw AgentError.invalidRequest("Missing task")
+            }
+            let validatedTask = try AgentInputValidator.validateTask(task)
+            let result = await agentEngine.run(task: validatedTask)
+            return makeTextResponse(result.summary)
+
+        case "agent_cancel":
+            guard let agentEngine = agentEngine else {
+                throw AgentError.webViewUnavailable
+            }
+            guard agentEngine.isRunning else {
+                return makeTextResponse("No agent task running")
+            }
+            agentEngine.cancel()
+            return makeTextResponse("Agent task cancelled")
+
         default:
             throw AgentError.methodNotFound(name)
         }
@@ -333,13 +416,12 @@ class MCPServer: ObservableObject {
     }
 
     private func sendJSON(connection: NWConnection, json: [String: Any]) {
-        guard let jsonData = try? JSONSerialization.data(withJSONObject: json),
-              let jsonString = String(data: jsonData, encoding: .utf8) else {
+        guard let jsonData = try? JSONSerialization.data(withJSONObject: json) else {
             return
         }
 
-        // Send HTTP response
-        let httpResponse = """
+        // Build HTTP headers and append JSON data directly (avoids double serialization)
+        let headers = """
         HTTP/1.1 200 OK\r
         Content-Type: application/json\r
         Content-Length: \(jsonData.count)\r
@@ -347,15 +429,16 @@ class MCPServer: ObservableObject {
         Access-Control-Allow-Methods: POST, OPTIONS\r
         Access-Control-Allow-Headers: Content-Type\r
         \r
-        \(jsonString)
+
         """
 
-        if let responseData = httpResponse.data(using: .utf8) {
-            connection.send(content: responseData, completion: .contentProcessed { error in
-                if let error = error {
-                    Log.MCP.error("Send error: \(error.localizedDescription)")
-                }
-            })
-        }
+        var responseData = Data(headers.utf8)
+        responseData.append(jsonData)
+
+        connection.send(content: responseData, completion: .contentProcessed { error in
+            if let error = error {
+                Log.MCP.error("Send error: \(error.localizedDescription)")
+            }
+        })
     }
 }
