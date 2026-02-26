@@ -22,102 +22,6 @@ class MCPServer: ObservableObject {
     private var listener: NWListener?
     private var connections: [NWConnection] = []
 
-    // MARK: - Tool Definitions
-
-    private let tools: [[String: Any]] = [
-        [
-            "name": "browser_snapshot",
-            "description": "Get a snapshot of interactive elements on the current page",
-            "inputSchema": [
-                "type": "object",
-                "properties": [:] as [String: Any],
-                "required": [] as [String]
-            ]
-        ],
-        [
-            "name": "browser_click",
-            "description": "Click an element by its ID",
-            "inputSchema": [
-                "type": "object",
-                "properties": [
-                    "elementId": ["type": "integer", "description": "The element ID from the snapshot"]
-                ],
-                "required": ["elementId"]
-            ]
-        ],
-        [
-            "name": "browser_type",
-            "description": "Type text into an element",
-            "inputSchema": [
-                "type": "object",
-                "properties": [
-                    "elementId": ["type": "integer", "description": "The element ID from the snapshot"],
-                    "text": ["type": "string", "description": "The text to type"]
-                ],
-                "required": ["elementId", "text"]
-            ]
-        ],
-        [
-            "name": "browser_scroll",
-            "description": "Scroll the page",
-            "inputSchema": [
-                "type": "object",
-                "properties": [
-                    "direction": [
-                        "type": "string",
-                        "enum": ["up", "down", "top", "bottom"],
-                        "description": "Scroll direction"
-                    ],
-                    "amount": [
-                        "type": "integer",
-                        "description": "Scroll pixels (default: 300)"
-                    ]
-                ],
-                "required": ["direction"]
-            ]
-        ],
-        [
-            "name": "browser_navigate",
-            "description": "Navigate to a URL",
-            "inputSchema": [
-                "type": "object",
-                "properties": [
-                    "url": ["type": "string", "description": "The URL to navigate to"]
-                ],
-                "required": ["url"]
-            ]
-        ],
-        [
-            "name": "agent_run",
-            "description": "Run an autonomous agent task",
-            "inputSchema": [
-                "type": "object",
-                "properties": [
-                    "task": ["type": "string", "description": "Description of the task to perform"]
-                ],
-                "required": ["task"]
-            ]
-        ],
-        [
-            "name": "browser_status",
-            "description": "Get browser status including tabs and active tab info",
-            "inputSchema": [
-                "type": "object",
-                "properties": [:] as [String: Any],
-                "required": [] as [String]
-            ]
-        ],
-        [
-            "name": "agent_cancel",
-            "description": "Cancel a running agent task",
-            "inputSchema": [
-                "type": "object",
-                "properties": [:] as [String: Any],
-                "required": [] as [String]
-            ]
-        ]
-    ]
-
     // MARK: - Initialization
 
     private init() {}
@@ -297,19 +201,10 @@ class MCPServer: ObservableObject {
     private func handleMethod(_ method: String, params: [String: Any]) async throws -> Any {
         switch method {
         case "initialize":
-            return [
-                "protocolVersion": "2024-11-05",
-                "capabilities": [
-                    "tools": [:] as [String: Any]
-                ],
-                "serverInfo": [
-                    "name": "wheel-browser-mcp",
-                    "version": "1.0.0"
-                ]
-            ]
+            return MCPToolDefinitions.initializeResponse()
 
         case "tools/list":
-            return ["tools": tools]
+            return MCPToolDefinitions.toolsListResponse()
 
         case "tools/call":
             guard let name = params["name"] as? String else {
@@ -400,21 +295,6 @@ class MCPServer: ObservableObject {
                 ]
             ]
 
-        case "agent_run":
-            guard let agentEngine = agentEngine else {
-                throw AgentError.webViewUnavailable
-            }
-            guard let task = arguments["task"] as? String else {
-                throw AgentError.invalidRequest("Missing task")
-            }
-            let validatedTask = try AgentInputValidator.validateTask(task)
-            let result = await agentEngine.run(task: validatedTask)
-            return [
-                "content": [
-                    ["type": "text", "text": result.summary]
-                ]
-            ]
-
         case "browser_status":
             let tabs = browserState.tabs.map { tab in
                 [
@@ -433,16 +313,6 @@ class MCPServer: ObservableObject {
                 "tabs": tabs
             ]
 
-        case "agent_cancel":
-            guard let agentEngine = agentEngine else {
-                throw AgentError.webViewUnavailable
-            }
-            guard agentEngine.isRunning else {
-                return ["content": [["type": "text", "text": "No agent task running"]]]
-            }
-            agentEngine.cancel()
-            return ["content": [["type": "text", "text": "Agent task cancelled"]]]
-
         default:
             throw AgentError.methodNotFound(name)
         }
@@ -450,10 +320,19 @@ class MCPServer: ObservableObject {
 
     // MARK: - Response Helpers
 
+    /// Normalize id to ensure it's a valid JSON-RPC id (string or number, never null)
+    private func normalizeId(_ id: Any?) -> Any {
+        if let numId = id as? Int { return numId }
+        if let numId = id as? Double { return numId }
+        if let strId = id as? String { return strId }
+        // Fallback to 0 if id is nil or invalid type
+        return 0
+    }
+
     private func sendSuccessResponse(connection: NWConnection, id: Any?, result: Any) {
         let response: [String: Any] = [
             "jsonrpc": "2.0",
-            "id": id ?? NSNull(),
+            "id": normalizeId(id),
             "result": result
         ]
         sendJSON(connection: connection, json: response)
@@ -462,7 +341,7 @@ class MCPServer: ObservableObject {
     private func sendErrorResponse(connection: NWConnection, id: Any?, code: Int, message: String) {
         let response: [String: Any] = [
             "jsonrpc": "2.0",
-            "id": id ?? NSNull(),
+            "id": normalizeId(id),
             "error": [
                 "code": code,
                 "message": message

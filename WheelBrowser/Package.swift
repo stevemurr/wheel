@@ -23,6 +23,11 @@ let package = Package(
             resources: [
                 .copy("Resources/AppIcon.icns")
             ]
+        ),
+        .executableTarget(
+            name: "wheel-mcp-bridge",
+            dependencies: [],
+            path: "Sources/WheelMCPBridge"
         )
     ]
 )
