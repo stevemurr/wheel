@@ -28,6 +28,8 @@ struct WebViewRepresentable: NSViewRepresentable {
     class Coordinator: NSObject, WKNavigationDelegate, WKUIDelegate, WKDownloadDelegate, WKScriptMessageHandler {
         let tab: Tab
         private var progressObservations: [WKDownload: NSKeyValueObservation] = [:]
+        /// Track which navigation has had dark mode applied to avoid duplicate application
+        private var darkModeAppliedNavigation: WKNavigation?
 
         init(tab: Tab) {
             self.tab = tab
@@ -129,7 +131,7 @@ struct WebViewRepresentable: NSViewRepresentable {
         // MARK: - WKNavigationDelegate
 
         func webView(_ webView: WKWebView, didStartProvisionalNavigation navigation: WKNavigation!) {
-            DispatchQueue.main.async {
+            Task { @MainActor in
                 self.tab.isLoading = true
             }
         }
@@ -137,22 +139,26 @@ struct WebViewRepresentable: NSViewRepresentable {
         func webView(_ webView: WKWebView, didCommit navigation: WKNavigation!) {
             // Apply dark mode as early as possible when navigation commits
             // This runs before didFinish and helps prevent flash of light content
-            DispatchQueue.main.async {
+            Task { @MainActor in
+                self.darkModeAppliedNavigation = navigation
                 self.applyDarkModeIfNeeded(to: webView)
             }
         }
 
         func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
-            DispatchQueue.main.async {
+            Task { @MainActor in
                 self.tab.isLoading = false
                 self.tab.title = webView.title ?? "Untitled"
                 self.tab.url = webView.url
                 self.tab.canGoBack = webView.canGoBack
                 self.tab.canGoForward = webView.canGoForward
 
-                // Re-apply dark mode state after navigation
-                // This ensures dark mode is applied even if settings changed after tab creation
-                self.applyDarkModeIfNeeded(to: webView)
+                // Only apply dark mode if it wasn't already applied in didCommit
+                // This avoids duplicate JS execution while still handling settings changes
+                if self.darkModeAppliedNavigation !== navigation {
+                    self.applyDarkModeIfNeeded(to: webView)
+                }
+                self.darkModeAppliedNavigation = nil
 
                 // Record page load for blocking stats
                 if AppSettings.shared.adBlockingEnabled {
@@ -268,13 +274,13 @@ struct WebViewRepresentable: NSViewRepresentable {
         }
 
         func webView(_ webView: WKWebView, didFail navigation: WKNavigation!, withError error: Error) {
-            DispatchQueue.main.async {
+            Task { @MainActor in
                 self.tab.isLoading = false
             }
         }
 
         func webView(_ webView: WKWebView, didFailProvisionalNavigation navigation: WKNavigation!, withError error: Error) {
-            DispatchQueue.main.async {
+            Task { @MainActor in
                 self.tab.isLoading = false
             }
         }

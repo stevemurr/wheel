@@ -446,11 +446,14 @@ class AgentEngine: ObservableObject {
             let actionStep = AgentStep(type: .action, content: actionDescription, timestamp: Date())
             steps.append(actionStep)
 
+            // Build element ID map for O(1) lookup
+            let elementById = Dictionary(uniqueKeysWithValues: snapshot.elements.map { ($0.id, $0) })
+
             // Build normalized action for loop detection
             // For click actions, get the element description from the snapshot to compare semantically
             var elementDescription: String? = nil
             if case .click(let elementId) = action {
-                if let element = snapshot.elements.first(where: { $0.id == elementId }) {
+                if let element = elementById[elementId] {
                     // Use element's semantic identifiers, not its numeric ID
                     elementDescription = "\(element.tag):\(element.text ?? element.ariaLabel ?? element.placeholder ?? "unknown")"
                 }

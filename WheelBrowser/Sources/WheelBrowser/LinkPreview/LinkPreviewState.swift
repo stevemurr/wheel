@@ -5,6 +5,37 @@ import Combine
 class LinkPreviewState: ObservableObject {
     static let shared = LinkPreviewState()
 
+    // MARK: - Cached Regexes (compiled once)
+
+    private static let titleRegex = try? NSRegularExpression(
+        pattern: "<title[^>]*>([^<]+)</title>",
+        options: .caseInsensitive
+    )
+    private static let metaPropertyRegex = try? NSRegularExpression(
+        pattern: "<meta[^>]*property=[\"']og:title[\"'][^>]*content=[\"']([^\"']+)[\"']",
+        options: .caseInsensitive
+    )
+    private static let metaPropertyAltRegex = try? NSRegularExpression(
+        pattern: "<meta[^>]*content=[\"']([^\"']+)[\"'][^>]*property=[\"']og:title[\"']",
+        options: .caseInsensitive
+    )
+    private static let scriptRegex = try? NSRegularExpression(
+        pattern: "<script[^>]*>[\\s\\S]*?</script>",
+        options: []
+    )
+    private static let styleRegex = try? NSRegularExpression(
+        pattern: "<style[^>]*>[\\s\\S]*?</style>",
+        options: []
+    )
+    private static let tagRegex = try? NSRegularExpression(
+        pattern: "<[^>]+>",
+        options: []
+    )
+    private static let whitespaceRegex = try? NSRegularExpression(
+        pattern: "\\s+",
+        options: []
+    )
+
     @Published var isVisible: Bool = false
     @Published var position: CGPoint = .zero
     @Published var linkURL: URL?
@@ -191,13 +222,12 @@ class LinkPreviewState: ObservableObject {
 
     private func extractTitle(from html: String) -> String? {
         // Try og:title first
-        if let ogTitle = extractMetaContent(html: html, property: "og:title") {
+        if let ogTitle = extractOgTitle(from: html) {
             return ogTitle
         }
 
         // Fall back to <title> tag
-        let titlePattern = "<title[^>]*>([^<]+)</title>"
-        if let regex = try? NSRegularExpression(pattern: titlePattern, options: .caseInsensitive),
+        if let regex = Self.titleRegex,
            let match = regex.firstMatch(in: html, range: NSRange(html.startIndex..., in: html)),
            let range = Range(match.range(at: 1), in: html) {
             return String(html[range]).trimmingCharacters(in: .whitespacesAndNewlines)
@@ -206,20 +236,21 @@ class LinkPreviewState: ObservableObject {
         return nil
     }
 
-    private func extractMetaContent(html: String, property: String) -> String? {
-        let pattern = "<meta[^>]*property=[\"']\(property)[\"'][^>]*content=[\"']([^\"']+)[\"']"
-        if let regex = try? NSRegularExpression(pattern: pattern, options: .caseInsensitive),
-           let match = regex.firstMatch(in: html, range: NSRange(html.startIndex..., in: html)),
-           let range = Range(match.range(at: 1), in: html) {
-            return String(html[range])
+    private func extractOgTitle(from html: String) -> String? {
+        let range = NSRange(html.startIndex..., in: html)
+
+        // Try property before content
+        if let regex = Self.metaPropertyRegex,
+           let match = regex.firstMatch(in: html, range: range),
+           let captureRange = Range(match.range(at: 1), in: html) {
+            return String(html[captureRange])
         }
 
-        // Try reversed order (content before property)
-        let patternAlt = "<meta[^>]*content=[\"']([^\"']+)[\"'][^>]*property=[\"']\(property)[\"']"
-        if let regex = try? NSRegularExpression(pattern: patternAlt, options: .caseInsensitive),
-           let match = regex.firstMatch(in: html, range: NSRange(html.startIndex..., in: html)),
-           let range = Range(match.range(at: 1), in: html) {
-            return String(html[range])
+        // Try content before property
+        if let regex = Self.metaPropertyAltRegex,
+           let match = regex.firstMatch(in: html, range: range),
+           let captureRange = Range(match.range(at: 1), in: html) {
+            return String(html[captureRange])
         }
 
         return nil
@@ -228,16 +259,18 @@ class LinkPreviewState: ObservableObject {
     private func extractContent(from html: String) -> String? {
         var text = html
 
-        // Remove script and style content
-        let scriptPattern = "<script[^>]*>[\\s\\S]*?</script>"
-        let stylePattern = "<style[^>]*>[\\s\\S]*?</style>"
-
-        text = text.replacingOccurrences(of: scriptPattern, with: "", options: .regularExpression)
-        text = text.replacingOccurrences(of: stylePattern, with: "", options: .regularExpression)
+        // Remove script and style content using cached regexes
+        if let scriptRegex = Self.scriptRegex {
+            text = scriptRegex.stringByReplacingMatches(in: text, range: NSRange(text.startIndex..., in: text), withTemplate: "")
+        }
+        if let styleRegex = Self.styleRegex {
+            text = styleRegex.stringByReplacingMatches(in: text, range: NSRange(text.startIndex..., in: text), withTemplate: "")
+        }
 
         // Remove HTML tags
-        let tagPattern = "<[^>]+>"
-        text = text.replacingOccurrences(of: tagPattern, with: " ", options: .regularExpression)
+        if let tagRegex = Self.tagRegex {
+            text = tagRegex.stringByReplacingMatches(in: text, range: NSRange(text.startIndex..., in: text), withTemplate: " ")
+        }
 
         // Decode common HTML entities
         text = text.replacingOccurrences(of: "&nbsp;", with: " ")
@@ -248,8 +281,9 @@ class LinkPreviewState: ObservableObject {
         text = text.replacingOccurrences(of: "&#39;", with: "'")
 
         // Clean up whitespace
-        let whitespacePattern = "\\s+"
-        text = text.replacingOccurrences(of: whitespacePattern, with: " ", options: .regularExpression)
+        if let whitespaceRegex = Self.whitespaceRegex {
+            text = whitespaceRegex.stringByReplacingMatches(in: text, range: NSRange(text.startIndex..., in: text), withTemplate: " ")
+        }
 
         return text.trimmingCharacters(in: .whitespacesAndNewlines)
     }

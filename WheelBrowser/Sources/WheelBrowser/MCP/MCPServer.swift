@@ -227,25 +227,14 @@ class MCPServer: ObservableObject {
         switch name {
         case "browser_snapshot":
             let snapshot = try await bridge.snapshot()
-            return [
-                "content": [
-                    [
-                        "type": "text",
-                        "text": snapshot.textRepresentation
-                    ]
-                ]
-            ]
+            return makeTextResponse(snapshot.textRepresentation)
 
         case "browser_click":
             guard let elementId = arguments["elementId"] as? Int else {
                 throw AgentError.invalidRequest("Missing elementId")
             }
             try await bridge.click(elementId: elementId)
-            return [
-                "content": [
-                    ["type": "text", "text": "Clicked element #\(elementId)"]
-                ]
-            ]
+            return makeTextResponse("Clicked element #\(elementId)")
 
         case "browser_type":
             guard let elementId = arguments["elementId"] as? Int,
@@ -253,11 +242,7 @@ class MCPServer: ObservableObject {
                 throw AgentError.invalidRequest("Missing elementId or text")
             }
             try await bridge.type(elementId: elementId, text: text)
-            return [
-                "content": [
-                    ["type": "text", "text": "Typed \"\(text)\" into element #\(elementId)"]
-                ]
-            ]
+            return makeTextResponse("Typed \"\(text)\" into element #\(elementId)")
 
         case "browser_scroll":
             guard let direction = arguments["direction"] as? String else {
@@ -276,11 +261,7 @@ class MCPServer: ObservableObject {
             default:
                 throw AgentError.invalidRequest("Invalid direction: \(direction)")
             }
-            return [
-                "content": [
-                    ["type": "text", "text": "Scrolled \(direction)"]
-                ]
-            ]
+            return makeTextResponse("Scrolled \(direction)")
 
         case "browser_navigate":
             guard let urlString = arguments["url"] as? String else {
@@ -289,11 +270,7 @@ class MCPServer: ObservableObject {
             let validatedURL = try NavigationPolicy.validate(urlString)
             browserState.navigate(to: validatedURL)
             try await bridge.waitForLoad(timeout: 10.0)
-            return [
-                "content": [
-                    ["type": "text", "text": "Navigated to \(validatedURL.absoluteString)"]
-                ]
-            ]
+            return makeTextResponse("Navigated to \(validatedURL.absoluteString)")
 
         case "browser_status":
             let tabs = browserState.tabs.map { tab in
@@ -319,6 +296,11 @@ class MCPServer: ObservableObject {
     }
 
     // MARK: - Response Helpers
+
+    /// Creates a standard MCP text response
+    private func makeTextResponse(_ text: String) -> [String: Any] {
+        ["content": [["type": "text", "text": text]]]
+    }
 
     /// Normalize id to ensure it's a valid JSON-RPC id (string or number, never null)
     private func normalizeId(_ id: Any?) -> Any {

@@ -36,13 +36,17 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationWillTerminate(_ notification: Notification) {
         // Save semantic search index before quitting
-        let semaphore = DispatchSemaphore(value: 0)
+        // Use RunLoop to process async work without blocking main thread
+        var completed = false
         Task { @MainActor in
             await SemanticSearchManagerV2.shared.save()
-            semaphore.signal()
+            completed = true
         }
-        // Wait briefly for save to complete
-        _ = semaphore.wait(timeout: .now() + 2.0)
+        // Process RunLoop events while waiting for save to complete
+        let timeout = Date().addingTimeInterval(2.0)
+        while !completed && Date() < timeout {
+            RunLoop.current.run(mode: .default, before: Date().addingTimeInterval(0.1))
+        }
     }
 }
 

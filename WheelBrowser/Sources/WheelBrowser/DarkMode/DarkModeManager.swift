@@ -23,12 +23,21 @@ class DarkModeManager: ObservableObject {
 
     @Published var isEnabled: Bool = false
 
+    /// Stored observer token for cleanup
+    private var appearanceObserver: NSObjectProtocol?
+
     private init() {
         // Sync with AppSettings on init
         updateFromSettings()
 
         // Observe system appearance changes for auto mode
         setupSystemAppearanceObserver()
+    }
+
+    deinit {
+        if let observer = appearanceObserver {
+            NotificationCenter.default.removeObserver(observer)
+        }
     }
 
     // MARK: - Public API
@@ -131,7 +140,7 @@ class DarkModeManager: ObservableObject {
     /// Setup observer for system appearance changes
     private func setupSystemAppearanceObserver() {
         // Observe effective appearance changes
-        NotificationCenter.default.addObserver(
+        appearanceObserver = NotificationCenter.default.addObserver(
             forName: NSNotification.Name("AppleInterfaceThemeChangedNotification"),
             object: nil,
             queue: .main

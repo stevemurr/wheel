@@ -114,10 +114,6 @@ struct MCPSettingsView: View {
                         name: "browser_navigate",
                         description: "Navigate to a URL"
                     )
-                    ToolInfoRow(
-                        name: "agent_run",
-                        description: "Run an autonomous agent task"
-                    )
                 }
                 .padding(.top, 4)
             }

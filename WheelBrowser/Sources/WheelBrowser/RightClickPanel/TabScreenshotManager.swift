@@ -12,8 +12,8 @@ class TabScreenshotManager: ObservableObject {
     /// Screenshots stored in a dictionary for O(1) lookup
     @Published private(set) var screenshots: [UUID: NSImage] = [:]
 
-    /// Tracks access order for LRU eviction (most recently used at end)
-    private var accessOrder: [UUID] = []
+    /// Tracks last access time for LRU eviction - O(1) update vs O(n) array operations
+    private var accessTimestamps: [UUID: Date] = [:]
 
     private let thumbnailSize = CGSize(width: 160, height: 100)
 
@@ -42,13 +42,8 @@ class TabScreenshotManager: ObservableObject {
 
     /// Caches a screenshot with LRU eviction
     private func cacheScreenshot(_ image: NSImage, for tabId: UUID) {
-        // Remove from current position in access order if it exists
-        if let index = accessOrder.firstIndex(of: tabId) {
-            accessOrder.remove(at: index)
-        }
-
-        // Add to end of access order (most recently used)
-        accessOrder.append(tabId)
+        // Update access timestamp (O(1) operation)
+        accessTimestamps[tabId] = Date()
 
         // Store the screenshot
         screenshots[tabId] = image
@@ -59,24 +54,25 @@ class TabScreenshotManager: ObservableObject {
 
     /// Evicts least recently used screenshots if cache exceeds max size
     private func evictIfNeeded() {
-        while accessOrder.count > maxCacheSize {
-            let oldestTabId = accessOrder.removeFirst()
-            screenshots.removeValue(forKey: oldestTabId)
+        while screenshots.count > maxCacheSize {
+            // Find the oldest entry by timestamp
+            guard let oldestEntry = accessTimestamps.min(by: { $0.value < $1.value }) else {
+                break
+            }
+            screenshots.removeValue(forKey: oldestEntry.key)
+            accessTimestamps.removeValue(forKey: oldestEntry.key)
         }
     }
 
     /// Returns the cached screenshot for a tab, or nil if not available
-    /// Also updates LRU access order to mark this screenshot as recently used
+    /// Also updates LRU access timestamp to mark this screenshot as recently used
     func getScreenshot(for tabId: UUID) -> NSImage? {
         guard let screenshot = screenshots[tabId] else {
             return nil
         }
 
-        // Update access order (move to most recently used position)
-        if let index = accessOrder.firstIndex(of: tabId) {
-            accessOrder.remove(at: index)
-            accessOrder.append(tabId)
-        }
+        // Update access timestamp (O(1) operation)
+        accessTimestamps[tabId] = Date()
 
         return screenshot
     }
@@ -84,9 +80,7 @@ class TabScreenshotManager: ObservableObject {
     /// Removes the screenshot for a tab (e.g., when tab is closed)
     func removeScreenshot(for tabId: UUID) {
         screenshots.removeValue(forKey: tabId)
-        if let index = accessOrder.firstIndex(of: tabId) {
-            accessOrder.remove(at: index)
-        }
+        accessTimestamps.removeValue(forKey: tabId)
     }
 
     /// Resizes an image to the specified size while maintaining aspect ratio (async, runs on background queue)
