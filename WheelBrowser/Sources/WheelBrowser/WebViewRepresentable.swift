@@ -201,14 +201,22 @@ struct WebViewRepresentable: NSViewRepresentable {
         }
 
         private func indexPageForSemanticSearch(webView: WKWebView, url: URL, title: String, workspaceID: UUID?) {
+            let urlString = url.absoluteString
+            Log.Search.debug("indexPageForSemanticSearch called: url=\(urlString), title=\(title)")
+
             // Check if semantic search is enabled
-            guard AppSettings.shared.dindexEnabled else { return }
+            guard AppSettings.shared.dindexEnabled else {
+                Log.Search.debug("indexPageForSemanticSearch skipped: DIndex disabled in settings")
+                return
+            }
 
             // Skip certain URLs
-            let urlString = url.absoluteString
             let skipPrefixes = ["about:", "data:", "javascript:", "blob:", "chrome:", "file:"]
             for prefix in skipPrefixes {
-                if urlString.hasPrefix(prefix) { return }
+                if urlString.hasPrefix(prefix) {
+                    Log.Search.debug("indexPageForSemanticSearch skipped: URL has prefix '\(prefix)'")
+                    return
+                }
             }
 
             // Check if this is a PDF - we can't extract content via JavaScript
@@ -217,6 +225,7 @@ struct WebViewRepresentable: NSViewRepresentable {
                         urlString.lowercased().contains(".pdf")
 
             if isPDF {
+                Log.Search.debug("indexPageForSemanticSearch: PDF detected, registering without content")
                 Task { @MainActor in
                     await SemanticSearchManagerV2.shared.registerPage(
                         url: urlString,
@@ -228,6 +237,7 @@ struct WebViewRepresentable: NSViewRepresentable {
             }
 
             // Extract content via JavaScript
+            Log.Search.debug("indexPageForSemanticSearch: extracting content via JavaScript")
             let extractionScript = """
             (function() {
                 const removeSelectors = [
@@ -258,6 +268,8 @@ struct WebViewRepresentable: NSViewRepresentable {
                     Log.Search.debug("Content extraction returned empty for \(urlString)")
                     return
                 }
+
+                Log.Search.debug("Content extracted successfully: \(content.count) chars for \(urlString)")
 
                 // Use the new V2 manager with sqlite-vec backend
                 Task { @MainActor in

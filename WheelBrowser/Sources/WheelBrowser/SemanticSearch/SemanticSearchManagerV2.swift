@@ -45,7 +45,9 @@ class SemanticSearchManagerV2: ObservableObject {
     // MARK: - Initialization
 
     private func initialize() async {
+        Log.Search.debug("SemanticSearchManagerV2 initializing, dindexEnabled=\(settings.dindexEnabled)")
         guard settings.dindexEnabled else {
+            Log.Search.info("DIndex disabled in settings, skipping initialization")
             isAvailable = false
             isDIndexConnected = false
             return
@@ -56,8 +58,10 @@ class SemanticSearchManagerV2: ObservableObject {
 
     /// Initialize remote DIndex service
     private func initializeDIndex() async {
+        Log.Search.debug("initializeDIndex starting, endpoint=\(settings.dindexEndpoint)")
         guard settings.dindexEnabled,
               let endpoint = URL(string: settings.dindexEndpoint) else {
+            Log.Search.warning("initializeDIndex failed: dindexEnabled=\(settings.dindexEnabled), endpoint invalid: '\(settings.dindexEndpoint)'")
             dindexService = nil
             isDIndexConnected = false
             isAvailable = false
@@ -65,9 +69,11 @@ class SemanticSearchManagerV2: ObservableObject {
         }
 
         let apiKey = settings.dindexAPIKey.isEmpty ? nil : settings.dindexAPIKey
+        Log.Search.debug("Creating DIndexService with endpoint=\(endpoint), apiKey=\(apiKey != nil ? "set" : "nil")")
         let service = DIndexService(endpoint: endpoint, apiKey: apiKey)
 
         // Verify connection
+        Log.Search.debug("Checking DIndex health...")
         let healthy = await service.checkHealth()
         if healthy {
             dindexService = service
@@ -83,7 +89,7 @@ class SemanticSearchManagerV2: ObservableObject {
             isDIndexConnected = false
             isAvailable = false
             lastError = "Could not connect to DIndex server"
-            Log.Search.warning("DIndex health check failed")
+            Log.Search.warning("DIndex health check failed for \(settings.dindexEndpoint)")
         }
     }
 
@@ -107,23 +113,33 @@ class SemanticSearchManagerV2: ObservableObject {
         workspaceID: UUID? = nil,
         categories: Set<EmbeddingCategory> = [.history, .web]
     ) async {
-        guard isAvailable, let dindex = dindexService else { return }
-        guard let pageURL = URL(string: url) else { return }
+        Log.Search.debug("indexPage called: url=\(url), title=\(title), contentLength=\(content.count), categories=\(categories.map { $0.rawValue })")
+
+        guard isAvailable, let dindex = dindexService else {
+            Log.Search.debug("indexPage skipped: isAvailable=\(isAvailable), dindexService=\(dindexService != nil ? "present" : "nil")")
+            return
+        }
+        guard let pageURL = URL(string: url) else {
+            Log.Search.debug("indexPage skipped: invalid URL '\(url)'")
+            return
+        }
 
         isIndexing = true
         defer { isIndexing = false }
 
         do {
+            Log.Search.debug("Sending to DIndex: \(pageURL.absoluteString)")
             try await dindex.indexPage(
                 url: pageURL,
                 title: title,
                 content: content,
                 categories: categories
             )
+            Log.Search.info("Successfully indexed: \(url) (content: \(content.count) chars)")
             await updateStats()
         } catch {
             lastError = error.localizedDescription
-            Log.Search.error("Indexing error: \(error.localizedDescription)")
+            Log.Search.error("Indexing error for \(url): \(error.localizedDescription)")
         }
     }
 
@@ -136,10 +152,16 @@ class SemanticSearchManagerV2: ObservableObject {
 
     /// Search for pages semantically similar to the query
     func search(query: String, limit: Int = 20) async -> [SemanticSearchResult] {
-        guard isAvailable, let dindex = dindexService else { return [] }
+        Log.Search.debug("search called: query='\(query)', limit=\(limit)")
+
+        guard isAvailable, let dindex = dindexService else {
+            Log.Search.debug("search skipped: isAvailable=\(isAvailable), dindexService=\(dindexService != nil ? "present" : "nil")")
+            return []
+        }
 
         do {
             let results = try await dindex.search(query: query, limit: limit)
+            Log.Search.debug("search completed: \(results.count) results for '\(query)'")
             return results.map { item in
                 let hashValue = item.id.hashValue
                 let id = UInt64(bitPattern: Int64(hashValue))
@@ -169,7 +191,12 @@ class SemanticSearchManagerV2: ObservableObject {
         categories: Set<EmbeddingCategory>,
         limit: Int = 20
     ) async -> [SemanticSearchResult] {
-        guard isAvailable, let dindex = dindexService else { return [] }
+        Log.Search.debug("searchWithCategories called: query='\(query)', categories=\(categories.map { $0.rawValue }), limit=\(limit)")
+
+        guard isAvailable, let dindex = dindexService else {
+            Log.Search.debug("searchWithCategories skipped: isAvailable=\(isAvailable), dindexService=\(dindexService != nil ? "present" : "nil")")
+            return []
+        }
 
         do {
             let results = try await dindex.search(
@@ -177,6 +204,7 @@ class SemanticSearchManagerV2: ObservableObject {
                 categories: categories.isEmpty ? nil : categories,
                 limit: limit
             )
+            Log.Search.debug("searchWithCategories completed: \(results.count) results for '\(query)'")
             return results.map { item in
                 let hashValue = item.id.hashValue
                 let id = UInt64(bitPattern: Int64(hashValue))

@@ -26,12 +26,14 @@ actor DIndexService {
         categories: Set<EmbeddingCategory>
     ) async throws {
         let categoryStrings = categories.map { $0.rawValue }
-        _ = try await client.index(
+        Log.Search.debug("DIndexService.indexPage: url=\(url.absoluteString), title=\(title ?? "nil"), contentLength=\(content.count), categories=\(categoryStrings)")
+        let response = try await client.index(
             content: content,
             title: title,
             url: url.absoluteString,
             categories: categoryStrings
         )
+        Log.Search.debug("DIndexService.indexPage completed: chunks=\(response.chunksCreated)")
     }
 
     /// Search with optional category filtering
@@ -46,20 +48,27 @@ actor DIndexService {
         categories: Set<EmbeddingCategory>? = nil,
         limit: Int = 20
     ) async throws -> [DIndexSearchItem] {
+        Log.Search.debug("DIndexService.search: query='\(query)', categories=\(categories?.map { $0.rawValue } ?? []), limit=\(limit)")
+        let results: [DIndexSearchItem]
         if let cats = categories, !cats.isEmpty {
             let categoryStrings = cats.map { $0.rawValue }
             let response = try await client.search(query: query, categories: categoryStrings, topK: limit)
-            return response.results.map { DIndexSearchItem(chunk: $0.chunk, score: $0.relevanceScore) }
+            results = response.results.map { DIndexSearchItem(chunk: $0.chunk, score: $0.relevanceScore) }
         } else {
             let response = try await client.search(query: query, topK: limit)
-            return response.results.map { DIndexSearchItem(chunk: $0.chunk, score: $0.relevanceScore) }
+            results = response.results.map { DIndexSearchItem(chunk: $0.chunk, score: $0.relevanceScore) }
         }
+        Log.Search.debug("DIndexService.search returned \(results.count) results")
+        return results
     }
 
     /// Check if the DIndex server is healthy and reachable
     func checkHealth() async -> Bool {
+        Log.Search.debug("DIndexService.checkHealth starting...")
         do {
-            return try await client.health()
+            let healthy = try await client.health()
+            Log.Search.debug("DIndexService.checkHealth result: \(healthy)")
+            return healthy
         } catch {
             Log.Search.warning("DIndex health check failed: \(error.localizedDescription)")
             return false
@@ -68,7 +77,10 @@ actor DIndexService {
 
     /// Get index statistics from the server
     func getStats() async throws -> IndexStats {
-        try await client.stats()
+        Log.Search.debug("DIndexService.getStats fetching...")
+        let stats = try await client.stats()
+        Log.Search.debug("DIndexService.getStats: totalChunks=\(stats.totalChunks), totalDocuments=\(stats.totalDocuments)")
+        return stats
     }
 }
 
