@@ -49,16 +49,25 @@ actor DIndexService {
         limit: Int = 20
     ) async throws -> [DIndexSearchItem] {
         Log.Search.debug("DIndexService.search: query='\(query)', categories=\(categories?.map { $0.rawValue } ?? []), limit=\(limit)")
-        let results: [DIndexSearchItem]
+        let response: SearchResponse
         if let cats = categories, !cats.isEmpty {
             let categoryStrings = cats.map { $0.rawValue }
-            let response = try await client.search(query: query, categories: categoryStrings, topK: limit)
-            results = response.results.map { DIndexSearchItem(chunk: $0.chunk, score: $0.relevanceScore) }
+            response = try await client.search(query: query, categories: categoryStrings, topK: limit)
         } else {
-            let response = try await client.search(query: query, topK: limit)
-            results = response.results.map { DIndexSearchItem(chunk: $0.chunk, score: $0.relevanceScore) }
+            response = try await client.search(query: query, topK: limit)
         }
-        Log.Search.debug("DIndexService.search returned \(results.count) results")
+        // Return one result per document using the best chunk's content
+        let results = response.results.compactMap { group -> DIndexSearchItem? in
+            guard let bestChunk = group.chunks.first else { return nil }
+            return DIndexSearchItem(
+                id: group.documentId,
+                url: group.sourceUrl,
+                title: group.sourceTitle,
+                content: bestChunk.content,
+                score: group.relevanceScore
+            )
+        }
+        Log.Search.debug("DIndexService.search returned \(results.count) results (\(response.totalDocuments) documents)")
         return results
     }
 
@@ -99,11 +108,11 @@ struct DIndexSearchItem: Identifiable, Sendable {
     let content: String
     let score: Float
 
-    init(chunk: Chunk, score: Float) {
-        self.id = chunk.metadata.chunkId
-        self.url = chunk.metadata.sourceUrl
-        self.title = chunk.metadata.sourceTitle
-        self.content = chunk.content
+    init(id: String, url: String?, title: String?, content: String, score: Float) {
+        self.id = id
+        self.url = url
+        self.title = title
+        self.content = content
         self.score = score
     }
 }
