@@ -28,6 +28,11 @@ let package = Package(
             name: "wheel-mcp-bridge",
             dependencies: [],
             path: "Sources/WheelMCPBridge"
+        ),
+        .testTarget(
+            name: "WheelBrowserTests",
+            dependencies: ["WheelBrowser"],
+            path: "Tests/WheelBrowserTests"
         )
     ]
 )
