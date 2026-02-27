@@ -77,28 +77,6 @@ struct WebViewRepresentable: NSViewRepresentable {
                 return
             }
 
-            // Handle link summary messages (Option+Click)
-            guard message.name == "linkHover" else {
-                return
-            }
-
-            Task { @MainActor in
-                if type == "summary" {
-                    guard let urlString = body["url"] as? String,
-                          let url = URL(string: urlString),
-                          let x = body["x"] as? Double,
-                          let y = body["y"] as? Double else {
-                        Log.LinkPreview.warning("Invalid summary data")
-                        return
-                    }
-
-                    let linkText = body["text"] as? String ?? ""
-                    let position = CGPoint(x: x, y: y)
-
-                    Log.LinkPreview.info("Summary requested: \(urlString)")
-                    LinkPreviewState.shared.showSummary(url: url, linkText: linkText, position: position)
-                }
-            }
         }
 
         // MARK: - Download MIME Types
@@ -272,7 +250,12 @@ struct WebViewRepresentable: NSViewRepresentable {
             """
 
             webView.evaluateJavaScript(extractionScript) { result, error in
-                guard error == nil, let content = result as? String, !content.isEmpty else {
+                if let error = error {
+                    Log.Search.debug("Content extraction failed for \(urlString): \(error.localizedDescription)")
+                    return
+                }
+                guard let content = result as? String, !content.isEmpty else {
+                    Log.Search.debug("Content extraction returned empty for \(urlString)")
                     return
                 }
 

@@ -61,6 +61,7 @@ actor DIndexService {
         do {
             return try await client.health()
         } catch {
+            Log.Search.warning("DIndex health check failed: \(error.localizedDescription)")
             return false
         }
     }
