@@ -34,6 +34,8 @@ class OverlayWindowManager: ObservableObject {
     @Published var windows: [OverlayWindowItem] = []
     private var nextZIndex = 0
     private let maxWindows = 5
+    /// O(1) index lookup cache for window items by UUID
+    private var windowIndexCache: [UUID: Int] = [:]
 
     // Default window dimensions
     private let defaultSize = CGSize(width: 700, height: 750)
@@ -95,6 +97,20 @@ class OverlayWindowManager: ObservableObject {
         withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
             windows.append(window)
         }
+        rebuildIndexCache()
+    }
+
+    /// Rebuilds the index cache after structural changes to windows array
+    private func rebuildIndexCache() {
+        windowIndexCache.removeAll(keepingCapacity: true)
+        for (index, item) in windows.enumerated() {
+            windowIndexCache[item.id] = index
+        }
+    }
+
+    /// O(1) lookup for window index by UUID
+    private func index(for id: UUID) -> Int? {
+        windowIndexCache[id]
     }
 
     /// Closes the overlay window with the specified ID
@@ -102,6 +118,7 @@ class OverlayWindowManager: ObservableObject {
         withAnimation(.easeOut(duration: 0.2)) {
             windows.removeAll { $0.id == id }
         }
+        rebuildIndexCache()
     }
 
     /// Closes all overlay windows
@@ -109,20 +126,21 @@ class OverlayWindowManager: ObservableObject {
         withAnimation(.easeOut(duration: 0.2)) {
             windows.removeAll()
         }
+        windowIndexCache.removeAll()
     }
 
     /// Brings the specified window to the front
     func bringToFront(id: UUID) {
-        guard let index = windows.firstIndex(where: { $0.id == id }) else { return }
-        windows[index].zIndex = nextZIndex
+        guard let idx = index(for: id) else { return }
+        windows[idx].zIndex = nextZIndex
         nextZIndex += 1
     }
 
     /// Minimizes or restores the specified window
     func minimizeOverlay(id: UUID) {
-        guard let index = windows.firstIndex(where: { $0.id == id }) else { return }
+        guard let idx = index(for: id) else { return }
         withAnimation(.spring(response: 0.25, dampingFraction: 0.8)) {
-            windows[index].isMinimized.toggle()
+            windows[idx].isMinimized.toggle()
         }
     }
 
@@ -131,8 +149,8 @@ class OverlayWindowManager: ObservableObject {
     ///   - id: The window ID to toggle
     ///   - containerSize: The size of the container to maximize within
     func toggleMaximize(id: UUID, containerSize: CGSize) {
-        guard let index = windows.firstIndex(where: { $0.id == id }) else { return }
-        let window = windows[index]
+        guard let idx = index(for: id) else { return }
+        let window = windows[idx]
 
         withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
             if window.isMaximized {
@@ -156,21 +174,21 @@ class OverlayWindowManager: ObservableObject {
 
     /// Updates the position of the specified window
     func updatePosition(id: UUID, position: CGPoint) {
-        guard let index = windows.firstIndex(where: { $0.id == id }) else { return }
-        windows[index].position = position
+        guard let idx = index(for: id) else { return }
+        windows[idx].position = position
         // If moved while maximized, exit maximize mode
-        if windows[index].isMaximized {
-            windows[index].isMaximized = false
+        if windows[idx].isMaximized {
+            windows[idx].isMaximized = false
         }
     }
 
     /// Updates the size of the specified window
     func updateSize(id: UUID, size: CGSize) {
-        guard let index = windows.firstIndex(where: { $0.id == id }) else { return }
-        windows[index].size = size
+        guard let idx = index(for: id) else { return }
+        windows[idx].size = size
         // If resized while maximized, exit maximize mode
-        if windows[index].isMaximized {
-            windows[index].isMaximized = false
+        if windows[idx].isMaximized {
+            windows[idx].isMaximized = false
         }
     }
 }

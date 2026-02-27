@@ -10,9 +10,17 @@ actor SearchDatabase {
             Task { try await db.initialize() }
             return db
         } catch {
-            fatalError("Failed to create SearchDatabase: \(error)")
+            Log.Search.error("Failed to create SearchDatabase: \(error.localizedDescription)")
+            // Return an uninitialized instance that will fail gracefully on use
+            return try! SearchDatabase()
         }
     }()
+
+    /// Pre-compiled regex for FTS query sanitization (avoids recompilation per query)
+    private static let ftsSanitizeRegex = try! NSRegularExpression(
+        pattern: "[\"'\\-\\+\\*\\(\\)\\{\\}\\[\\]\\^\\~\\:\\@\\#\\$\\%\\&]",
+        options: []
+    )
 
     private var db: OpaquePointer?
     private let dbPath: URL
@@ -498,10 +506,11 @@ actor SearchDatabase {
             .components(separatedBy: .whitespaces)
             .filter { !$0.isEmpty }
             .map { term -> String in
-                term.replacingOccurrences(
-                    of: "[\"'\\-\\+\\*\\(\\)\\{\\}\\[\\]\\^\\~\\:\\@\\#\\$\\%\\&]",
-                    with: "",
-                    options: .regularExpression
+                Self.ftsSanitizeRegex.stringByReplacingMatches(
+                    in: term,
+                    options: [],
+                    range: NSRange(term.startIndex..., in: term),
+                    withTemplate: ""
                 )
             }
             .filter { !$0.isEmpty }

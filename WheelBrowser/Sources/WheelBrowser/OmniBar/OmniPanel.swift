@@ -13,8 +13,8 @@ struct OmniPanel<Content: View>: View {
 
     @State private var isHovering = false
 
-    private let maxHeight: CGFloat = 500
-    private let maxWidth: CGFloat = 700
+    private let maxHeight: CGFloat = 700
+    private let maxWidth: CGFloat = 900
 
     init(
         title: String,
@@ -257,26 +257,16 @@ struct ChatPanelContent: View {
             }
             .onChange(of: agentManager.messages.count) { _, _ in
                 // Scroll to bottom on new message
-                scrollToBottom(proxy: proxy, animated: true)
+                proxy.scrollToBottom(animated: true)
             }
             .onChange(of: agentManager.messages.last?.content) { _, _ in
                 // Throttled scroll during streaming (max once per 100ms)
                 let now = Date()
                 if now.timeIntervalSince(lastScrollTime) > 0.1 {
                     lastScrollTime = now
-                    scrollToBottom(proxy: proxy, animated: false)
+                    proxy.scrollToBottom(animated: false)
                 }
             }
-        }
-    }
-
-    private func scrollToBottom(proxy: ScrollViewProxy, animated: Bool) {
-        if animated {
-            withAnimation(.easeOut(duration: 0.15)) {
-                proxy.scrollTo("bottom", anchor: .bottom)
-            }
-        } else {
-            proxy.scrollTo("bottom", anchor: .bottom)
         }
     }
 
@@ -453,118 +443,3 @@ struct SuggestionRow: View {
     }
 }
 
-// MARK: - History Row (legacy, kept for compatibility)
-
-struct HistoryRow: View {
-    let entry: HistoryEntry
-    let isSelected: Bool
-    let onSelect: () -> Void
-
-    @State private var isHovering = false
-
-    /// Cached colors array for domain coloring (avoids recreation on every call)
-    private static let domainColors: [Color] = [
-        .blue, .purple, .pink, .red, .orange, .yellow, .green, .teal, .cyan, .indigo
-    ]
-
-    private var domain: String {
-        if let url = URL(string: entry.url), let host = url.host {
-            return host.replacingOccurrences(of: "www.", with: "")
-        }
-        return ""
-    }
-
-    var body: some View {
-        HStack(spacing: 12) {
-            // Favicon
-            faviconView
-                .frame(width: 28, height: 28)
-
-            // Title and URL
-            VStack(alignment: .leading, spacing: 2) {
-                Text(entry.title.isEmpty ? domain : entry.title)
-                    .font(.system(size: 13))
-                    .foregroundColor(.primary)
-                    .lineLimit(1)
-
-                Text(displayURL)
-                    .font(.system(size: 11))
-                    .foregroundColor(.secondary)
-                    .lineLimit(1)
-            }
-
-            Spacer()
-
-            // Time indicator
-            if let timeAgo = relativeTimeString {
-                Text(timeAgo)
-                    .font(.system(size: 10, weight: .medium))
-                    .foregroundColor(.secondary.opacity(0.7))
-                    .padding(.horizontal, 8)
-                    .padding(.vertical, 3)
-                    .background(
-                        Capsule()
-                            .fill(Color(nsColor: .controlBackgroundColor).opacity(0.5))
-                    )
-            }
-        }
-        .padding(.horizontal, 12)
-        .padding(.vertical, 8)
-        .background(
-            RoundedRectangle(cornerRadius: 8)
-                .fill(backgroundColor)
-        )
-        .contentShape(Rectangle())
-        .onTapGesture(perform: onSelect)
-        .onHover { hovering in
-            withAnimation(.easeInOut(duration: 0.1)) {
-                isHovering = hovering
-            }
-        }
-    }
-
-    private var backgroundColor: Color {
-        if isSelected {
-            return Color.accentColor.opacity(0.35)
-        } else if isHovering {
-            return Color(nsColor: .controlBackgroundColor).opacity(0.5)
-        }
-        return Color.clear
-    }
-
-    @ViewBuilder
-    private var faviconView: some View {
-        if !domain.isEmpty {
-            let initial = String(domain.prefix(1)).uppercased()
-            Text(initial)
-                .font(.system(size: 12, weight: .semibold))
-                .foregroundColor(.white)
-                .frame(width: 28, height: 28)
-                .background(
-                    RoundedRectangle(cornerRadius: 6)
-                        .fill(colorForDomain(domain))
-                )
-        } else {
-            Image(systemName: "globe")
-                .font(.system(size: 14))
-                .foregroundColor(.secondary)
-                .frame(width: 28, height: 28)
-                .background(
-                    RoundedRectangle(cornerRadius: 6)
-                        .fill(Color(nsColor: .controlBackgroundColor))
-                )
-        }
-    }
-
-    private var displayURL: String {
-        URLFormatter.shared.displayURL(entry.url)
-    }
-
-    private var relativeTimeString: String? {
-        entry.timestamp.relativeTimeString()
-    }
-
-    private func colorForDomain(_ domain: String) -> Color {
-        DomainColor.color(for: domain)
-    }
-}

@@ -168,16 +168,20 @@ struct WebKitRuleConverter {
         return pattern
     }
 
+    /// Characters that need escaping in regex, except * and ^ which have ABP meaning
+    /// Note: / is not a regex special character, don't escape it
+    private static let regexSpecialChars: Set<Character> = ["\\", ".", "+", "?", "{", "}", "[", "]", "(", ")", "|", "$"]
+
+    /// Single-pass regex escaping for better performance (avoids 11 string allocations)
     private func escapeRegexSpecials(_ pattern: String) -> String {
-        // Characters that need escaping in regex, except * and ^ which have ABP meaning
-        // Note: / is not a regex special character, don't escape it
-        let specialChars = ["\\", ".", "+", "?", "{", "}", "[", "]", "(", ")", "|", "$"]
-
-        var result = pattern
-        for char in specialChars {
-            result = result.replacingOccurrences(of: char, with: "\\\(char)")
+        var result = ""
+        result.reserveCapacity(pattern.count * 2)
+        for char in pattern {
+            if Self.regexSpecialChars.contains(char) {
+                result.append("\\")
+            }
+            result.append(char)
         }
-
         return result
     }
 

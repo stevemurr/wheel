@@ -68,6 +68,8 @@ class DownloadManager: ObservableObject {
     @Published var showDownloadsPanel: Bool = false
 
     private var activeDownloads: [WKDownload: UUID] = [:]
+    /// O(1) index lookup cache for download items by UUID
+    private var downloadIndexCache: [UUID: Int] = [:]
 
     var hasActiveDownloads: Bool {
         downloads.contains { $0.status == .downloading }
@@ -83,6 +85,7 @@ class DownloadManager: ObservableObject {
         let item = DownloadItem(filename: filename, url: url)
         downloads.insert(item, at: 0)
         activeDownloads[download] = item.id
+        rebuildIndexCache()
 
         // Show panel when download starts
         withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
@@ -92,38 +95,51 @@ class DownloadManager: ObservableObject {
         return item.id
     }
 
+    /// Rebuilds the index cache after structural changes to downloads array
+    private func rebuildIndexCache() {
+        downloadIndexCache.removeAll(keepingCapacity: true)
+        for (index, item) in downloads.enumerated() {
+            downloadIndexCache[item.id] = index
+        }
+    }
+
+    /// O(1) lookup for download index by UUID
+    private func index(for id: UUID) -> Int? {
+        downloadIndexCache[id]
+    }
+
     func updateDestination(_ download: WKDownload, destination: URL) {
         guard let id = activeDownloads[download],
-              let index = downloads.firstIndex(where: { $0.id == id }) else { return }
-        downloads[index].destinationURL = destination
+              let idx = index(for: id) else { return }
+        downloads[idx].destinationURL = destination
     }
 
     func updateProgress(_ download: WKDownload, bytesReceived: Int64, totalBytes: Int64) {
         guard let id = activeDownloads[download],
-              let index = downloads.firstIndex(where: { $0.id == id }) else { return }
-        downloads[index].bytesReceived = bytesReceived
-        downloads[index].totalBytes = totalBytes
+              let idx = index(for: id) else { return }
+        downloads[idx].bytesReceived = bytesReceived
+        downloads[idx].totalBytes = totalBytes
     }
 
     func completeDownload(_ download: WKDownload) {
         guard let id = activeDownloads[download],
-              let index = downloads.firstIndex(where: { $0.id == id }) else { return }
-        downloads[index].status = .completed
-        downloads[index].bytesReceived = downloads[index].totalBytes
+              let idx = index(for: id) else { return }
+        downloads[idx].status = .completed
+        downloads[idx].bytesReceived = downloads[idx].totalBytes
         activeDownloads.removeValue(forKey: download)
     }
 
     func failDownload(_ download: WKDownload, error: String) {
         guard let id = activeDownloads[download],
-              let index = downloads.firstIndex(where: { $0.id == id }) else { return }
-        downloads[index].status = .failed(error)
+              let idx = index(for: id) else { return }
+        downloads[idx].status = .failed(error)
         activeDownloads.removeValue(forKey: download)
     }
 
     func cancelDownload(_ download: WKDownload) {
         guard let id = activeDownloads[download],
-              let index = downloads.firstIndex(where: { $0.id == id }) else { return }
-        downloads[index].status = .cancelled
+              let idx = index(for: id) else { return }
+        downloads[idx].status = .cancelled
         activeDownloads.removeValue(forKey: download)
     }
 
@@ -132,6 +148,7 @@ class DownloadManager: ObservableObject {
             item.status == .completed || item.status == .cancelled ||
             (item.status != .downloading && item.status != .completed)
         }
+        rebuildIndexCache()
     }
 
     func revealInFinder(_ item: DownloadItem) {

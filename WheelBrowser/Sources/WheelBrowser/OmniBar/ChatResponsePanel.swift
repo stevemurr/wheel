@@ -2,57 +2,6 @@ import SwiftUI
 import MarkdownUI
 import AppKit
 
-// MARK: - Typing Indicator (for ChatPanel)
-
-struct ChatPanelTypingIndicator: View {
-    @State private var animatingDots = [false, false, false]
-
-    var body: some View {
-        HStack(spacing: 4) {
-            ForEach(0..<3, id: \.self) { index in
-                Circle()
-                    .fill(Color.secondary.opacity(0.6))
-                    .frame(width: 5, height: 5)
-                    .scaleEffect(animatingDots[index] ? 1.0 : 0.5)
-                    .opacity(animatingDots[index] ? 1.0 : 0.4)
-            }
-        }
-        .padding(.vertical, 6)
-        .onAppear {
-            animateDots()
-        }
-    }
-
-    private func animateDots() {
-        for i in 0..<3 {
-            withAnimation(
-                .easeInOut(duration: 0.5)
-                .repeatForever(autoreverses: true)
-                .delay(Double(i) * 0.15)
-            ) {
-                animatingDots[i] = true
-            }
-        }
-    }
-}
-
-// MARK: - Streaming Cursor Indicator
-
-struct ChatPanelStreamingCursor: View {
-    @State private var showCursor = true
-
-    var body: some View {
-        Text("|")
-            .font(.system(size: 13, weight: .medium))
-            .foregroundColor(.purple.opacity(showCursor ? 0.8 : 0.0))
-            .onAppear {
-                withAnimation(.easeInOut(duration: 0.5).repeatForever(autoreverses: true)) {
-                    showCursor.toggle()
-                }
-            }
-    }
-}
-
 // MARK: - Pulsing Loading Dot
 
 struct ChatPanelPulsingDot: View {
@@ -72,313 +21,80 @@ struct ChatPanelPulsingDot: View {
     }
 }
 
-// MARK: - Suggested Prompt Chip
-
-struct ChatPanelPromptChip: View {
-    let text: String
-    let action: () -> Void
+/// Collapsible thinking/reasoning bubble for displaying AI thought process
+struct ThinkingBubble: View {
+    let message: ChatMessage
+    @State private var isExpanded = false
     @State private var isHovered = false
 
     var body: some View {
-        Button(action: action) {
-            Text(text)
-                .font(.system(size: 11, weight: .medium))
-                .foregroundColor(.primary)
-                .padding(.horizontal, 12)
-                .padding(.vertical, 6)
-                .background(
-                    RoundedRectangle(cornerRadius: 12, style: .continuous)
-                        .fill(Color(nsColor: .controlBackgroundColor))
-                        .opacity(isHovered ? 1.0 : 0.8)
-                )
-                .overlay(
-                    RoundedRectangle(cornerRadius: 12, style: .continuous)
-                        .stroke(Color.purple.opacity(isHovered ? 0.5 : 0.2), lineWidth: 1)
-                )
-        }
-        .buttonStyle(.plain)
-        .onHover { hovering in
-            withAnimation(.easeOut(duration: 0.15)) {
-                isHovered = hovering
-            }
-        }
-    }
-}
-
-// MARK: - Streaming Markdown Content (Block-based rendering)
-
-/// Splits markdown into completed blocks (cached) + streaming tail (re-renders)
-/// This prevents O(n²) re-parsing by only re-rendering the active block
-struct StreamingMarkdownContent: View {
-    let content: String
-    let theme: Theme
-
-    // Split content into completed blocks and streaming tail
-    private var blocks: (completed: [String], streaming: String) {
-        splitIntoBlocks(content)
-    }
-
-    var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            // Completed blocks - each rendered once and cached by SwiftUI
-            ForEach(Array(blocks.completed.enumerated()), id: \.offset) { index, block in
-                Markdown(block)
-                    .markdownTheme(theme)
-                    .textSelection(.enabled)
-                    .id("block-\(index)-\(block.hashValue)") // Stable ID prevents re-render
-            }
-
-            // Streaming tail - only this re-renders on updates
-            if !blocks.streaming.isEmpty {
-                HStack(alignment: .bottom, spacing: 2) {
-                    Text(blocks.streaming)
-                        .font(.system(size: 13.5))
-                        .foregroundColor(.primary)
-                        .textSelection(.enabled)
-                    ChatPanelStreamingCursor()
+            // Header row with toggle
+            Button(action: {
+                withAnimation(.easeInOut(duration: 0.2)) {
+                    isExpanded.toggle()
                 }
-            } else {
-                ChatPanelStreamingCursor()
-            }
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
-    }
+            }) {
+                HStack(spacing: 6) {
+                    Image(systemName: isExpanded ? "chevron.down" : "chevron.right")
+                        .font(.system(size: 9, weight: .semibold))
+                        .foregroundColor(.purple.opacity(0.7))
+                        .frame(width: 12)
 
-    /// Splits content into completed markdown blocks and the streaming tail
-    private func splitIntoBlocks(_ text: String) -> (completed: [String], streaming: String) {
-        guard !text.isEmpty else { return ([], "") }
+                    Image(systemName: "brain")
+                        .font(.system(size: 10, weight: .medium))
+                        .foregroundColor(.purple.opacity(0.7))
 
-        var completed: [String] = []
-        var currentBlock = ""
-        var inCodeBlock = false
-        var inLatexBlock = false
+                    Text("Thinking")
+                        .font(.system(size: 11, weight: .medium))
+                        .foregroundColor(.purple.opacity(0.8))
 
-        let lines = text.components(separatedBy: "\n")
+                    if message.isStreaming {
+                        ChatPanelPulsingDot()
+                            .scaleEffect(0.7)
+                    }
 
-        for (index, line) in lines.enumerated() {
-            let trimmed = line.trimmingCharacters(in: .whitespaces)
+                    Spacer()
 
-            // Track code block state
-            if trimmed.hasPrefix("```") {
-                inCodeBlock.toggle()
-            }
-
-            // Track LaTeX block state
-            if trimmed.hasPrefix("$$") {
-                inLatexBlock.toggle()
-            }
-
-            currentBlock += line
-            if index < lines.count - 1 {
-                currentBlock += "\n"
-            }
-
-            // Check if this completes a block (only if not in code/latex block)
-            let isLastLine = index == lines.count - 1
-            let nextLineEmpty = index + 1 < lines.count && lines[index + 1].trimmingCharacters(in: .whitespaces).isEmpty
-
-            if !isLastLine && !inCodeBlock && !inLatexBlock {
-                // Block boundaries: empty line, or end of code/latex block
-                if trimmed.isEmpty && !currentBlock.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                    // Empty line = paragraph break
-                    completed.append(currentBlock)
-                    currentBlock = ""
-                } else if trimmed.hasPrefix("```") && !inCodeBlock {
-                    // Just closed a code block
-                    completed.append(currentBlock)
-                    currentBlock = ""
-                } else if trimmed.hasPrefix("$$") && !inLatexBlock {
-                    // Just closed a latex block
-                    completed.append(currentBlock)
-                    currentBlock = ""
-                } else if trimmed.hasPrefix("#") && nextLineEmpty {
-                    // Heading followed by empty line
-                    completed.append(currentBlock)
-                    currentBlock = ""
+                    Text("\(message.content.count) chars")
+                        .font(.system(size: 9))
+                        .foregroundColor(.secondary.opacity(0.5))
                 }
-            }
-        }
-
-        // Whatever remains is the streaming tail
-        return (completed, currentBlock)
-    }
-}
-
-/// Panel that displays chat conversation above the OmniBar
-struct ChatResponsePanel: View {
-    @ObservedObject var agentManager: AgentManager
-    @Binding var isVisible: Bool
-    let onDismiss: () -> Void
-
-    @State private var isHovering = false
-    @State private var lastScrollTime: Date = .distantPast
-
-    private let maxHeight: CGFloat = 500
-
-    var body: some View {
-        VStack(spacing: 0) {
-            // Header with dismiss button
-            header
-
-            Divider()
-                .opacity(0.5)
-
-            // Messages area
-            messagesArea
-        }
-        .frame(maxWidth: 700)
-        .frame(maxHeight: maxHeight)
-        .background(
-            RoundedRectangle(cornerRadius: 14, style: .continuous)
-                .fill(Color(nsColor: .windowBackgroundColor))
-                .shadow(color: .black.opacity(0.12), radius: 12, x: 0, y: 4)
-        )
-        .overlay(
-            RoundedRectangle(cornerRadius: 14, style: .continuous)
-                .stroke(Color(nsColor: .separatorColor).opacity(0.4), lineWidth: 1.0)
-        )
-        .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
-        .onHover { hovering in
-            isHovering = hovering
-        }
-    }
-
-    // MARK: - Header
-
-    private var header: some View {
-        HStack(spacing: 8) {
-            Image(systemName: "bubble.left.and.bubble.right.fill")
-                .font(.system(size: 11))
-                .foregroundColor(.secondary.opacity(0.7))
-
-            Text("Chat")
-                .font(.system(size: 12, weight: .medium))
-                .foregroundColor(.primary.opacity(0.85))
-
-            Spacer()
-
-            if agentManager.isLoading {
-                ChatPanelPulsingDot()
-                    .padding(.trailing, 4)
-            }
-
-            Menu {
-                Button("Clear Chat") {
-                    agentManager.clearMessages()
-                }
-                Divider()
-                Button("Reset Agent", role: .destructive) {
-                    Task { await agentManager.resetAgent() }
-                }
-            } label: {
-                Image(systemName: "ellipsis")
-                    .font(.system(size: 12, weight: .medium))
-                    .foregroundColor(.secondary.opacity(0.7))
-                    .frame(width: 24, height: 24)
-                    .contentShape(Rectangle())
-            }
-            .menuStyle(.borderlessButton)
-            .frame(width: 24)
-
-            Button(action: onDismiss) {
-                Image(systemName: "xmark")
-                    .font(.system(size: 10, weight: .semibold))
-                    .foregroundColor(.secondary.opacity(0.6))
-                    .frame(width: 22, height: 22)
-                    .background(
-                        Circle()
-                            .fill(Color(nsColor: .controlBackgroundColor).opacity(0.8))
-                    )
+                .padding(.horizontal, 10)
+                .padding(.vertical, 8)
+                .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
-        }
-        .padding(.horizontal, 16)
-        .padding(.vertical, 12)
-    }
+            .onHover { hovering in
+                isHovered = hovering
+            }
 
-    // MARK: - Messages Area
+            // Expandable content
+            if isExpanded {
+                Divider()
+                    .opacity(0.3)
 
-    private var messagesArea: some View {
-        ScrollViewReader { proxy in
-            ScrollView(showsIndicators: true) {
-                VStack(spacing: 14) {
-                    if agentManager.messages.isEmpty {
-                        emptyState
-                            .padding(.top, 24)
-                    } else {
-                        ForEach(agentManager.messages) { message in
-                            ChatPanelMessageBubble(message: message)
-                                .id(message.id)
-                        }
-
-                        // Invisible anchor at the bottom for scrolling
-                        Color.clear
-                            .frame(height: 1)
-                            .id("bottom")
-                    }
+                ScrollView {
+                    Text(message.content)
+                        .font(.system(size: 11.5, design: .monospaced))
+                        .foregroundColor(.primary.opacity(0.75))
+                        .textSelection(.enabled)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding(.horizontal, 10)
+                        .padding(.vertical, 8)
                 }
-                .padding(.horizontal, 16)
-                .padding(.vertical, 14)
-            }
-            .onChange(of: agentManager.messages.count) { _, _ in
-                // Scroll to bottom on new message
-                scrollToBottom(proxy: proxy, animated: true)
-            }
-            .onChange(of: agentManager.messages.last?.content) { _, _ in
-                // Throttled scroll during streaming (max once per 100ms)
-                let now = Date()
-                if now.timeIntervalSince(lastScrollTime) > 0.1 {
-                    lastScrollTime = now
-                    scrollToBottom(proxy: proxy, animated: false)
-                }
+                .frame(maxHeight: 200)
             }
         }
-    }
-
-    private func scrollToBottom(proxy: ScrollViewProxy, animated: Bool) {
-        if animated {
-            withAnimation(.easeOut(duration: 0.15)) {
-                proxy.scrollTo("bottom", anchor: .bottom)
-            }
-        } else {
-            proxy.scrollTo("bottom", anchor: .bottom)
-        }
-    }
-
-    // MARK: - Empty State
-
-    private var emptyState: some View {
-        VStack(spacing: 16) {
-            Image(systemName: "bubble.left.and.bubble.right")
-                .font(.system(size: 28, weight: .light))
-                .foregroundColor(.secondary.opacity(0.6))
-
-            VStack(spacing: 6) {
-                Text("Start a conversation")
-                    .font(.system(size: 14, weight: .medium))
-                    .foregroundColor(.primary)
-
-                Text("Ask questions about the current page")
-                    .font(.system(size: 12))
-                    .foregroundColor(.secondary)
-            }
-
-            if let error = agentManager.error {
-                Text(error)
-                    .font(.system(size: 11))
-                    .foregroundColor(.red.opacity(0.9))
-                    .padding(.horizontal)
-                    .multilineTextAlignment(.center)
-
-                Button("Retry") {
-                    agentManager.error = nil
-                }
-                .buttonStyle(.bordered)
-                .controlSize(.small)
-            }
-        }
-        .frame(maxWidth: .infinity)
-        .padding(.vertical, 20)
+        .background(
+            RoundedRectangle(cornerRadius: 10, style: .continuous)
+                .fill(Color.purple.opacity(isHovered ? 0.08 : 0.05))
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 10, style: .continuous)
+                .stroke(Color.purple.opacity(0.15), lineWidth: 1)
+        )
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 }
 
@@ -389,6 +105,16 @@ struct ChatPanelMessageBubble: View {
     @State private var showCopied = false
 
     var body: some View {
+        // Special handling for thinking messages - use collapsible view
+        if message.role == .thinking {
+            ThinkingBubble(message: message)
+                .padding(.vertical, 2)
+        } else {
+            regularMessageBubble
+        }
+    }
+
+    private var regularMessageBubble: some View {
         HStack(alignment: .top, spacing: 10) {
             if message.role == .user {
                 Spacer(minLength: 50)
@@ -413,16 +139,8 @@ struct ChatPanelMessageBubble: View {
                         ChatPanelTypingIndicator()
                             .padding(.horizontal, 12)
                             .padding(.vertical, 10)
-                    } else if message.isStreaming {
-                        // Streaming: render completed blocks + streaming tail
-                        StreamingMarkdownContent(
-                            content: message.content,
-                            theme: markdownTheme
-                        )
-                        .padding(.horizontal, 12)
-                        .padding(.vertical, 10)
                     } else {
-                        // Streaming complete: render full markdown
+                        // Render full markdown
                         Markdown(message.content)
                             .markdownTheme(markdownTheme)
                             .textSelection(.enabled)
@@ -478,10 +196,10 @@ struct ChatPanelMessageBubble: View {
     }
 
     private func copyMessage() {
-        NSPasteboard.general.clearContents()
-        NSPasteboard.general.setString(message.content, forType: .string)
+        PasteboardHelper.copy(message.content)
         showCopied = true
-        DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) {
+        Task {
+            try? await Task.sleep(for: .seconds(2))
             showCopied = false
         }
     }
@@ -587,7 +305,78 @@ struct ChatPanelMessageBubble: View {
                     configuration.label
                         .markdownMargin(top: 3, bottom: 3)
                 }
+                // Stylish table rendering with native macOS appearance
+                .table { configuration in
+                    configuration.label
+                        .fixedSize(horizontal: false, vertical: true)
+                        .markdownTableBorderStyle(
+                            TableBorderStyle(
+                                .allBorders,
+                                color: Color(nsColor: .separatorColor).opacity(0.4),
+                                width: 1
+                            )
+                        )
+                        .markdownTableBackgroundStyle(
+                            .alternatingRows(
+                                Color(nsColor: .controlBackgroundColor).opacity(0.3),
+                                Color.clear,
+                                header: Color(nsColor: .controlBackgroundColor).opacity(0.6)
+                            )
+                        )
+                        .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                                .stroke(Color(nsColor: .separatorColor).opacity(0.3), lineWidth: 1)
+                        )
+                        .markdownMargin(top: 8, bottom: 12)
+                }
+                .tableCell { configuration in
+                    configuration.label
+                        .markdownTextStyle {
+                            if configuration.row == 0 {
+                                FontWeight(.semibold)
+                            }
+                            FontSize(12.5)
+                            BackgroundColor(nil)
+                        }
+                        .fixedSize(horizontal: false, vertical: true)
+                        .padding(.vertical, 8)
+                        .padding(.horizontal, 10)
+                }
         }
     }
 }
 
+// MARK: - Typing Indicator (for ChatPanel)
+
+struct ChatPanelTypingIndicator: View {
+    @State private var animatingDots = [false, false, false]
+
+    var body: some View {
+        HStack(spacing: 4) {
+            ForEach(0..<3, id: \.self) { index in
+                Circle()
+                    .fill(Color.secondary.opacity(0.6))
+                    .frame(width: 5, height: 5)
+                    .scaleEffect(animatingDots[index] ? 1.0 : 0.5)
+                    .opacity(animatingDots[index] ? 1.0 : 0.4)
+            }
+        }
+        .padding(.vertical, 6)
+        .onAppear {
+            animateDots()
+        }
+    }
+
+    private func animateDots() {
+        for i in 0..<3 {
+            withAnimation(
+                .easeInOut(duration: 0.5)
+                .repeatForever(autoreverses: true)
+                .delay(Double(i) * 0.15)
+            ) {
+                animatingDots[i] = true
+            }
+        }
+    }
+}

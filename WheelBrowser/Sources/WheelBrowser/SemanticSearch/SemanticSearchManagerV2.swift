@@ -179,8 +179,13 @@ class SemanticSearchManagerV2: ObservableObject {
                 )
             }
         } catch {
-            lastError = error.localizedDescription
-            Log.Search.error("Search error: \(error.localizedDescription)")
+            // Cancellation is expected during debounced typing - log as debug, not error
+            if (error as? URLError)?.code == .cancelled || error is CancellationError {
+                Log.Search.debug("Search cancelled (superseded by newer query)")
+            } else {
+                lastError = error.localizedDescription
+                Log.Search.error("Search error: \(error.localizedDescription)")
+            }
             return []
         }
     }
@@ -222,8 +227,13 @@ class SemanticSearchManagerV2: ObservableObject {
                 )
             }
         } catch {
-            lastError = error.localizedDescription
-            Log.Search.error("DIndex search error: \(error.localizedDescription)")
+            // Cancellation is expected during debounced typing - log as debug, not error
+            if (error as? URLError)?.code == .cancelled || error is CancellationError {
+                Log.Search.debug("Category search cancelled (superseded by newer query)")
+            } else {
+                lastError = error.localizedDescription
+                Log.Search.error("DIndex search error: \(error.localizedDescription)")
+            }
             return []
         }
     }
