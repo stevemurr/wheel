@@ -197,7 +197,11 @@ struct ContentView: View {
     @ObservedObject private var settings = AppSettings.shared
     @ObservedObject private var downloadManager = DownloadManager.shared
     @ObservedObject private var wheelState = TabWheelState.shared
+    @ObservedObject private var scrapeManager = ScrapeManager.shared
     private let contentExtractor = ContentExtractor()
+
+    /// URL to show scrape config sheet for
+    @State private var scrapeConfigURL: URL?
 
     init() {
         let browserState = BrowserState()
@@ -265,6 +269,34 @@ struct ContentView: View {
                 // Show tab wheel at center of window
                 let initialIndex = state.activeTabIndex ?? 0
                 wheelState.show(at: .zero, initialIndex: initialIndex, tabCount: state.tabs.count)
+            }
+            .onReceive(NotificationCenter.default.publisher(for: .scrapePage)) { _ in
+                if let url = state.activeTab?.url {
+                    scrapeConfigURL = url
+                }
+            }
+            .sheet(item: $scrapeConfigURL) { url in
+                ScrapeConfigSheet(
+                    url: url,
+                    onStart: { config in
+                        scrapeConfigURL = nil
+                        Task {
+                            do {
+                                try await scrapeManager.startScrape(
+                                    url: config.url,
+                                    depth: config.depth,
+                                    stayOnDomain: config.stayOnDomain,
+                                    maxPages: config.maxPages
+                                )
+                            } catch {
+                                Log.Scrape.error("Failed to start scrape", error: error)
+                            }
+                        }
+                    },
+                    onCancel: {
+                        scrapeConfigURL = nil
+                    }
+                )
             }
     }
 

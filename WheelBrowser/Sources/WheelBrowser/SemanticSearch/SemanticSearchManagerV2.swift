@@ -15,6 +15,11 @@ class SemanticSearchManagerV2: ObservableObject {
 
     private var dindexService: DIndexService?
 
+    /// Public accessor for the DIndex service (used by ScrapeManager)
+    var dIndexService: DIndexService? {
+        dindexService
+    }
+
     private var settings: AppSettings { AppSettings.shared }
     private var settingsObserver: NSObjectProtocol?
 
@@ -260,9 +265,21 @@ class SemanticSearchManagerV2: ObservableObject {
 
     // MARK: - Maintenance
 
-    /// Clear the index - not supported in DIndex mode
+    /// Clear all entries from the index
     func clearIndex() async {
-        // No-op - DIndex manages its own storage
+        guard let dindex = dindexService else {
+            Log.Search.debug("clearIndex skipped: dindexService not available")
+            return
+        }
+
+        do {
+            try await dindex.clearAll()
+            await updateStats()
+            Log.Search.info("Index cleared successfully")
+        } catch {
+            lastError = error.localizedDescription
+            Log.Search.error("Failed to clear index: \(error.localizedDescription)")
+        }
     }
 
     /// Save/sync the index (called on app termination)

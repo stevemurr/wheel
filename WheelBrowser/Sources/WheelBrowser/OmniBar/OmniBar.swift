@@ -21,6 +21,7 @@ struct OmniBar: View {
     @StateObject private var readingListVM = ReadingListViewModel()
     @ObservedObject private var semanticSearchManager = SemanticSearchManagerV2.shared
     @ObservedObject private var downloadManager = DownloadManager.shared
+    @ObservedObject private var scrapeManager = ScrapeManager.shared
 
     let contentExtractor: ContentExtractor
 
@@ -54,7 +55,12 @@ struct OmniBar: View {
         if isAgentPanelVisible { flags |= 8 }
         if isReadingListPanelVisible { flags |= 16 }
         if downloadManager.showDownloadsPanel { flags |= 32 }
+        if scrapeManager.showScrapePanel { flags |= 64 }
         return flags
+    }
+
+    private var scrapePanelSubtitle: String {
+        scrapeManager.panelSubtitle
     }
 
     private var historyPanelSubtitle: String {
@@ -149,7 +155,7 @@ struct OmniBar: View {
                 }
                 .padding(.horizontal, 16)
                 .padding(.bottom, 8)
-                .transition(.opacity.combined(with: .scale(scale: 0.95, anchor: .bottom)).combined(with: .offset(y: 10)))
+                .transition(.opacity.combined(with: .scale(scale: 0.95, anchor: .center)))
                 .zIndex(999)
             }
 
@@ -182,7 +188,7 @@ struct OmniBar: View {
                 }
                 .padding(.horizontal, 16)
                 .padding(.bottom, 8)
-                .transition(.opacity.combined(with: .scale(scale: 0.95, anchor: .bottom)).combined(with: .offset(y: 10)))
+                .transition(.opacity.combined(with: .scale(scale: 0.95, anchor: .center)))
                 .zIndex(999)
             }
 
@@ -218,7 +224,7 @@ struct OmniBar: View {
                 }
                 .padding(.horizontal, 16)
                 .padding(.bottom, 8)
-                .transition(.opacity.combined(with: .scale(scale: 0.95, anchor: .bottom)).combined(with: .offset(y: 10)))
+                .transition(.opacity.combined(with: .scale(scale: 0.95, anchor: .center)))
                 .zIndex(999)
             }
 
@@ -253,7 +259,7 @@ struct OmniBar: View {
                 }
                 .padding(.horizontal, 16)
                 .padding(.bottom, 8)
-                .transition(.opacity.combined(with: .scale(scale: 0.95, anchor: .bottom)).combined(with: .offset(y: 10)))
+                .transition(.opacity.combined(with: .scale(scale: 0.95, anchor: .center)))
                 .zIndex(999)
             }
 
@@ -279,7 +285,7 @@ struct OmniBar: View {
                 }
                 .padding(.horizontal, 16)
                 .padding(.bottom, 8)
-                .transition(.opacity.combined(with: .scale(scale: 0.95, anchor: .bottom)).combined(with: .offset(y: 10)))
+                .transition(.opacity.combined(with: .scale(scale: 0.95, anchor: .center)))
                 .zIndex(999)
             }
 
@@ -313,7 +319,36 @@ struct OmniBar: View {
                 }
                 .padding(.horizontal, 16)
                 .padding(.bottom, 8)
-                .transition(.opacity.combined(with: .scale(scale: 0.95, anchor: .bottom)).combined(with: .offset(y: 10)))
+                .transition(.opacity.combined(with: .scale(scale: 0.95, anchor: .center)))
+                .zIndex(999)
+            }
+
+            // Scrape panel - appears above OmniBar when scrape jobs are active
+            if hasAppeared && scrapeManager.showScrapePanel {
+                OmniPanel(
+                    title: "Web Scraping",
+                    icon: "network",
+                    iconColor: .cyan,
+                    borderColor: .cyan,
+                    subtitle: scrapePanelSubtitle,
+                    menuContent: {
+                        AnyView(
+                            Group {
+                                Button("Clear Completed") {
+                                    scrapeManager.clearCompleted()
+                                }
+                            }
+                        )
+                    },
+                    onDismiss: {
+                        scrapeManager.dismissPanel()
+                    }
+                ) {
+                    ScrapePanelContent(manager: scrapeManager)
+                }
+                .padding(.horizontal, 16)
+                .padding(.bottom, 8)
+                .transition(.opacity.combined(with: .scale(scale: 0.95, anchor: .center)))
                 .zIndex(999)
             }
 

@@ -213,6 +213,7 @@ public enum Log {
         case newTabPage = "NewTabPage"
         case omniBar = "OmniBar"
         case overlay = "Overlay"
+        case scrape = "Scrape"
         case screenshot = "Screenshot"
         case search = "SemanticSearch"
         case settings = "Settings"
@@ -381,6 +382,14 @@ public enum Log {
         public static func warning(_ message: String) { Log.warning(message, category: .overlay) }
         public static func error(_ message: String) { Log.error(message, category: .overlay) }
         public static func error(_ message: String, error: Error) { Log.error(message, error: error, category: .overlay) }
+    }
+
+    public enum Scrape {
+        public static func debug(_ message: String) { Log.debug(message, category: .scrape) }
+        public static func info(_ message: String) { Log.info(message, category: .scrape) }
+        public static func warning(_ message: String) { Log.warning(message, category: .scrape) }
+        public static func error(_ message: String) { Log.error(message, category: .scrape) }
+        public static func error(_ message: String, error: Error) { Log.error(message, error: error, category: .scrape) }
     }
 
     public enum Screenshot {

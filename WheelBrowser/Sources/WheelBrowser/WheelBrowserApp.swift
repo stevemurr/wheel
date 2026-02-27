@@ -218,6 +218,13 @@ struct WheelBrowserApp: App {
 
                 Divider()
 
+                Button("Scrape Page...") {
+                    NotificationCenter.default.post(name: .scrapePage, object: nil)
+                }
+                .keyboardShortcut("s", modifiers: [.command, .shift, .option])
+
+                Divider()
+
                 Button("Toggle Dark Mode") {
                     NotificationCenter.default.post(name: .toggleDarkMode, object: nil)
                 }
@@ -298,4 +305,7 @@ extension Notification.Name {
 
     // Open URL in active tab (for agent/MCP)
     static let openURL = Notification.Name("openURL")
+
+    // Scrape page
+    static let scrapePage = Notification.Name("scrapePage")
 }
