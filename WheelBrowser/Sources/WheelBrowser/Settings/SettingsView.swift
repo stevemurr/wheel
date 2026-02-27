@@ -485,9 +485,13 @@ struct SettingsView: View {
             Button("Clear", role: .destructive) {
                 Task {
                     do {
+                        // Clear local SearchDatabase
                         let database = SearchDatabase.shared
                         try await database.initialize()
                         try await database.clearAllData()
+
+                        // Clear remote DIndex server
+                        await SemanticSearchManagerV2.shared.clearIndex()
                     } catch {
                         Log.Settings.error("Failed to clear semantic index: \(error.localizedDescription)")
                     }

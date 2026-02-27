@@ -313,9 +313,14 @@ struct DebugWidgetView: View {
         isProcessing = true
         Task {
             do {
+                // Clear local SearchDatabase
                 let db = SearchDatabase.shared
                 try await db.initialize()
                 try await db.clearAllData()
+
+                // Clear remote DIndex server
+                await SemanticSearchManagerV2.shared.clearIndex()
+
                 await MainActor.run {
                     showStatus("Semantic index cleared")
                 }

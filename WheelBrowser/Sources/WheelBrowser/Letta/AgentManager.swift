@@ -75,10 +75,14 @@ class AgentManager: ObservableObject {
         // Add to conversation history
         conversationHistory.append(["role": "user", "content": fullMessage])
 
+        // Track thinking message index (if we receive any thinking content)
+        var thinkingIndex: Int? = nil
+        var thinkingBuffer = ""
+        var pendingThinkingChunk = ""
+
         // Add placeholder for assistant response with streaming flag
-        let messageId = UUID()
-        messages.append(ChatMessage(id: messageId, role: .assistant, content: "", timestamp: Date(), isStreaming: true))
-        let assistantIndex = messages.count - 1
+        messages.append(ChatMessage(role: .assistant, content: "", timestamp: Date(), isStreaming: true))
+        var assistantIndex = messages.count - 1
 
         do {
             var buffer = ""
@@ -87,18 +91,54 @@ class AgentManager: ObservableObject {
             let maxUpdateInterval: TimeInterval = 0.1 // Force update at least every 100ms
 
             for try await chunk in streamLLM() {
-                pendingChunk += chunk
-
                 let now = Date()
                 let timeSinceUpdate = now.timeIntervalSince(lastUpdateTime)
 
-                // Flush on complete markdown structures or timeout
-                if shouldFlushBuffer(pendingChunk) || timeSinceUpdate >= maxUpdateInterval {
-                    buffer += pendingChunk
-                    pendingChunk = ""
-                    messages[assistantIndex].content = buffer
-                    lastUpdateTime = now
+                switch chunk {
+                case .thinking(let thinkingContent):
+                    // If this is the first thinking content, insert a thinking message before the assistant message
+                    if thinkingIndex == nil {
+                        // Insert thinking message right before the current assistant message
+                        let thinkingMessage = ChatMessage(role: .thinking, content: "", timestamp: Date(), isStreaming: true)
+                        messages.insert(thinkingMessage, at: assistantIndex)
+                        thinkingIndex = assistantIndex
+                        assistantIndex += 1 // Shift assistant index since we inserted before it
+                    }
+
+                    pendingThinkingChunk += thinkingContent
+
+                    // Flush thinking content on complete sentences or timeout
+                    if shouldFlushBuffer(pendingThinkingChunk) || timeSinceUpdate >= maxUpdateInterval {
+                        thinkingBuffer += pendingThinkingChunk
+                        pendingThinkingChunk = ""
+                        if let idx = thinkingIndex {
+                            messages[idx].content = thinkingBuffer
+                        }
+                        lastUpdateTime = now
+                    }
+
+                case .content(let contentText):
+                    pendingChunk += contentText
+
+                    // Flush on complete markdown structures or timeout
+                    if shouldFlushBuffer(pendingChunk) || timeSinceUpdate >= maxUpdateInterval {
+                        buffer += pendingChunk
+                        pendingChunk = ""
+                        messages[assistantIndex].content = buffer
+                        lastUpdateTime = now
+                    }
                 }
+            }
+
+            // Flush any remaining thinking content
+            if !pendingThinkingChunk.isEmpty {
+                thinkingBuffer += pendingThinkingChunk
+                if let idx = thinkingIndex {
+                    messages[idx].content = thinkingBuffer
+                    messages[idx].isStreaming = false
+                }
+            } else if let idx = thinkingIndex {
+                messages[idx].isStreaming = false
             }
 
             // Flush any remaining content
@@ -113,6 +153,10 @@ class AgentManager: ObservableObject {
             // Add final response to conversation history
             conversationHistory.append(["role": "assistant", "content": buffer])
         } catch {
+            // Mark thinking as done if we had any
+            if let idx = thinkingIndex {
+                messages[idx].isStreaming = false
+            }
             messages[assistantIndex].content = "Error: \(error.localizedDescription)"
             messages[assistantIndex].isStreaming = false
         }
@@ -120,7 +164,13 @@ class AgentManager: ObservableObject {
         isLoading = false
     }
 
-    private func streamLLM() -> AsyncThrowingStream<String, Error> {
+    /// Represents a chunk from the streaming LLM response
+    enum StreamChunk {
+        case content(String)
+        case thinking(String)
+    }
+
+    private func streamLLM() -> AsyncThrowingStream<StreamChunk, Error> {
         AsyncThrowingStream { continuation in
             Task {
                 do {
@@ -177,12 +227,24 @@ class AgentManager: ObservableObject {
                               let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
                               let choices = json["choices"] as? [[String: Any]],
                               let firstChoice = choices.first,
-                              let delta = firstChoice["delta"] as? [String: Any],
-                              let content = delta["content"] as? String else {
+                              let delta = firstChoice["delta"] as? [String: Any] else {
                             continue
                         }
 
-                        continuation.yield(content)
+                        // Check for reasoning/thinking content (Claude extended thinking, OpenAI reasoning)
+                        // Different APIs use different field names for reasoning traces
+                        if let thinking = delta["thinking"] as? String, !thinking.isEmpty {
+                            continuation.yield(.thinking(thinking))
+                        } else if let reasoning = delta["reasoning_content"] as? String, !reasoning.isEmpty {
+                            continuation.yield(.thinking(reasoning))
+                        } else if let reasoning = delta["reasoning"] as? String, !reasoning.isEmpty {
+                            continuation.yield(.thinking(reasoning))
+                        }
+
+                        // Regular content
+                        if let content = delta["content"] as? String, !content.isEmpty {
+                            continuation.yield(.content(content))
+                        }
                     }
 
                     continuation.finish()

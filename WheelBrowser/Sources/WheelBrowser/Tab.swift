@@ -336,33 +336,13 @@ class Tab: Identifiable, ObservableObject {
                 return null;
             }
 
-            // Handle click events for both Option+Click (summary) and Cmd+Click (overlay)
+            // Handle click events for Cmd+Click (overlay)
             document.addEventListener('click', function(e) {
                 let target = e.target;
                 while (target && target.tagName !== 'A') {
                     target = target.parentElement;
                 }
                 if (!target || !target.href || !target.href.startsWith('http')) return;
-
-                // Skip same-page anchors for summary
-                const isSamePageAnchor = target.href.includes('#') &&
-                    target.href.split('#')[0] === window.location.href.split('#')[0];
-
-                // Shift+Click - Open summary window
-                if (e.shiftKey && !e.metaKey && !isSamePageAnchor) {
-                    e.preventDefault();
-                    e.stopPropagation();
-
-                    const rect = target.getBoundingClientRect();
-                    window.webkit.messageHandlers.linkHover.postMessage({
-                        type: 'summary',
-                        url: target.href,
-                        text: target.textContent?.trim() || '',
-                        x: rect.left + rect.width / 2,
-                        y: rect.bottom + 10
-                    });
-                    return;
-                }
 
                 // Cmd+Click (metaKey) - Open overlay window
                 if (e.metaKey) {
