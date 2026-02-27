@@ -461,4 +461,23 @@ class Tab: Identifiable, ObservableObject {
             }
         }
     }
+
+    // MARK: - Cleanup
+
+    /// Cleans up the tab by stopping any pending loads and pausing all media
+    func cleanup() {
+        webView.stopLoading()
+
+        // Pause and clear all media sources to stop audio/video
+        let script = """
+        document.querySelectorAll('video, audio').forEach(function(m) { m.pause(); m.src = ''; m.load(); });
+        """
+        webView.evaluateJavaScript(script) { _, _ in
+            // Ignore errors - cleanup is best-effort
+        }
+    }
+
+    deinit {
+        cleanup()
+    }
 }

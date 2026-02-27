@@ -21,6 +21,17 @@ struct WebViewRepresentable: NSViewRepresentable {
         // WebView updates handled by Tab
     }
 
+    static func dismantleNSView(_ nsView: WKWebView, coordinator: Coordinator) {
+        // Unregister message handlers to break retain cycles
+        let contentController = nsView.configuration.userContentController
+        contentController.removeScriptMessageHandler(forName: "linkHover")
+        contentController.removeScriptMessageHandler(forName: "overlayWindow")
+
+        // Clear delegates to break retain cycles
+        nsView.navigationDelegate = nil
+        nsView.uiDelegate = nil
+    }
+
     func makeCoordinator() -> Coordinator {
         Coordinator(tab: tab)
     }

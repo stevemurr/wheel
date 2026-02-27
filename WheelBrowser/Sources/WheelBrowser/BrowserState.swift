@@ -23,6 +23,7 @@ struct WorkspaceTabState: Codable {
 
 class BrowserState: ObservableObject {
     @Published var tabs: [Tab] = []
+    private var tabsByID: [UUID: Tab] = [:]
     @Published var activeTabId: UUID?
 
     /// Stack of recently closed tabs (most recent first)
@@ -36,7 +37,8 @@ class BrowserState: ObservableObject {
     private var workspaceTabStates: [UUID: WorkspaceTabState] = [:]
 
     var activeTab: Tab? {
-        tabs.first { $0.id == activeTabId }
+        guard let id = activeTabId else { return nil }
+        return tabsByID[id]
     }
 
     /// Returns the index of the active tab, or nil if no active tab
@@ -59,13 +61,13 @@ class BrowserState: ObservableObject {
     /// Returns an AccessibilityBridge for a specific tab's webView
     @MainActor
     func accessibilityBridge(for tabId: UUID) -> AccessibilityBridge? {
-        guard let tab = tabs.first(where: { $0.id == tabId }) else { return nil }
+        guard let tab = tabsByID[tabId] else { return nil }
         return AccessibilityBridge(webView: tab.webView)
     }
 
     /// Returns a tab by its ID
     func tab(for tabId: UUID) -> Tab? {
-        tabs.first { $0.id == tabId }
+        tabsByID[tabId]
     }
 
     /// Navigate the active tab to a URL
@@ -108,12 +110,17 @@ class BrowserState: ObservableObject {
 
         // Check if we have cached state for this workspace
         if let state = workspaceTabStates[workspaceId], !state.tabData.isEmpty {
-            // Restore tabs from cached state
+            // Clean up existing tabs before removing
+            for tab in tabs {
+                tab.cleanup()
+            }
             tabs.removeAll()
+            tabsByID.removeAll()
 
             for persistedTab in state.tabData {
                 let tab = Tab()
                 tabs.append(tab)
+                tabsByID[tab.id] = tab
 
                 if let urlString = persistedTab.url {
                     tab.load(urlString)
@@ -123,7 +130,11 @@ class BrowserState: ObservableObject {
             activeTabId = state.activeTabId ?? tabs.first?.id
         } else {
             // No saved state - create a fresh tab for this workspace
+            for tab in tabs {
+                tab.cleanup()
+            }
             tabs.removeAll()
+            tabsByID.removeAll()
             addTab()
         }
     }
@@ -143,6 +154,7 @@ class BrowserState: ObservableObject {
     func addTab() {
         let tab = Tab()
         tabs.append(tab)
+        tabsByID[tab.id] = tab
         activeTabId = tab.id
     }
 
@@ -150,6 +162,7 @@ class BrowserState: ObservableObject {
     func addTab(withURL url: URL) {
         let tab = Tab()
         tabs.append(tab)
+        tabsByID[tab.id] = tab
         activeTabId = tab.id
         tab.load(url.absoluteString)
     }
@@ -173,7 +186,11 @@ class BrowserState: ObservableObject {
                 closedTabsHistory.removeLast()
             }
 
+            // Clean up WebView resources before removing
+            tab.cleanup()
+
             tabs.remove(at: index)
+            tabsByID.removeValue(forKey: id)
 
             if activeTabId == id {
                 // Select adjacent tab
@@ -234,6 +251,7 @@ class BrowserState: ObservableObject {
 
         let tab = Tab()
         tabs.append(tab)
+        tabsByID[tab.id] = tab
         activeTabId = tab.id
 
         if let url = closedInfo.url {
