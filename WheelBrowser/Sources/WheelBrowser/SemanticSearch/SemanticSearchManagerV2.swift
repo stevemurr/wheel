@@ -1,5 +1,6 @@
 import Foundation
 import SwiftUI
+import Combine
 
 /// Manages semantic search using remote DIndex server
 @MainActor
@@ -21,29 +22,22 @@ class SemanticSearchManagerV2: ObservableObject {
     }
 
     private var settings: AppSettings { AppSettings.shared }
-    private var settingsObserver: NSObjectProtocol?
+    private var cancellables = Set<AnyCancellable>()
 
     private init() {
         // Listen for settings changes
-        settingsObserver = NotificationCenter.default.addObserver(
-            forName: .embeddingSettingsChanged,
-            object: nil,
-            queue: .main
-        ) { [weak self] _ in
-            Task { @MainActor in
-                guard let self = self else { return }
-                await self.reinitialize()
+        NotificationCenter.default.publisher(for: .embeddingSettingsChanged)
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] _ in
+                Task { @MainActor in
+                    guard let self = self else { return }
+                    await self.reinitialize()
+                }
             }
-        }
+            .store(in: &cancellables)
 
         Task {
             await initialize()
-        }
-    }
-
-    deinit {
-        if let observer = settingsObserver {
-            NotificationCenter.default.removeObserver(observer)
         }
     }
 

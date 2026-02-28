@@ -38,7 +38,10 @@ class BrowsingHistory: ObservableObject {
 
     /// File URL for persisting history
     private var historyFileURL: URL {
-        let appSupport = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
+        guard let appSupport = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first else {
+            Log.History.error("Could not locate Application Support directory, using temp")
+            return FileManager.default.temporaryDirectory.appendingPathComponent("WheelBrowser/history.json")
+        }
         let appDir = appSupport.appendingPathComponent("WheelBrowser", isDirectory: true)
 
         // Create directory if needed
@@ -73,7 +76,7 @@ class BrowsingHistory: ObservableObject {
 
         // Update index in-place: shift all existing indices by 1 and add new entry at index 0
         for key in urlIndex.keys {
-            urlIndex[key]! += 1
+            urlIndex[key, default: 0] += 1
         }
         urlIndex[urlString] = 0
 
@@ -96,11 +99,12 @@ class BrowsingHistory: ObservableObject {
     /// Rebuilds the URL index starting from a specific position
     /// Called after removing an entry to update shifted indices
     private func rebuildIndexFromPosition(_ startIndex: Int) {
-        // Remove the old entry's URL from index (it was at startIndex before removal)
         // Update indices for all entries from startIndex onward
         for i in startIndex..<entries.count {
             urlIndex[entries[i].url] = i
         }
+        // Remove stale keys that point beyond the entries array
+        urlIndex = urlIndex.filter { $0.value < entries.count }
     }
 
     /// Search history using fuzzy matching, optionally filtered by workspace
@@ -119,16 +123,10 @@ class BrowsingHistory: ObservableObject {
 
         // Use fuzzy search to score and filter entries
         let scoredEntries = filteredEntries.compactMap { entry -> (entry: HistoryEntry, score: Int)? in
-            let titleScore = FuzzySearch.score(query: query, target: entry.title)
-            let urlScore = FuzzySearch.score(query: query, target: entry.url)
-
-            // Use the better score of title or URL
-            let bestScore = max(titleScore, urlScore)
-
-            // Filter out entries with no match
-            guard bestScore > 0 else { return nil }
-
-            return (entry, bestScore)
+            guard let result = FuzzySearch.bestMatch(query: query, title: entry.title, url: entry.url) else {
+                return nil
+            }
+            return (entry, result.bestScore)
         }
 
         // Sort by score (descending) and return limited results

@@ -45,6 +45,9 @@ struct OmniBar: View {
     private var isSemanticPanelVisible: Bool { omniState.isPanelVisible(for: .semantic) }
     private var isAgentPanelVisible: Bool { omniState.isPanelVisible(for: .agent) }
     private var isReadingListPanelVisible: Bool { omniState.isPanelVisible(for: .readingList) }
+    // NOTE: Dual source of truth — intentionally checks both omniState and scrapeManager
+    // because scraping can be triggered externally (e.g., keyboard shortcut) bypassing omniState.
+    // A future refactor should unify these into a single state source.
     private var isScrapingPanelVisible: Bool { omniState.isPanelVisible(for: .scraping) || scrapeManager.showScrapePanel }
 
     /// Bitmask combining all panel visibility states for animation consolidation

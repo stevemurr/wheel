@@ -27,6 +27,12 @@ class AgentManager: ObservableObject {
 
     private init() {}
 
+    /// Safely update a message at the given index, no-op if out of bounds
+    private func safeUpdateMessage(at index: Int, update: (inout ChatMessage) -> Void) {
+        guard messages.indices.contains(index) else { return }
+        update(&messages[index])
+    }
+
     /// Send a message with multiple page contexts
     func sendMessage(_ content: String, pageContexts: [PageContext]) async {
         isLoading = true
@@ -88,7 +94,7 @@ class AgentManager: ObservableObject {
             var buffer = ""
             var pendingChunk = ""
             var lastUpdateTime = Date()
-            let maxUpdateInterval: TimeInterval = 0.1 // Force update at least every 100ms
+            let maxUpdateInterval: TimeInterval = WindowConstants.streamingFlushInterval
 
             for try await chunk in streamLLM() {
                 let now = Date()
@@ -112,7 +118,7 @@ class AgentManager: ObservableObject {
                         thinkingBuffer += pendingThinkingChunk
                         pendingThinkingChunk = ""
                         if let idx = thinkingIndex {
-                            messages[idx].content = thinkingBuffer
+                            safeUpdateMessage(at: idx) { $0.content = thinkingBuffer }
                         }
                         lastUpdateTime = now
                     }
@@ -124,7 +130,7 @@ class AgentManager: ObservableObject {
                     if shouldFlushBuffer(pendingChunk) || timeSinceUpdate >= maxUpdateInterval {
                         buffer += pendingChunk
                         pendingChunk = ""
-                        messages[assistantIndex].content = buffer
+                        safeUpdateMessage(at: assistantIndex) { $0.content = buffer }
                         lastUpdateTime = now
                     }
                 }
@@ -134,11 +140,13 @@ class AgentManager: ObservableObject {
             if !pendingThinkingChunk.isEmpty {
                 thinkingBuffer += pendingThinkingChunk
                 if let idx = thinkingIndex {
-                    messages[idx].content = thinkingBuffer
-                    messages[idx].isStreaming = false
+                    safeUpdateMessage(at: idx) { msg in
+                        msg.content = thinkingBuffer
+                        msg.isStreaming = false
+                    }
                 }
             } else if let idx = thinkingIndex {
-                messages[idx].isStreaming = false
+                safeUpdateMessage(at: idx) { $0.isStreaming = false }
             }
 
             // Flush any remaining content
@@ -147,18 +155,22 @@ class AgentManager: ObservableObject {
             }
 
             // Final update with complete content
-            messages[assistantIndex].content = buffer
-            messages[assistantIndex].isStreaming = false
+            safeUpdateMessage(at: assistantIndex) { msg in
+                msg.content = buffer
+                msg.isStreaming = false
+            }
 
             // Add final response to conversation history
             conversationHistory.append(["role": "assistant", "content": buffer])
         } catch {
             // Mark thinking as done if we had any
             if let idx = thinkingIndex {
-                messages[idx].isStreaming = false
+                safeUpdateMessage(at: idx) { $0.isStreaming = false }
             }
-            messages[assistantIndex].content = "Error: \(error.localizedDescription)"
-            messages[assistantIndex].isStreaming = false
+            safeUpdateMessage(at: assistantIndex) { msg in
+                msg.content = "Error: \(error.localizedDescription)"
+                msg.isStreaming = false
+            }
         }
 
         isLoading = false

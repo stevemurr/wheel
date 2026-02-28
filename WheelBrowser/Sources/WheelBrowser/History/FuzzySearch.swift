@@ -110,6 +110,23 @@ enum FuzzySearch {
         return FuzzyMatch(score: max(score, 1), matchedIndices: matchedIndices)
     }
 
+    /// Score both title and URL, returning the best match result with indices for both
+    struct BestMatchResult {
+        let bestScore: Int
+        let titleMatch: FuzzyMatch?
+        let urlMatch: FuzzyMatch?
+    }
+
+    static func bestMatch(query: String, title: String, url: String) -> BestMatchResult? {
+        let titleMatch = match(query: query, target: title)
+        let urlMatch = match(query: query, target: url)
+        let titleScore = titleMatch?.score ?? 0
+        let urlScore = urlMatch?.score ?? 0
+        let best = max(titleScore, urlScore)
+        guard best > 0 else { return nil }
+        return BestMatchResult(bestScore: best, titleMatch: titleMatch, urlMatch: urlMatch)
+    }
+
     /// Filter and rank items based on fuzzy matching
     static func filter<T>(
         items: [T],

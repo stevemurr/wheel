@@ -13,8 +13,8 @@ struct OmniPanel<Content: View>: View {
 
     @State private var isHovering = false
 
-    private let maxHeight: CGFloat = 700
-    private let maxWidth: CGFloat = 900
+    private let maxHeight: CGFloat = WindowConstants.omniPanelMaxHeight
+    private let maxWidth: CGFloat = WindowConstants.omniPanelMaxWidth
 
     init(
         title: String,
@@ -50,15 +50,15 @@ struct OmniPanel<Content: View>: View {
         .frame(maxWidth: maxWidth)
         .frame(maxHeight: maxHeight)
         .background(
-            RoundedRectangle(cornerRadius: 12, style: .continuous)
+            RoundedRectangle(cornerRadius: WindowConstants.panelCornerRadius, style: .continuous)
                 .fill(Color(nsColor: .windowBackgroundColor))
-                .shadow(color: Color.black.opacity(0.25), radius: 12, x: 0, y: 4)
+                .shadow(color: Color.black.opacity(WindowConstants.panelShadowOpacity), radius: WindowConstants.panelShadowRadius, x: 0, y: 4)
         )
         .overlay(
-            RoundedRectangle(cornerRadius: 12, style: .continuous)
+            RoundedRectangle(cornerRadius: WindowConstants.panelCornerRadius, style: .continuous)
                 .stroke(borderColor.opacity(0.5), lineWidth: 1.0)
         )
-        .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+        .clipShape(RoundedRectangle(cornerRadius: WindowConstants.panelCornerRadius, style: .continuous))
         .onHover { hovering in
             isHovering = hovering
         }
@@ -69,18 +69,18 @@ struct OmniPanel<Content: View>: View {
     private var header: some View {
         HStack(spacing: 10) {
             Image(systemName: icon)
-                .font(.system(size: 12, weight: .semibold))
+                .font(.system(size: WindowConstants.headlineFontSize, weight: .semibold))
                 .foregroundColor(iconColor)
 
             Text(title)
-                .font(.system(size: 12, weight: .semibold))
+                .font(.system(size: WindowConstants.headlineFontSize, weight: .semibold))
                 .foregroundColor(.primary)
 
             Spacer()
 
             if let subtitle = subtitle {
                 Text(subtitle)
-                    .font(.system(size: 11))
+                    .font(.system(size: WindowConstants.bodyFontSize))
                     .foregroundColor(.secondary)
             }
 
@@ -89,9 +89,9 @@ struct OmniPanel<Content: View>: View {
                     menuContent()
                 } label: {
                     Image(systemName: "ellipsis")
-                        .font(.system(size: 11, weight: .medium))
+                        .font(.system(size: WindowConstants.bodyFontSize, weight: .medium))
                         .foregroundColor(.secondary)
-                        .frame(width: 20, height: 20)
+                        .frame(width: WindowConstants.iconButtonSize, height: WindowConstants.iconButtonSize)
                         .background(
                             Circle()
                                 .fill(Color(nsColor: .controlBackgroundColor))
@@ -103,9 +103,9 @@ struct OmniPanel<Content: View>: View {
 
             Button(action: onDismiss) {
                 Image(systemName: "xmark")
-                    .font(.system(size: 11, weight: .medium))
+                    .font(.system(size: WindowConstants.bodyFontSize, weight: .medium))
                     .foregroundColor(.secondary)
-                    .frame(width: 20, height: 20)
+                    .frame(width: WindowConstants.iconButtonSize, height: WindowConstants.iconButtonSize)
                     .background(
                         Circle()
                             .fill(Color(nsColor: .controlBackgroundColor))
@@ -114,7 +114,7 @@ struct OmniPanel<Content: View>: View {
             }
             .buttonStyle(.plain)
         }
-        .padding(.horizontal, 14)
+        .padding(.horizontal, WindowConstants.headerPadding)
         .padding(.vertical, 10)
         .background(Color(nsColor: .separatorColor).opacity(0.05))
     }

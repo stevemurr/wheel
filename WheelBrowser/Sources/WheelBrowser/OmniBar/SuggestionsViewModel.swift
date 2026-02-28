@@ -130,16 +130,12 @@ class SuggestionsViewModel: ObservableObject {
             for entry in historyResults {
                 // Skip if this URL is already shown as an open tab
                 if !openTabURLs.contains(entry.url) {
-                    let titleMatch = FuzzySearch.match(query: query, target: entry.title)
-                    let urlMatch = FuzzySearch.match(query: query, target: entry.url)
-                    let titleScore = titleMatch?.score ?? 0
-                    let urlScore = urlMatch?.score ?? 0
-                    let bestScore = max(titleScore, urlScore)
+                    let result = FuzzySearch.bestMatch(query: query, title: entry.title, url: entry.url)
                     allSuggestions.append(.history(
                         entry: entry,
-                        score: bestScore,
-                        titleMatches: titleMatch?.matchedIndices ?? [],
-                        urlMatches: urlMatch?.matchedIndices ?? []
+                        score: result?.bestScore ?? 0,
+                        titleMatches: result?.titleMatch?.matchedIndices ?? [],
+                        urlMatches: result?.urlMatch?.matchedIndices ?? []
                     ))
                 }
             }

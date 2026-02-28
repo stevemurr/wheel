@@ -11,26 +11,36 @@ actor SearchDatabase {
             return db
         } catch {
             Log.Search.error("Failed to create SearchDatabase: \(error.localizedDescription)")
-            // Return an uninitialized instance that will fail gracefully on use
-            return try! SearchDatabase()
+            guard let fallback = try? SearchDatabase() else {
+                fatalError("SearchDatabase: cannot create even a fallback instance")
+            }
+            return fallback
         }
     }()
 
     /// Pre-compiled regex for FTS query sanitization (avoids recompilation per query)
-    private static let ftsSanitizeRegex = try! NSRegularExpression(
-        pattern: "[\"'\\-\\+\\*\\(\\)\\{\\}\\[\\]\\^\\~\\:\\@\\#\\$\\%\\&]",
-        options: []
-    )
+    private static let ftsSanitizeRegex: NSRegularExpression = {
+        guard let regex = try? NSRegularExpression(
+            pattern: "[\"'\\-\\+\\*\\(\\)\\{\\}\\[\\]\\^\\~\\:\\@\\#\\$\\%\\&]",
+            options: []
+        ) else {
+            fatalError("SearchDatabase: FTS sanitize regex is invalid")
+        }
+        return regex
+    }()
 
     private var db: OpaquePointer?
     private let dbPath: URL
     private var isInitialized = false
 
     init() throws {
-        let appSupport = FileManager.default.urls(
+        guard let base = FileManager.default.urls(
             for: .applicationSupportDirectory,
             in: .userDomainMask
-        ).first!.appendingPathComponent("WheelBrowser")
+        ).first else {
+            throw SearchDBError.failedToOpen("Could not locate Application Support directory")
+        }
+        let appSupport = base.appendingPathComponent("WheelBrowser")
 
         try FileManager.default.createDirectory(at: appSupport, withIntermediateDirectories: true)
         self.dbPath = appSupport.appendingPathComponent("semantic_search.db")

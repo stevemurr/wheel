@@ -33,4 +33,21 @@ enum WindowConstants {
     static var standardSpring: Animation {
         .spring(response: springResponse, dampingFraction: springDamping)
     }
+
+    // MARK: - Font Sizes
+    static let captionFontSize: CGFloat = 9
+    static let bodyFontSize: CGFloat = 11
+    static let headlineFontSize: CGFloat = 12
+
+    // MARK: - Icon Sizes
+    static let iconButtonSize: CGFloat = 20
+
+    // MARK: - OmniPanel
+    static let omniPanelMaxHeight: CGFloat = 700
+    static let omniPanelMaxWidth: CGFloat = 900
+
+    // MARK: - Timing
+    static let hoverAnimationDuration: Double = 0.1
+    static let streamingFlushInterval: TimeInterval = 0.1
+    static let screenshotDelay: Duration = .milliseconds(500)
 }

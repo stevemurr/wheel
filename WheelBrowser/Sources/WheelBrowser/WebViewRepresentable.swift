@@ -41,6 +41,16 @@ struct WebViewRepresentable: NSViewRepresentable {
         private var progressObservations: [WKDownload: NSKeyValueObservation] = [:]
         /// Track which navigation has had dark mode applied to avoid duplicate application
         private var darkModeAppliedNavigation: WKNavigation?
+        /// Background tasks (screenshot capture, indexing) that should be cancelled on new navigation
+        private var backgroundTasks: [Task<Void, Never>] = []
+
+        /// Cancel all tracked background tasks (e.g., on new navigation)
+        private func cancelBackgroundTasks() {
+            for task in backgroundTasks {
+                task.cancel()
+            }
+            backgroundTasks.removeAll()
+        }
 
         init(tab: Tab) {
             self.tab = tab
@@ -120,6 +130,7 @@ struct WebViewRepresentable: NSViewRepresentable {
         // MARK: - WKNavigationDelegate
 
         func webView(_ webView: WKWebView, didStartProvisionalNavigation navigation: WKNavigation!) {
+            cancelBackgroundTasks()
             Task { @MainActor in
                 self.tab.isLoading = true
             }
@@ -167,10 +178,12 @@ struct WebViewRepresentable: NSViewRepresentable {
                 // Capture screenshot for tab preview after a short delay
                 // to allow page rendering to complete
                 let tab = self.tab
-                Task { @MainActor in
-                    try? await Task.sleep(nanoseconds: 500_000_000) // 0.5 second delay
+                let screenshotTask = Task { @MainActor in
+                    try? await Task.sleep(for: WindowConstants.screenshotDelay)
+                    guard !Task.isCancelled else { return }
                     await TabScreenshotManager.shared.captureScreenshot(for: tab)
                 }
+                self.backgroundTasks.append(screenshotTask)
             }
         }
 

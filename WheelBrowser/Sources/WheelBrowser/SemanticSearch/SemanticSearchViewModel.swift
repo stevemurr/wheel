@@ -11,6 +11,7 @@ class SemanticSearchViewModel: ObservableObject {
 
     private var searchTask: Task<Void, Never>?
     private let debounceDelay: TimeInterval = 0.3
+    private var searchGeneration: UInt64 = 0
 
     deinit {
         searchTask?.cancel()
@@ -32,16 +33,18 @@ class SemanticSearchViewModel: ObservableObject {
         }
 
         isSearching = true
+        searchGeneration &+= 1
+        let currentGeneration = searchGeneration
 
         searchTask = Task {
             // Debounce
-            try? await Task.sleep(nanoseconds: UInt64(debounceDelay * 1_000_000_000))
+            try? await Task.sleep(for: .seconds(debounceDelay))
 
-            guard !Task.isCancelled else { return }
+            guard !Task.isCancelled, currentGeneration == searchGeneration else { return }
 
             let searchResults = await SemanticSearchManagerV2.shared.search(query: query, limit: 20)
 
-            guard !Task.isCancelled else { return }
+            guard !Task.isCancelled, currentGeneration == searchGeneration else { return }
 
             results = searchResults
             selectedIndex = results.isEmpty ? -1 : 0

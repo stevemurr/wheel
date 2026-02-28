@@ -41,6 +41,18 @@ class BrowserState: ObservableObject {
         return tabsByID[id]
     }
 
+    /// Debug-only assertion that `tabs` and `tabsByID` are in sync
+    private func assertTabIntegrity() {
+        #if DEBUG
+        assert(tabs.count == tabsByID.count,
+               "Tab integrity violation: tabs.count=\(tabs.count) != tabsByID.count=\(tabsByID.count)")
+        for tab in tabs {
+            assert(tabsByID[tab.id] != nil,
+                   "Tab integrity violation: tab \(tab.id) missing from tabsByID")
+        }
+        #endif
+    }
+
     /// Returns the index of the active tab, or nil if no active tab
     var activeTabIndex: Int? {
         tabs.firstIndex { $0.id == activeTabId }
@@ -128,6 +140,7 @@ class BrowserState: ObservableObject {
             }
 
             activeTabId = state.activeTabId ?? tabs.first?.id
+            assertTabIntegrity()
         } else {
             // No saved state - create a fresh tab for this workspace
             for tab in tabs {
@@ -156,6 +169,7 @@ class BrowserState: ObservableObject {
         tabs.append(tab)
         tabsByID[tab.id] = tab
         activeTabId = tab.id
+        assertTabIntegrity()
     }
 
     /// Add a new tab with a specific URL
@@ -165,6 +179,7 @@ class BrowserState: ObservableObject {
         tabsByID[tab.id] = tab
         activeTabId = tab.id
         tab.load(url.absoluteString)
+        assertTabIntegrity()
     }
 
     func closeTab(_ id: UUID) {
@@ -197,6 +212,8 @@ class BrowserState: ObservableObject {
                 let newIndex = min(index, tabs.count - 1)
                 activeTabId = tabs[newIndex].id
             }
+
+            assertTabIntegrity()
         }
     }
 
@@ -258,6 +275,7 @@ class BrowserState: ObservableObject {
             tab.load(url.absoluteString)
         }
 
+        assertTabIntegrity()
         return true
     }
 
