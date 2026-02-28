@@ -31,20 +31,27 @@ class ContentBlockerManager: ObservableObject {
         }
     }
 
-    /// Key for storing rule version in UserDefaults
-    private let versionKey = "ContentBlockerRuleVersion"
     private let categoriesKey = "ContentBlockerEnabledCategories"
 
     /// Reference to blocking stats for tracking
-    private let stats = BlockingStats.shared
+    private let stats: BlockingStatsRecording
 
-    /// Reference to filter list manager
-    private let filterListManager = FilterListManager.shared
+    /// Merger for combining built-in and external filter list rules
+    private let rulesMerger: ExternalRulesMerger
+
+    /// Cache manager for rule persistence and validation
+    private let cacheManager = RuleCacheManager()
+
+    /// Compilation pipeline for building WKContentRuleList from rule dictionaries
+    private let compilationPipeline = RuleCompilationPipeline()
 
     /// Observer for filter list changes
     private var filterListObserver: NSObjectProtocol?
 
     private init() {
+        self.stats = BlockingStats.shared
+        self.rulesMerger = ExternalRulesMerger(externalRulesProvider: FilterListManager.shared)
+
         // Load saved categories or default to all enabled
         self.enabledCategories = Self.loadEnabledCategories()
 
@@ -128,9 +135,7 @@ class ContentBlockerManager: ObservableObject {
 
     /// Unique identifier for current category configuration (includes filter lists)
     private var currentConfigurationHash: String {
-        let sortedCategories = enabledCategories.map { $0.rawValue }.sorted().joined(separator: "-")
-        let filterListIDs = filterListManager.enabledFilterListIDs
-        return "\(BlockingRules.ruleSetVersion)-\(sortedCategories)-\(filterListIDs)"
+        rulesMerger.configurationHash(for: enabledCategories)
     }
 
     /// Compiles and caches the content blocking rules for enabled categories
@@ -147,7 +152,8 @@ class ContentBlockerManager: ObservableObject {
 
         do {
             // Check if we have a cached version with the same configuration
-            if let cachedRules = try await loadCachedRules() {
+            let configHash = currentConfigurationHash
+            if let cachedRules = try await cacheManager.loadCachedRules(for: configHash) {
                 self.contentRuleList = cachedRules
                 isCompiling = false
                 return
@@ -158,7 +164,7 @@ class ContentBlockerManager: ObservableObject {
             self.contentRuleList = rules
 
             // Save configuration hash for cache validation
-            UserDefaults.standard.set(currentConfigurationHash, forKey: versionKey)
+            cacheManager.saveConfigurationHash(configHash)
 
         } catch {
             self.lastError = error
@@ -215,21 +221,12 @@ class ContentBlockerManager: ObservableObject {
 
     /// Removes all cached rules and recompiles with current categories
     func refreshRules() async {
-        // Remove from store
-        await withCheckedContinuation { continuation in
-            WKContentRuleListStore.default().removeContentRuleList(
-                forIdentifier: BlockingRules.ruleSetIdentifier
-            ) { error in
-                if let error = error {
-                    Log.AdBlock.error("Failed to remove cached rules: \(error.localizedDescription)")
-                }
-                continuation.resume()
-            }
-        }
+        // Remove from store and clear configuration hash
+        await cacheManager.removeCachedRules()
+        cacheManager.clearConfigurationHash()
 
         // Clear local cache
         contentRuleList = nil
-        UserDefaults.standard.removeObject(forKey: versionKey)
 
         // Recompile with current categories
         await compileRules()
@@ -245,85 +242,15 @@ class ContentBlockerManager: ObservableObject {
 
     // MARK: - Private Methods
 
-    /// Attempts to load cached rules from WKContentRuleListStore
-    private func loadCachedRules() async throws -> WKContentRuleList? {
-        // Check configuration hash first
-        let cachedHash = UserDefaults.standard.string(forKey: versionKey)
-        guard cachedHash == currentConfigurationHash else {
-            // Configuration changed, need to recompile
-            return nil
-        }
-
-        // Try to load from store
-        return try await withCheckedThrowingContinuation { continuation in
-            WKContentRuleListStore.default().lookUpContentRuleList(
-                forIdentifier: BlockingRules.ruleSetIdentifier
-            ) { ruleList, error in
-                if let error = error {
-                    continuation.resume(throwing: error)
-                } else {
-                    continuation.resume(returning: ruleList)
-                }
-            }
-        }
-    }
-
-    /// Compiles new rules from JSON and stores them
+    /// Compiles new rules by gathering built-in and external sources,
+    /// then delegating to the compilation pipeline.
     private func compileNewRules() async throws -> WKContentRuleList {
-        // Get built-in rules for enabled categories
-        let builtInRules = BlockingRules.rules(for: enabledCategories)
+        let (builtInRules, externalRules) = rulesMerger.gatherRules(for: enabledCategories)
 
-        // Add external filter list rules
-        let externalRules = filterListManager.getEnabledRules()
-
-        // Try compiling with external rules first
-        if !externalRules.isEmpty {
-            var allRules = builtInRules
-            allRules.append(contentsOf: externalRules)
-
-            // Truncate if we exceed WebKit's limit
-            let maxRules = 50_000
-            if allRules.count > maxRules {
-                Log.AdBlock.info("Truncating rules from \(allRules.count) to \(maxRules)")
-                allRules = Array(allRules.prefix(maxRules))
-            }
-
-            // Try to compile with external rules
-            if let result = try? await compileRulesJSON(allRules) {
-                Log.AdBlock.info("Compiled \(allRules.count) rules (including external)")
-                return result
-            }
-
-            // If that failed, try with just built-in rules
-            Log.AdBlock.warning("External rules caused compilation failure, falling back to built-in only")
-        }
-
-        // Compile with built-in rules only
-        return try await compileRulesJSON(builtInRules)
-    }
-
-    /// Compile rules array to WebKit content rule list
-    private func compileRulesJSON(_ rules: [[String: Any]]) async throws -> WKContentRuleList {
-        // Convert to JSON
-        guard let jsonData = try? JSONSerialization.data(withJSONObject: rules, options: []),
-              let rulesJSON = String(data: jsonData, encoding: .utf8) else {
-            throw ContentBlockerError.compilationFailed
-        }
-
-        return try await withCheckedThrowingContinuation { continuation in
-            WKContentRuleListStore.default().compileContentRuleList(
-                forIdentifier: BlockingRules.ruleSetIdentifier,
-                encodedContentRuleList: rulesJSON
-            ) { ruleList, error in
-                if let error = error {
-                    continuation.resume(throwing: error)
-                } else if let ruleList = ruleList {
-                    continuation.resume(returning: ruleList)
-                } else {
-                    continuation.resume(throwing: ContentBlockerError.compilationFailed)
-                }
-            }
-        }
+        return try await compilationPipeline.compileWithFallback(
+            builtInRules: builtInRules,
+            externalRules: externalRules
+        )
     }
 }
 
