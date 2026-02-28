@@ -132,6 +132,7 @@ struct WebViewRepresentable: NSViewRepresentable {
         func webView(_ webView: WKWebView, didStartProvisionalNavigation navigation: WKNavigation!) {
             cancelBackgroundTasks()
             Task { @MainActor in
+                self.tab.lastError = nil
                 self.tab.isLoading = true
             }
         }
@@ -297,14 +298,71 @@ struct WebViewRepresentable: NSViewRepresentable {
         }
 
         func webView(_ webView: WKWebView, didFail navigation: WKNavigation!, withError error: Error) {
+            handleNavigationError(error, isProvisional: false)
+        }
+
+        func webView(_ webView: WKWebView, didFailProvisionalNavigation navigation: WKNavigation!, withError error: Error) {
+            handleNavigationError(error, isProvisional: true)
+        }
+
+        private func handleNavigationError(_ error: Error, isProvisional: Bool) {
+            let nsError = error as NSError
+
+            // Ignore cancellation errors (user navigated away, frame cancelled, etc.)
+            if nsError.domain == NSURLErrorDomain && nsError.code == NSURLErrorCancelled {
+                Task { @MainActor in
+                    self.tab.isLoading = false
+                }
+                return
+            }
+
+            let categorized = categorizeError(error)
+            let phase = isProvisional ? "provisional" : "committed"
+            Log.Browser.error("Navigation failed (\(phase)): \(categorized.displayMessage)")
+
             Task { @MainActor in
+                self.tab.lastError = categorized
                 self.tab.isLoading = false
             }
         }
 
-        func webView(_ webView: WKWebView, didFailProvisionalNavigation navigation: WKNavigation!, withError error: Error) {
-            Task { @MainActor in
-                self.tab.isLoading = false
+        private func categorizeError(_ error: Error) -> NavigationError {
+            let nsError = error as NSError
+
+            guard nsError.domain == NSURLErrorDomain else {
+                return .unknown(message: error.localizedDescription)
+            }
+
+            switch nsError.code {
+            case NSURLErrorTimedOut:
+                return .timeout
+            case NSURLErrorCannotFindHost, NSURLErrorDNSLookupFailed:
+                return .hostNotFound
+            case NSURLErrorSecureConnectionFailed,
+                 NSURLErrorServerCertificateHasBadDate,
+                 NSURLErrorServerCertificateUntrusted,
+                 NSURLErrorServerCertificateHasUnknownRoot,
+                 NSURLErrorServerCertificateNotYetValid,
+                 NSURLErrorClientCertificateRejected,
+                 NSURLErrorClientCertificateRequired:
+                return .ssl(message: error.localizedDescription)
+            case NSURLErrorNotConnectedToInternet,
+                 NSURLErrorNetworkConnectionLost,
+                 NSURLErrorDataNotAllowed,
+                 NSURLErrorInternationalRoamingOff,
+                 NSURLErrorCallIsActive:
+                return .network(message: error.localizedDescription)
+            case NSURLErrorResourceUnavailable,
+                 NSURLErrorFileDoesNotExist,
+                 NSURLErrorFileIsDirectory,
+                 NSURLErrorNoPermissionsToReadFile:
+                return .resourceNotFound
+            case NSURLErrorBadServerResponse,
+                 NSURLErrorRedirectToNonExistentLocation,
+                 NSURLErrorZeroByteResource:
+                return .serverError
+            default:
+                return .unknown(message: error.localizedDescription)
             }
         }
 

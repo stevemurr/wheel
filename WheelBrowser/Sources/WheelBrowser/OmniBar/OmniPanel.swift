@@ -243,8 +243,38 @@ struct ChatPanelContent: View {
                         }
                     } else {
                         ForEach(agentManager.messages) { message in
-                            ChatPanelMessageBubble(message: message)
-                                .id(message.id)
+                            VStack(alignment: .leading, spacing: 4) {
+                                ChatPanelMessageBubble(message: message)
+
+                                // Retry button for failed messages
+                                if message.isFailed {
+                                    Button(action: {
+                                        Task {
+                                            await agentManager.retryLastFailedMessage()
+                                        }
+                                    }) {
+                                        HStack(spacing: 4) {
+                                            Image(systemName: "arrow.clockwise")
+                                                .font(.system(size: 10, weight: .medium))
+                                            Text("Retry")
+                                                .font(.system(size: 11, weight: .medium))
+                                        }
+                                        .foregroundColor(.orange)
+                                        .padding(.horizontal, 10)
+                                        .padding(.vertical, 5)
+                                        .background(
+                                            RoundedRectangle(cornerRadius: 6, style: .continuous)
+                                                .fill(Color.orange.opacity(0.1))
+                                        )
+                                        .overlay(
+                                            RoundedRectangle(cornerRadius: 6, style: .continuous)
+                                                .stroke(Color.orange.opacity(0.3), lineWidth: 1)
+                                        )
+                                    }
+                                    .buttonStyle(.plain)
+                                }
+                            }
+                            .id(message.id)
                         }
 
                         // Invisible anchor at the bottom for scrolling

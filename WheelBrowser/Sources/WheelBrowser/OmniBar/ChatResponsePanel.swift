@@ -24,8 +24,14 @@ struct ChatPanelPulsingDot: View {
 /// Collapsible thinking/reasoning bubble for displaying AI thought process
 struct ThinkingBubble: View {
     let message: ChatMessage
-    @State private var isExpanded = false
+    @State private var isExpanded: Bool
     @State private var isHovered = false
+
+    init(message: ChatMessage) {
+        self.message = message
+        // Auto-expand while streaming
+        self._isExpanded = State(initialValue: message.isStreaming)
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {

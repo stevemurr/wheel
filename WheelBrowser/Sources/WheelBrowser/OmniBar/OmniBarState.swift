@@ -11,18 +11,33 @@ enum OmniBarMode: Equatable {
     case scraping
 }
 
+/// Represents which panel is currently visible (mutually exclusive)
+enum OmniBarPanelVisibility: Equatable {
+    case none
+    case history
+    case chat
+    case semantic
+    case agent
+    case readingList
+    case scraping
+    case downloads
+}
+
 /// Manages the state of the OmniBar
 @MainActor
 class OmniBarState: ObservableObject {
     @Published var mode: OmniBarMode = .address
     @Published var inputText: String = ""
     @Published var isFocused: Bool = false
-    @Published var showChatPanel: Bool = false
-    @Published var showHistoryPanel: Bool = false
-    @Published var showSemanticPanel: Bool = false
-    @Published var showAgentPanel: Bool = false
-    @Published var showReadingListPanel: Bool = false
-    @Published var showScrapingPanel: Bool = false
+    @Published var visiblePanel: OmniBarPanelVisibility = .none
+
+    // Backwards-compatible computed accessors
+    var showChatPanel: Bool { visiblePanel == .chat }
+    var showHistoryPanel: Bool { visiblePanel == .history }
+    var showSemanticPanel: Bool { visiblePanel == .semantic }
+    var showAgentPanel: Bool { visiblePanel == .agent }
+    var showReadingListPanel: Bool { visiblePanel == .readingList }
+    var showScrapingPanel: Bool { visiblePanel == .scraping }
 
     // MARK: - Mention State
     @Published var mentions: [Mention] = [.currentPage]
@@ -146,135 +161,57 @@ class OmniBarState: ObservableObject {
         }
     }
 
-    /// Dismiss chat panel
-    func dismissChatPanel() {
+    // MARK: - Panel Visibility
+
+    /// Set the visible panel, dismissing any currently visible panel
+    func setVisiblePanel(_ panel: OmniBarPanelVisibility) {
         withAnimation(.spring(response: 0.3, dampingFraction: 0.85)) {
-            showChatPanel = false
+            visiblePanel = panel
         }
     }
 
-    /// Show chat panel
-    func openChatPanel() {
+    /// Dismiss the currently visible panel
+    func dismissVisiblePanel() {
         withAnimation(.spring(response: 0.3, dampingFraction: 0.85)) {
-            showChatPanel = true
-            showHistoryPanel = false
-            showSemanticPanel = false
-            showAgentPanel = false
-            showReadingListPanel = false
-            showScrapingPanel = false
+            visiblePanel = .none
         }
     }
 
-    /// Dismiss history panel
-    func dismissHistoryPanel() {
-        withAnimation(.spring(response: 0.3, dampingFraction: 0.85)) {
-            showHistoryPanel = false
-        }
-    }
+    // MARK: - Legacy Panel Methods (delegate to setVisiblePanel/dismissVisiblePanel)
 
-    /// Show history panel
-    func openHistoryPanel() {
-        withAnimation(.spring(response: 0.3, dampingFraction: 0.85)) {
-            showHistoryPanel = true
-            showChatPanel = false
-            showSemanticPanel = false
-            showAgentPanel = false
-            showReadingListPanel = false
-            showScrapingPanel = false
-        }
-    }
+    func dismissChatPanel() { dismissVisiblePanel() }
+    func openChatPanel() { setVisiblePanel(.chat) }
 
-    /// Dismiss semantic panel
-    func dismissSemanticPanel() {
-        withAnimation(.spring(response: 0.3, dampingFraction: 0.85)) {
-            showSemanticPanel = false
-        }
-    }
+    func dismissHistoryPanel() { dismissVisiblePanel() }
+    func openHistoryPanel() { setVisiblePanel(.history) }
 
-    /// Show semantic panel
-    func openSemanticPanel() {
-        withAnimation(.spring(response: 0.3, dampingFraction: 0.85)) {
-            showSemanticPanel = true
-            showHistoryPanel = false
-            showChatPanel = false
-            showAgentPanel = false
-            showReadingListPanel = false
-            showScrapingPanel = false
-        }
-    }
+    func dismissSemanticPanel() { dismissVisiblePanel() }
+    func openSemanticPanel() { setVisiblePanel(.semantic) }
 
-    /// Dismiss agent panel
-    func dismissAgentPanel() {
-        withAnimation(.spring(response: 0.3, dampingFraction: 0.85)) {
-            showAgentPanel = false
-        }
-    }
+    func dismissAgentPanel() { dismissVisiblePanel() }
+    func openAgentPanel() { setVisiblePanel(.agent) }
 
-    /// Show agent panel
-    func openAgentPanel() {
-        withAnimation(.spring(response: 0.3, dampingFraction: 0.85)) {
-            showAgentPanel = true
-            showHistoryPanel = false
-            showChatPanel = false
-            showSemanticPanel = false
-            showReadingListPanel = false
-            showScrapingPanel = false
-        }
-    }
+    func dismissReadingListPanel() { dismissVisiblePanel() }
+    func openReadingListPanel() { setVisiblePanel(.readingList) }
 
-    /// Dismiss reading list panel
-    func dismissReadingListPanel() {
-        withAnimation(.spring(response: 0.3, dampingFraction: 0.85)) {
-            showReadingListPanel = false
-        }
-    }
-
-    /// Show reading list panel
-    func openReadingListPanel() {
-        withAnimation(.spring(response: 0.3, dampingFraction: 0.85)) {
-            showReadingListPanel = true
-            showHistoryPanel = false
-            showChatPanel = false
-            showSemanticPanel = false
-            showAgentPanel = false
-            showScrapingPanel = false
-        }
-    }
-
-    /// Dismiss scraping panel
-    func dismissScrapingPanel() {
-        withAnimation(.spring(response: 0.3, dampingFraction: 0.85)) {
-            showScrapingPanel = false
-        }
-    }
-
-    /// Show scraping panel
-    func openScrapingPanel() {
-        withAnimation(.spring(response: 0.3, dampingFraction: 0.85)) {
-            showScrapingPanel = true
-            showHistoryPanel = false
-            showChatPanel = false
-            showSemanticPanel = false
-            showAgentPanel = false
-            showReadingListPanel = false
-        }
-    }
+    func dismissScrapingPanel() { dismissVisiblePanel() }
+    func openScrapingPanel() { setVisiblePanel(.scraping) }
 
     /// Check if a panel is visible for the given mode
     func isPanelVisible(for mode: OmniBarMode) -> Bool {
         switch mode {
         case .address:
-            return showHistoryPanel && self.mode == .address
+            return visiblePanel == .history && self.mode == .address
         case .chat:
-            return showChatPanel && self.mode == .chat
+            return visiblePanel == .chat && self.mode == .chat
         case .semantic:
-            return showSemanticPanel && self.mode == .semantic
+            return visiblePanel == .semantic && self.mode == .semantic
         case .agent:
-            return showAgentPanel && self.mode == .agent
+            return visiblePanel == .agent && self.mode == .agent
         case .readingList:
-            return showReadingListPanel && self.mode == .readingList
+            return visiblePanel == .readingList && self.mode == .readingList
         case .scraping:
-            return showScrapingPanel && self.mode == .scraping
+            return visiblePanel == .scraping && self.mode == .scraping
         }
     }
 

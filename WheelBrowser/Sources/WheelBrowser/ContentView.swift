@@ -80,17 +80,91 @@ private struct TabWebViewContainer: View {
     let isActive: Bool
 
     var body: some View {
-        Group {
-            if tab.url == nil {
-                NewTabPageView()
-            } else {
-                WebViewRepresentable(tab: tab)
+        ZStack {
+            Group {
+                if tab.url == nil {
+                    NewTabPageView()
+                } else {
+                    WebViewRepresentable(tab: tab)
+                }
+            }
+
+            if let error = tab.lastError {
+                NavigationErrorOverlay(error: error) {
+                    tab.lastError = nil
+                    if let url = tab.url {
+                        tab.load(url.absoluteString)
+                    }
+                }
             }
         }
         // Keep inactive tabs in hierarchy but hidden
         // Using opacity instead of removing from hierarchy preserves JS execution
         .opacity(isActive ? 1 : 0)
         .allowsHitTesting(isActive)
+    }
+}
+
+/// Overlay shown when a navigation error occurs
+private struct NavigationErrorOverlay: View {
+    let error: NavigationError
+    let onRetry: () -> Void
+
+    var body: some View {
+        VStack(spacing: 16) {
+            Image(systemName: iconName)
+                .font(.system(size: 48))
+                .foregroundColor(.secondary)
+
+            Text(title)
+                .font(.title2)
+                .fontWeight(.semibold)
+
+            Text(subtitle)
+                .font(.body)
+                .foregroundColor(.secondary)
+                .multilineTextAlignment(.center)
+                .frame(maxWidth: 400)
+
+            if error.isRetryable {
+                Button(action: onRetry) {
+                    Label("Retry", systemImage: "arrow.clockwise")
+                        .padding(.horizontal, 16)
+                        .padding(.vertical, 8)
+                }
+                .buttonStyle(.borderedProminent)
+                .controlSize(.large)
+                .padding(.top, 8)
+            }
+        }
+        .padding(40)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(Color(nsColor: .windowBackgroundColor))
+    }
+
+    private var title: String {
+        let message = error.displayMessage
+        return String(message.prefix(while: { $0 != "\n" }))
+    }
+
+    private var subtitle: String {
+        let message = error.displayMessage
+        if let newlineIndex = message.firstIndex(of: "\n") {
+            return String(message[message.index(after: newlineIndex)...])
+        }
+        return ""
+    }
+
+    private var iconName: String {
+        switch error {
+        case .network: return "wifi.exclamationmark"
+        case .ssl: return "lock.trianglebadge.exclamationmark"
+        case .timeout: return "clock.badge.exclamationmark"
+        case .hostNotFound: return "globe.badge.chevron.backward"
+        case .resourceNotFound: return "doc.questionmark"
+        case .serverError: return "exclamationmark.icloud"
+        case .unknown: return "exclamationmark.triangle"
+        }
     }
 }
 

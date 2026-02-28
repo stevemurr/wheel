@@ -2,12 +2,19 @@ import Foundation
 
 /// A unified chat message model for use across the application.
 /// Replaces duplicate ChatMessage definitions in LettaModels and AIWidgetCreatorViewModel.
-public struct ChatMessage: Identifiable, Equatable, Hashable {
+public struct ChatMessage: Identifiable, Equatable, Hashable, Codable {
     public let id: UUID
     public let role: MessageRole
     public var content: String
     public let timestamp: Date
     public var isStreaming: Bool
+
+    // MARK: - Metadata (optional, for persistence & diagnostics)
+
+    public var tokens: Int?
+    public var modelUsed: String?
+    public var conversationId: UUID?
+    public var isFailed: Bool
 
     /// The role of the message sender
     public enum MessageRole: String, Codable, Hashable {
@@ -22,13 +29,21 @@ public struct ChatMessage: Identifiable, Equatable, Hashable {
         role: MessageRole,
         content: String,
         timestamp: Date = Date(),
-        isStreaming: Bool = false
+        isStreaming: Bool = false,
+        tokens: Int? = nil,
+        modelUsed: String? = nil,
+        conversationId: UUID? = nil,
+        isFailed: Bool = false
     ) {
         self.id = id
         self.role = role
         self.content = content
         self.timestamp = timestamp
         self.isStreaming = isStreaming
+        self.tokens = tokens
+        self.modelUsed = modelUsed
+        self.conversationId = conversationId
+        self.isFailed = isFailed
     }
 
     // MARK: - Convenience Initializers
@@ -58,7 +73,8 @@ public struct ChatMessage: Identifiable, Equatable, Hashable {
     public static func == (lhs: ChatMessage, rhs: ChatMessage) -> Bool {
         lhs.id == rhs.id &&
         lhs.content == rhs.content &&
-        lhs.isStreaming == rhs.isStreaming
+        lhs.isStreaming == rhs.isStreaming &&
+        lhs.isFailed == rhs.isFailed
     }
 
     // MARK: - Hashable
@@ -67,6 +83,7 @@ public struct ChatMessage: Identifiable, Equatable, Hashable {
         hasher.combine(id)
         hasher.combine(content)
         hasher.combine(isStreaming)
+        hasher.combine(isFailed)
     }
 }
 

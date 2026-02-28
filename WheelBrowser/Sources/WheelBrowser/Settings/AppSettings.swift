@@ -34,6 +34,11 @@ class AppSettings: ObservableObject {
     @AppStorage("lettaServerURL") var lettaServerURL: String = "http://localhost:8283"
     @AppStorage("selectedModel") var selectedModel: String = "llama3.2:latest"
 
+    // MARK: - System Prompt Customization
+
+    /// Custom system prompt for chat assistant. Empty string uses the default.
+    @AppStorage("chatSystemPrompt") var chatSystemPrompt: String = ""
+
     // MARK: - Summarization (uses main LLM endpoint with dedicated model)
     @AppStorage("summarizationModel") var summarizationModel: String = "qwen-summarizer"
 

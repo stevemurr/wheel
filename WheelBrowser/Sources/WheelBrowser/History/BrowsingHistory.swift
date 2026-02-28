@@ -36,6 +36,12 @@ class BrowsingHistory: ObservableObject {
     /// Maximum number of history entries to store
     private let maxEntries = 1000
 
+    /// Debounce interval for batching saves
+    private let saveDebounceInterval: TimeInterval = 2.0
+
+    /// Pending save task, cancelled and replaced on each mutation
+    private var pendingSaveTask: Task<Void, Never>?
+
     /// File URL for persisting history
     private var historyFileURL: URL {
         guard let appSupport = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first else {
@@ -51,7 +57,7 @@ class BrowsingHistory: ObservableObject {
     }
 
     private init() {
-        loadHistory()
+        loadHistoryAsync()
     }
 
     /// Add a new entry to history
@@ -90,10 +96,7 @@ class BrowsingHistory: ObservableObject {
             entries = Array(entries.prefix(maxEntries))
         }
 
-        // Save asynchronously
-        Task {
-            await saveHistory()
-        }
+        scheduleDebouncedSave()
     }
 
     /// Rebuilds the URL index starting from a specific position
@@ -140,6 +143,9 @@ class BrowsingHistory: ObservableObject {
     func clearHistory() {
         entries.removeAll()
         urlIndex.removeAll()
+        // Clear immediately, no debounce
+        pendingSaveTask?.cancel()
+        pendingSaveTask = nil
         Task {
             await saveHistory()
         }
@@ -153,9 +159,7 @@ class BrowsingHistory: ObservableObject {
             // Update indices for shifted entries
             rebuildIndexFromPosition(index)
         }
-        Task {
-            await saveHistory()
-        }
+        scheduleDebouncedSave()
     }
 
     // MARK: - Private Methods
@@ -171,17 +175,33 @@ class BrowsingHistory: ObservableObject {
         return true
     }
 
-    private func loadHistory() {
-        guard FileManager.default.fileExists(atPath: historyFileURL.path) else { return }
+    /// Load history asynchronously to avoid blocking the main thread at init
+    private func loadHistoryAsync() {
+        let fileURL = historyFileURL
+        Task.detached { [weak self] in
+            guard FileManager.default.fileExists(atPath: fileURL.path) else { return }
 
-        do {
-            let data = try Data(contentsOf: historyFileURL)
-            entries = try JSONDecoder().decode([HistoryEntry].self, from: data)
-            // Build index after loading entries
-            rebuildFullIndex()
-        } catch {
-            Log.History.error("Failed to load history", error: error)
+            do {
+                let data = try Data(contentsOf: fileURL)
+                let decoded = try JSONDecoder().decode([HistoryEntry].self, from: data)
+                await self?.applyLoadedEntries(decoded)
+            } catch {
+                Log.History.error("Failed to decode history, attempting recovery", error: error)
+                // Back up corrupted file
+                let backupURL = fileURL.deletingLastPathComponent()
+                    .appendingPathComponent("history_corrupted_\(Int(Date().timeIntervalSince1970)).json")
+                try? FileManager.default.copyItem(at: fileURL, to: backupURL)
+                Log.History.info("Backed up corrupted history to \(backupURL.lastPathComponent)")
+                // Fall back to empty history
+                await self?.applyLoadedEntries([])
+            }
         }
+    }
+
+    /// Apply entries loaded from disk back on the main actor
+    private func applyLoadedEntries(_ loaded: [HistoryEntry]) {
+        entries = loaded
+        rebuildFullIndex()
     }
 
     /// Rebuilds the entire URL index from the entries array
@@ -192,10 +212,23 @@ class BrowsingHistory: ObservableObject {
         }
     }
 
+    /// Cancel any pending save and schedule a new one after the debounce interval
+    private func scheduleDebouncedSave() {
+        pendingSaveTask?.cancel()
+        let interval = saveDebounceInterval
+        pendingSaveTask = Task { [weak self] in
+            try? await Task.sleep(nanoseconds: UInt64(interval * 1_000_000_000))
+            guard !Task.isCancelled else { return }
+            await self?.saveHistory()
+        }
+    }
+
     private func saveHistory() async {
+        let entriesToSave = entries
+        let fileURL = historyFileURL
         do {
-            let data = try JSONEncoder().encode(entries)
-            try data.write(to: historyFileURL, options: .atomic)
+            let data = try JSONEncoder().encode(entriesToSave)
+            try data.write(to: fileURL, options: .atomic)
         } catch {
             Log.History.error("Failed to save history", error: error)
         }

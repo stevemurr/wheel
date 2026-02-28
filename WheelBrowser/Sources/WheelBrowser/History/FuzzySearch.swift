@@ -60,32 +60,43 @@ enum FuzzySearch {
         var currentTargetOffset = 0
         var matchedIndices: [Int] = []
 
+        // Pre-compute target characters for camelCase boundary detection
+        let targetChars = Array(target)
+
         while queryIndex < queryLower.endIndex && targetIndex < targetLower.endIndex {
             if queryLower[queryIndex] == targetLower[targetIndex] {
                 matchCount += 1
                 matchedIndices.append(currentTargetOffset)
 
-                // Bonus for consecutive matches
+                // Bonus for consecutive matches (capped via logarithmic growth)
                 if let lastOffset = lastMatchOffset {
                     let distance = currentTargetOffset - lastOffset
                     if distance == 1 {
                         consecutiveMatches += 1
-                        score += 10 * consecutiveMatches // Increasing bonus for consecutive matches
+                        // Logarithmic growth: rewards streaks but caps diminishing returns
+                        let cappedBonus = Int(10.0 * log2(Double(consecutiveMatches) + 1.0))
+                        score += cappedBonus
                     } else {
                         consecutiveMatches = 0
-                        // Penalty for gaps, but less severe for small gaps
-                        score -= min(distance - 1, 3)
+                        // Logarithmic gap penalty: small gaps are mild, large gaps scale up
+                        let gapPenalty = Int(2.0 * log2(Double(distance)))
+                        score -= gapPenalty
                     }
                 }
 
-                // Bonus for matching at word boundaries
+                // Graduated word boundary bonuses
                 if targetIndex == targetLower.startIndex {
-                    score += 15
+                    score += 20 // Start of string
                 } else {
                     let prevIndex = targetLower.index(before: targetIndex)
                     let prevChar = targetLower[prevIndex]
-                    if !prevChar.isLetter && !prevChar.isNumber {
-                        score += 10 // Word boundary bonus
+                    if prevChar == "/" || prevChar == "." {
+                        score += 15 // Path/domain separator
+                    } else if prevChar == "-" || prevChar == "_" || prevChar == " " {
+                        score += 12 // Word separator
+                    } else if currentTargetOffset < targetChars.count && targetChars[currentTargetOffset].isUppercase
+                                && currentTargetOffset > 0 && targetChars[currentTargetOffset - 1].isLowercase {
+                        score += 10 // camelCase boundary
                     }
                 }
 

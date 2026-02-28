@@ -12,20 +12,32 @@ class AgentManager: ObservableObject {
 
     private var settings = AppSettings.shared
     private var conversationHistory: [[String: String]] = []
+    private let conversationManager = ConversationManager.shared
 
-    private let systemPrompt = """
-    You are a helpful AI assistant integrated into a web browser called Wheel.
+    /// Uses the unified system prompt, respecting user customization
+    private var systemPrompt: String {
+        SystemPromptConfig.chatPrompt
+    }
 
-    Your role is to help users:
-    - Understand and summarize web page content
-    - Answer questions about pages they're viewing
-    - Help with research and information gathering
+    /// Pending retry info for failed messages
+    private var lastFailedContent: String?
+    private var lastFailedPageContexts: [PageContext] = []
 
-    When the user asks about the current page, use the page context provided in the message.
-    Be concise but helpful. Focus on the most relevant information for the user's question.
-    """
+    private init() {
+        // Resume the most recent conversation if available
+        loadLastConversation()
+    }
 
-    private init() {}
+    private func loadLastConversation() {
+        if let recent = conversationManager.savedConversations.first {
+            conversationManager.resumeConversation(recent)
+            messages = conversationManager.messages
+            // Rebuild conversation history for API calls
+            conversationHistory = messages
+                .filter { $0.role == .user || $0.role == .assistant }
+                .map { ["role": $0.role.rawValue, "content": $0.content] }
+        }
+    }
 
     /// Safely update a message at the given index, no-op if out of bounds
     private func safeUpdateMessage(at index: Int, update: (inout ChatMessage) -> Void) {
@@ -36,6 +48,7 @@ class AgentManager: ObservableObject {
     /// Send a message with multiple page contexts
     func sendMessage(_ content: String, pageContexts: [PageContext]) async {
         isLoading = true
+        lastFailedPageContexts = pageContexts
 
         // Build message with multiple contexts
         var fullMessage = content
@@ -71,12 +84,38 @@ class AgentManager: ObservableObject {
         }
     }
 
+    /// Retry the last failed message
+    func retryLastFailedMessage() async {
+        guard let content = lastFailedContent else { return }
+
+        // Remove the failed assistant message from the end
+        if let lastMsg = messages.last, lastMsg.isFailed {
+            messages.removeLast()
+        }
+
+        let contexts = lastFailedPageContexts
+        lastFailedContent = nil
+        lastFailedPageContexts = []
+
+        await sendMessage(content, pageContexts: contexts)
+    }
+
     private func sendMessageInternal(content: String, fullMessage: String) async {
         isLoading = true
 
+        // Store for potential retry
+        lastFailedContent = content
+
         // Add user message to chat UI
-        let userMessage = ChatMessage(role: .user, content: content, timestamp: Date())
+        let userMessage = ChatMessage(
+            role: .user,
+            content: content,
+            timestamp: Date(),
+            modelUsed: settings.selectedModel,
+            conversationId: conversationManager.currentConversation?.id
+        )
         messages.append(userMessage)
+        conversationManager.addMessage(userMessage)
 
         // Add to conversation history
         conversationHistory.append(["role": "user", "content": fullMessage])
@@ -158,10 +197,19 @@ class AgentManager: ObservableObject {
             safeUpdateMessage(at: assistantIndex) { msg in
                 msg.content = buffer
                 msg.isStreaming = false
+                msg.modelUsed = self.settings.selectedModel
             }
 
             // Add final response to conversation history
             conversationHistory.append(["role": "assistant", "content": buffer])
+
+            // Persist the assistant message
+            let assistantMessage = messages[assistantIndex]
+            conversationManager.addMessage(assistantMessage)
+
+            // Clear retry state on success
+            lastFailedContent = nil
+            lastFailedPageContexts = []
         } catch {
             // Mark thinking as done if we had any
             if let idx = thinkingIndex {
@@ -170,6 +218,7 @@ class AgentManager: ObservableObject {
             safeUpdateMessage(at: assistantIndex) { msg in
                 msg.content = "Error: \(error.localizedDescription)"
                 msg.isStreaming = false
+                msg.isFailed = true
             }
         }
 
@@ -330,13 +379,16 @@ class AgentManager: ObservableObject {
     }
 
     func clearMessages() {
+        conversationManager.saveCurrentConversation()
+        conversationManager.clearCurrentConversation()
         messages.removeAll()
         conversationHistory.removeAll()
+        lastFailedContent = nil
+        lastFailedPageContexts = []
     }
 
     func resetAgent() async {
-        messages.removeAll()
-        conversationHistory.removeAll()
+        clearMessages()
         isReady = true
     }
 }
