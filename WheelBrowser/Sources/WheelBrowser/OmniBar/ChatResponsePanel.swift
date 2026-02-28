@@ -37,7 +37,7 @@ struct ThinkingBubble: View {
         VStack(alignment: .leading, spacing: 0) {
             // Header row with toggle
             Button(action: {
-                withAnimation(.easeInOut(duration: 0.2)) {
+                withAnimation(AppAnimation.medium) {
                     isExpanded.toggle()
                 }
             }) {
@@ -186,7 +186,7 @@ struct ChatPanelMessageBubble: View {
                         Spacer()
                     }
                     .opacity(isHovered || showCopied ? 1.0 : 0.0)
-                    .animation(.easeOut(duration: 0.15), value: isHovered)
+                    .animation(AppAnimation.standardOut, value: isHovered)
                 }
             }
             .frame(maxWidth: message.role == .user ? 400 : .infinity, alignment: message.role == .user ? .trailing : .leading)

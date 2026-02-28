@@ -1,5 +1,4 @@
 import SwiftUI
-import Combine
 
 /// ViewModel for semantic search in the OmniBar
 @MainActor
@@ -9,13 +8,7 @@ class SemanticSearchViewModel: ObservableObject {
     @Published var selectedIndex: Int = -1
     @Published var hasSearched = false
 
-    private var searchTask: Task<Void, Never>?
-    private let debounceDelay: TimeInterval = 0.3
-    private var searchGeneration: UInt64 = 0
-
-    deinit {
-        searchTask?.cancel()
-    }
+    private let searchDebouncer = Debouncer(delay: .milliseconds(300))
 
     var selectedResult: SemanticSearchResult? {
         guard selectedIndex >= 0 && selectedIndex < results.count else { return nil }
@@ -23,9 +16,8 @@ class SemanticSearchViewModel: ObservableObject {
     }
 
     func search(query: String) {
-        searchTask?.cancel()
-
         guard !query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            Task { await searchDebouncer.cancel() }
             results = []
             selectedIndex = -1
             hasSearched = false
@@ -33,24 +25,26 @@ class SemanticSearchViewModel: ObservableObject {
         }
 
         isSearching = true
-        searchGeneration &+= 1
-        let currentGeneration = searchGeneration
 
-        searchTask = Task {
-            // Debounce
-            try? await Task.sleep(for: .seconds(debounceDelay))
-
-            guard !Task.isCancelled, currentGeneration == searchGeneration else { return }
-
-            let searchResults = await SemanticSearchManagerV2.shared.search(query: query, limit: 20)
-
-            guard !Task.isCancelled, currentGeneration == searchGeneration else { return }
-
-            results = searchResults
-            selectedIndex = results.isEmpty ? -1 : 0
-            isSearching = false
-            hasSearched = true
+        Task {
+            await searchDebouncer.debounce { [weak self] in
+                await self?.performSearch(for: query)
+            }
         }
+    }
+
+    /// Perform the actual semantic search (called after debounce)
+    private func performSearch(for query: String) async {
+        guard !Task.isCancelled else { return }
+
+        let searchResults = await SemanticSearchManagerV2.shared.search(query: query, limit: 20)
+
+        guard !Task.isCancelled else { return }
+
+        results = searchResults
+        selectedIndex = results.isEmpty ? -1 : 0
+        isSearching = false
+        hasSearched = true
     }
 
     func selectNext() {
@@ -67,7 +61,7 @@ class SemanticSearchViewModel: ObservableObject {
         results = []
         selectedIndex = -1
         hasSearched = false
-        searchTask?.cancel()
+        Task { await searchDebouncer.cancel() }
     }
 }
 
@@ -112,7 +106,7 @@ struct SemanticSearchPanelContent: View {
             .onChange(of: viewModel.selectedIndex) { _, newIndex in
                 if newIndex >= 0 && newIndex < viewModel.results.count {
                     let selectedId = viewModel.results[newIndex].id
-                    withAnimation(.easeOut(duration: 0.1)) {
+                    withAnimation(AppAnimation.quickOut) {
                         proxy.scrollTo(selectedId, anchor: .center)
                     }
                 }
@@ -257,7 +251,7 @@ struct SemanticResultRow: View {
                 // Expand/collapse for additional citations
                 if !result.page.additionalCitations.isEmpty {
                     Button(action: {
-                        withAnimation(.easeInOut(duration: 0.15)) {
+                        withAnimation(AppAnimation.standard) {
                             isExpanded.toggle()
                         }
                     }) {
@@ -317,7 +311,7 @@ struct SemanticResultRow: View {
         .contentShape(Rectangle())
         .onTapGesture(perform: onSelect)
         .onHover { hovering in
-            withAnimation(.easeInOut(duration: 0.1)) {
+            withAnimation(AppAnimation.quick) {
                 isHovering = hovering
             }
         }

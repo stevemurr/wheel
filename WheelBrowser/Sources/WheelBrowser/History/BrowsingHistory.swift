@@ -44,16 +44,7 @@ class BrowsingHistory: ObservableObject {
 
     /// File URL for persisting history
     private var historyFileURL: URL {
-        guard let appSupport = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first else {
-            Log.History.error("Could not locate Application Support directory, using temp")
-            return FileManager.default.temporaryDirectory.appendingPathComponent("WheelBrowser/history.json")
-        }
-        let appDir = appSupport.appendingPathComponent("WheelBrowser", isDirectory: true)
-
-        // Create directory if needed
-        try? FileManager.default.createDirectory(at: appDir, withIntermediateDirectories: true)
-
-        return appDir.appendingPathComponent("history.json")
+        FileManager.appSupportDirectory.appendingPathComponent("history.json")
     }
 
     private init() {

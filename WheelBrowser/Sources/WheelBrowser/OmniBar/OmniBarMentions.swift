@@ -9,7 +9,7 @@ extension OmniBar {
         HStack(spacing: 4) {
             ForEach(omniState.mentions) { mention in
                 MentionChip(mention: mention) {
-                    withAnimation(.easeInOut(duration: 0.15)) {
+                    withAnimation(AppAnimation.standard) {
                         omniState.removeMention(mention)
                     }
                 }
@@ -90,7 +90,7 @@ extension OmniBar {
     }
 
     func selectMentionSuggestion(_ suggestion: MentionSuggestion) {
-        withAnimation(.easeInOut(duration: 0.15)) {
+        withAnimation(AppAnimation.standard) {
             omniState.addMention(suggestion.mention)
             omniState.dismissMentionDropdown()
         }

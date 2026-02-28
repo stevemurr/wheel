@@ -86,14 +86,14 @@ struct OmniBar: View {
             // OmniBar itself
             omniBarContent
         }
-        .animation(.easeInOut(duration: 0.15), value: tab.isFindBarVisible)
+        .animation(AppAnimation.standard, value: tab.isFindBarVisible)
         .onHover { hovering in
-            withAnimation(.easeInOut(duration: 0.2)) {
+            withAnimation(AppAnimation.medium) {
                 isHovering = hovering
             }
         }
         // Consolidated animation for all state changes - uses struct to combine multiple values
-        .animation(.spring(response: 0.3, dampingFraction: 0.85), value: OmniBarAnimationState(
+        .animation(AppAnimation.panelSpring, value: OmniBarAnimationState(
             shouldExpand: shouldExpand,
             isInputFocused: isInputFocused,
             visiblePanels: visiblePanelFlags
@@ -145,90 +145,46 @@ struct OmniBar: View {
 
                 // Chat panel toggle (only in chat mode with messages)
                 if omniState.mode == .chat && !agentManager.messages.isEmpty {
-                    Button(action: {
+                    PanelToggleButton(isExpanded: omniState.showChatPanel) {
                         if omniState.showChatPanel {
                             omniState.dismissChatPanel()
                         } else {
                             omniState.openChatPanel()
                         }
-                    }) {
-                        Image(systemName: omniState.showChatPanel ? "chevron.down" : "chevron.up")
-                            .font(.system(size: 12, weight: .medium))
-                            .foregroundColor(.secondary)
-                            .frame(width: 28, height: 28)
-                            .background(
-                                Circle()
-                                    .fill(Color(nsColor: .controlBackgroundColor))
-                            )
                     }
-                    .buttonStyle(.plain)
-                    .transition(.opacity.combined(with: .scale))
                 }
 
                 // Semantic panel toggle (only in semantic mode with results)
                 if omniState.mode == .semantic && !semanticSearchVM.results.isEmpty {
-                    Button(action: {
+                    PanelToggleButton(isExpanded: omniState.showSemanticPanel) {
                         if omniState.showSemanticPanel {
                             omniState.dismissSemanticPanel()
                         } else {
                             omniState.openSemanticPanel()
                         }
-                    }) {
-                        Image(systemName: omniState.showSemanticPanel ? "chevron.down" : "chevron.up")
-                            .font(.system(size: 12, weight: .medium))
-                            .foregroundColor(.secondary)
-                            .frame(width: 28, height: 28)
-                            .background(
-                                Circle()
-                                    .fill(Color(nsColor: .controlBackgroundColor))
-                            )
                     }
-                    .buttonStyle(.plain)
-                    .transition(.opacity.combined(with: .scale))
                 }
 
                 // Agent panel toggle (only in agent mode with steps or running)
                 if omniState.mode == .agent && (!agentEngine.steps.isEmpty || agentEngine.isRunning) {
-                    Button(action: {
+                    PanelToggleButton(isExpanded: omniState.showAgentPanel) {
                         if omniState.showAgentPanel {
                             omniState.dismissAgentPanel()
                         } else {
                             omniState.openAgentPanel()
                         }
-                    }) {
-                        Image(systemName: omniState.showAgentPanel ? "chevron.down" : "chevron.up")
-                            .font(.system(size: 12, weight: .medium))
-                            .foregroundColor(.secondary)
-                            .frame(width: 28, height: 28)
-                            .background(
-                                Circle()
-                                    .fill(Color(nsColor: .controlBackgroundColor))
-                            )
                     }
-                    .buttonStyle(.plain)
-                    .transition(.opacity.combined(with: .scale))
                 }
 
                 // Reading list panel toggle (only in reading list mode with items)
                 if omniState.mode == .readingList && !readingListVM.items.isEmpty {
-                    Button(action: {
+                    PanelToggleButton(isExpanded: omniState.showReadingListPanel) {
                         if omniState.showReadingListPanel {
                             omniState.dismissReadingListPanel()
                         } else {
                             omniState.openReadingListPanel()
                         }
-                    }) {
-                        Image(systemName: omniState.showReadingListPanel ? "chevron.down" : "chevron.up")
-                            .font(.system(size: 12, weight: .medium))
-                            .foregroundColor(.secondary)
-                            .frame(width: 28, height: 28)
-                            .background(
-                                Circle()
-                                    .fill(Color(nsColor: .controlBackgroundColor))
-                            )
                     }
-                    .buttonStyle(.plain)
-                    .transition(.opacity.combined(with: .scale))
                 }
 
                 // Saved indicator

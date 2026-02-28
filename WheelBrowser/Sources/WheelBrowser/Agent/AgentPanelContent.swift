@@ -27,6 +27,11 @@ struct AgentPanelContent: View {
                             )
                         }
 
+                        // Guardrail warning
+                        if let warning = agentEngine.guardrailWarning {
+                            GuardrailWarningRow(message: warning)
+                        }
+
                         // Step rows
                         ForEach(agentEngine.steps) { step in
                             AgentStepRow(step: step)
@@ -201,7 +206,7 @@ private struct AgentStepRow: View {
                 .fill(isHovering ? Color(nsColor: .controlBackgroundColor).opacity(0.5) : Color.clear)
         )
         .onHover { hovering in
-            withAnimation(.easeInOut(duration: 0.1)) {
+            withAnimation(AppAnimation.quick) {
                 isHovering = hovering
             }
         }
@@ -238,6 +243,32 @@ private struct AgentStepRow: View {
 
     private var iconBackgroundColor: Color {
         iconColor.opacity(0.15)
+    }
+}
+
+// MARK: - Guardrail Warning Row
+
+private struct GuardrailWarningRow: View {
+    let message: String
+
+    var body: some View {
+        HStack(spacing: 8) {
+            Image(systemName: "exclamationmark.triangle.fill")
+                .font(.system(size: 11, weight: .medium))
+                .foregroundColor(.orange)
+
+            Text(message)
+                .font(.system(size: 11))
+                .foregroundColor(.orange)
+
+            Spacer()
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 6)
+        .background(
+            RoundedRectangle(cornerRadius: 6)
+                .fill(Color.orange.opacity(0.1))
+        )
     }
 }
 

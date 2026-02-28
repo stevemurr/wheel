@@ -88,7 +88,7 @@ class DownloadManager: ObservableObject {
         rebuildIndexCache()
 
         // Show panel when download starts
-        withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
+        withAnimation(AppAnimation.springStandard) {
             showDownloadsPanel = true
         }
 
@@ -161,14 +161,20 @@ class DownloadManager: ObservableObject {
         NSWorkspace.shared.open(url)
     }
 
+    func openDownloadsFolder() {
+        if let url = FileManager.default.urls(for: .downloadsDirectory, in: .userDomainMask).first {
+            NSWorkspace.shared.open(url)
+        }
+    }
+
     func togglePanel() {
-        withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
+        withAnimation(AppAnimation.springStandard) {
             showDownloadsPanel.toggle()
         }
     }
 
     func dismissPanel() {
-        withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
+        withAnimation(AppAnimation.springStandard) {
             showDownloadsPanel = false
         }
     }
@@ -251,7 +257,7 @@ struct DownloadItemRow: View {
         )
         .contentShape(Rectangle())
         .onHover { hovering in
-            withAnimation(.easeInOut(duration: 0.1)) {
+            withAnimation(AppAnimation.quick) {
                 isHovering = hovering
             }
         }

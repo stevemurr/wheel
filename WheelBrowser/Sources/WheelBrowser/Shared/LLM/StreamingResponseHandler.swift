@@ -106,6 +106,22 @@ public final class StreamingResponseHandler {
     /// Detects complete markdown structures that are safe flush points.
     /// This reduces UI updates while ensuring meaningful visual progress.
     private func shouldFlushBuffer(_ buffer: String) -> Bool {
+        Self.isMarkdownFlushPoint(buffer, maxBufferSize: configuration.maxBufferSize)
+    }
+
+    /// Shared markdown boundary detection logic used by both `StreamingResponseHandler`
+    /// and `MarkdownBufferFlusher` to determine safe flush points in streamed content.
+    ///
+    /// Recognizes paragraph breaks, code/LaTeX block boundaries, sentence endings,
+    /// completed list items, headings, table rows, and a large-buffer fallback.
+    ///
+    /// Uses tail-only inspection via `lastIndex(of:)` to avoid splitting the entire buffer.
+    ///
+    /// - Parameters:
+    ///   - buffer: The accumulated text that has not yet been flushed.
+    ///   - maxBufferSize: Character count threshold for the large-buffer fallback flush.
+    /// - Returns: `true` if the buffer ends at a natural markdown boundary.
+    nonisolated static func isMarkdownFlushPoint(_ buffer: String, maxBufferSize: Int = 200) -> Bool {
         guard !buffer.isEmpty else { return false }
 
         // Paragraph break - most common flush point
@@ -124,39 +140,10 @@ public final class StreamingResponseHandler {
         }
 
         // End of sentence followed by space (natural reading break)
-        if buffer.count >= 2 {
+        if buffer.utf8.count >= 2 {
             let lastTwo = String(buffer.suffix(2))
             if lastTwo == ". " || lastTwo == "! " || lastTwo == "? " {
                 return true
-            }
-        }
-
-        // List item complete (newline after list content)
-        if buffer.contains("\n") {
-            let lines = buffer.split(separator: "\n", omittingEmptySubsequences: false)
-            if let lastLine = lines.last, lastLine.isEmpty {
-                // Previous line was complete
-                if lines.count >= 2 {
-                    let prevLine = String(lines[lines.count - 2])
-                    // Check if it was a list item or heading
-                    let trimmed = prevLine.trimmingCharacters(in: .whitespaces)
-                    if trimmed.hasPrefix("- ") || trimmed.hasPrefix("* ") ||
-                       trimmed.hasPrefix("# ") || trimmed.hasPrefix("> ") ||
-                       trimmed.first?.isNumber == true && trimmed.contains(". ") {
-                        return true
-                    }
-                }
-            }
-        }
-
-        // Heading complete
-        if buffer.hasSuffix("\n") && buffer.contains("#") {
-            let lines = buffer.split(separator: "\n", omittingEmptySubsequences: false)
-            if lines.count >= 2 {
-                let prevLine = String(lines[lines.count - 2])
-                if prevLine.trimmingCharacters(in: .whitespaces).hasPrefix("#") {
-                    return true
-                }
             }
         }
 
@@ -165,9 +152,26 @@ public final class StreamingResponseHandler {
             return true
         }
 
-        // Fallback: flush on any newline if buffer is getting large
-        if buffer.count > configuration.maxBufferSize && buffer.hasSuffix("\n") {
-            return true
+        // Tail-only line inspection: find the previous line without splitting the whole buffer
+        if buffer.hasSuffix("\n") {
+            // Buffer ends with newline - extract the line before it
+            let contentEnd = buffer.index(before: buffer.endIndex)
+            if let prevNewline = buffer[buffer.startIndex..<contentEnd].lastIndex(of: "\n") {
+                let prevLine = String(buffer[buffer.index(after: prevNewline)..<contentEnd])
+                let trimmed = prevLine.trimmingCharacters(in: .whitespaces)
+
+                // List item, blockquote, or heading complete
+                if trimmed.hasPrefix("- ") || trimmed.hasPrefix("* ") ||
+                   trimmed.hasPrefix("# ") || trimmed.hasPrefix("> ") ||
+                   trimmed.first?.isNumber == true && trimmed.contains(". ") {
+                    return true
+                }
+            }
+
+            // Fallback: flush on any newline if buffer is getting large
+            if buffer.utf8.count > maxBufferSize {
+                return true
+            }
         }
 
         return false

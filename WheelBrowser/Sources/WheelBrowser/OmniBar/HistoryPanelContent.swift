@@ -46,7 +46,7 @@ struct HistoryPanelContent: View {
             .onChange(of: viewModel.selectedIndex) { _, newIndex in
                 if newIndex >= 0 && newIndex < viewModel.suggestions.count {
                     let selectedId = viewModel.suggestions[newIndex].id
-                    withAnimation(.easeOut(duration: 0.1)) {
+                    withAnimation(AppAnimation.quickOut) {
                         proxy.scrollTo(selectedId, anchor: .center)
                     }
                 }

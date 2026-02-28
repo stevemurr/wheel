@@ -22,7 +22,7 @@ struct CircularIconButton: View {
         }
         .buttonStyle(.plain)
         .scaleEffect(isHovered ? 1.05 : 1.0)
-        .animation(.spring(response: 0.2, dampingFraction: 0.7), value: isHovered)
+        .animation(AppAnimation.hoverSpring, value: isHovered)
         .onHover { hovering in
             isHovered = hovering
         }

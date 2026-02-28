@@ -46,11 +46,11 @@ struct OverlayWindowContainer: View {
                         removal: .scale(scale: 0.9).combined(with: .opacity)
                     )
                 )
-                .animation(.spring(response: 0.3, dampingFraction: 0.8), value: window.isMinimized)
-                .animation(.spring(response: 0.3, dampingFraction: 0.8), value: window.isMaximized)
+                .animation(AppAnimation.springStandard, value: window.isMinimized)
+                .animation(AppAnimation.springStandard, value: window.isMaximized)
             }
         }
-        .animation(.spring(response: 0.3, dampingFraction: 0.8), value: manager.windows.map { $0.id })
+        .animation(AppAnimation.springStandard, value: manager.windows.map { $0.id })
         .onAppear {
             manager.containerSize = containerSize
         }

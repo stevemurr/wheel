@@ -132,111 +132,117 @@ struct OmniBarTextField: NSViewRepresentable {
             }
 
             // No valid @ trigger - dismiss dropdown if open
-            DispatchQueue.main.async { [self] in
-                Task { @MainActor in
-                    if self.parent.omniState.showMentionDropdown {
-                        self.parent.omniState.dismissMentionDropdown()
-                        self.parent.mentionSuggestionsVM.clear()
-                    }
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                if self.parent.omniState.showMentionDropdown {
+                    self.parent.omniState.dismissMentionDropdown()
+                    self.parent.mentionSuggestionsVM.clear()
                 }
             }
         }
 
         func control(_ control: NSControl, textView: NSTextView, doCommandBy commandSelector: Selector) -> Bool {
-            // Chat mode has special mention-aware keyboard handling
-            if parent.mode == .chat {
-                let result = handleChatModeCommand(commandSelector)
-                if result != nil { return result! }
+            guard let command = KeyboardCommand.from(selector: commandSelector) else {
+                return false
             }
 
-            return handleGeneralCommand(commandSelector)
+            // Chat mode has special mention-aware keyboard handling
+            if parent.mode == .chat {
+                if let result = handleChatModeCommand(command) {
+                    return result
+                }
+            }
+
+            return handleGeneralCommand(command)
         }
 
         // MARK: - Chat Mode Keyboard Handling
 
         /// Handles keyboard commands specific to chat mode (mention navigation, backspace to remove mentions).
         /// Returns `true` if handled, `false` if not handled, `nil` if chat mode didn't claim it and general handling should proceed.
-        private func handleChatModeCommand(_ commandSelector: Selector) -> Bool? {
-            if commandSelector == #selector(NSResponder.moveUp(_:)) {
-                DispatchQueue.main.async {
-                    Task { @MainActor in
-                        if self.parent.omniState.showMentionDropdown {
-                            self.parent.mentionSuggestionsVM.selectPrevious()
-                        }
+        private func handleChatModeCommand(_ command: KeyboardCommand) -> Bool? {
+            switch command {
+            case .moveUp:
+                Task { @MainActor [weak self] in
+                    guard let self else { return }
+                    if self.parent.omniState.showMentionDropdown {
+                        self.parent.mentionSuggestionsVM.selectPrevious()
                     }
                 }
                 return true
-            } else if commandSelector == #selector(NSResponder.moveDown(_:)) {
-                DispatchQueue.main.async {
-                    Task { @MainActor in
-                        if self.parent.omniState.showMentionDropdown {
-                            self.parent.mentionSuggestionsVM.selectNext()
-                        }
+
+            case .moveDown:
+                Task { @MainActor [weak self] in
+                    guard let self else { return }
+                    if self.parent.omniState.showMentionDropdown {
+                        self.parent.mentionSuggestionsVM.selectNext()
                     }
                 }
                 return true
-            } else if commandSelector == #selector(NSResponder.insertNewline(_:)) {
-                DispatchQueue.main.async {
-                    Task { @MainActor in
-                        if self.parent.omniState.showMentionDropdown && !self.parent.mentionSuggestionsVM.suggestions.isEmpty {
-                            self.parent.onMentionSelect()
-                        } else {
-                            self.parent.onSubmit()
-                        }
+
+            case .submit:
+                Task { @MainActor [weak self] in
+                    guard let self else { return }
+                    if self.parent.omniState.showMentionDropdown && !self.parent.mentionSuggestionsVM.suggestions.isEmpty {
+                        self.parent.onMentionSelect()
+                    } else {
+                        self.parent.onSubmit()
                     }
                 }
                 return true
-            } else if commandSelector == #selector(NSResponder.cancelOperation(_:)) {
-                DispatchQueue.main.async {
-                    Task { @MainActor in
-                        if self.parent.omniState.showMentionDropdown {
-                            self.parent.omniState.dismissMentionDropdown()
-                            self.parent.mentionSuggestionsVM.clear()
-                        } else {
-                            NotificationCenter.default.post(name: .escapePressed, object: nil)
-                        }
+
+            case .escape:
+                Task { @MainActor [weak self] in
+                    guard let self else { return }
+                    if self.parent.omniState.showMentionDropdown {
+                        self.parent.omniState.dismissMentionDropdown()
+                        self.parent.mentionSuggestionsVM.clear()
+                    } else {
+                        NotificationCenter.default.post(name: .escapePressed, object: nil)
                     }
                 }
                 return true
-            } else if commandSelector == #selector(NSResponder.deleteBackward(_:)) {
+
+            case .deleteBackward:
                 // If text is empty, try to remove the last mention chip
                 if parent.text.isEmpty {
-                    DispatchQueue.main.async {
-                        Task { @MainActor in
-                            if let lastMention = self.parent.omniState.mentions.last {
-                                self.parent.omniState.removeMention(lastMention)
-                            }
+                    Task { @MainActor [weak self] in
+                        guard let self else { return }
+                        if let lastMention = self.parent.omniState.mentions.last {
+                            self.parent.omniState.removeMention(lastMention)
                         }
                     }
                     return true
                 }
                 return false // Let normal backspace behavior happen if text is not empty
-            }
 
-            // Command not claimed by chat mode — fall through to general handling
-            return nil
+            case .tab, .shiftTab:
+                // Not claimed by chat mode — fall through to general handling
+                return nil
+            }
         }
 
         // MARK: - General Keyboard Handling
 
         /// Handles keyboard commands shared across all modes (navigation, tab switching, submit, escape).
-        private func handleGeneralCommand(_ commandSelector: Selector) -> Bool {
-            if commandSelector == #selector(NSResponder.insertNewline(_:)) {
+        private func handleGeneralCommand(_ command: KeyboardCommand) -> Bool {
+            switch command {
+            case .submit:
                 parent.onSubmit()
                 return true
-            } else if commandSelector == #selector(NSResponder.moveUp(_:)) {
-                DispatchQueue.main.async {
-                    Task { @MainActor in
-                        switch self.parent.mode {
-                        case .address:
-                            self.parent.suggestionsVM.selectPrevious()
-                        case .semantic:
-                            self.parent.semanticSearchVM.selectPrevious()
-                        case .readingList:
-                            self.parent.readingListVM.selectPrevious()
-                        case .chat, .agent, .scraping:
-                            break
-                        }
+
+            case .moveUp:
+                Task { @MainActor [weak self] in
+                    guard let self else { return }
+                    switch self.parent.mode {
+                    case .address:
+                        self.parent.suggestionsVM.selectPrevious()
+                    case .semantic:
+                        self.parent.semanticSearchVM.selectPrevious()
+                    case .readingList:
+                        self.parent.readingListVM.selectPrevious()
+                    case .chat, .agent, .scraping:
+                        break
                     }
                 }
                 switch parent.mode {
@@ -245,19 +251,19 @@ struct OmniBarTextField: NSViewRepresentable {
                 case .chat, .agent, .scraping:
                     return false
                 }
-            } else if commandSelector == #selector(NSResponder.moveDown(_:)) {
-                DispatchQueue.main.async {
-                    Task { @MainActor in
-                        switch self.parent.mode {
-                        case .address:
-                            self.parent.suggestionsVM.selectNext()
-                        case .semantic:
-                            self.parent.semanticSearchVM.selectNext()
-                        case .readingList:
-                            self.parent.readingListVM.selectNext()
-                        case .chat, .agent, .scraping:
-                            break
-                        }
+
+            case .moveDown:
+                Task { @MainActor [weak self] in
+                    guard let self else { return }
+                    switch self.parent.mode {
+                    case .address:
+                        self.parent.suggestionsVM.selectNext()
+                    case .semantic:
+                        self.parent.semanticSearchVM.selectNext()
+                    case .readingList:
+                        self.parent.readingListVM.selectNext()
+                    case .chat, .agent, .scraping:
+                        break
                     }
                 }
                 switch parent.mode {
@@ -266,17 +272,22 @@ struct OmniBarTextField: NSViewRepresentable {
                 case .chat, .agent, .scraping:
                     return false
                 }
-            } else if commandSelector == #selector(NSResponder.insertTab(_:)) {
+
+            case .tab:
                 parent.onTabPress()
                 return true
-            } else if commandSelector == #selector(NSResponder.insertBacktab(_:)) {
+
+            case .shiftTab:
                 parent.onShiftTabPress()
                 return true
-            } else if commandSelector == #selector(NSResponder.cancelOperation(_:)) {
+
+            case .escape:
                 NotificationCenter.default.post(name: .escapePressed, object: nil)
                 return true
+
+            case .deleteBackward:
+                return false
             }
-            return false
         }
     }
 }

@@ -176,7 +176,7 @@ struct OverlayWindow: View {
 
     private var readerModeButton: some View {
         Button {
-            withAnimation(.easeInOut(duration: 0.2)) {
+            withAnimation(AppAnimation.medium) {
                 isReaderMode.toggle()
             }
         } label: {
@@ -191,7 +191,7 @@ struct OverlayWindow: View {
         }
         .buttonStyle(.plain)
         .onHover { hovering in
-            withAnimation(.easeInOut(duration: 0.1)) {
+            withAnimation(AppAnimation.quick) {
                 isHoveringReaderMode = hovering
             }
         }
@@ -215,7 +215,7 @@ struct OverlayWindow: View {
         }
         .buttonStyle(.plain)
         .onHover { hovering in
-            withAnimation(.easeInOut(duration: 0.1)) {
+            withAnimation(AppAnimation.quick) {
                 isHoveringSaveButton = hovering
             }
         }
@@ -233,7 +233,7 @@ struct OverlayWindow: View {
                 let newState = try await database.toggleSaved(url: item.url.absoluteString, title: item.title)
 
                 await MainActor.run {
-                    withAnimation(.easeInOut(duration: 0.2)) {
+                    withAnimation(AppAnimation.medium) {
                         isSavedToReadingList = newState
                     }
                 }
@@ -284,7 +284,7 @@ struct OverlayWindow: View {
         }
         .buttonStyle(.plain)
         .onHover { hovering in
-            withAnimation(.easeInOut(duration: 0.1)) {
+            withAnimation(AppAnimation.quick) {
                 isHoveringCopyURL = hovering
             }
         }
@@ -306,7 +306,7 @@ struct OverlayWindow: View {
         }
         .buttonStyle(.plain)
         .onHover { hovering in
-            withAnimation(.easeInOut(duration: 0.1)) {
+            withAnimation(AppAnimation.quick) {
                 isHoveringOpenInTab = hovering
             }
         }
@@ -539,7 +539,7 @@ private struct TrafficLightButton: View {
         }
         .buttonStyle(.plain)
         .onHover { hovering in
-            withAnimation(.easeInOut(duration: 0.1)) {
+            withAnimation(AppAnimation.quick) {
                 isHovered = hovering
             }
         }

@@ -183,8 +183,10 @@ class ContentBlockerManager: ObservableObject {
         }
 
         // Wait for compilation if in progress
-        while isCompiling {
-            try? await Task.sleep(nanoseconds: 50_000_000) // 50ms
+        if isCompiling {
+            for await compiling in $isCompiling.values where !compiling {
+                break
+            }
         }
 
         // Apply rules if available
@@ -202,8 +204,10 @@ class ContentBlockerManager: ObservableObject {
         }
 
         // Wait for compilation if in progress
-        while isCompiling {
-            try? await Task.sleep(nanoseconds: 50_000_000) // 50ms
+        if isCompiling {
+            for await compiling in $isCompiling.values where !compiling {
+                break
+            }
         }
 
         // Apply rules if available

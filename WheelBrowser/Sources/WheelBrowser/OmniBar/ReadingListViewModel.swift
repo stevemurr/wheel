@@ -1,5 +1,4 @@
 import SwiftUI
-import Combine
 
 /// ViewModel for the reading list panel in the OmniBar
 @MainActor
@@ -9,8 +8,7 @@ class ReadingListViewModel: ObservableObject {
     @Published var isLoading = false
     @Published var hasLoaded = false
 
-    private var searchTask: Task<Void, Never>?
-    private let debounceDelay: TimeInterval = 0.15
+    private let searchDebouncer = Debouncer(delay: .milliseconds(150))
 
     var selectedItem: SavedPageRecord? {
         guard selectedIndex >= 0 && selectedIndex < items.count else { return nil }
@@ -19,10 +17,10 @@ class ReadingListViewModel: ObservableObject {
 
     /// Load all saved pages
     func loadSavedPages() {
-        searchTask?.cancel()
+        Task { await searchDebouncer.cancel() }
         isLoading = true
 
-        searchTask = Task {
+        Task {
             do {
                 let database = SearchDatabase.shared
                 try await database.initialize()
@@ -45,8 +43,6 @@ class ReadingListViewModel: ObservableObject {
 
     /// Search within saved pages
     func search(query: String) {
-        searchTask?.cancel()
-
         guard !query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
             loadSavedPages()
             return
@@ -54,29 +50,33 @@ class ReadingListViewModel: ObservableObject {
 
         isLoading = true
 
-        searchTask = Task {
-            // Debounce
-            try? await Task.sleep(nanoseconds: UInt64(debounceDelay * 1_000_000_000))
+        Task {
+            await searchDebouncer.debounce { [weak self] in
+                await self?.performSearch(for: query)
+            }
+        }
+    }
+
+    /// Perform the actual search (called after debounce)
+    private func performSearch(for query: String) async {
+        guard !Task.isCancelled else { return }
+
+        do {
+            let database = SearchDatabase.shared
+            try await database.initialize()
+            let pages = try await database.searchSavedPages(query: query, limit: 50)
 
             guard !Task.isCancelled else { return }
 
-            do {
-                let database = SearchDatabase.shared
-                try await database.initialize()
-                let pages = try await database.searchSavedPages(query: query, limit: 50)
-
-                guard !Task.isCancelled else { return }
-
-                items = pages
-                selectedIndex = items.isEmpty ? -1 : 0
-                isLoading = false
-                hasLoaded = true
-            } catch {
-                Log.OmniBar.error("ReadingListViewModel: Failed to search saved pages", error: error)
-                items = []
-                isLoading = false
-                hasLoaded = true
-            }
+            items = pages
+            selectedIndex = items.isEmpty ? -1 : 0
+            isLoading = false
+            hasLoaded = true
+        } catch {
+            Log.OmniBar.error("ReadingListViewModel: Failed to search saved pages", error: error)
+            items = []
+            isLoading = false
+            hasLoaded = true
         }
     }
 
@@ -113,6 +113,6 @@ class ReadingListViewModel: ObservableObject {
         items = []
         selectedIndex = -1
         hasLoaded = false
-        searchTask?.cancel()
+        Task { await searchDebouncer.cancel() }
     }
 }

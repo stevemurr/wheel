@@ -177,7 +177,7 @@ struct SummaryWindow: View {
         }
         .buttonStyle(.plain)
         .onHover { hovering in
-            withAnimation(.easeInOut(duration: 0.1)) {
+            withAnimation(AppAnimation.quick) {
                 isHoveringSaveButton = hovering
             }
         }
@@ -203,7 +203,7 @@ struct SummaryWindow: View {
         }
         .buttonStyle(.plain)
         .onHover { hovering in
-            withAnimation(.easeInOut(duration: 0.1)) {
+            withAnimation(AppAnimation.quick) {
                 isHoveringCopyURL = hovering
             }
         }
@@ -225,7 +225,7 @@ struct SummaryWindow: View {
         }
         .buttonStyle(.plain)
         .onHover { hovering in
-            withAnimation(.easeInOut(duration: 0.1)) {
+            withAnimation(AppAnimation.quick) {
                 isHoveringOpenInTab = hovering
             }
         }
@@ -289,7 +289,7 @@ struct SummaryWindow: View {
                 let newState = try await database.toggleSaved(url: url.absoluteString, title: title)
 
                 await MainActor.run {
-                    withAnimation(.easeInOut(duration: 0.2)) {
+                    withAnimation(AppAnimation.medium) {
                         isSavedToReadingList = newState
                     }
                 }
@@ -350,7 +350,7 @@ private struct TrafficLightCloseButton: View {
         }
         .buttonStyle(.plain)
         .onHover { hovering in
-            withAnimation(.easeInOut(duration: 0.1)) {
+            withAnimation(AppAnimation.quick) {
                 isHovered = hovering
             }
         }

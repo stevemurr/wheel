@@ -72,7 +72,7 @@ class LinkPreviewState: ObservableObject {
         self.error = nil
         self.isLoading = true
 
-        withAnimation(.spring(response: 0.25, dampingFraction: 0.8)) {
+        withAnimation(AppAnimation.springSnappy) {
             self.isVisible = true
         }
 
@@ -84,7 +84,7 @@ class LinkPreviewState: ObservableObject {
     func dismiss() {
         fetchTask?.cancel()
 
-        withAnimation(.easeOut(duration: 0.15)) {
+        withAnimation(AppAnimation.standardOut) {
             isVisible = false
         }
 

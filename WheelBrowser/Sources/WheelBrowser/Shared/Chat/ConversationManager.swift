@@ -39,15 +39,7 @@ class ConversationManager: ObservableObject {
     private let saveDebounceInterval: TimeInterval = 2.0
 
     private var conversationsDirectory: URL {
-        guard let appSupport = FileManager.default.urls(
-            for: .applicationSupportDirectory,
-            in: .userDomainMask
-        ).first else {
-            return FileManager.default.temporaryDirectory
-                .appendingPathComponent("WheelBrowser/Conversations")
-        }
-        let dir = appSupport
-            .appendingPathComponent("WheelBrowser", isDirectory: true)
+        let dir = FileManager.appSupportDirectory
             .appendingPathComponent("Conversations", isDirectory: true)
         try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
         return dir

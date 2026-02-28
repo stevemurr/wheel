@@ -46,8 +46,7 @@ protocol PersistableManager: AnyObject {
 extension PersistableManager {
     /// Directory URL for app support files
     static var appSupportDirectory: URL {
-        let appSupport = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
-        return appSupport.appendingPathComponent("WheelBrowser", isDirectory: true)
+        FileManager.appSupportDirectory
     }
 
     /// Full URL for the persistence file

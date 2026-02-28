@@ -54,6 +54,7 @@ struct AgentState: Equatable {
     var boundTabId: UUID?
     var isWaitingForUser: Bool = false
     var waitingReason: String = ""
+    var guardrailWarning: String?
 
     static func == (lhs: AgentState, rhs: AgentState) -> Bool {
         lhs.isRunning == rhs.isRunning &&
@@ -63,7 +64,8 @@ struct AgentState: Equatable {
         lhs.error == rhs.error &&
         lhs.boundTabId == rhs.boundTabId &&
         lhs.isWaitingForUser == rhs.isWaitingForUser &&
-        lhs.waitingReason == rhs.waitingReason
+        lhs.waitingReason == rhs.waitingReason &&
+        lhs.guardrailWarning == rhs.guardrailWarning
     }
 }
 
@@ -116,6 +118,11 @@ class AgentEngine: ObservableObject {
         set { state.waitingReason = newValue }
     }
 
+    var guardrailWarning: String? {
+        get { state.guardrailWarning }
+        set { state.guardrailWarning = newValue }
+    }
+
     // MARK: - Dependencies
 
     private let browserState: BrowserState
@@ -128,8 +135,22 @@ class AgentEngine: ObservableObject {
 
     // MARK: - Configuration
 
-    private let maxIterations = 20
-    private let wallClockTimeout: TimeInterval = 300
+    /// Maximum number of steps the agent can take before stopping
+    var maxSteps: Int = 50
+
+    /// Maximum wall-clock time (in seconds) for a task before stopping
+    var taskTimeout: TimeInterval = 300
+
+    /// The threshold (0.0-1.0) at which to show warnings (default 80%)
+    private let warningThreshold: Double = 0.8
+
+    /// Number of steps remaining before the limit is reached
+    var stepsRemaining: Int {
+        max(0, maxSteps - currentStepCount)
+    }
+
+    /// Current step count (tracked during execution)
+    private(set) var currentStepCount: Int = 0
 
     // MARK: - Initialization
 
@@ -212,6 +233,8 @@ class AgentEngine: ObservableObject {
     private func resetState() {
         cleanupTabBinding()
         isRunning = false
+        guardrailWarning = nil
+        currentStepCount = 0
         loopDetector.reset()
     }
 
@@ -263,27 +286,46 @@ class AgentEngine: ObservableObject {
 
     private func executeTask(_ task: String) async throws -> AgentResult {
         var iteration = 0
+        currentStepCount = 0
         let startTime = Date()
-        Log.Agent.info("Starting task: \(task)")
+        Log.Agent.info("Starting task: \(task) (maxSteps=\(maxSteps), timeout=\(Int(taskTimeout))s)")
 
         loopDetector.reset()
         isWaitingForUser = false
         waitingReason = ""
+        guardrailWarning = nil
 
         guard let tabId = boundTabId else {
             throw AgentError.webViewUnavailable
         }
 
-        while iteration < maxIterations {
+        while iteration < maxSteps {
             // Check wall-clock timeout
-            if Date().timeIntervalSince(startTime) > wallClockTimeout {
-                Log.Agent.error("Task exceeded wall-clock timeout of \(Int(wallClockTimeout))s")
-                throw AgentError.timeout("Task exceeded \(Int(wallClockTimeout / 60)) minute time limit")
+            let elapsed = Date().timeIntervalSince(startTime)
+            if elapsed > taskTimeout {
+                Log.Agent.error("Task exceeded wall-clock timeout of \(Int(taskTimeout))s")
+                let errorStep = AgentStep(type: .error, content: "Task stopped: exceeded \(Int(taskTimeout / 60)) minute time limit", timestamp: Date())
+                steps.append(errorStep)
+                throw AgentError.timeout("Task exceeded \(Int(taskTimeout / 60)) minute time limit")
             }
             try Task.checkCancellation()
 
             iteration += 1
-            let progressText = "Step \(iteration)/\(maxIterations)"
+            currentStepCount = iteration
+
+            // Check guardrail warnings
+            let stepRatio = Double(iteration) / Double(maxSteps)
+            let timeRatio = elapsed / taskTimeout
+            if stepRatio >= warningThreshold {
+                guardrailWarning = "Approaching step limit: \(stepsRemaining) steps remaining"
+            } else if timeRatio >= warningThreshold {
+                let remaining = Int(taskTimeout - elapsed)
+                guardrailWarning = "Approaching time limit: \(remaining)s remaining"
+            } else {
+                guardrailWarning = nil
+            }
+
+            let progressText = "Step \(iteration)/\(maxSteps)"
             progress = progressText
 
             if let tab = boundTab {
@@ -413,7 +455,9 @@ class AgentEngine: ObservableObject {
             }
         }
 
-        Log.Agent.error("Max iterations (\(self.maxIterations)) reached without completion")
+        Log.Agent.error("Max steps (\(self.maxSteps)) reached without completion")
+        let errorStep = AgentStep(type: .error, content: "Task stopped: reached maximum of \(maxSteps) steps", timestamp: Date())
+        steps.append(errorStep)
         throw AgentError.maxIterationsReached
     }
 

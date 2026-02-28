@@ -12,7 +12,7 @@ struct AnimatedPanelModifier: ViewModifier {
             .allowsHitTesting(isVisible)
             .frame(maxHeight: isVisible ? nil : 0)
             .clipped()
-            .animation(.spring(response: 0.3, dampingFraction: 0.85), value: isVisible)
+            .animation(AppAnimation.panelSpring, value: isVisible)
     }
 }
 

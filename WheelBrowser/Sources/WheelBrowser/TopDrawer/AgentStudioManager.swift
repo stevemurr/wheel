@@ -11,13 +11,7 @@ class AgentStudioManager: ObservableObject {
 
     /// File URL for persisting agents
     private var agentsFileURL: URL {
-        let appSupport = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
-        let appDir = appSupport.appendingPathComponent("WheelBrowser", isDirectory: true)
-
-        // Create directory if needed
-        try? FileManager.default.createDirectory(at: appDir, withIntermediateDirectories: true)
-
-        return appDir.appendingPathComponent("agents.json")
+        FileManager.appSupportDirectory.appendingPathComponent("agents.json")
     }
 
     private init() {

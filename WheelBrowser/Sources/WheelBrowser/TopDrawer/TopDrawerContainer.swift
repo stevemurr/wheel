@@ -21,7 +21,7 @@ struct TopDrawerContainer: View {
                 HoverTrackingView { hovering in
                     if hovering {
                         cancelPendingHide()
-                        withAnimation(.spring(response: 0.25, dampingFraction: 0.85)) {
+                        withAnimation(AppAnimation.springDrawer) {
                             isVisible = true
                             isHovered = true
                         }
@@ -78,7 +78,7 @@ struct TopDrawerContainer: View {
         cancelPendingHide()
         let workItem = DispatchWorkItem { [self] in
             if !isHovered && !isSheetPresented {
-                withAnimation(.spring(response: 0.25, dampingFraction: 0.85)) {
+                withAnimation(AppAnimation.springDrawer) {
                     isVisible = false
                 }
             }
@@ -89,7 +89,7 @@ struct TopDrawerContainer: View {
 
     private func dismissDrawer() {
         cancelPendingHide()
-        withAnimation(.spring(response: 0.25, dampingFraction: 0.85)) {
+        withAnimation(AppAnimation.springDrawer) {
             isVisible = false
         }
     }

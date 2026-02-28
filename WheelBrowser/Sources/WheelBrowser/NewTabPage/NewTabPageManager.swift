@@ -13,10 +13,7 @@ final class NewTabPageManager: ObservableObject {
     private let configFileURL: URL
 
     private init() {
-        let appSupport = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
-        let appDir = appSupport.appendingPathComponent("WheelBrowser", isDirectory: true)
-        try? FileManager.default.createDirectory(at: appDir, withIntermediateDirectories: true)
-        configFileURL = appDir.appendingPathComponent("newtab_widgets.json")
+        configFileURL = FileManager.appSupportDirectory.appendingPathComponent("newtab_widgets.json")
 
         // Load saved config or use default
         if let data = try? Data(contentsOf: configFileURL),

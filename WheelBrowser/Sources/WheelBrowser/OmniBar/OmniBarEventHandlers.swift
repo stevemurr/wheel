@@ -48,15 +48,9 @@ extension OmniBar {
     private func handleFocusLost() {
         // Delay hiding to allow click on suggestion
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
-            suggestionsVM.hide()
-            semanticSearchVM.clear()
-            readingListVM.clear()
-            if omniState.mode == .address {
-                omniState.dismissHistoryPanel()
-            } else if omniState.mode == .semantic {
-                omniState.dismissSemanticPanel()
-            } else if omniState.mode == .readingList {
-                omniState.dismissReadingListPanel()
+            self.clearAllSearchState()
+            if self.omniState.mode == .address || self.omniState.mode == .semantic || self.omniState.mode == .readingList {
+                self.omniState.dismissVisiblePanel()
             }
         }
     }
@@ -90,17 +84,15 @@ extension OmniBar {
     // MARK: - Mode Change
 
     func handleModeChange(_ newMode: OmniBarMode) {
+        // Clear search state for VMs not owned by the new mode
+        clearSearchState(except: newMode)
+
+        // Dismiss any currently visible panel
+        omniState.dismissVisiblePanel()
+
+        // Mode-specific setup
         switch newMode {
         case .chat:
-            suggestionsVM.hide()
-            semanticSearchVM.clear()
-            readingListVM.clear()
-            omniState.dismissHistoryPanel()
-            omniState.dismissSemanticPanel()
-            omniState.dismissAgentPanel()
-            omniState.dismissReadingListPanel()
-            omniState.dismissScrapingPanel()
-            // Remove current page mention if on new tab (no URL)
             if tab.url == nil {
                 omniState.removeMention(.currentPage)
             }
@@ -108,57 +100,20 @@ extension OmniBar {
                 omniState.openChatPanel()
             }
         case .address:
-            semanticSearchVM.clear()
-            readingListVM.clear()
-            omniState.dismissChatPanel()
-            omniState.dismissSemanticPanel()
-            omniState.dismissAgentPanel()
-            omniState.dismissReadingListPanel()
-            omniState.dismissScrapingPanel()
             if isInputFocused {
                 omniState.openHistoryPanel()
             }
         case .semantic:
-            suggestionsVM.hide()
-            readingListVM.clear()
-            omniState.dismissChatPanel()
-            omniState.dismissHistoryPanel()
-            omniState.dismissAgentPanel()
-            omniState.dismissReadingListPanel()
-            omniState.dismissScrapingPanel()
             omniState.openSemanticPanel()
             if !omniState.inputText.isEmpty {
                 semanticSearchVM.search(query: omniState.inputText)
             }
         case .agent:
-            suggestionsVM.hide()
-            semanticSearchVM.clear()
-            readingListVM.clear()
-            omniState.dismissChatPanel()
-            omniState.dismissHistoryPanel()
-            omniState.dismissSemanticPanel()
-            omniState.dismissReadingListPanel()
-            omniState.dismissScrapingPanel()
             omniState.openAgentPanel()
         case .readingList:
-            suggestionsVM.hide()
-            semanticSearchVM.clear()
-            omniState.dismissChatPanel()
-            omniState.dismissHistoryPanel()
-            omniState.dismissSemanticPanel()
-            omniState.dismissAgentPanel()
-            omniState.dismissScrapingPanel()
             omniState.openReadingListPanel()
             readingListVM.loadSavedPages()
         case .scraping:
-            suggestionsVM.hide()
-            semanticSearchVM.clear()
-            readingListVM.clear()
-            omniState.dismissChatPanel()
-            omniState.dismissHistoryPanel()
-            omniState.dismissSemanticPanel()
-            omniState.dismissAgentPanel()
-            omniState.dismissReadingListPanel()
             omniState.openScrapingPanel()
         }
     }
@@ -172,7 +127,7 @@ extension OmniBar {
             omniState.dismissMentionDropdown()
             mentionSuggestionsVM.clear()
         } else if tab.isFindBarVisible {
-            withAnimation(.easeInOut(duration: 0.15)) {
+            withAnimation(AppAnimation.standard) {
                 tab.hideFindBar()
             }
             findText = ""
@@ -256,7 +211,7 @@ extension OmniBar {
     // MARK: - Find in Page
 
     func handleFindInPage() {
-        withAnimation(.easeInOut(duration: 0.15)) {
+        withAnimation(AppAnimation.standard) {
             tab.showFindBar()
         }
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
@@ -273,6 +228,23 @@ extension OmniBar {
         readingListVM.loadSavedPages()
     }
 
+    // MARK: - Search State Helpers
+
+    /// Clear all search view model state (suggestions, semantic, reading list)
+    private func clearAllSearchState() {
+        suggestionsVM.hide()
+        semanticSearchVM.clear()
+        readingListVM.clear()
+    }
+
+    /// Clear search state for VMs not owned by the target mode.
+    /// Each mode keeps its own VM active to avoid clearing state that's about to be used.
+    private func clearSearchState(except mode: OmniBarMode) {
+        if mode != .address { suggestionsVM.hide() }
+        if mode != .semantic { semanticSearchVM.clear() }
+        if mode != .readingList { readingListVM.clear() }
+    }
+
     // MARK: - Page Save State Changed
 
     func handlePageSaveStateChanged(_ notification: Notification) {
@@ -280,7 +252,7 @@ extension OmniBar {
            let url = userInfo["url"] as? String,
            let isSaved = userInfo["isSaved"] as? Bool,
            url == tab.url?.absoluteString {
-            withAnimation(.easeInOut(duration: 0.2)) {
+            withAnimation(AppAnimation.medium) {
                 isCurrentPageSaved = isSaved
             }
         }

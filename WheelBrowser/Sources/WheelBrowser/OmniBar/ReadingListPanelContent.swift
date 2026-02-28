@@ -41,7 +41,7 @@ struct ReadingListPanelContent: View {
             .onChange(of: viewModel.selectedIndex) { _, newIndex in
                 if newIndex >= 0 && newIndex < viewModel.items.count {
                     let selectedId = viewModel.items[newIndex].id
-                    withAnimation(.easeOut(duration: 0.1)) {
+                    withAnimation(AppAnimation.quickOut) {
                         proxy.scrollTo(selectedId, anchor: .center)
                     }
                 }
@@ -181,7 +181,7 @@ struct ReadingListRow: View {
         .contentShape(Rectangle())
         .onTapGesture(perform: onSelect)
         .onHover { hovering in
-            withAnimation(.easeInOut(duration: 0.1)) {
+            withAnimation(AppAnimation.quick) {
                 isHovering = hovering
             }
         }

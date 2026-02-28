@@ -46,7 +46,7 @@ class OmniBarState: ObservableObject {
 
     /// Switch to the next mode (Tab key)
     func nextMode() {
-        withAnimation(.easeInOut(duration: 0.15)) {
+        withAnimation(AppAnimation.standard) {
             switch mode {
             case .address:
                 mode = .chat
@@ -72,7 +72,7 @@ class OmniBarState: ObservableObject {
 
     /// Switch to the previous mode (Shift+Tab)
     func previousMode() {
-        withAnimation(.easeInOut(duration: 0.15)) {
+        withAnimation(AppAnimation.standard) {
             switch mode {
             case .address:
                 mode = .scraping
@@ -99,7 +99,7 @@ class OmniBarState: ObservableObject {
     /// Set mode explicitly
     func setMode(_ newMode: OmniBarMode) {
         guard mode != newMode else { return }
-        withAnimation(.easeInOut(duration: 0.15)) {
+        withAnimation(AppAnimation.standard) {
             mode = newMode
             inputText = ""
         }
@@ -147,7 +147,7 @@ class OmniBarState: ObservableObject {
 
     /// Open the mention dropdown
     func openMentionDropdown() {
-        withAnimation(.easeInOut(duration: 0.15)) {
+        withAnimation(AppAnimation.standard) {
             showMentionDropdown = true
             mentionSearchText = ""
         }
@@ -155,7 +155,7 @@ class OmniBarState: ObservableObject {
 
     /// Dismiss the mention dropdown
     func dismissMentionDropdown() {
-        withAnimation(.easeInOut(duration: 0.15)) {
+        withAnimation(AppAnimation.standard) {
             showMentionDropdown = false
             mentionSearchText = ""
         }
@@ -165,14 +165,14 @@ class OmniBarState: ObservableObject {
 
     /// Set the visible panel, dismissing any currently visible panel
     func setVisiblePanel(_ panel: OmniBarPanelVisibility) {
-        withAnimation(.spring(response: 0.3, dampingFraction: 0.85)) {
+        withAnimation(AppAnimation.panelSpring) {
             visiblePanel = panel
         }
     }
 
     /// Dismiss the currently visible panel
     func dismissVisiblePanel() {
-        withAnimation(.spring(response: 0.3, dampingFraction: 0.85)) {
+        withAnimation(AppAnimation.panelSpring) {
             visiblePanel = .none
         }
     }

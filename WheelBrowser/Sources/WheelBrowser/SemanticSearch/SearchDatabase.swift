@@ -11,10 +11,11 @@ actor SearchDatabase {
             return db
         } catch {
             Log.Search.error("Failed to create SearchDatabase: \(error.localizedDescription)")
-            guard let fallback = try? SearchDatabase() else {
-                fatalError("SearchDatabase: cannot create even a fallback instance")
+            if let fallback = try? SearchDatabase() {
+                return fallback
             }
-            return fallback
+            Log.Search.error("SearchDatabase: falling back to in-memory database")
+            return SearchDatabase(inMemory: true)
         }
     }()
 
@@ -33,24 +34,35 @@ actor SearchDatabase {
     private let dbPath: URL
     private var isInitialized = false
 
-    init() throws {
-        guard let base = FileManager.default.urls(
-            for: .applicationSupportDirectory,
-            in: .userDomainMask
-        ).first else {
-            throw SearchDBError.failedToOpen("Could not locate Application Support directory")
-        }
-        let appSupport = base.appendingPathComponent("WheelBrowser")
+    /// Whether the database is running in degraded mode (in-memory fallback)
+    private(set) var isDegraded: Bool = false
 
-        try FileManager.default.createDirectory(at: appSupport, withIntermediateDirectories: true)
-        self.dbPath = appSupport.appendingPathComponent("semantic_search.db")
+    init() throws {
+        self.dbPath = FileManager.appSupportDirectory.appendingPathComponent("semantic_search.db")
+    }
+
+    /// Creates an in-memory database as a last-resort fallback
+    private init(inMemory: Bool) {
+        self.dbPath = URL(fileURLWithPath: ":memory:")
+        self.isDegraded = true
     }
 
     /// Must be called after init to complete setup
     func initialize() throws {
         guard !isInitialized else { return }
-        try openDatabase()
-        try verifyIntegrity()
+        do {
+            try openDatabase()
+            try verifyIntegrity()
+        } catch {
+            Log.Search.error("SearchDatabase: on-disk open/integrity failed: \(error.localizedDescription), falling back to in-memory")
+            // Close any partially-opened connection
+            if db != nil {
+                sqlite3_close(db)
+                db = nil
+            }
+            isDegraded = true
+            try openInMemoryDatabase()
+        }
         try createSchema()
         isInitialized = true
     }
@@ -104,6 +116,16 @@ actor SearchDatabase {
         sqlite3_busy_timeout(db, 5000)
         try execute("PRAGMA journal_mode = WAL")
         try execute("PRAGMA synchronous = NORMAL")
+        try execute("PRAGMA foreign_keys = ON")
+    }
+
+    private func openInMemoryDatabase() throws {
+        let flags = SQLITE_OPEN_READWRITE | SQLITE_OPEN_CREATE | SQLITE_OPEN_FULLMUTEX
+
+        if sqlite3_open_v2(":memory:", &db, flags, nil) != SQLITE_OK {
+            throw SearchDBError.failedToOpen(String(cString: sqlite3_errmsg(db)))
+        }
+
         try execute("PRAGMA foreign_keys = ON")
     }
 

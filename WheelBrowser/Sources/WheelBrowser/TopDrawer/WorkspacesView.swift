@@ -40,7 +40,7 @@ struct WorkspacesView: View {
                             isSelected: workspace.id == workspaceManager.currentWorkspaceID,
                             tabCount: workspaceManager.tabCount(for: workspace.id),
                             onSelect: {
-                                withAnimation(.easeInOut(duration: 0.2)) {
+                                withAnimation(AppAnimation.medium) {
                                     workspaceManager.switchToWorkspace(workspace.id)
                                 }
                             },
@@ -171,7 +171,7 @@ struct WorkspaceCard: View {
         .contentShape(Rectangle())
         .onTapGesture(perform: onSelect)
         .onHover { hovering in
-            withAnimation(.easeInOut(duration: 0.15)) {
+            withAnimation(AppAnimation.standard) {
                 isHovering = hovering
             }
         }
@@ -227,7 +227,7 @@ struct AddWorkspaceCard: View {
         .contentShape(Rectangle())
         .onTapGesture(perform: onTap)
         .onHover { hovering in
-            withAnimation(.easeInOut(duration: 0.15)) {
+            withAnimation(AppAnimation.standard) {
                 isHovering = hovering
             }
         }

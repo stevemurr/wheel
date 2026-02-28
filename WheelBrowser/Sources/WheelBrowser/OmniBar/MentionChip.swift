@@ -39,7 +39,7 @@ struct MentionChip: View {
                 .strokeBorder(borderColor, lineWidth: 1)
         )
         .onHover { hovering in
-            withAnimation(.easeInOut(duration: 0.15)) {
+            withAnimation(AppAnimation.standard) {
                 isHovering = hovering
             }
         }
@@ -131,7 +131,7 @@ struct MentionSuggestionRow: View {
         .contentShape(Rectangle())
         .onTapGesture(perform: onSelect)
         .onHover { hovering in
-            withAnimation(.easeInOut(duration: 0.1)) {
+            withAnimation(AppAnimation.quick) {
                 isHovering = hovering
             }
         }

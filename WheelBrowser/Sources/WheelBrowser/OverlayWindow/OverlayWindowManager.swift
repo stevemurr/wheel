@@ -94,7 +94,7 @@ class OverlayWindowManager: ObservableObject {
         )
         nextZIndex += 1
 
-        withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
+        withAnimation(AppAnimation.springStandard) {
             windows.append(window)
         }
         rebuildIndexCache()
@@ -115,7 +115,7 @@ class OverlayWindowManager: ObservableObject {
 
     /// Closes the overlay window with the specified ID
     func closeOverlay(id: UUID) {
-        withAnimation(.easeOut(duration: 0.2)) {
+        withAnimation(AppAnimation.mediumOut) {
             windows.removeAll { $0.id == id }
         }
         rebuildIndexCache()
@@ -123,7 +123,7 @@ class OverlayWindowManager: ObservableObject {
 
     /// Closes all overlay windows
     func closeAll() {
-        withAnimation(.easeOut(duration: 0.2)) {
+        withAnimation(AppAnimation.mediumOut) {
             windows.removeAll()
         }
         windowIndexCache.removeAll()
@@ -139,7 +139,7 @@ class OverlayWindowManager: ObservableObject {
     /// Minimizes or restores the specified window
     func minimizeOverlay(id: UUID) {
         guard let idx = index(for: id) else { return }
-        withAnimation(.spring(response: 0.25, dampingFraction: 0.8)) {
+        withAnimation(AppAnimation.springSnappy) {
             windows[idx].isMinimized.toggle()
         }
     }
@@ -152,7 +152,7 @@ class OverlayWindowManager: ObservableObject {
         guard let idx = index(for: id) else { return }
         let window = windows[idx]
 
-        withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
+        withAnimation(AppAnimation.springStandard) {
             if window.isMaximized {
                 // Restore to pre-maximize state
                 if let prePosition = window.preMaximizePosition,

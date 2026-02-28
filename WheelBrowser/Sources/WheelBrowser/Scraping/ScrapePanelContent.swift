@@ -63,7 +63,7 @@ struct ScrapeJobRow: View {
                 // Expand/collapse chevron for active jobs with URLs
                 if job.status.isActive && !job.urlProgress.isEmpty {
                     Button(action: {
-                        withAnimation(.easeInOut(duration: 0.15)) {
+                        withAnimation(AppAnimation.standard) {
                             isExpanded.toggle()
                         }
                     }) {
@@ -114,7 +114,7 @@ struct ScrapeJobRow: View {
             )
             .contentShape(Rectangle())
             .onHover { hovering in
-                withAnimation(.easeInOut(duration: 0.1)) {
+                withAnimation(AppAnimation.quick) {
                     isHovering = hovering
                 }
             }

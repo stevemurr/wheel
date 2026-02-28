@@ -105,7 +105,7 @@ struct WorkspaceBar: View {
     }
 
     private func selectWorkspace(_ workspace: Workspace) {
-        withAnimation(.easeInOut(duration: 0.2)) {
+        withAnimation(AppAnimation.medium) {
             workspaceManager.switchToWorkspace(workspace.id)
 
             // Switch to the workspace's agent if it has one
@@ -179,7 +179,7 @@ struct WorkspaceIcon: View {
         .contentShape(Rectangle())
         .onTapGesture(perform: onSelect)
         .onHover { hovering in
-            withAnimation(.easeInOut(duration: 0.15)) {
+            withAnimation(AppAnimation.standard) {
                 isHovering = hovering
             }
         }
@@ -245,7 +245,7 @@ struct AddWorkspaceButton: View {
         .buttonStyle(.plain)
         .padding(.vertical, 4)
         .onHover { hovering in
-            withAnimation(.easeInOut(duration: 0.15)) {
+            withAnimation(AppAnimation.standard) {
                 isHovering = hovering
             }
         }

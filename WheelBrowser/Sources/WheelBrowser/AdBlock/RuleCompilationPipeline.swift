@@ -7,7 +7,7 @@ import WebKit
 final class RuleCompilationPipeline {
 
     /// Maximum number of rules WebKit can handle
-    static let maxRuleCount = 50_000
+    static var maxRuleCount: Int { WebKitRuleConverter.maxRulesPerList }
 
     /// Compiles an array of rule dictionaries into a WKContentRuleList.
     /// - Parameter rules: The array of rule dictionaries in WebKit content blocker JSON format.

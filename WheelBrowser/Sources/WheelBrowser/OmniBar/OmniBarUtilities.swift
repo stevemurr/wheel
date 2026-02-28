@@ -50,7 +50,7 @@ extension OmniBar {
             try await database.initialize()
             let saved = try await database.isSaved(url: url.absoluteString)
             await MainActor.run {
-                withAnimation(.easeInOut(duration: 0.2)) {
+                withAnimation(AppAnimation.medium) {
                     isCurrentPageSaved = saved
                 }
             }
@@ -88,7 +88,7 @@ struct NavigationButton: View {
         .disabled(!isEnabled)
         .scaleEffect(isPressed ? 0.9 : 1.0)
         .onLongPressGesture(minimumDuration: .infinity, pressing: { pressing in
-            withAnimation(.easeInOut(duration: 0.1)) {
+            withAnimation(AppAnimation.quick) {
                 isPressed = pressing
             }
         }, perform: {})

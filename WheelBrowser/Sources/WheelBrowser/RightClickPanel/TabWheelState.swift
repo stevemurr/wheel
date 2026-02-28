@@ -32,13 +32,13 @@ class TabWheelState: ObservableObject {
         self.rotationAngle = -Double(initialIndex) * anglePerTab
         self.accumulatedScroll = 0
 
-        withAnimation(.spring(response: 0.25, dampingFraction: 0.8)) {
+        withAnimation(AppAnimation.springSnappy) {
             isVisible = true
         }
     }
 
     func hide() {
-        withAnimation(.easeOut(duration: 0.15)) {
+        withAnimation(AppAnimation.standardOut) {
             isVisible = false
         }
     }

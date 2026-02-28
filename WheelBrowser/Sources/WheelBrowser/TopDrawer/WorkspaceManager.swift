@@ -19,20 +19,12 @@ class WorkspaceManager: ObservableObject {
 
     /// File URL for persisting workspaces
     private var workspacesFileURL: URL {
-        let appSupport = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
-        let appDir = appSupport.appendingPathComponent("WheelBrowser", isDirectory: true)
-
-        // Create directory if needed
-        try? FileManager.default.createDirectory(at: appDir, withIntermediateDirectories: true)
-
-        return appDir.appendingPathComponent("workspaces.json")
+        FileManager.appSupportDirectory.appendingPathComponent("workspaces.json")
     }
 
     /// File URL for persisting workspace tab states
     private var tabStatesFileURL: URL {
-        let appSupport = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
-        let appDir = appSupport.appendingPathComponent("WheelBrowser", isDirectory: true)
-        return appDir.appendingPathComponent("workspace_tabs.json")
+        FileManager.appSupportDirectory.appendingPathComponent("workspace_tabs.json")
     }
 
     private init() {

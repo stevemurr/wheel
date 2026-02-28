@@ -149,9 +149,7 @@ extension OmniBar {
                     AnyView(Group {
                         Button("Clear Completed") { downloadManager.clearCompleted() }
                         Button("Show in Finder") {
-                            if let url = FileManager.default.urls(for: .downloadsDirectory, in: .userDomainMask).first {
-                                NSWorkspace.shared.open(url)
-                            }
+                            downloadManager.openDownloadsFolder()
                         }
                     })
                 },

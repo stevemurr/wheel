@@ -197,7 +197,7 @@ class ScrapeManager: ObservableObject {
         jobs.insert(job, at: 0)
 
         // Show panel when job starts
-        withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
+        withAnimation(AppAnimation.springStandard) {
             showScrapePanel = true
         }
 
@@ -239,14 +239,14 @@ class ScrapeManager: ObservableObject {
 
     /// Toggle panel visibility
     func togglePanel() {
-        withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
+        withAnimation(AppAnimation.springStandard) {
             showScrapePanel.toggle()
         }
     }
 
     /// Dismiss the panel
     func dismissPanel() {
-        withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
+        withAnimation(AppAnimation.springStandard) {
             showScrapePanel = false
         }
     }

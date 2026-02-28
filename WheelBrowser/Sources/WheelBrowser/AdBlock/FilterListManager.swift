@@ -31,9 +31,7 @@ class FilterListManager: ObservableObject {
 
     /// Directory for storing converted rules
     private var rulesDirectory: URL {
-        let appSupport = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
-        let appDir = appSupport.appendingPathComponent("WheelBrowser")
-        return appDir.appendingPathComponent(rulesDirectoryName)
+        FileManager.appSupportDirectory.appendingPathComponent(rulesDirectoryName)
     }
 
     private init() {

@@ -1,5 +1,4 @@
 import SwiftUI
-import Combine
 
 /// ViewModel for managing @ mention suggestions in chat mode
 @MainActor
@@ -11,8 +10,7 @@ class MentionSuggestionsViewModel: ObservableObject {
     /// Reference to browser state for accessing open tabs
     weak var browserState: BrowserState?
 
-    private var searchTask: Task<Void, Never>?
-    private let debounceDelay: UInt64 = 30_000_000 // 30ms
+    private let searchDebouncer = Debouncer(delay: .milliseconds(30))
 
     /// Currently selected suggestion
     var selectedSuggestion: MentionSuggestion? {
@@ -30,14 +28,22 @@ class MentionSuggestionsViewModel: ObservableObject {
         excluding: [Mention],
         currentTabId: UUID?
     ) {
-        searchTask?.cancel()
-
         isSearching = true
 
-        searchTask = Task {
-            // Debounce
-            try? await Task.sleep(nanoseconds: debounceDelay)
-            guard !Task.isCancelled else { return }
+        Task {
+            await searchDebouncer.debounce { [weak self] in
+                await self?.performSearch(for: query, excluding: excluding, currentTabId: currentTabId)
+            }
+        }
+    }
+
+    /// Perform the actual mention search (called after debounce)
+    private func performSearch(
+        for query: String,
+        excluding: [Mention],
+        currentTabId: UUID?
+    ) async {
+        guard !Task.isCancelled else { return }
 
             var allSuggestions: [MentionSuggestion] = []
 
@@ -155,7 +161,6 @@ class MentionSuggestionsViewModel: ObservableObject {
             suggestions = allSuggestions
             selectedIndex = suggestions.isEmpty ? -1 : 0
             isSearching = false
-        }
     }
 
     /// Search open overlay windows using fuzzy matching
@@ -303,7 +308,7 @@ class MentionSuggestionsViewModel: ObservableObject {
 
     /// Clear all suggestions
     func clear() {
-        searchTask?.cancel()
+        Task { await searchDebouncer.cancel() }
         suggestions = []
         selectedIndex = -1
         isSearching = false
