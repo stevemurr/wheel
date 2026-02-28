@@ -110,9 +110,10 @@ class OmniBarState: ObservableObject {
         mentions.removeAll { $0 == mention }
     }
 
-    /// Reset mentions to default state
+    /// Reset mentions to default state, preserving persistent search context mentions (@web, @history, etc.)
     /// - Parameter includeCurrentPage: Whether to include the current page mention. Set to false when on new tab page (no URL).
     func resetMentions(includeCurrentPage: Bool = true) {
+        let persistent = mentions.filter { $0.isPersistent }
         if includeCurrentPage {
             // If overlay windows are open, use the most recent one as default instead of current page
             if let mostRecentOverlay = OverlayWindowManager.shared.windows.sorted(by: { $0.createdAt > $1.createdAt }).first {
@@ -120,12 +121,12 @@ class OmniBarState: ObservableObject {
                     id: mostRecentOverlay.id,
                     title: mostRecentOverlay.title,
                     url: mostRecentOverlay.url.absoluteString
-                )]
+                )] + persistent
             } else {
-                mentions = [.currentPage]
+                mentions = [.currentPage] + persistent
             }
         } else {
-            mentions = []
+            mentions = persistent
         }
     }
 

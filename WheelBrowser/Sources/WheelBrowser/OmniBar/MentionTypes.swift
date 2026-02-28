@@ -128,6 +128,16 @@ enum Mention: Identifiable, Equatable, Hashable {
         return nil
     }
 
+    /// Whether this mention represents a persistent search context that should survive across messages
+    var isPersistent: Bool {
+        switch self {
+        case .web, .history, .readingList, .domain:
+            return true
+        case .currentPage, .tab, .overlay, .semanticResult:
+            return false
+        }
+    }
+
     /// Returns the embedding category for this mention type, if applicable
     var embeddingCategory: EmbeddingCategory? {
         switch self {
