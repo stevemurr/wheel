@@ -10,9 +10,22 @@ class AgentManager: ObservableObject {
     @Published var error: String?
     @Published var messages: [ChatMessage] = []
 
+    // MARK: - Dependencies
+
     private var settings = AppSettings.shared
-    private var conversationHistory: [[String: String]] = []
     private let conversationManager = ConversationManager.shared
+
+    // MARK: - Extracted Services
+
+    /// Type alias so the rest of AgentManager can refer to StreamChunk without qualification
+    typealias StreamChunk = StreamingResponseProcessor.StreamChunk
+
+    private let streamProcessor = StreamingResponseProcessor()
+    private let bufferFlusher = MarkdownBufferFlusher()
+
+    // MARK: - Internal State
+
+    private var conversationHistory: [[String: String]] = []
 
     /// Uses the unified system prompt, respecting user customization
     private var systemPrompt: String {
@@ -32,45 +45,29 @@ class AgentManager: ObservableObject {
         if let recent = conversationManager.savedConversations.first {
             conversationManager.resumeConversation(recent)
             messages = conversationManager.messages
-            // Rebuild conversation history for API calls
-            conversationHistory = messages
-                .filter { $0.role == .user || $0.role == .assistant }
-                .map { ["role": $0.role.rawValue, "content": $0.content] }
+            conversationHistory = ConversationHistoryBuilder.rebuildHistory(from: messages)
         }
     }
 
-    /// Safely update a message at the given index, no-op if out of bounds
-    private func safeUpdateMessage(at index: Int, update: (inout ChatMessage) -> Void) {
-        guard messages.indices.contains(index) else { return }
+    /// Safely update a message by its ID, no-op if the message is not found.
+    /// This is safer than index-based mutation because IDs are stable even when
+    /// messages are inserted or removed during streaming.
+    private func safeUpdateMessage(id: UUID, update: (inout ChatMessage) -> Void) {
+        guard let index = messages.firstIndex(where: { $0.id == id }) else { return }
         update(&messages[index])
     }
+
+    // MARK: - Public API
 
     /// Send a message with multiple page contexts
     func sendMessage(_ content: String, pageContexts: [PageContext]) async {
         isLoading = true
         lastFailedPageContexts = pageContexts
 
-        // Build message with multiple contexts
-        var fullMessage = content
-        if !pageContexts.isEmpty {
-            var contextParts: [String] = []
-            for (index, context) in pageContexts.enumerated() {
-                let header = pageContexts.count == 1 ? "[Page Context]" : "--- Page \(index + 1) ---"
-                contextParts.append("""
-                \(header)
-                URL: \(context.url)
-                Title: \(context.title)
-                Content Preview:
-                \(context.textContent.prefix(4000))
-                """)
-            }
-            fullMessage = """
-            \(contextParts.joined(separator: "\n\n"))
-
-            [User Question]
-            \(content)
-            """
-        }
+        let fullMessage = ConversationHistoryBuilder.buildFullMessage(
+            content: content,
+            pageContexts: pageContexts
+        )
 
         await sendMessageInternal(content: content, fullMessage: fullMessage)
     }
@@ -100,6 +97,8 @@ class AgentManager: ObservableObject {
         await sendMessage(content, pageContexts: contexts)
     }
 
+    // MARK: - Streaming Orchestration
+
     private func sendMessageInternal(content: String, fullMessage: String) async {
         isLoading = true
 
@@ -120,14 +119,15 @@ class AgentManager: ObservableObject {
         // Add to conversation history
         conversationHistory.append(["role": "user", "content": fullMessage])
 
-        // Track thinking message index (if we receive any thinking content)
-        var thinkingIndex: Int? = nil
+        // Track thinking message by ID (stable across insertions)
+        var thinkingMessageId: UUID? = nil
         var thinkingBuffer = ""
         var pendingThinkingChunk = ""
 
         // Add placeholder for assistant response with streaming flag
-        messages.append(ChatMessage(role: .assistant, content: "", timestamp: Date(), isStreaming: true))
-        var assistantIndex = messages.count - 1
+        let assistantPlaceholder = ChatMessage(role: .assistant, content: "", timestamp: Date(), isStreaming: true)
+        let assistantMessageId = assistantPlaceholder.id
+        messages.append(assistantPlaceholder)
 
         do {
             var buffer = ""
@@ -142,22 +142,25 @@ class AgentManager: ObservableObject {
                 switch chunk {
                 case .thinking(let thinkingContent):
                     // If this is the first thinking content, insert a thinking message before the assistant message
-                    if thinkingIndex == nil {
-                        // Insert thinking message right before the current assistant message
+                    if thinkingMessageId == nil {
                         let thinkingMessage = ChatMessage(role: .thinking, content: "", timestamp: Date(), isStreaming: true)
-                        messages.insert(thinkingMessage, at: assistantIndex)
-                        thinkingIndex = assistantIndex
-                        assistantIndex += 1 // Shift assistant index since we inserted before it
+                        thinkingMessageId = thinkingMessage.id
+                        // Insert thinking message right before the assistant message
+                        if let assistantIdx = messages.firstIndex(where: { $0.id == assistantMessageId }) {
+                            messages.insert(thinkingMessage, at: assistantIdx)
+                        } else {
+                            messages.append(thinkingMessage)
+                        }
                     }
 
                     pendingThinkingChunk += thinkingContent
 
                     // Flush thinking content on complete sentences or timeout
-                    if shouldFlushBuffer(pendingThinkingChunk) || timeSinceUpdate >= maxUpdateInterval {
+                    if bufferFlusher.shouldFlush(pendingThinkingChunk) || timeSinceUpdate >= maxUpdateInterval {
                         thinkingBuffer += pendingThinkingChunk
                         pendingThinkingChunk = ""
-                        if let idx = thinkingIndex {
-                            safeUpdateMessage(at: idx) { $0.content = thinkingBuffer }
+                        if let id = thinkingMessageId {
+                            safeUpdateMessage(id: id) { $0.content = thinkingBuffer }
                         }
                         lastUpdateTime = now
                     }
@@ -166,10 +169,10 @@ class AgentManager: ObservableObject {
                     pendingChunk += contentText
 
                     // Flush on complete markdown structures or timeout
-                    if shouldFlushBuffer(pendingChunk) || timeSinceUpdate >= maxUpdateInterval {
+                    if bufferFlusher.shouldFlush(pendingChunk) || timeSinceUpdate >= maxUpdateInterval {
                         buffer += pendingChunk
                         pendingChunk = ""
-                        safeUpdateMessage(at: assistantIndex) { $0.content = buffer }
+                        safeUpdateMessage(id: assistantMessageId) { $0.content = buffer }
                         lastUpdateTime = now
                     }
                 }
@@ -178,14 +181,14 @@ class AgentManager: ObservableObject {
             // Flush any remaining thinking content
             if !pendingThinkingChunk.isEmpty {
                 thinkingBuffer += pendingThinkingChunk
-                if let idx = thinkingIndex {
-                    safeUpdateMessage(at: idx) { msg in
+                if let id = thinkingMessageId {
+                    safeUpdateMessage(id: id) { msg in
                         msg.content = thinkingBuffer
                         msg.isStreaming = false
                     }
                 }
-            } else if let idx = thinkingIndex {
-                safeUpdateMessage(at: idx) { $0.isStreaming = false }
+            } else if let id = thinkingMessageId {
+                safeUpdateMessage(id: id) { $0.isStreaming = false }
             }
 
             // Flush any remaining content
@@ -194,7 +197,7 @@ class AgentManager: ObservableObject {
             }
 
             // Final update with complete content
-            safeUpdateMessage(at: assistantIndex) { msg in
+            safeUpdateMessage(id: assistantMessageId) { msg in
                 msg.content = buffer
                 msg.isStreaming = false
                 msg.modelUsed = self.settings.selectedModel
@@ -204,18 +207,19 @@ class AgentManager: ObservableObject {
             conversationHistory.append(["role": "assistant", "content": buffer])
 
             // Persist the assistant message
-            let assistantMessage = messages[assistantIndex]
-            conversationManager.addMessage(assistantMessage)
+            if let assistantMessage = messages.first(where: { $0.id == assistantMessageId }) {
+                conversationManager.addMessage(assistantMessage)
+            }
 
             // Clear retry state on success
             lastFailedContent = nil
             lastFailedPageContexts = []
         } catch {
             // Mark thinking as done if we had any
-            if let idx = thinkingIndex {
-                safeUpdateMessage(at: idx) { $0.isStreaming = false }
+            if let id = thinkingMessageId {
+                safeUpdateMessage(id: id) { $0.isStreaming = false }
             }
-            safeUpdateMessage(at: assistantIndex) { msg in
+            safeUpdateMessage(id: assistantMessageId) { msg in
                 msg.content = "Error: \(error.localizedDescription)"
                 msg.isStreaming = false
                 msg.isFailed = true
@@ -225,11 +229,7 @@ class AgentManager: ObservableObject {
         isLoading = false
     }
 
-    /// Represents a chunk from the streaming LLM response
-    enum StreamChunk {
-        case content(String)
-        case thinking(String)
-    }
+    // MARK: - LLM Streaming
 
     private func streamLLM() -> AsyncThrowingStream<StreamChunk, Error> {
         AsyncThrowingStream { continuation in
@@ -249,11 +249,10 @@ class AgentManager: ObservableObject {
                         request.setValue("Bearer \(settings.llmAPIKey)", forHTTPHeaderField: "Authorization")
                     }
 
-                    // Build messages array with system prompt
-                    var apiMessages: [[String: String]] = [
-                        ["role": "system", "content": systemPrompt]
-                    ]
-                    apiMessages.append(contentsOf: conversationHistory)
+                    let apiMessages = ConversationHistoryBuilder.buildAPIMessages(
+                        systemPrompt: self.systemPrompt,
+                        conversationHistory: self.conversationHistory
+                    )
 
                     let body: [String: Any] = [
                         "model": settings.selectedModel,
@@ -274,29 +273,11 @@ class AgentManager: ObservableObject {
                         throw LLMError.httpError(statusCode: httpResponse.statusCode, message: "Stream request failed")
                     }
 
-                    // Parse SSE stream
+                    // Parse SSE stream and classify each event
+                    let processor = self.streamProcessor
                     for try await jsonString in bytes.sseEvents {
-                        guard let data = jsonString.data(using: .utf8),
-                              let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-                              let choices = json["choices"] as? [[String: Any]],
-                              let firstChoice = choices.first,
-                              let delta = firstChoice["delta"] as? [String: Any] else {
-                            continue
-                        }
-
-                        // Check for reasoning/thinking content (Claude extended thinking, OpenAI reasoning)
-                        // Different APIs use different field names for reasoning traces
-                        if let thinking = delta["thinking"] as? String, !thinking.isEmpty {
-                            continuation.yield(.thinking(thinking))
-                        } else if let reasoning = delta["reasoning_content"] as? String, !reasoning.isEmpty {
-                            continuation.yield(.thinking(reasoning))
-                        } else if let reasoning = delta["reasoning"] as? String, !reasoning.isEmpty {
-                            continuation.yield(.thinking(reasoning))
-                        }
-
-                        // Regular content
-                        if let content = delta["content"] as? String, !content.isEmpty {
-                            continuation.yield(.content(content))
+                        for chunk in processor.processSSEEvent(jsonString) {
+                            continuation.yield(chunk)
                         }
                     }
 
@@ -308,75 +289,7 @@ class AgentManager: ObservableObject {
         }
     }
 
-    /// Detects complete markdown structures that are safe flush points
-    /// This reduces UI updates while ensuring meaningful visual progress
-    private func shouldFlushBuffer(_ buffer: String) -> Bool {
-        guard !buffer.isEmpty else { return false }
-
-        // Paragraph break - most common flush point
-        if buffer.hasSuffix("\n\n") {
-            return true
-        }
-
-        // Code block boundaries
-        if buffer.hasSuffix("```\n") || buffer.hasSuffix("```") {
-            return true
-        }
-
-        // LaTeX block boundaries
-        if buffer.hasSuffix("$$\n") || buffer.hasSuffix("$$") {
-            return true
-        }
-
-        // End of sentence followed by space (natural reading break)
-        if buffer.count >= 2 {
-            let lastTwo = String(buffer.suffix(2))
-            if lastTwo == ". " || lastTwo == "! " || lastTwo == "? " {
-                return true
-            }
-        }
-
-        // List item complete (newline after list content)
-        if buffer.contains("\n") {
-            let lines = buffer.split(separator: "\n", omittingEmptySubsequences: false)
-            if let lastLine = lines.last, lastLine.isEmpty {
-                // Previous line was complete
-                if lines.count >= 2 {
-                    let prevLine = String(lines[lines.count - 2])
-                    // Check if it was a list item or heading
-                    let trimmed = prevLine.trimmingCharacters(in: .whitespaces)
-                    if trimmed.hasPrefix("- ") || trimmed.hasPrefix("* ") ||
-                       trimmed.hasPrefix("# ") || trimmed.hasPrefix("> ") ||
-                       trimmed.first?.isNumber == true && trimmed.contains(". ") {
-                        return true
-                    }
-                }
-            }
-        }
-
-        // Heading complete
-        if buffer.hasSuffix("\n") && buffer.contains("#") {
-            let lines = buffer.split(separator: "\n", omittingEmptySubsequences: false)
-            if lines.count >= 2 {
-                let prevLine = String(lines[lines.count - 2])
-                if prevLine.trimmingCharacters(in: .whitespaces).hasPrefix("#") {
-                    return true
-                }
-            }
-        }
-
-        // Table row complete
-        if buffer.hasSuffix("|\n") {
-            return true
-        }
-
-        // Fallback: flush on any newline if buffer is getting large
-        if buffer.count > 200 && buffer.hasSuffix("\n") {
-            return true
-        }
-
-        return false
-    }
+    // MARK: - Conversation Management
 
     func clearMessages() {
         conversationManager.saveCurrentConversation()
