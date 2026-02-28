@@ -1,11 +1,19 @@
 import Foundation
 import Combine
 
+/// Protocol for recording blocking statistics.
+/// Enables dependency injection for testability.
+@MainActor
+protocol BlockingStatsRecording {
+    /// Record a page load with the given enabled categories.
+    func recordPageLoad(enabledCategories: Set<BlockingCategory>)
+}
+
 /// Tracks content blocking statistics across browser sessions
 /// Note: WebKit Content Blockers don't provide per-request callbacks,
 /// so this tracks estimated stats based on rule categories and page loads
 @MainActor
-class BlockingStats: ObservableObject {
+class BlockingStats: ObservableObject, BlockingStatsRecording {
 
     /// Shared singleton instance
     static let shared = BlockingStats()
