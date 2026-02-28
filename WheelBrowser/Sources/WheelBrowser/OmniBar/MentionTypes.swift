@@ -131,10 +131,6 @@ enum Mention: Identifiable, Equatable, Hashable {
     /// Returns the embedding category for this mention type, if applicable
     var embeddingCategory: EmbeddingCategory? {
         switch self {
-        case .history:
-            return .history
-        case .web:
-            return .web
         case .readingList:
             return .readingList
         default:

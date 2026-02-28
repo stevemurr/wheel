@@ -1169,13 +1169,9 @@ struct OmniBar: View {
         // Capture mentions before clearing
         let currentMentions = omniState.mentions
 
-        // Collect embedding categories from mentions
-        var embeddingCategories: Set<EmbeddingCategory> = []
-        for mention in currentMentions {
-            if let category = mention.embeddingCategory {
-                embeddingCategories.insert(category)
-            }
-        }
+        let hasHistory = currentMentions.contains { if case .history = $0 { return true } else { return false } }
+        let hasWeb = currentMentions.contains { if case .web = $0 { return true } else { return false } }
+        let hasReadingList = currentMentions.contains { if case .readingList = $0 { return true } else { return false } }
 
         omniState.inputText = ""
         isSending = true
@@ -1186,26 +1182,58 @@ struct OmniBar: View {
             // Extract content from all mentioned sources
             var pageContexts: [PageContext] = []
 
-            // Handle category-based semantic search (@History, @Web, @ReadingList)
-            if !embeddingCategories.isEmpty {
-                let searchResults = await SemanticSearchManagerV2.shared.searchWithCategories(
-                    query: content,
-                    categories: embeddingCategories,
-                    limit: 5
-                )
+            // @history — fast local fuzzy search on BrowsingHistory
+            if hasHistory {
+                let historyResults = BrowsingHistory.shared.search(query: content, limit: 5)
+                for entry in historyResults {
+                    let ctx = PageContext(
+                        url: entry.url,
+                        title: entry.title,
+                        textContent: """
+                        [From History]
+                        URL: \(entry.url)
+                        Title: \(entry.title)
+                        """
+                    )
+                    pageContexts.append(ctx)
+                }
+            }
 
-                for result in searchResults {
-                    let categoryNames = embeddingCategories.map { $0.displayName }.joined(separator: ", ")
-                    let historyContext = PageContext(
+            // @web — semantic search across all DIndex categories (no filter)
+            if hasWeb {
+                let webResults = await SemanticSearchManagerV2.shared.search(query: content, limit: 5)
+                for result in webResults {
+                    let ctx = PageContext(
                         url: result.page.url,
                         title: result.page.title,
                         textContent: """
-                        [From \(categoryNames)]
+                        [From Web]
                         URL: \(result.page.url)
                         \(result.page.snippet)
                         """
                     )
-                    pageContexts.append(historyContext)
+                    pageContexts.append(ctx)
+                }
+            }
+
+            // @readingList — category-filtered semantic search (skip if @web already covers it)
+            if hasReadingList && !hasWeb {
+                let rlResults = await SemanticSearchManagerV2.shared.searchWithCategories(
+                    query: content,
+                    categories: [.readingList],
+                    limit: 5
+                )
+                for result in rlResults {
+                    let ctx = PageContext(
+                        url: result.page.url,
+                        title: result.page.title,
+                        textContent: """
+                        [From Reading List]
+                        URL: \(result.page.url)
+                        \(result.page.snippet)
+                        """
+                    )
+                    pageContexts.append(ctx)
                 }
             }
 
