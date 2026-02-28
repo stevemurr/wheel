@@ -116,7 +116,7 @@ struct ReadingListRow: View {
     @State private var showRemoveButton = false
 
     private var domain: String {
-        item.url.host?.replacingOccurrences(of: "www.", with: "") ?? ""
+        item.url.cleanDomain
     }
 
     private var savedDateString: String {

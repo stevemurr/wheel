@@ -91,8 +91,8 @@ struct DockTabItem: View {
 
     private var faviconContent: some View {
         Group {
-            if let url = tab.url, let host = url.host {
-                Text(String(host.replacingOccurrences(of: "www.", with: "").prefix(1)).uppercased())
+            if let url = tab.url, !url.cleanDomain.isEmpty {
+                Text(url.domainInitial)
                     .font(.system(size: 18, weight: .semibold))
                     .foregroundColor(textColor)
             } else {

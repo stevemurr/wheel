@@ -8,7 +8,7 @@ struct DomainGradient {
     static func gradient(for host: String?) -> LinearGradient {
         let colors: [Color]
         if let host = host {
-            let cleanHost = host.replacingOccurrences(of: "www.", with: "")
+            let cleanHost = host.removingWWWPrefix
             let hash = abs(cleanHost.hashValue)
             let hue1 = Double(hash % 360) / 360.0
             let hue2 = Double((hash / 360) % 360) / 360.0
@@ -37,7 +37,7 @@ struct DomainGradient {
     static func placeholderGradient(for host: String?) -> LinearGradient {
         let colors: [Color]
         if let host = host {
-            let cleanHost = host.replacingOccurrences(of: "www.", with: "")
+            let cleanHost = host.removingWWWPrefix
             let hash = abs(cleanHost.hashValue)
             let hue1 = Double(hash % 360) / 360.0
             let hue2 = Double((hash / 360) % 360) / 360.0
@@ -65,8 +65,7 @@ struct DomainGradient {
     /// - Returns: The uppercase first character of the domain (without www.)
     static func initial(for host: String?) -> String {
         if let host = host {
-            let cleanHost = host.replacingOccurrences(of: "www.", with: "")
-            return String(cleanHost.prefix(1)).uppercased()
+            return String(host.removingWWWPrefix.prefix(1)).uppercased()
         }
         return "N"
     }

@@ -20,11 +20,8 @@ public enum DomainColor {
     /// - Parameter urlString: The URL string
     /// - Returns: A color based on the host/domain, or a default if no host
     public static func colorForURL(_ urlString: String) -> Color {
-        guard let url = URL(string: urlString),
-              let host = url.host else {
-            return .secondary
-        }
-        let domain = host.replacingOccurrences(of: "www.", with: "")
+        let domain = urlString.urlCleanDomain
+        guard !domain.isEmpty else { return .secondary }
         return color(for: domain)
     }
 }

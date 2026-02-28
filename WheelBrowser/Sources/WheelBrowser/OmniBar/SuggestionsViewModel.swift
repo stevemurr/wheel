@@ -2,42 +2,60 @@ import SwiftUI
 
 /// Represents a suggestion that can be either an open tab or a history entry
 enum Suggestion: Identifiable {
-    case openTab(tab: Tab, score: Int)
-    case history(entry: HistoryEntry, score: Int)
+    case openTab(tab: Tab, score: Int, titleMatches: [Int] = [], urlMatches: [Int] = [])
+    case history(entry: HistoryEntry, score: Int, titleMatches: [Int] = [], urlMatches: [Int] = [])
 
     var id: UUID {
         switch self {
-        case .openTab(let tab, _):
+        case .openTab(let tab, _, _, _):
             return tab.id
-        case .history(let entry, _):
+        case .history(let entry, _, _, _):
             return entry.id
         }
     }
 
     var title: String {
         switch self {
-        case .openTab(let tab, _):
+        case .openTab(let tab, _, _, _):
             return tab.title
-        case .history(let entry, _):
+        case .history(let entry, _, _, _):
             return entry.title
         }
     }
 
     var url: String {
         switch self {
-        case .openTab(let tab, _):
+        case .openTab(let tab, _, _, _):
             return tab.url?.absoluteString ?? ""
-        case .history(let entry, _):
+        case .history(let entry, _, _, _):
             return entry.url
         }
     }
 
     var score: Int {
         switch self {
-        case .openTab(_, let score):
+        case .openTab(_, let score, _, _):
             return score
-        case .history(_, let score):
+        case .history(_, let score, _, _):
             return score
+        }
+    }
+
+    var titleMatches: [Int] {
+        switch self {
+        case .openTab(_, _, let matches, _):
+            return matches
+        case .history(_, _, let matches, _):
+            return matches
+        }
+    }
+
+    var urlMatches: [Int] {
+        switch self {
+        case .openTab(_, _, _, let matches):
+            return matches
+        case .history(_, _, _, let matches):
+            return matches
         }
     }
 
@@ -48,7 +66,7 @@ enum Suggestion: Identifiable {
 
     /// Returns the tab ID if this is an open tab suggestion
     var tabId: UUID? {
-        if case .openTab(let tab, _) = self {
+        if case .openTab(let tab, _, _, _) = self {
             return tab.id
         }
         return nil
@@ -59,7 +77,7 @@ enum Suggestion: Identifiable {
         switch self {
         case .openTab:
             return Date() // Open tabs are considered "current"
-        case .history(let entry, _):
+        case .history(let entry, _, _, _):
             return entry.timestamp
         }
     }
@@ -103,7 +121,7 @@ class SuggestionsViewModel: ObservableObject {
 
             // Convert history results to suggestions, excluding URLs that are already open tabs
             let openTabURLs = Set(allSuggestions.compactMap { suggestion -> String? in
-                if case .openTab(let tab, _) = suggestion {
+                if case .openTab(let tab, _, _, _) = suggestion {
                     return tab.url?.absoluteString
                 }
                 return nil
@@ -112,11 +130,17 @@ class SuggestionsViewModel: ObservableObject {
             for entry in historyResults {
                 // Skip if this URL is already shown as an open tab
                 if !openTabURLs.contains(entry.url) {
-                    // Calculate score for consistent ordering
-                    let titleScore = FuzzySearch.score(query: query, target: entry.title)
-                    let urlScore = FuzzySearch.score(query: query, target: entry.url)
+                    let titleMatch = FuzzySearch.match(query: query, target: entry.title)
+                    let urlMatch = FuzzySearch.match(query: query, target: entry.url)
+                    let titleScore = titleMatch?.score ?? 0
+                    let urlScore = urlMatch?.score ?? 0
                     let bestScore = max(titleScore, urlScore)
-                    allSuggestions.append(.history(entry: entry, score: bestScore))
+                    allSuggestions.append(.history(
+                        entry: entry,
+                        score: bestScore,
+                        titleMatches: titleMatch?.matchedIndices ?? [],
+                        urlMatches: urlMatch?.matchedIndices ?? []
+                    ))
                 }
             }
 
@@ -153,7 +177,7 @@ class SuggestionsViewModel: ObservableObject {
 
         // Get open tab URLs to filter history
         let openTabURLs = Set(allSuggestions.compactMap { suggestion -> String? in
-            if case .openTab(let tab, _) = suggestion {
+            if case .openTab(let tab, _, _, _) = suggestion {
                 return tab.url?.absoluteString
             }
             return nil
@@ -179,20 +203,25 @@ class SuggestionsViewModel: ObservableObject {
         }
 
         return tabs.compactMap { tab -> Suggestion? in
-            let titleScore = FuzzySearch.score(query: query, target: tab.title)
-            let urlScore: Int
+            let titleMatch = FuzzySearch.match(query: query, target: tab.title)
+            let urlMatch: FuzzyMatch?
             if let url = tab.url {
-                urlScore = FuzzySearch.score(query: query, target: url.absoluteString)
+                urlMatch = FuzzySearch.match(query: query, target: url.absoluteString)
             } else {
-                urlScore = 0
+                urlMatch = nil
             }
 
-            let bestScore = max(titleScore, urlScore)
+            let bestScore = max(titleMatch?.score ?? 0, urlMatch?.score ?? 0)
 
             // Filter out tabs with no match
             guard bestScore > 0 else { return nil }
 
-            return .openTab(tab: tab, score: bestScore)
+            return .openTab(
+                tab: tab,
+                score: bestScore,
+                titleMatches: titleMatch?.matchedIndices ?? [],
+                urlMatches: urlMatch?.matchedIndices ?? []
+            )
         }
     }
 

@@ -22,4 +22,9 @@ extension String {
         guard let url = URL(string: self) else { return "" }
         return url.cleanDomain
     }
+
+    /// Removes the "www." prefix from a host string if present
+    var removingWWWPrefix: String {
+        replacingOccurrences(of: "www.", with: "")
+    }
 }

@@ -200,6 +200,8 @@ struct SemanticResultRow: View {
     private let cachedDisplayURL: String
     /// Cached domain color (computed once at init)
     private let cachedDomainColor: Color
+    /// Query terms that matched (for highlighting)
+    private let matchedTerms: [String]
 
     init(result: SemanticSearchResult, isSelected: Bool, onSelect: @escaping () -> Void) {
         self.result = result
@@ -207,30 +209,16 @@ struct SemanticResultRow: View {
         self.onSelect = onSelect
 
         // Pre-compute expensive string operations
-        let domain: String
-        if let url = URL(string: result.page.url), let host = url.host {
-            domain = host.replacingOccurrences(of: "www.", with: "")
-        } else {
-            domain = ""
-        }
-        self.cachedDomain = domain
+        self.cachedDomain = result.page.url.urlCleanDomain
 
         // Pre-compute display URL
-        var displayURL = result.page.url
-        displayURL = displayURL.replacingOccurrences(of: "https://", with: "")
-        displayURL = displayURL.replacingOccurrences(of: "http://", with: "")
-        displayURL = displayURL.replacingOccurrences(of: "www.", with: "")
-        if displayURL.count > 50 {
-            displayURL = String(displayURL.prefix(47)) + "..."
-        }
-        self.cachedDisplayURL = displayURL
+        self.cachedDisplayURL = URLFormatter.shared.displayURL(result.page.url, maxLength: 50)
 
-        // Pre-compute domain color
-        let colors: [Color] = [
-            .blue, .purple, .pink, .red, .orange, .yellow, .green, .teal, .cyan, .indigo
-        ]
-        let hash = domain.utf8.reduce(0) { $0 &+ Int($1) }
-        self.cachedDomainColor = colors[abs(hash) % colors.count]
+        // Pre-compute domain color using shared utility
+        self.cachedDomainColor = DomainColor.color(for: result.page.url.urlCleanDomain)
+
+        // Extract matched terms for highlighting
+        self.matchedTerms = result.page.citation?.matchedBy ?? []
     }
 
     private var scorePercentage: Int {
@@ -245,18 +233,16 @@ struct SemanticResultRow: View {
 
             // Title, citation, and URL
             VStack(alignment: .leading, spacing: 3) {
-                Text(result.page.title.isEmpty ? cachedDomain : result.page.title)
+                highlightTerms(in: result.page.title.isEmpty ? cachedDomain : result.page.title)
                     .font(.system(size: 13))
-                    .foregroundColor(.primary)
                     .lineLimit(1)
 
                 // Citation view with section breadcrumbs and quote-styled content
                 if let citation = result.page.citation {
                     citationView(citation)
                 } else if !result.page.snippet.isEmpty {
-                    Text(result.page.snippet)
+                    highlightTerms(in: result.page.snippet)
                         .font(.system(size: 11))
-                        .foregroundColor(.secondary)
                         .lineLimit(2)
                 }
 
@@ -360,12 +346,49 @@ struct SemanticResultRow: View {
                     .fill(Color.orange)
                     .frame(width: 2)
 
-                Text(citation.content.prefix(200))
+                highlightTerms(in: String(citation.content.prefix(200)))
                     .font(.system(size: 11))
                     .italic()
-                    .foregroundColor(.secondary)
                     .lineLimit(2)
             }
         }
+    }
+
+    /// Highlight occurrences of matched query terms in the given string
+    private func highlightTerms(in string: String) -> Text {
+        guard !matchedTerms.isEmpty else {
+            return Text(string).foregroundColor(.primary)
+        }
+
+        let lowerString = string.lowercased()
+        var highlighted = Set<Int>()
+
+        // Find all character positions that match any query term
+        for term in matchedTerms {
+            let lowerTerm = term.lowercased()
+            var searchStart = lowerString.startIndex
+            while let range = lowerString.range(of: lowerTerm, range: searchStart..<lowerString.endIndex) {
+                let startOffset = lowerString.distance(from: lowerString.startIndex, to: range.lowerBound)
+                let endOffset = lowerString.distance(from: lowerString.startIndex, to: range.upperBound)
+                for i in startOffset..<endOffset {
+                    highlighted.insert(i)
+                }
+                searchStart = range.upperBound
+            }
+        }
+
+        guard !highlighted.isEmpty else {
+            return Text(string).foregroundColor(.primary)
+        }
+
+        var result = Text("")
+        for (i, char) in string.enumerated() {
+            if highlighted.contains(i) {
+                result = result + Text(String(char)).bold().foregroundColor(.primary)
+            } else {
+                result = result + Text(String(char)).foregroundColor(.secondary)
+            }
+        }
+        return result
     }
 }

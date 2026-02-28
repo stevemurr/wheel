@@ -42,10 +42,7 @@ class URLFormatter {
 
     /// Extract domain from URL string
     func domain(from urlString: String) -> String {
-        guard let url = URL(string: urlString), let host = url.host else {
-            return ""
-        }
-        return host.replacingOccurrences(of: "www.", with: "")
+        urlString.urlCleanDomain
     }
 
     /// Clear the cache

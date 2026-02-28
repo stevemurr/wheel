@@ -110,6 +110,7 @@ struct OmniPanel<Content: View>: View {
                         Circle()
                             .fill(Color(nsColor: .controlBackgroundColor))
                     )
+                    .contentShape(Circle())
             }
             .buttonStyle(.plain)
         }
@@ -288,16 +289,8 @@ struct SuggestionRow: View {
 
     @State private var isHovering = false
 
-    /// Cached colors array for domain coloring (avoids recreation on every call)
-    private static let domainColors: [Color] = [
-        .blue, .purple, .pink, .red, .orange, .yellow, .green, .teal, .cyan, .indigo
-    ]
-
     private var domain: String {
-        if let url = URL(string: suggestion.url), let host = url.host {
-            return host.replacingOccurrences(of: "www.", with: "")
-        }
-        return ""
+        suggestion.url.urlCleanDomain
     }
 
     private var title: String {
@@ -313,9 +306,8 @@ struct SuggestionRow: View {
             // Title and URL
             VStack(alignment: .leading, spacing: 2) {
                 HStack(spacing: 6) {
-                    Text(title)
+                    highlightedText(title, matchedIndices: suggestion.titleMatches)
                         .font(.system(size: 13))
-                        .foregroundColor(.primary)
                         .lineLimit(1)
 
                     // Open tab badge
@@ -332,9 +324,8 @@ struct SuggestionRow: View {
                     }
                 }
 
-                Text(displayURL)
+                highlightedText(displayURL, matchedIndices: displayURLMatchIndices)
                     .font(.system(size: 11))
-                    .foregroundColor(.secondary)
                     .lineLimit(1)
             }
 
@@ -432,9 +423,50 @@ struct SuggestionRow: View {
         URLFormatter.shared.displayURL(suggestion.url)
     }
 
+    /// Adjust URL match indices to account for scheme/www stripping in display URL
+    private var displayURLMatchIndices: [Int] {
+        let rawURL = suggestion.url
+        let indices = suggestion.urlMatches
+        guard !indices.isEmpty else { return [] }
+
+        // Calculate how many characters were stripped from the front
+        var stripped = 0
+        if rawURL.hasPrefix("https://") {
+            stripped = 8
+        } else if rawURL.hasPrefix("http://") {
+            stripped = 7
+        }
+        // Account for www. removal (only if it follows the scheme)
+        let afterScheme = rawURL.dropFirst(stripped)
+        if afterScheme.hasPrefix("www.") {
+            stripped += 4
+        }
+
+        return indices.compactMap { idx in
+            let adjusted = idx - stripped
+            return adjusted >= 0 ? adjusted : nil
+        }
+    }
+
+    private func highlightedText(_ string: String, matchedIndices: [Int]) -> Text {
+        guard !matchedIndices.isEmpty else {
+            return Text(string).foregroundColor(.primary)
+        }
+        let indexSet = Set(matchedIndices)
+        var result = Text("")
+        for (i, char) in string.enumerated() {
+            if indexSet.contains(i) {
+                result = result + Text(String(char)).bold().foregroundColor(.primary)
+            } else {
+                result = result + Text(String(char)).foregroundColor(.secondary)
+            }
+        }
+        return result
+    }
+
     private var relativeTimeString: String? {
         // Only for history entries
-        guard case .history(let entry, _) = suggestion else { return nil }
+        guard case .history(let entry, _, _, _) = suggestion else { return nil }
         return entry.timestamp.relativeTimeString()
     }
 

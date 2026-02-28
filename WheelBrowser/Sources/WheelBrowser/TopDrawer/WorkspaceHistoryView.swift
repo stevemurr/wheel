@@ -167,11 +167,8 @@ struct HistoryEntryRow: View {
     }
 
     private var domainString: String {
-        guard let url = URL(string: entry.url),
-              let host = url.host else {
-            return entry.url
-        }
-        return host.replacingOccurrences(of: "www.", with: "")
+        let domain = entry.url.urlCleanDomain
+        return domain.isEmpty ? entry.url : domain
     }
 
     var body: some View {

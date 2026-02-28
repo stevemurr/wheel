@@ -214,15 +214,7 @@ class AgentManager: ObservableObject {
                     }
 
                     // Parse SSE stream
-                    for try await line in bytes.lines {
-                        // SSE format: "data: {...}" or "data: [DONE]"
-                        guard line.hasPrefix("data: ") else { continue }
-
-                        let jsonString = String(line.dropFirst(6))
-                        if jsonString == "[DONE]" {
-                            break
-                        }
-
+                    for try await jsonString in bytes.sseEvents {
                         guard let data = jsonString.data(using: .utf8),
                               let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
                               let choices = json["choices"] as? [[String: Any]],

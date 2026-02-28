@@ -21,8 +21,8 @@ class Tab: Identifiable, ObservableObject {
     /// Returns the URL host (without www.) if title is empty or "New Tab"
     var displayTitle: String {
         if title.isEmpty || title == "New Tab" {
-            if let host = url?.host {
-                return host.replacingOccurrences(of: "www.", with: "")
+            if let domain = url?.cleanDomain, !domain.isEmpty {
+                return domain
             }
             return "New Tab"
         }

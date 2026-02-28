@@ -1135,14 +1135,14 @@ struct OmniBar: View {
 
     private func handleSuggestionSelection(_ suggestion: Suggestion) {
         switch suggestion {
-        case .openTab(let tab, _):
+        case .openTab(let tab, _, _, _):
             browserState.selectTab(tab.id)
             isInputFocused = false
             omniState.dismissHistoryPanel()
             suggestionsVM.hide()
             omniState.inputText = tab.url?.absoluteString ?? ""
 
-        case .history(let entry, _):
+        case .history(let entry, _, _, _):
             omniState.inputText = entry.url
             self.tab.load(entry.url)
             isInputFocused = false

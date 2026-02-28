@@ -270,14 +270,7 @@ struct MentionSuggestionRow: View {
     }
 
     private func formatURL(_ urlString: String) -> String {
-        var url = urlString
-        url = url.replacingOccurrences(of: "https://", with: "")
-        url = url.replacingOccurrences(of: "http://", with: "")
-        url = url.replacingOccurrences(of: "www.", with: "")
-        if url.count > 40 {
-            url = String(url.prefix(37)) + "..."
-        }
-        return url
+        URLFormatter.shared.displayURL(urlString, maxLength: 40)
     }
 
     private func colorForDomain(_ domain: String) -> Color {

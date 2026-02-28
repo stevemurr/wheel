@@ -149,16 +149,10 @@ actor LettaClient {
                         throw LettaError.httpError(httpResponse.statusCode, nil)
                     }
 
-                    for try await line in bytes.lines {
-                        if line.hasPrefix("data: ") {
-                            let jsonString = String(line.dropFirst(6))
-                            if jsonString == "[DONE]" {
-                                break
-                            }
-                            if let data = jsonString.data(using: .utf8),
-                               let chunk = try? JSONDecoder().decode(StreamingChunk.self, from: data) {
-                                continuation.yield(chunk)
-                            }
+                    for try await jsonString in bytes.sseEvents {
+                        if let data = jsonString.data(using: .utf8),
+                           let chunk = try? JSONDecoder().decode(StreamingChunk.self, from: data) {
+                            continuation.yield(chunk)
                         }
                     }
 

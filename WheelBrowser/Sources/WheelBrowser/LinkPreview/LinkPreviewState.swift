@@ -208,9 +208,8 @@ class LinkPreviewState: ObservableObject {
 
         let (data, response) = try await URLSession.shared.data(for: request)
 
-        guard let httpResponse = response as? HTTPURLResponse,
-              (200...299).contains(httpResponse.statusCode),
-              let html = String(data: data, encoding: .utf8) else {
+        let _ = try response.asValidHTTPResponse()
+        guard let html = String(data: data, encoding: .utf8) else {
             throw URLError(.badServerResponse)
         }
 

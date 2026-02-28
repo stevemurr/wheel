@@ -170,14 +170,7 @@ public final class OpenAICompatibleClient: LLMClient, @unchecked Sendable {
                     }
 
                     // Parse SSE stream
-                    for try await line in bytes.lines {
-                        guard line.hasPrefix("data: ") else { continue }
-
-                        let jsonString = String(line.dropFirst(6))
-                        if jsonString == "[DONE]" {
-                            break
-                        }
-
+                    for try await jsonString in bytes.sseEvents {
                         guard let data = jsonString.data(using: .utf8),
                               let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
                               let choices = json["choices"] as? [[String: Any]],
