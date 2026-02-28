@@ -2,6 +2,55 @@ import Foundation
 import SwiftUI
 import DIndexClient
 
+/// Per-URL progress tracking
+struct UrlProgress: Identifiable {
+    let url: String
+    let depth: UInt8
+    var status: UrlProgressStatus
+    var title: String?
+    var chunksCreated: Int = 0
+    var durationMs: UInt64?
+    var error: String?
+
+    var id: String { url }
+
+    /// Display string for the URL (path component after host)
+    var displayPath: String {
+        guard let urlObj = URL(string: url) else { return url }
+        let path = urlObj.path
+        return path.isEmpty ? "/" : path
+    }
+}
+
+/// Status of an individual URL being scraped
+enum UrlProgressStatus {
+    case queued
+    case fetching
+    case indexed
+    case failed
+    case skipped
+
+    var iconName: String {
+        switch self {
+        case .queued: return "clock"
+        case .fetching: return "arrow.down.circle"
+        case .indexed: return "checkmark.circle.fill"
+        case .failed: return "xmark.circle.fill"
+        case .skipped: return "minus.circle"
+        }
+    }
+
+    var iconColor: Color {
+        switch self {
+        case .queued: return .secondary
+        case .fetching: return .cyan
+        case .indexed: return .green
+        case .failed: return .red
+        case .skipped: return .orange
+        }
+    }
+}
+
 /// Represents a scraping job with its current state
 struct ScrapeJob: Identifiable {
     let id: String
@@ -12,6 +61,13 @@ struct ScrapeJob: Identifiable {
     var total: UInt64?
     var rate: Double?
     var etaSeconds: UInt64?
+    var chunksIndexed: Int = 0
+
+    /// Per-URL progress tracking
+    var urlProgress: [UrlProgress] = []
+
+    /// URL currently being fetched
+    var currentUrl: String?
 
     /// Progress as a percentage (0.0 to 1.0)
     var progress: Double {
@@ -22,6 +78,16 @@ struct ScrapeJob: Identifiable {
     /// Display string for the URL (host only)
     var displayHost: String {
         url.host ?? url.absoluteString
+    }
+
+    /// Count of successfully indexed URLs
+    var indexedCount: Int {
+        urlProgress.filter { $0.status == .indexed }.count
+    }
+
+    /// Count of failed URLs
+    var failedCount: Int {
+        urlProgress.filter { $0.status == .failed }.count
     }
 }
 
@@ -69,9 +135,8 @@ class ScrapeManager: ObservableObject {
     @Published var jobs: [ScrapeJob] = []
     @Published var showScrapePanel: Bool = false
 
-    /// Polling interval for active jobs
-    private let pollInterval: TimeInterval = 2.0
-    private var pollTask: Task<Void, Never>?
+    /// Active SSE subscription tasks per job ID
+    private var subscriptionTasks: [String: Task<Void, Never>] = [:]
 
     /// Whether there are any active jobs
     var hasActiveJobs: Bool {
@@ -136,8 +201,8 @@ class ScrapeManager: ObservableObject {
             showScrapePanel = true
         }
 
-        // Start polling if not already running
-        startPollingIfNeeded()
+        // Subscribe to SSE events for this job
+        subscribeToJobEvents(jobId: jobId, service: service)
 
         Log.Scrape.info("Scrape job started: \(jobId)")
     }
@@ -145,6 +210,10 @@ class ScrapeManager: ObservableObject {
     /// Cancel a running job
     func cancelJob(_ jobId: String) async {
         guard let index = jobs.firstIndex(where: { $0.id == jobId }) else { return }
+
+        // Cancel SSE subscription
+        subscriptionTasks[jobId]?.cancel()
+        subscriptionTasks.removeValue(forKey: jobId)
 
         do {
             guard let service = SemanticSearchManagerV2.shared.dIndexService else {
@@ -160,6 +229,11 @@ class ScrapeManager: ObservableObject {
 
     /// Clear all completed/failed/cancelled jobs
     func clearCompleted() {
+        let completedIds = jobs.filter { !$0.status.isActive }.map { $0.id }
+        for id in completedIds {
+            subscriptionTasks[id]?.cancel()
+            subscriptionTasks.removeValue(forKey: id)
+        }
         jobs.removeAll { !$0.status.isActive }
     }
 
@@ -177,71 +251,111 @@ class ScrapeManager: ObservableObject {
         }
     }
 
-    // MARK: - Polling
+    // MARK: - SSE Event Handling
 
-    private func startPollingIfNeeded() {
-        guard pollTask == nil else { return }
+    private func subscribeToJobEvents(jobId: String, service: DIndexService) {
+        let stream = service.subscribeScrapeEvents(jobId: jobId)
 
-        pollTask = Task { [weak self] in
-            while !Task.isCancelled {
-                guard let self = self else { break }
-
-                // Check if there are active jobs
-                let hasActive = await MainActor.run { self.hasActiveJobs }
-                guard hasActive else {
-                    await MainActor.run { self.stopPolling() }
-                    break
-                }
-
-                // Poll all active jobs
-                await self.pollActiveJobs()
-
-                // Wait before next poll
-                try? await Task.sleep(nanoseconds: UInt64(pollInterval * 1_000_000_000))
-            }
-        }
-    }
-
-    private func stopPolling() {
-        pollTask?.cancel()
-        pollTask = nil
-    }
-
-    private func pollActiveJobs() async {
-        guard let service = SemanticSearchManagerV2.shared.dIndexService else { return }
-
-        // Get list of active job IDs
-        let activeJobIds = jobs.filter { $0.status.isActive }.map { $0.id }
-
-        for jobId in activeJobIds {
+        let task = Task { [weak self] in
             do {
-                let progress = try await service.getScrapeProgress(jobId: jobId)
-                await updateJobProgress(jobId: jobId, progress: progress)
+                for try await event in stream {
+                    guard let self = self else { break }
+                    if Task.isCancelled { break }
+
+                    await MainActor.run {
+                        self.handleScrapeEvent(event, jobId: jobId)
+                    }
+                }
             } catch {
-                Log.Scrape.warning("Failed to poll job \(jobId): \(error.localizedDescription)")
+                Log.Scrape.warning("SSE stream error for job \(jobId): \(error.localizedDescription)")
+            }
+
+            // Clean up subscription when done
+            await MainActor.run { [weak self] in
+                self?.subscriptionTasks.removeValue(forKey: jobId)
             }
         }
+
+        subscriptionTasks[jobId] = task
     }
 
-    private func updateJobProgress(jobId: String, progress: JobProgress) async {
-        await MainActor.run {
-            guard let index = jobs.firstIndex(where: { $0.id == jobId }) else { return }
+    private func handleScrapeEvent(_ event: ScrapeEvent, jobId: String) {
+        guard let index = jobs.firstIndex(where: { $0.id == jobId }) else { return }
 
-            jobs[index].current = progress.current
-            jobs[index].total = progress.total
-            jobs[index].rate = progress.rate
-            jobs[index].etaSeconds = progress.etaSeconds
+        switch event {
+        case .jobStarted(_, let seedUrls, _, _):
+            jobs[index].status = .scraping
+            jobs[index].total = UInt64(seedUrls.count)
+            Log.Scrape.debug("Job \(jobId) started with \(seedUrls.count) seed URLs")
 
-            // Update status based on stage
-            if progress.isCompleted {
-                jobs[index].status = .completed(pagesIndexed: Int(progress.current))
-            } else if progress.isFailed {
-                jobs[index].status = .failed(error: progress.errorMessage ?? "Unknown error")
-            } else if progress.stage.contains("index") {
-                jobs[index].status = .indexing
-            } else {
-                jobs[index].status = .scraping
+        case .urlQueued(_, let url, let depth, _):
+            // Add URL to progress tracking if not already present
+            if !jobs[index].urlProgress.contains(where: { $0.url == url }) {
+                jobs[index].urlProgress.append(UrlProgress(
+                    url: url,
+                    depth: depth,
+                    status: .queued
+                ))
             }
+
+        case .urlFetching(_, let url):
+            jobs[index].currentUrl = url
+            if let urlIndex = jobs[index].urlProgress.firstIndex(where: { $0.url == url }) {
+                jobs[index].urlProgress[urlIndex].status = .fetching
+            }
+
+        case .urlIndexed(_, let url, let title, _, let chunksCreated, let durationMs, _):
+            jobs[index].currentUrl = nil
+            if let urlIndex = jobs[index].urlProgress.firstIndex(where: { $0.url == url }) {
+                jobs[index].urlProgress[urlIndex].status = .indexed
+                jobs[index].urlProgress[urlIndex].title = title
+                jobs[index].urlProgress[urlIndex].chunksCreated = chunksCreated
+                jobs[index].urlProgress[urlIndex].durationMs = durationMs
+            }
+
+        case .urlFailed(_, let url, let error, let durationMs):
+            jobs[index].currentUrl = nil
+            if let urlIndex = jobs[index].urlProgress.firstIndex(where: { $0.url == url }) {
+                jobs[index].urlProgress[urlIndex].status = .failed
+                jobs[index].urlProgress[urlIndex].error = error
+                jobs[index].urlProgress[urlIndex].durationMs = durationMs
+            }
+
+        case .urlSkipped(_, let url, let reason):
+            if let urlIndex = jobs[index].urlProgress.firstIndex(where: { $0.url == url }) {
+                jobs[index].urlProgress[urlIndex].status = .skipped
+                jobs[index].urlProgress[urlIndex].error = reason
+            }
+
+        case .progress(_, let urlsProcessed, _, _, _, let urlsQueued, let chunksIndexed, _, let rate, let etaSeconds):
+            jobs[index].current = urlsProcessed
+            jobs[index].total = UInt64(urlsQueued) + urlsProcessed
+            jobs[index].chunksIndexed = chunksIndexed
+            jobs[index].rate = rate
+            jobs[index].etaSeconds = etaSeconds
+            jobs[index].status = .scraping
+
+        case .jobCompleted(_, let status, let stats, let error):
+            jobs[index].currentUrl = nil
+            if status == "completed" {
+                let pagesIndexed = stats?.documentsProcessed ?? jobs[index].indexedCount
+                jobs[index].status = .completed(pagesIndexed: pagesIndexed)
+                if let stats = stats {
+                    jobs[index].chunksIndexed = stats.chunksIndexed
+                }
+                // Refresh semantic search stats to show updated document count
+                Task {
+                    await SemanticSearchManagerV2.shared.refreshStats()
+                }
+            } else if status == "cancelled" {
+                jobs[index].status = .cancelled
+            } else {
+                jobs[index].status = .failed(error: error ?? "Unknown error")
+            }
+            Log.Scrape.info("Job \(jobId) completed with status: \(status)")
+
+        case .lagged(let missed):
+            Log.Scrape.warning("Job \(jobId) SSE lagged, missed \(missed) events")
         }
     }
 }

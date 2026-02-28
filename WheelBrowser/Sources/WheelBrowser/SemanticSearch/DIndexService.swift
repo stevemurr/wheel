@@ -64,7 +64,11 @@ actor DIndexService {
                 url: group.sourceUrl,
                 title: group.sourceTitle,
                 content: bestChunk.content,
-                score: group.relevanceScore
+                score: group.relevanceScore,
+                sectionHierarchy: bestChunk.sectionHierarchy,
+                matchedBy: bestChunk.matchedBy,
+                positionInDoc: bestChunk.positionInDoc,
+                chunkRelevanceScore: bestChunk.relevanceScore
             )
         }
         Log.Search.debug("DIndexService.search returned \(results.count) results (\(response.totalDocuments) documents)")
@@ -107,13 +111,32 @@ struct DIndexSearchItem: Identifiable, Sendable {
     let title: String?
     let content: String
     let score: Float
+    // Chunk metadata for citation display
+    let sectionHierarchy: [String]
+    let matchedBy: [String]
+    let positionInDoc: Float
+    let chunkRelevanceScore: Float
 
-    init(id: String, url: String?, title: String?, content: String, score: Float) {
+    init(
+        id: String,
+        url: String?,
+        title: String?,
+        content: String,
+        score: Float,
+        sectionHierarchy: [String] = [],
+        matchedBy: [String] = [],
+        positionInDoc: Float = 0.0,
+        chunkRelevanceScore: Float = 0.0
+    ) {
         self.id = id
         self.url = url
         self.title = title
         self.content = content
         self.score = score
+        self.sectionHierarchy = sectionHierarchy
+        self.matchedBy = matchedBy
+        self.positionInDoc = positionInDoc
+        self.chunkRelevanceScore = chunkRelevanceScore
     }
 }
 
@@ -164,5 +187,14 @@ extension DIndexService {
         Log.Search.debug("DIndexService.cancelScrape: jobId=\(jobId)")
         _ = try await client.cancelJob(jobId: jobId)
         Log.Search.info("DIndexService.cancelScrape completed")
+    }
+
+    /// Subscribe to real-time events for a scrape job via SSE
+    ///
+    /// - Parameter jobId: The job ID to subscribe to
+    /// - Returns: An async stream of scrape events
+    nonisolated func subscribeScrapeEvents(jobId: String) -> AsyncThrowingStream<ScrapeEvent, Error> {
+        Log.Search.debug("DIndexService.subscribeScrapeEvents: jobId=\(jobId)")
+        return client.subscribeToJobEvents(jobId: jobId)
     }
 }

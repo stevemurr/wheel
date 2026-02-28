@@ -243,14 +243,17 @@ struct SemanticResultRow: View {
             faviconView
                 .frame(width: 28, height: 28)
 
-            // Title, snippet, and URL
+            // Title, citation, and URL
             VStack(alignment: .leading, spacing: 3) {
                 Text(result.page.title.isEmpty ? cachedDomain : result.page.title)
                     .font(.system(size: 13))
                     .foregroundColor(.primary)
                     .lineLimit(1)
 
-                if !result.page.snippet.isEmpty {
+                // Citation view with section breadcrumbs and quote-styled content
+                if let citation = result.page.citation {
+                    citationView(citation)
+                } else if !result.page.snippet.isEmpty {
                     Text(result.page.snippet)
                         .font(.system(size: 11))
                         .foregroundColor(.secondary)
@@ -337,6 +340,32 @@ struct SemanticResultRow: View {
                     RoundedRectangle(cornerRadius: 6)
                         .fill(Color(nsColor: .controlBackgroundColor))
                 )
+        }
+    }
+
+    @ViewBuilder
+    private func citationView(_ citation: CitationInfo) -> some View {
+        VStack(alignment: .leading, spacing: 2) {
+            // Section breadcrumbs (chevron-separated hierarchy)
+            if !citation.sectionHierarchy.isEmpty {
+                Text(citation.sectionHierarchy.joined(separator: " › "))
+                    .font(.system(size: 9))
+                    .foregroundColor(.secondary)
+                    .lineLimit(1)
+            }
+
+            // Quote-styled content with orange left bar
+            HStack(alignment: .top, spacing: 6) {
+                Rectangle()
+                    .fill(Color.orange)
+                    .frame(width: 2)
+
+                Text(citation.content.prefix(200))
+                    .font(.system(size: 11))
+                    .italic()
+                    .foregroundColor(.secondary)
+                    .lineLimit(2)
+            }
         }
     }
 }

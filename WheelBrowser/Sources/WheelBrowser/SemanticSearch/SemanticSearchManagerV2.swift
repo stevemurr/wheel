@@ -170,6 +170,13 @@ class SemanticSearchManagerV2: ObservableObject {
             return results.map { item in
                 let hashValue = item.id.hashValue
                 let id = UInt64(bitPattern: Int64(hashValue))
+                let citation = CitationInfo(
+                    content: item.content,
+                    sectionHierarchy: item.sectionHierarchy,
+                    matchedBy: item.matchedBy,
+                    positionInDoc: item.positionInDoc,
+                    chunkScore: item.chunkRelevanceScore
+                )
                 return SemanticSearchResult(
                     id: id,
                     page: IndexedPage(
@@ -178,7 +185,8 @@ class SemanticSearchManagerV2: ObservableObject {
                         title: item.title ?? "",
                         snippet: String(item.content.prefix(200)),
                         timestamp: Date(),
-                        workspaceID: nil
+                        workspaceID: nil,
+                        citation: citation
                     ),
                     score: item.score
                 )
@@ -218,6 +226,13 @@ class SemanticSearchManagerV2: ObservableObject {
             return results.map { item in
                 let hashValue = item.id.hashValue
                 let id = UInt64(bitPattern: Int64(hashValue))
+                let citation = CitationInfo(
+                    content: item.content,
+                    sectionHierarchy: item.sectionHierarchy,
+                    matchedBy: item.matchedBy,
+                    positionInDoc: item.positionInDoc,
+                    chunkScore: item.chunkRelevanceScore
+                )
                 return SemanticSearchResult(
                     id: id,
                     page: IndexedPage(
@@ -226,7 +241,8 @@ class SemanticSearchManagerV2: ObservableObject {
                         title: item.title ?? "",
                         snippet: String(item.content.prefix(200)),
                         timestamp: Date(),
-                        workspaceID: nil
+                        workspaceID: nil,
+                        citation: citation
                     ),
                     score: item.score
                 )
@@ -261,6 +277,11 @@ class SemanticSearchManagerV2: ObservableObject {
         } catch {
             Log.Search.warning("Failed to get DIndex stats: \(error.localizedDescription)")
         }
+    }
+
+    /// Refresh index statistics (call after external indexing like scraping)
+    func refreshStats() async {
+        await updateStats()
     }
 
     // MARK: - Maintenance
@@ -300,6 +321,15 @@ extension SemanticSearchManagerV2 {
 
 // MARK: - Result Types
 
+/// Citation information from a matching chunk
+struct CitationInfo {
+    let content: String
+    let sectionHierarchy: [String]
+    let matchedBy: [String]
+    let positionInDoc: Float
+    let chunkScore: Float
+}
+
 /// A semantic search result
 struct SemanticSearchResult: Identifiable {
     let id: UInt64
@@ -315,4 +345,23 @@ struct IndexedPage: Identifiable {
     let snippet: String
     let timestamp: Date
     let workspaceID: UUID?
+    let citation: CitationInfo?
+
+    init(
+        id: UInt64,
+        url: String,
+        title: String,
+        snippet: String,
+        timestamp: Date,
+        workspaceID: UUID?,
+        citation: CitationInfo? = nil
+    ) {
+        self.id = id
+        self.url = url
+        self.title = title
+        self.snippet = snippet
+        self.timestamp = timestamp
+        self.workspaceID = workspaceID
+        self.citation = citation
+    }
 }

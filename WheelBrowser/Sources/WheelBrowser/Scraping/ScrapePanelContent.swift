@@ -33,38 +33,88 @@ struct ScrapeJobRow: View {
     let job: ScrapeJob
     let manager: ScrapeManager
     @State private var isHovering = false
+    @State private var isExpanded = false
 
     var body: some View {
-        HStack(spacing: 12) {
-            // Status icon
-            statusIcon
-                .frame(width: 28, height: 28)
+        VStack(spacing: 0) {
+            // Main job row
+            HStack(spacing: 12) {
+                // Expand/collapse chevron for active jobs with URLs
+                if job.status.isActive && !job.urlProgress.isEmpty {
+                    Button(action: {
+                        withAnimation(.easeInOut(duration: 0.15)) {
+                            isExpanded.toggle()
+                        }
+                    }) {
+                        Image(systemName: isExpanded ? "chevron.down" : "chevron.right")
+                            .font(.system(size: 10, weight: .semibold))
+                            .foregroundColor(.secondary)
+                            .frame(width: 16, height: 16)
+                    }
+                    .buttonStyle(.plain)
+                } else {
+                    // Status icon for non-active jobs
+                    statusIcon
+                        .frame(width: 28, height: 28)
+                }
 
-            // Info
-            VStack(alignment: .leading, spacing: 2) {
-                Text(job.displayHost)
-                    .font(.system(size: 13))
-                    .lineLimit(1)
-                    .foregroundColor(.primary)
+                // Info
+                VStack(alignment: .leading, spacing: 2) {
+                    HStack(spacing: 6) {
+                        Text(job.displayHost)
+                            .font(.system(size: 13))
+                            .lineLimit(1)
+                            .foregroundColor(.primary)
 
-                statusSubtitle
+                        // Show current URL being fetched
+                        if job.status.isActive, let currentUrl = job.currentUrl,
+                           let urlObj = URL(string: currentUrl) {
+                            Text(urlObj.path.isEmpty ? "/" : urlObj.path)
+                                .font(.system(size: 11))
+                                .foregroundColor(.cyan)
+                                .lineLimit(1)
+                                .truncationMode(.middle)
+                        }
+                    }
+
+                    statusSubtitle
+                }
+
+                Spacer()
+
+                // Right side: progress or action buttons
+                rightIndicator
+            }
+            .padding(.horizontal, 12)
+            .padding(.vertical, 8)
+            .background(
+                RoundedRectangle(cornerRadius: 8)
+                    .fill(isHovering ? Color(nsColor: .controlBackgroundColor).opacity(0.5) : Color.clear)
+            )
+            .contentShape(Rectangle())
+            .onHover { hovering in
+                withAnimation(.easeInOut(duration: 0.1)) {
+                    isHovering = hovering
+                }
             }
 
-            Spacer()
+            // Expanded URL list
+            if isExpanded && !job.urlProgress.isEmpty {
+                VStack(spacing: 2) {
+                    ForEach(job.urlProgress.suffix(20)) { urlProgress in
+                        UrlProgressRow(urlProgress: urlProgress)
+                    }
 
-            // Right side: progress or action buttons
-            rightIndicator
-        }
-        .padding(.horizontal, 12)
-        .padding(.vertical, 8)
-        .background(
-            RoundedRectangle(cornerRadius: 8)
-                .fill(isHovering ? Color(nsColor: .controlBackgroundColor).opacity(0.5) : Color.clear)
-        )
-        .contentShape(Rectangle())
-        .onHover { hovering in
-            withAnimation(.easeInOut(duration: 0.1)) {
-                isHovering = hovering
+                    if job.urlProgress.count > 20 {
+                        Text("+ \(job.urlProgress.count - 20) more URLs")
+                            .font(.system(size: 10))
+                            .foregroundColor(.secondary)
+                            .padding(.vertical, 4)
+                    }
+                }
+                .padding(.leading, 40)
+                .padding(.trailing, 12)
+                .padding(.bottom, 8)
             }
         }
     }
@@ -143,11 +193,36 @@ struct ScrapeJobRow: View {
     }
 
     private var progressText: some View {
-        Group {
+        HStack(spacing: 4) {
+            // Pages processed
             if let total = job.total, total > 0 {
-                Text("\(job.current)/\(total) pages")
+                Text("\(job.current)/\(total)")
             } else {
-                Text("\(job.current) pages")
+                Text("\(job.current)")
+            }
+
+            // Show indexed/failed counts if available
+            if job.indexedCount > 0 || job.failedCount > 0 {
+                Text("•")
+                    .foregroundColor(.secondary.opacity(0.5))
+
+                if job.indexedCount > 0 {
+                    HStack(spacing: 2) {
+                        Image(systemName: "checkmark.circle.fill")
+                            .font(.system(size: 8))
+                            .foregroundColor(.green)
+                        Text("\(job.indexedCount)")
+                    }
+                }
+
+                if job.failedCount > 0 {
+                    HStack(spacing: 2) {
+                        Image(systemName: "xmark.circle.fill")
+                            .font(.system(size: 8))
+                            .foregroundColor(.red)
+                        Text("\(job.failedCount)")
+                    }
+                }
             }
         }
         .font(.system(size: 11))
@@ -220,5 +295,69 @@ struct ScrapeJobRow: View {
                         .fill(Color(nsColor: .controlBackgroundColor).opacity(0.5))
                 )
         }
+    }
+}
+
+/// Row displaying progress for a single URL
+struct UrlProgressRow: View {
+    let urlProgress: UrlProgress
+
+    var body: some View {
+        HStack(spacing: 8) {
+            // Status icon
+            Image(systemName: urlProgress.status.iconName)
+                .font(.system(size: 10))
+                .foregroundColor(urlProgress.status.iconColor)
+                .frame(width: 14)
+
+            // URL path
+            Text(urlProgress.displayPath)
+                .font(.system(size: 11))
+                .foregroundColor(.primary.opacity(0.8))
+                .lineLimit(1)
+                .truncationMode(.middle)
+
+            Spacer()
+
+            // Additional info based on status
+            Group {
+                switch urlProgress.status {
+                case .indexed:
+                    if urlProgress.chunksCreated > 0 {
+                        Text("\(urlProgress.chunksCreated) chunks")
+                            .foregroundColor(.green.opacity(0.8))
+                    }
+
+                case .failed:
+                    if let error = urlProgress.error {
+                        Text(error)
+                            .foregroundColor(.red.opacity(0.8))
+                            .lineLimit(1)
+                    }
+
+                case .skipped:
+                    if let reason = urlProgress.error {
+                        Text(reason)
+                            .foregroundColor(.orange.opacity(0.8))
+                            .lineLimit(1)
+                    }
+
+                case .fetching:
+                    ProgressView()
+                        .scaleEffect(0.4)
+
+                case .queued:
+                    Text("queued")
+                        .foregroundColor(.secondary)
+                }
+            }
+            .font(.system(size: 10))
+        }
+        .padding(.vertical, 3)
+        .padding(.horizontal, 8)
+        .background(
+            RoundedRectangle(cornerRadius: 4)
+                .fill(Color(nsColor: .controlBackgroundColor).opacity(0.3))
+        )
     }
 }
