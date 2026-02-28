@@ -350,6 +350,10 @@ struct OmniBar: View {
                     },
                     onDismiss: {
                         scrapeManager.dismissPanel()
+                        omniState.dismissScrapingPanel()
+                        if omniState.mode == .scraping {
+                            omniState.mode = .address
+                        }
                     }
                 ) {
                     ScrapePanelContent(manager: scrapeManager)
@@ -605,8 +609,12 @@ struct OmniBar: View {
                 omniState.dismissReadingListPanel()
                 isInputFocused = false
                 omniState.inputText = ""
-            } else if omniState.showScrapingPanel {
+            } else if omniState.showScrapingPanel || scrapeManager.showScrapePanel {
                 omniState.dismissScrapingPanel()
+                scrapeManager.dismissPanel()
+                if omniState.mode == .scraping {
+                    omniState.mode = .address
+                }
                 isInputFocused = false
                 omniState.inputText = ""
             } else if isInputFocused {
