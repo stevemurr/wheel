@@ -1,12 +1,30 @@
 import SwiftUI
 
+// MARK: - Panel Wrapper
+
+/// Applies shared styling to all OmniBar panels: horizontal padding, bottom spacing, transition, and z-index.
+private struct PanelWrapperModifier: ViewModifier {
+    func body(content: Content) -> some View {
+        content
+            .padding(.horizontal, 16)
+            .padding(.bottom, 8)
+            .transition(.opacity.combined(with: .scale(scale: 0.95, anchor: .center)))
+            .zIndex(999)
+    }
+}
+
+private extension View {
+    func panelWrapper() -> some View {
+        modifier(PanelWrapperModifier())
+    }
+}
+
 // MARK: - Panel Views
 
 extension OmniBar {
     @ViewBuilder
     var panelViews: some View {
         // Suggestions panel - appears above OmniBar when in address mode (shows tabs + history)
-        // Only render panels when visible to avoid rendering overhead
         if hasAppeared && isHistoryPanelVisible {
             OmniPanel(
                 title: "Go to",
@@ -14,22 +32,15 @@ extension OmniBar {
                 iconColor: .accentColor,
                 borderColor: .blue,
                 subtitle: historyPanelSubtitle,
-                onDismiss: {
-                    omniState.dismissHistoryPanel()
-                }
+                onDismiss: { omniState.dismissHistoryPanel() }
             ) {
                 HistoryPanelContent(
                     viewModel: suggestionsVM,
                     searchText: omniState.inputText,
-                    onSelect: { suggestion in
-                        handleSuggestionSelection(suggestion)
-                    }
+                    onSelect: { suggestion in handleSuggestionSelection(suggestion) }
                 )
             }
-            .padding(.horizontal, 16)
-            .padding(.bottom, 8)
-            .transition(.opacity.combined(with: .scale(scale: 0.95, anchor: .center)))
-            .zIndex(999)
+            .panelWrapper()
         }
 
         // Chat panel - appears above OmniBar when in chat mode
@@ -41,28 +52,19 @@ extension OmniBar {
                 borderColor: .purple,
                 subtitle: agentManager.isLoading ? "Thinking..." : nil,
                 menuContent: {
-                    AnyView(
-                        Group {
-                            Button("Clear Chat") {
-                                agentManager.clearMessages()
-                            }
-                            Divider()
-                            Button("Reset Agent", role: .destructive) {
-                                Task { await agentManager.resetAgent() }
-                            }
+                    AnyView(Group {
+                        Button("Clear Chat") { agentManager.clearMessages() }
+                        Divider()
+                        Button("Reset Agent", role: .destructive) {
+                            Task { await agentManager.resetAgent() }
                         }
-                    )
+                    })
                 },
-                onDismiss: {
-                    omniState.dismissChatPanel()
-                }
+                onDismiss: { omniState.dismissChatPanel() }
             ) {
                 ChatPanelContent(agentManager: agentManager)
             }
-            .padding(.horizontal, 16)
-            .padding(.bottom, 8)
-            .transition(.opacity.combined(with: .scale(scale: 0.95, anchor: .center)))
-            .zIndex(999)
+            .panelWrapper()
         }
 
         // Semantic search panel - appears above OmniBar when in semantic mode
@@ -74,31 +76,22 @@ extension OmniBar {
                 borderColor: .orange,
                 subtitle: semanticPanelSubtitle,
                 menuContent: {
-                    AnyView(
-                        Group {
-                            Button("Clear Index") {
-                                Task { await semanticSearchManager.clearIndex() }
-                            }
+                    AnyView(Group {
+                        Button("Clear Index") {
+                            Task { await semanticSearchManager.clearIndex() }
                         }
-                    )
+                    })
                 },
-                onDismiss: {
-                    omniState.dismissSemanticPanel()
-                }
+                onDismiss: { omniState.dismissSemanticPanel() }
             ) {
                 SemanticSearchPanelContent(
                     viewModel: semanticSearchVM,
                     searchManager: semanticSearchManager,
                     searchText: omniState.inputText,
-                    onSelect: { result in
-                        handleSemanticSelection(result)
-                    }
+                    onSelect: { result in handleSemanticSelection(result) }
                 )
             }
-            .padding(.horizontal, 16)
-            .padding(.bottom, 8)
-            .transition(.opacity.combined(with: .scale(scale: 0.95, anchor: .center)))
-            .zIndex(999)
+            .panelWrapper()
         }
 
         // Agent panel - appears above OmniBar when in agent mode
@@ -110,30 +103,19 @@ extension OmniBar {
                 borderColor: .green,
                 subtitle: agentPanelSubtitle,
                 menuContent: {
-                    AnyView(
-                        Group {
-                            Button("Cancel Task") {
-                                agentEngine.cancel()
-                            }
+                    AnyView(Group {
+                        Button("Cancel Task") { agentEngine.cancel() }
                             .disabled(!agentEngine.isRunning)
-                            Divider()
-                            Button("Clear History") {
-                                agentEngine.steps = []
-                            }
+                        Divider()
+                        Button("Clear History") { agentEngine.steps = [] }
                             .disabled(agentEngine.steps.isEmpty)
-                        }
-                    )
+                    })
                 },
-                onDismiss: {
-                    omniState.dismissAgentPanel()
-                }
+                onDismiss: { omniState.dismissAgentPanel() }
             ) {
                 AgentPanelContent(agentEngine: agentEngine, browserState: browserState)
             }
-            .padding(.horizontal, 16)
-            .padding(.bottom, 8)
-            .transition(.opacity.combined(with: .scale(scale: 0.95, anchor: .center)))
-            .zIndex(999)
+            .panelWrapper()
         }
 
         // Reading list panel - appears above OmniBar when in reading list mode
@@ -144,22 +126,15 @@ extension OmniBar {
                 iconColor: .pink,
                 borderColor: .pink,
                 subtitle: readingListPanelSubtitle,
-                onDismiss: {
-                    omniState.dismissReadingListPanel()
-                }
+                onDismiss: { omniState.dismissReadingListPanel() }
             ) {
                 ReadingListPanelContent(
                     viewModel: readingListVM,
                     searchText: omniState.inputText,
-                    onSelect: { item in
-                        handleReadingListSelection(item)
-                    }
+                    onSelect: { item in handleReadingListSelection(item) }
                 )
             }
-            .padding(.horizontal, 16)
-            .padding(.bottom, 8)
-            .transition(.opacity.combined(with: .scale(scale: 0.95, anchor: .center)))
-            .zIndex(999)
+            .panelWrapper()
         }
 
         // Downloads panel - appears above OmniBar when downloads are active
@@ -171,29 +146,20 @@ extension OmniBar {
                 borderColor: .blue,
                 subtitle: downloadsPanelSubtitle,
                 menuContent: {
-                    AnyView(
-                        Group {
-                            Button("Clear Completed") {
-                                downloadManager.clearCompleted()
-                            }
-                            Button("Show in Finder") {
-                                if let url = FileManager.default.urls(for: .downloadsDirectory, in: .userDomainMask).first {
-                                    NSWorkspace.shared.open(url)
-                                }
+                    AnyView(Group {
+                        Button("Clear Completed") { downloadManager.clearCompleted() }
+                        Button("Show in Finder") {
+                            if let url = FileManager.default.urls(for: .downloadsDirectory, in: .userDomainMask).first {
+                                NSWorkspace.shared.open(url)
                             }
                         }
-                    )
+                    })
                 },
-                onDismiss: {
-                    downloadManager.dismissPanel()
-                }
+                onDismiss: { downloadManager.dismissPanel() }
             ) {
                 DownloadsPanelContent(manager: downloadManager)
             }
-            .padding(.horizontal, 16)
-            .padding(.bottom, 8)
-            .transition(.opacity.combined(with: .scale(scale: 0.95, anchor: .center)))
-            .zIndex(999)
+            .panelWrapper()
         }
 
         // Scrape panel - appears above OmniBar when in scraping mode or when scrape jobs are active
@@ -205,17 +171,13 @@ extension OmniBar {
                 borderColor: .cyan,
                 subtitle: scrapePanelSubtitle,
                 menuContent: {
-                    AnyView(
-                        Group {
-                            Button("New Scrape...") {
-                                NotificationCenter.default.post(name: .scrapePage, object: nil)
-                            }
-                            Divider()
-                            Button("Clear Completed") {
-                                scrapeManager.clearCompleted()
-                            }
+                    AnyView(Group {
+                        Button("New Scrape...") {
+                            NotificationCenter.default.post(name: .scrapePage, object: nil)
                         }
-                    )
+                        Divider()
+                        Button("Clear Completed") { scrapeManager.clearCompleted() }
+                    })
                 },
                 onDismiss: {
                     scrapeManager.dismissPanel()
@@ -227,10 +189,7 @@ extension OmniBar {
             ) {
                 ScrapePanelContent(manager: scrapeManager)
             }
-            .padding(.horizontal, 16)
-            .padding(.bottom, 8)
-            .transition(.opacity.combined(with: .scale(scale: 0.95, anchor: .center)))
-            .zIndex(999)
+            .panelWrapper()
         }
     }
 }
