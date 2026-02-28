@@ -197,6 +197,7 @@ struct SemanticResultRow: View {
     let onSelect: () -> Void
 
     @State private var isHovering = false
+    @State private var isExpanded = false
 
     /// Cached domain extracted from URL (computed once at init)
     private let cachedDomain: String
@@ -251,6 +252,35 @@ struct SemanticResultRow: View {
                     highlightTerms(in: result.page.snippet)
                         .font(.system(size: 11))
                         .lineLimit(2)
+                }
+
+                // Expand/collapse for additional citations
+                if !result.page.additionalCitations.isEmpty {
+                    Button(action: {
+                        withAnimation(.easeInOut(duration: 0.15)) {
+                            isExpanded.toggle()
+                        }
+                    }) {
+                        Text("\(isExpanded ? "▾" : "▸") \(result.page.additionalCitations.count) more citation\(result.page.additionalCitations.count == 1 ? "" : "s")")
+                            .font(.system(size: 10, weight: .medium))
+                            .foregroundColor(.orange)
+                    }
+                    .buttonStyle(.plain)
+
+                    if isExpanded {
+                        ForEach(Array(result.page.additionalCitations.enumerated()), id: \.offset) { _, citation in
+                            citationView(citation)
+                        }
+                    }
+                }
+
+                // Matched-by badges
+                if !result.page.documentMatchedBy.isEmpty {
+                    HStack(spacing: 4) {
+                        ForEach(Array(result.page.documentMatchedBy.sorted()), id: \.self) { method in
+                            matchedByBadge(method)
+                        }
+                    }
                 }
 
                 Text(cachedDisplayURL)
@@ -353,12 +383,37 @@ struct SemanticResultRow: View {
                     .fill(Color.orange)
                     .frame(width: 2)
 
-                highlightTerms(in: result.page.snippet.isEmpty ? String(citation.content.prefix(200)) : result.page.snippet)
+                let snippetText = citation.snippet ?? (result.page.snippet.isEmpty ? String(citation.content.prefix(200)) : result.page.snippet)
+                highlightTerms(in: snippetText)
                     .font(.system(size: 11))
                     .italic()
                     .lineLimit(2)
             }
         }
+    }
+
+    @ViewBuilder
+    private func matchedByBadge(_ method: String) -> some View {
+        let (label, color): (String, Color) = {
+            switch method.lowercased() {
+            case "dense":
+                return ("Semantic", .purple)
+            case "bm25":
+                return ("Keyword", .blue)
+            default:
+                return (method.capitalized, .gray)
+            }
+        }()
+
+        Text(label)
+            .font(.system(size: 9, weight: .medium))
+            .foregroundColor(color)
+            .padding(.horizontal, 6)
+            .padding(.vertical, 2)
+            .background(
+                Capsule()
+                    .fill(color.opacity(0.12))
+            )
     }
 
     /// Highlight occurrences of matched query terms in the given string

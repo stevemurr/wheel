@@ -161,30 +161,7 @@ class SemanticSearchManagerV2: ObservableObject {
         do {
             let results = try await dindex.search(query: query, limit: limit)
             Log.Search.debug("search completed: \(results.count) results for '\(query)'")
-            return results.map { item in
-                let hashValue = item.id.hashValue
-                let id = UInt64(bitPattern: Int64(hashValue))
-                let citation = CitationInfo(
-                    content: item.content,
-                    sectionHierarchy: item.sectionHierarchy,
-                    matchedBy: item.matchedBy,
-                    positionInDoc: item.positionInDoc,
-                    chunkScore: item.chunkRelevanceScore
-                )
-                return SemanticSearchResult(
-                    id: id,
-                    page: IndexedPage(
-                        id: id,
-                        url: item.url ?? "",
-                        title: item.title ?? "",
-                        snippet: item.snippet ?? String(item.content.prefix(200)),
-                        timestamp: Date(),
-                        workspaceID: nil,
-                        citation: citation
-                    ),
-                    score: item.score
-                )
-            }
+            return results.map { makeResult(from: $0) }
         } catch {
             // Cancellation is expected during debounced typing - log as debug, not error
             if (error as? URLError)?.code == .cancelled || error is CancellationError {
@@ -217,30 +194,7 @@ class SemanticSearchManagerV2: ObservableObject {
                 limit: limit
             )
             Log.Search.debug("searchWithCategories completed: \(results.count) results for '\(query)'")
-            return results.map { item in
-                let hashValue = item.id.hashValue
-                let id = UInt64(bitPattern: Int64(hashValue))
-                let citation = CitationInfo(
-                    content: item.content,
-                    sectionHierarchy: item.sectionHierarchy,
-                    matchedBy: item.matchedBy,
-                    positionInDoc: item.positionInDoc,
-                    chunkScore: item.chunkRelevanceScore
-                )
-                return SemanticSearchResult(
-                    id: id,
-                    page: IndexedPage(
-                        id: id,
-                        url: item.url ?? "",
-                        title: item.title ?? "",
-                        snippet: item.snippet ?? String(item.content.prefix(200)),
-                        timestamp: Date(),
-                        workspaceID: nil,
-                        citation: citation
-                    ),
-                    score: item.score
-                )
-            }
+            return results.map { makeResult(from: $0) }
         } catch {
             // Cancellation is expected during debounced typing - log as debug, not error
             if (error as? URLError)?.code == .cancelled || error is CancellationError {
@@ -251,6 +205,45 @@ class SemanticSearchManagerV2: ObservableObject {
             }
             return []
         }
+    }
+
+    /// Convert a DIndexSearchItem to a SemanticSearchResult
+    private func makeResult(from item: DIndexSearchItem) -> SemanticSearchResult {
+        let hashValue = item.id.hashValue
+        let id = UInt64(bitPattern: Int64(hashValue))
+        let citation = CitationInfo(
+            content: item.content,
+            snippet: item.snippet,
+            sectionHierarchy: item.sectionHierarchy,
+            matchedBy: item.matchedBy,
+            positionInDoc: item.positionInDoc,
+            chunkScore: item.chunkRelevanceScore
+        )
+        let additionalCitations = item.additionalChunks.map { chunk in
+            CitationInfo(
+                content: chunk.content,
+                snippet: chunk.snippet,
+                sectionHierarchy: chunk.sectionHierarchy,
+                matchedBy: chunk.matchedBy,
+                positionInDoc: chunk.positionInDoc,
+                chunkScore: chunk.relevanceScore
+            )
+        }
+        return SemanticSearchResult(
+            id: id,
+            page: IndexedPage(
+                id: id,
+                url: item.url ?? "",
+                title: item.title ?? "",
+                snippet: item.snippet ?? String(item.content.prefix(200)),
+                timestamp: Date(),
+                workspaceID: nil,
+                citation: citation,
+                additionalCitations: additionalCitations,
+                documentMatchedBy: item.documentMatchedBy
+            ),
+            score: item.score
+        )
     }
 
     // MARK: - Stats
@@ -318,10 +311,27 @@ extension SemanticSearchManagerV2 {
 /// Citation information from a matching chunk
 struct CitationInfo {
     let content: String
+    let snippet: String?
     let sectionHierarchy: [String]
     let matchedBy: [String]
     let positionInDoc: Float
     let chunkScore: Float
+
+    init(
+        content: String,
+        snippet: String? = nil,
+        sectionHierarchy: [String] = [],
+        matchedBy: [String] = [],
+        positionInDoc: Float = 0.0,
+        chunkScore: Float = 0.0
+    ) {
+        self.content = content
+        self.snippet = snippet
+        self.sectionHierarchy = sectionHierarchy
+        self.matchedBy = matchedBy
+        self.positionInDoc = positionInDoc
+        self.chunkScore = chunkScore
+    }
 }
 
 /// A semantic search result
@@ -340,6 +350,8 @@ struct IndexedPage: Identifiable {
     let timestamp: Date
     let workspaceID: UUID?
     let citation: CitationInfo?
+    let additionalCitations: [CitationInfo]
+    let documentMatchedBy: Set<String>
 
     init(
         id: UInt64,
@@ -348,7 +360,9 @@ struct IndexedPage: Identifiable {
         snippet: String,
         timestamp: Date,
         workspaceID: UUID?,
-        citation: CitationInfo? = nil
+        citation: CitationInfo? = nil,
+        additionalCitations: [CitationInfo] = [],
+        documentMatchedBy: Set<String> = []
     ) {
         self.id = id
         self.url = url
@@ -357,5 +371,7 @@ struct IndexedPage: Identifiable {
         self.timestamp = timestamp
         self.workspaceID = workspaceID
         self.citation = citation
+        self.additionalCitations = additionalCitations
+        self.documentMatchedBy = documentMatchedBy
     }
 }

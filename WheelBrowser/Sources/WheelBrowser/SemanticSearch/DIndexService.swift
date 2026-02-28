@@ -56,9 +56,26 @@ actor DIndexService {
         } else {
             response = try await client.search(query: query, topK: limit)
         }
-        // Return one result per document using the best chunk's content
+        // Return one result per document using the best chunk's content,
+        // with additional chunks for expandable citations
         let results = response.results.compactMap { group -> DIndexSearchItem? in
             guard let bestChunk = group.chunks.first else { return nil }
+
+            let extraChunks = group.chunks.dropFirst().prefix(4).map { chunk in
+                DIndexChunkInfo(
+                    content: chunk.content,
+                    snippet: chunk.snippet,
+                    sectionHierarchy: chunk.sectionHierarchy,
+                    matchedBy: chunk.matchedBy,
+                    positionInDoc: chunk.positionInDoc,
+                    relevanceScore: chunk.relevanceScore
+                )
+            }
+
+            let allMatchedBy = group.chunks.reduce(into: Set<String>()) { result, chunk in
+                chunk.matchedBy.forEach { result.insert($0) }
+            }
+
             return DIndexSearchItem(
                 id: group.documentId,
                 url: group.sourceUrl,
@@ -69,7 +86,9 @@ actor DIndexService {
                 matchedBy: bestChunk.matchedBy,
                 positionInDoc: bestChunk.positionInDoc,
                 chunkRelevanceScore: bestChunk.relevanceScore,
-                snippet: bestChunk.snippet
+                snippet: bestChunk.snippet,
+                additionalChunks: Array(extraChunks),
+                documentMatchedBy: allMatchedBy
             )
         }
         Log.Search.debug("DIndexService.search returned \(results.count) results (\(response.totalDocuments) documents)")
@@ -105,6 +124,16 @@ actor DIndexService {
     }
 }
 
+/// Metadata for an additional matching chunk beyond the best one
+struct DIndexChunkInfo: Sendable {
+    let content: String
+    let snippet: String?
+    let sectionHierarchy: [String]
+    let matchedBy: [String]
+    let positionInDoc: Float
+    let relevanceScore: Float
+}
+
 /// A search result from DIndex, converted to a local-friendly format
 struct DIndexSearchItem: Identifiable, Sendable {
     let id: String
@@ -119,6 +148,10 @@ struct DIndexSearchItem: Identifiable, Sendable {
     let chunkRelevanceScore: Float
     /// Best-matching sentence snippet from the server
     let snippet: String?
+    /// Additional matching chunks beyond the best (capped at 4)
+    let additionalChunks: [DIndexChunkInfo]
+    /// Union of matchedBy across all chunks in this document
+    let documentMatchedBy: Set<String>
 
     init(
         id: String,
@@ -130,7 +163,9 @@ struct DIndexSearchItem: Identifiable, Sendable {
         matchedBy: [String] = [],
         positionInDoc: Float = 0.0,
         chunkRelevanceScore: Float = 0.0,
-        snippet: String? = nil
+        snippet: String? = nil,
+        additionalChunks: [DIndexChunkInfo] = [],
+        documentMatchedBy: Set<String> = []
     ) {
         self.id = id
         self.url = url
@@ -142,6 +177,8 @@ struct DIndexSearchItem: Identifiable, Sendable {
         self.positionInDoc = positionInDoc
         self.chunkRelevanceScore = chunkRelevanceScore
         self.snippet = snippet
+        self.additionalChunks = additionalChunks
+        self.documentMatchedBy = documentMatchedBy
     }
 }
 
