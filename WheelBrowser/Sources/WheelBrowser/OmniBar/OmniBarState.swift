@@ -8,6 +8,7 @@ enum OmniBarMode: Equatable {
     case semantic
     case agent
     case readingList
+    case scraping
 }
 
 /// Manages the state of the OmniBar
@@ -21,6 +22,7 @@ class OmniBarState: ObservableObject {
     @Published var showSemanticPanel: Bool = false
     @Published var showAgentPanel: Bool = false
     @Published var showReadingListPanel: Bool = false
+    @Published var showScrapingPanel: Bool = false
 
     // MARK: - Mention State
     @Published var mentions: [Mention] = [.currentPage]
@@ -44,6 +46,9 @@ class OmniBarState: ObservableObject {
                 mode = .readingList
                 inputText = ""
             case .readingList:
+                mode = .scraping
+                inputText = ""
+            case .scraping:
                 mode = .address
                 inputText = ""
             }
@@ -55,7 +60,7 @@ class OmniBarState: ObservableObject {
         withAnimation(.easeInOut(duration: 0.15)) {
             switch mode {
             case .address:
-                mode = .readingList
+                mode = .scraping
                 inputText = ""
             case .chat:
                 mode = .address
@@ -68,6 +73,9 @@ class OmniBarState: ObservableObject {
                 inputText = ""
             case .readingList:
                 mode = .agent
+                inputText = ""
+            case .scraping:
+                mode = .readingList
                 inputText = ""
             }
         }
@@ -152,6 +160,7 @@ class OmniBarState: ObservableObject {
             showSemanticPanel = false
             showAgentPanel = false
             showReadingListPanel = false
+            showScrapingPanel = false
         }
     }
 
@@ -170,6 +179,7 @@ class OmniBarState: ObservableObject {
             showSemanticPanel = false
             showAgentPanel = false
             showReadingListPanel = false
+            showScrapingPanel = false
         }
     }
 
@@ -188,6 +198,7 @@ class OmniBarState: ObservableObject {
             showChatPanel = false
             showAgentPanel = false
             showReadingListPanel = false
+            showScrapingPanel = false
         }
     }
 
@@ -206,6 +217,7 @@ class OmniBarState: ObservableObject {
             showChatPanel = false
             showSemanticPanel = false
             showReadingListPanel = false
+            showScrapingPanel = false
         }
     }
 
@@ -224,6 +236,26 @@ class OmniBarState: ObservableObject {
             showChatPanel = false
             showSemanticPanel = false
             showAgentPanel = false
+            showScrapingPanel = false
+        }
+    }
+
+    /// Dismiss scraping panel
+    func dismissScrapingPanel() {
+        withAnimation(.spring(response: 0.3, dampingFraction: 0.85)) {
+            showScrapingPanel = false
+        }
+    }
+
+    /// Show scraping panel
+    func openScrapingPanel() {
+        withAnimation(.spring(response: 0.3, dampingFraction: 0.85)) {
+            showScrapingPanel = true
+            showHistoryPanel = false
+            showChatPanel = false
+            showSemanticPanel = false
+            showAgentPanel = false
+            showReadingListPanel = false
         }
     }
 
@@ -240,6 +272,8 @@ class OmniBarState: ObservableObject {
             return showAgentPanel && self.mode == .agent
         case .readingList:
             return showReadingListPanel && self.mode == .readingList
+        case .scraping:
+            return showScrapingPanel && self.mode == .scraping
         }
     }
 
@@ -256,6 +290,8 @@ class OmniBarState: ObservableObject {
             return "wand.and.stars"
         case .readingList:
             return "bookmark.fill"
+        case .scraping:
+            return "network"
         }
     }
 
@@ -272,6 +308,8 @@ class OmniBarState: ObservableObject {
             return "Describe a task for the agent..."
         case .readingList:
             return "Search reading list..."
+        case .scraping:
+            return "Scraping jobs..."
         }
     }
 
@@ -288,6 +326,8 @@ class OmniBarState: ObservableObject {
             return .green
         case .readingList:
             return .pink
+        case .scraping:
+            return .cyan
         }
     }
 }

@@ -8,11 +8,32 @@ struct ScrapePanelContent: View {
         ScrollView(showsIndicators: true) {
             LazyVStack(spacing: 2) {
                 if manager.jobs.isEmpty {
-                    OmniPanelEmptyState(
-                        icon: "network",
-                        title: "No scrape jobs",
-                        subtitle: "Use Menu > Scrape Page to start"
-                    )
+                    VStack(spacing: 16) {
+                        OmniPanelEmptyState(
+                            icon: "network",
+                            title: "No scrape jobs",
+                            subtitle: "Scrape and index pages for semantic search"
+                        )
+
+                        Button(action: {
+                            NotificationCenter.default.post(name: .scrapePage, object: nil)
+                        }) {
+                            HStack(spacing: 6) {
+                                Image(systemName: "plus.circle.fill")
+                                    .font(.system(size: 12, weight: .medium))
+                                Text("Start New Scrape")
+                                    .font(.system(size: 12, weight: .medium))
+                            }
+                            .foregroundColor(.white)
+                            .padding(.horizontal, 14)
+                            .padding(.vertical, 8)
+                            .background(
+                                Capsule()
+                                    .fill(Color.cyan)
+                            )
+                        }
+                        .buttonStyle(.plain)
+                    }
                     .padding(.top, 30)
                 } else {
                     ForEach(manager.jobs) { job in

@@ -45,6 +45,7 @@ struct OmniBar: View {
     private var isSemanticPanelVisible: Bool { omniState.isPanelVisible(for: .semantic) }
     private var isAgentPanelVisible: Bool { omniState.isPanelVisible(for: .agent) }
     private var isReadingListPanelVisible: Bool { omniState.isPanelVisible(for: .readingList) }
+    private var isScrapingPanelVisible: Bool { omniState.isPanelVisible(for: .scraping) || scrapeManager.showScrapePanel }
 
     /// Bitmask combining all panel visibility states for animation consolidation
     private var visiblePanelFlags: UInt8 {
@@ -55,7 +56,7 @@ struct OmniBar: View {
         if isAgentPanelVisible { flags |= 8 }
         if isReadingListPanelVisible { flags |= 16 }
         if downloadManager.showDownloadsPanel { flags |= 32 }
-        if scrapeManager.showScrapePanel { flags |= 64 }
+        if isScrapingPanelVisible { flags |= 64 }
         return flags
     }
 
@@ -323,8 +324,8 @@ struct OmniBar: View {
                 .zIndex(999)
             }
 
-            // Scrape panel - appears above OmniBar when scrape jobs are active
-            if hasAppeared && scrapeManager.showScrapePanel {
+            // Scrape panel - appears above OmniBar when in scraping mode or when scrape jobs are active
+            if hasAppeared && (omniState.mode == .scraping || scrapeManager.showScrapePanel) {
                 OmniPanel(
                     title: "Web Scraping",
                     icon: "network",
@@ -334,6 +335,10 @@ struct OmniBar: View {
                     menuContent: {
                         AnyView(
                             Group {
+                                Button("New Scrape...") {
+                                    NotificationCenter.default.post(name: .scrapePage, object: nil)
+                                }
+                                Divider()
                                 Button("Clear Completed") {
                                     scrapeManager.clearCompleted()
                                 }
@@ -408,6 +413,8 @@ struct OmniBar: View {
                     break
                 case .agent:
                     break
+                case .scraping:
+                    break
                 }
             }
         }
@@ -448,6 +455,8 @@ struct OmniBar: View {
                     break
                 case .agent:
                     omniState.openAgentPanel()
+                case .scraping:
+                    omniState.openScrapingPanel()
                 }
             }
         }
@@ -462,6 +471,7 @@ struct OmniBar: View {
                 omniState.dismissSemanticPanel()
                 omniState.dismissAgentPanel()
                 omniState.dismissReadingListPanel()
+                omniState.dismissScrapingPanel()
                 // Remove current page mention if on new tab (no URL)
                 if tab.url == nil {
                     omniState.removeMention(.currentPage)
@@ -476,6 +486,7 @@ struct OmniBar: View {
                 omniState.dismissSemanticPanel()
                 omniState.dismissAgentPanel()
                 omniState.dismissReadingListPanel()
+                omniState.dismissScrapingPanel()
                 if isInputFocused {
                     omniState.openHistoryPanel()
                 }
@@ -486,6 +497,7 @@ struct OmniBar: View {
                 omniState.dismissHistoryPanel()
                 omniState.dismissAgentPanel()
                 omniState.dismissReadingListPanel()
+                omniState.dismissScrapingPanel()
                 omniState.openSemanticPanel()
                 if !omniState.inputText.isEmpty {
                     semanticSearchVM.search(query: omniState.inputText)
@@ -498,6 +510,7 @@ struct OmniBar: View {
                 omniState.dismissHistoryPanel()
                 omniState.dismissSemanticPanel()
                 omniState.dismissReadingListPanel()
+                omniState.dismissScrapingPanel()
                 omniState.openAgentPanel()
             case .readingList:
                 suggestionsVM.hide()
@@ -506,8 +519,19 @@ struct OmniBar: View {
                 omniState.dismissHistoryPanel()
                 omniState.dismissSemanticPanel()
                 omniState.dismissAgentPanel()
+                omniState.dismissScrapingPanel()
                 omniState.openReadingListPanel()
                 readingListVM.loadSavedPages()
+            case .scraping:
+                suggestionsVM.hide()
+                semanticSearchVM.clear()
+                readingListVM.clear()
+                omniState.dismissChatPanel()
+                omniState.dismissHistoryPanel()
+                omniState.dismissSemanticPanel()
+                omniState.dismissAgentPanel()
+                omniState.dismissReadingListPanel()
+                omniState.openScrapingPanel()
             }
         }
         .onAppear {
@@ -578,11 +602,15 @@ struct OmniBar: View {
                 omniState.dismissReadingListPanel()
                 isInputFocused = false
                 omniState.inputText = ""
+            } else if omniState.showScrapingPanel {
+                omniState.dismissScrapingPanel()
+                isInputFocused = false
+                omniState.inputText = ""
             } else if isInputFocused {
                 isInputFocused = false
                 if omniState.mode == .address {
                     omniState.inputText = tab.url?.absoluteString ?? ""
-                } else if omniState.mode == .semantic || omniState.mode == .agent || omniState.mode == .readingList {
+                } else if omniState.mode == .semantic || omniState.mode == .agent || omniState.mode == .readingList || omniState.mode == .scraping {
                     omniState.inputText = ""
                 }
             }
@@ -1069,6 +1097,9 @@ struct OmniBar: View {
                 .buttonStyle(.plain)
                 .transition(.opacity.combined(with: .scale))
             }
+
+        case .scraping:
+            EmptyView() // Scraping mode has no action button
         }
     }
 
@@ -1086,6 +1117,8 @@ struct OmniBar: View {
             submitAgent()
         case .readingList:
             submitReadingList()
+        case .scraping:
+            break // Scraping mode has no text input submission
         }
     }
 
@@ -1536,7 +1569,7 @@ struct OmniBarTextField: NSViewRepresentable {
                 case .readingList:
                     parent.readingListVM.selectPrevious()
                     return true
-                case .chat, .agent:
+                case .chat, .agent, .scraping:
                     return false
                 }
             } else if commandSelector == #selector(NSResponder.moveDown(_:)) {
@@ -1550,7 +1583,7 @@ struct OmniBarTextField: NSViewRepresentable {
                 case .readingList:
                     parent.readingListVM.selectNext()
                     return true
-                case .chat, .agent:
+                case .chat, .agent, .scraping:
                     return false
                 }
             } else if commandSelector == #selector(NSResponder.insertTab(_:)) {
