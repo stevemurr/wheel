@@ -68,7 +68,8 @@ actor DIndexService {
                 sectionHierarchy: bestChunk.sectionHierarchy,
                 matchedBy: bestChunk.matchedBy,
                 positionInDoc: bestChunk.positionInDoc,
-                chunkRelevanceScore: bestChunk.relevanceScore
+                chunkRelevanceScore: bestChunk.relevanceScore,
+                snippet: bestChunk.snippet
             )
         }
         Log.Search.debug("DIndexService.search returned \(results.count) results (\(response.totalDocuments) documents)")
@@ -116,6 +117,8 @@ struct DIndexSearchItem: Identifiable, Sendable {
     let matchedBy: [String]
     let positionInDoc: Float
     let chunkRelevanceScore: Float
+    /// Best-matching sentence snippet from the server
+    let snippet: String?
 
     init(
         id: String,
@@ -126,7 +129,8 @@ struct DIndexSearchItem: Identifiable, Sendable {
         sectionHierarchy: [String] = [],
         matchedBy: [String] = [],
         positionInDoc: Float = 0.0,
-        chunkRelevanceScore: Float = 0.0
+        chunkRelevanceScore: Float = 0.0,
+        snippet: String? = nil
     ) {
         self.id = id
         self.url = url
@@ -137,6 +141,7 @@ struct DIndexSearchItem: Identifiable, Sendable {
         self.matchedBy = matchedBy
         self.positionInDoc = positionInDoc
         self.chunkRelevanceScore = chunkRelevanceScore
+        self.snippet = snippet
     }
 }
 

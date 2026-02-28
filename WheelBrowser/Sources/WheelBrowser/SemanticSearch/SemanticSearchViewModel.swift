@@ -96,6 +96,7 @@ struct SemanticSearchPanelContent: View {
                             SemanticResultRow(
                                 result: result,
                                 isSelected: viewModel.results.firstIndex(where: { $0.id == result.id }) == viewModel.selectedIndex,
+                                searchQuery: searchText,
                                 onSelect: { onSelect(result) }
                             )
                             .id(result.id)
@@ -203,7 +204,7 @@ struct SemanticResultRow: View {
     /// Query terms that matched (for highlighting)
     private let matchedTerms: [String]
 
-    init(result: SemanticSearchResult, isSelected: Bool, onSelect: @escaping () -> Void) {
+    init(result: SemanticSearchResult, isSelected: Bool, searchQuery: String = "", onSelect: @escaping () -> Void) {
         self.result = result
         self.isSelected = isSelected
         self.onSelect = onSelect
@@ -217,8 +218,11 @@ struct SemanticResultRow: View {
         // Pre-compute domain color using shared utility
         self.cachedDomainColor = DomainColor.color(for: result.page.url.urlCleanDomain)
 
-        // Extract matched terms for highlighting
-        self.matchedTerms = result.page.citation?.matchedBy ?? []
+        // Split search query into words for highlighting
+        self.matchedTerms = searchQuery
+            .split(separator: " ")
+            .map { String($0) }
+            .filter { $0.count >= 2 }
     }
 
     private var scorePercentage: Int {
@@ -346,7 +350,7 @@ struct SemanticResultRow: View {
                     .fill(Color.orange)
                     .frame(width: 2)
 
-                highlightTerms(in: String(citation.content.prefix(200)))
+                highlightTerms(in: result.page.snippet.isEmpty ? String(citation.content.prefix(200)) : result.page.snippet)
                     .font(.system(size: 11))
                     .italic()
                     .lineLimit(2)

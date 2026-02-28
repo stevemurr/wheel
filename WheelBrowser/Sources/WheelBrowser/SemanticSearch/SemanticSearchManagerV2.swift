@@ -183,7 +183,7 @@ class SemanticSearchManagerV2: ObservableObject {
                         id: id,
                         url: item.url ?? "",
                         title: item.title ?? "",
-                        snippet: String(item.content.prefix(200)),
+                        snippet: item.snippet ?? String(item.content.prefix(200)),
                         timestamp: Date(),
                         workspaceID: nil,
                         citation: citation
@@ -239,7 +239,7 @@ class SemanticSearchManagerV2: ObservableObject {
                         id: id,
                         url: item.url ?? "",
                         title: item.title ?? "",
-                        snippet: String(item.content.prefix(200)),
+                        snippet: item.snippet ?? String(item.content.prefix(200)),
                         timestamp: Date(),
                         workspaceID: nil,
                         citation: citation
