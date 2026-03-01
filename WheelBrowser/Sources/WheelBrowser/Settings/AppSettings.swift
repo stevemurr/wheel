@@ -1,7 +1,6 @@
 import Foundation
 import SwiftUI
 import AppKit
-import DIndexClient
 
 // MARK: - Appearance Mode
 
@@ -62,17 +61,6 @@ class AppSettings: ObservableObject {
     /// DIndex API key (stored in UserDefaults for simplicity; move to Keychain for production)
     @AppStorage("dindexAPIKey") var dindexAPIKey: String = ""
 
-    /// Create a DIndexClient based on current settings
-    /// Returns nil if DIndex is disabled or the endpoint is invalid
-    func makeDIndexClient() -> DIndexClient? {
-        guard dindexEnabled else { return nil }
-        guard let url = URL(string: dindexEndpoint) else { return nil }
-        return DIndexClient(
-            baseURL: url,
-            apiKey: dindexAPIKey.isEmpty ? nil : dindexAPIKey
-        )
-    }
-
     private func notifyEmbeddingSettingsChanged() {
         NotificationCenter.default.post(name: .embeddingSettingsChanged, object: nil)
     }
@@ -96,41 +84,8 @@ class AppSettings: ObservableObject {
         }
     }
 
-    var appearanceMode: AppearanceMode {
-        get { AppearanceMode(rawValue: appearanceModeRaw) ?? .system }
-        set { appearanceModeRaw = newValue.rawValue }
-    }
-
-    /// Apply the current appearance mode to the app
-    func applyAppearance() {
-        NSApp.appearance = appearanceMode.nsAppearance
-    }
-
     /// Whether to use API key authentication for remote LLM endpoints
     @AppStorage("useAPIKey") var useAPIKey: Bool = false
-
-    // MARK: - API Key (stored securely in Keychain)
-
-    /// The LLM API key stored securely in the Keychain
-    /// Setting this property will trigger objectWillChange to update any observing views
-    var llmAPIKey: String {
-        get {
-            KeychainHelper.shared.retrieve(forKey: KeychainHelper.Keys.llmAPIKey) ?? ""
-        }
-        set {
-            objectWillChange.send()
-            if newValue.isEmpty {
-                KeychainHelper.shared.delete(forKey: KeychainHelper.Keys.llmAPIKey)
-            } else {
-                KeychainHelper.shared.save(newValue, forKey: KeychainHelper.Keys.llmAPIKey)
-            }
-        }
-    }
-
-    /// Whether an API key is currently configured
-    var hasAPIKey: Bool {
-        !llmAPIKey.isEmpty
-    }
 
     // MARK: - Dark Mode Settings (Web Content)
 
@@ -184,46 +139,5 @@ class AppSettings: ObservableObject {
         }
     }
 
-    // Individual category toggles (stored via ContentBlockerManager)
-    // These are computed properties that delegate to ContentBlockerManager
-
     private init() {}
-
-    var lettaBaseURL: URL? {
-        URL(string: lettaServerURL)
-    }
-
-    var llmBaseURL: URL? {
-        URL(string: llmEndpoint)
-    }
-
-    // MARK: - Category Convenience Methods
-
-    /// Check if a blocking category is enabled
-    @MainActor
-    func isBlockingCategoryEnabled(_ category: BlockingCategory) -> Bool {
-        guard adBlockingEnabled else { return false }
-        return ContentBlockerManager.shared.isEnabled(category)
-    }
-
-    /// Toggle a blocking category
-    @MainActor
-    func toggleBlockingCategory(_ category: BlockingCategory) {
-        ContentBlockerManager.shared.toggle(category)
-        // If any category is now enabled, ensure master toggle is on
-        if !ContentBlockerManager.shared.enabledCategories.isEmpty {
-            adBlockingEnabled = true
-        }
-    }
-
-    /// Set all blocking categories at once
-    @MainActor
-    func setBlockingCategories(_ categories: Set<BlockingCategory>) {
-        if categories.isEmpty {
-            adBlockingEnabled = false
-        } else {
-            adBlockingEnabled = true
-            ContentBlockerManager.shared.enabledCategories = categories
-        }
-    }
 }
