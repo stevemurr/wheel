@@ -37,7 +37,9 @@ extension OmniBar {
     // MARK: - Focus Change
 
     func handleFocusChange(_ focused: Bool) {
-        omniState.isFocused = focused
+        // NOTE: Do NOT set omniState.isFocused here — it is @Published and fires
+        // objectWillChange without an animation context, creating a non-animated
+        // body re-eval that interleaves with the animated panel transition below.
         if !focused {
             handleFocusLost()
         } else {
@@ -46,8 +48,11 @@ extension OmniBar {
     }
 
     private func handleFocusLost() {
-        // Delay hiding to allow click on suggestion
+        // Delay hiding to allow click on suggestion.
+        // IMPORTANT: Check isInputFocused inside the delayed block to avoid
+        // dismissing a panel that was re-opened by a focus-regain within the delay.
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
+            guard !self.isInputFocused else { return }
             self.clearAllSearchState()
             if self.omniState.mode == .address || self.omniState.mode == .semantic || self.omniState.mode == .readingList {
                 self.omniState.dismissVisiblePanel()
@@ -65,49 +70,65 @@ extension OmniBar {
         // Clear search state for VMs not owned by the new mode
         clearSearchState(except: newMode)
 
-        // Dismiss any currently visible panel
-        omniState.dismissVisiblePanel()
-
         // Skip panel activation when input is unfocused (e.g. during Escape dismissal).
-        // Normal mode changes (Tab cycling, clicking mode buttons) happen while focused.
-        guard isInputFocused else { return }
+        // Just dismiss any visible panel and return.
+        guard isInputFocused else {
+            omniState.dismissVisiblePanel()
+            return
+        }
+
+        // Activate the new mode in a single animation transaction.
+        // Do NOT dismiss first then activate — that creates two competing
+        // withAnimation blocks, briefly showing visiblePanel = .none (flash).
         activateMode(newMode, isFocusGain: false)
     }
 
     /// Shared mode activation logic for both focus gain and mode change.
+    ///
+    /// IMPORTANT: Non-animated state changes (loading suggestions, removing mentions, etc.)
+    /// must happen BEFORE setVisiblePanel(). This ensures their objectWillChange signals
+    /// fire before the animated panel transition, preventing non-animated body re-evals
+    /// from interleaving with the panel animation.
+    ///
     /// - Parameters:
     ///   - mode: The mode to activate
     ///   - isFocusGain: `true` when called from focus gain (chat skips panel open), `false` from mode change
     private func activateMode(_ mode: OmniBarMode, isFocusGain: Bool) {
         switch mode {
         case .address:
-            if !isFocusGain || isInputFocused {
-                omniState.setVisiblePanel(.history)
-            }
+            // Load suggestions first (non-animated state changes)
             if omniState.inputText.isEmpty {
                 suggestionsVM.loadRecentHistory()
             } else {
                 suggestionsVM.updateSuggestions(for: omniState.inputText)
             }
+            // Show panel last (animated)
+            if !isFocusGain || isInputFocused {
+                omniState.setVisiblePanel(.history)
+            }
         case .chat:
+            // Non-animated state changes first
             if !isFocusGain {
                 if tab.url == nil {
                     omniState.removeMention(.currentPage)
                 }
             }
+            // Show panel last (animated)
             if !agentManager.messages.isEmpty {
                 omniState.setVisiblePanel(.chat)
             }
         case .semantic:
-            omniState.setVisiblePanel(.semantic)
+            // Non-animated state changes first
             if !omniState.inputText.isEmpty {
                 semanticSearchVM.search(query: omniState.inputText)
             }
+            // Show panel last (animated)
+            omniState.setVisiblePanel(.semantic)
         case .agent:
             omniState.setVisiblePanel(.agent)
         case .readingList:
-            omniState.setVisiblePanel(.readingList)
             readingListVM.loadSavedPages()
+            omniState.setVisiblePanel(.readingList)
         case .scraping:
             omniState.setVisiblePanel(.scraping)
         }
@@ -164,8 +185,12 @@ extension OmniBar {
     // MARK: - Focus Address Bar
 
     func handleFocusAddressBar() {
+        // Set focus BEFORE mode so that handleModeChange sees isInputFocused=true
+        // and activates the panel directly, instead of dismissing then re-showing (flash).
+        withAnimation(AppAnimation.panelSpring) {
+            isInputFocused = true
+        }
         omniState.setMode(.address)
-        isInputFocused = true
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
             if let window = NSApp.keyWindow,
                let fieldEditor = window.fieldEditor(false, for: nil) as? NSTextView {
@@ -177,28 +202,34 @@ extension OmniBar {
     // MARK: - Focus AI Sidebar
 
     func handleFocusAISidebar() {
-        omniState.setMode(.chat)
-        isInputFocused = true
-        omniState.resetMentions(includeCurrentPage: tab.url != nil)
-        if !agentManager.messages.isEmpty {
-            omniState.setVisiblePanel(.chat)
+        // Set focus BEFORE mode — see handleFocusAddressBar for why.
+        withAnimation(AppAnimation.panelSpring) {
+            isInputFocused = true
         }
+        omniState.resetMentions(includeCurrentPage: tab.url != nil)
+        omniState.setMode(.chat)
+        // NOTE: Do NOT call setVisiblePanel here — setMode triggers
+        // handleModeChange → activateMode which already calls setVisiblePanel.
     }
 
     // MARK: - Focus Chat Input
 
     func handleFocusChatInput() {
-        omniState.setMode(.chat)
-        isInputFocused = true
+        withAnimation(AppAnimation.panelSpring) {
+            isInputFocused = true
+        }
         omniState.resetMentions(includeCurrentPage: tab.url != nil)
+        omniState.setMode(.chat)
     }
 
     // MARK: - Focus Semantic Search
 
     func handleFocusSemanticSearch() {
+        withAnimation(AppAnimation.panelSpring) {
+            isInputFocused = true
+        }
         omniState.setMode(.semantic)
-        isInputFocused = true
-        omniState.setVisiblePanel(.semantic)
+        // NOTE: Do NOT call setVisiblePanel here — handled by setMode → handleModeChange → activateMode.
     }
 
     // MARK: - Find in Page
@@ -215,10 +246,12 @@ extension OmniBar {
     // MARK: - Focus Reading List
 
     func handleFocusReadingList() {
+        withAnimation(AppAnimation.panelSpring) {
+            isInputFocused = true
+        }
         omniState.setMode(.readingList)
-        isInputFocused = true
-        omniState.setVisiblePanel(.readingList)
-        readingListVM.loadSavedPages()
+        // NOTE: Do NOT call setVisiblePanel here — handled by setMode → handleModeChange → activateMode.
+        // readingListVM.loadSavedPages() is called inside activateMode.
     }
 
     // MARK: - Search State Helpers

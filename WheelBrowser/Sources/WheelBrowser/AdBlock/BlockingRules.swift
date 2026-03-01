@@ -61,7 +61,7 @@ struct BlockingRules {
     static let ruleSetIdentifier = "WheelBrowserBlockingRules"
 
     /// Version for cache invalidation - increment when rules change
-    static let ruleSetVersion = "2.0.0"
+    static let ruleSetVersion = "2.1.0"
 
     // MARK: - Rule Generation
 
@@ -556,7 +556,7 @@ struct BlockingRules {
 
             // Common ad class names
             [
-                "trigger": ["url-filter": ".*", "if-domain": ["*"]],
+                "trigger": ["url-filter": ".*"],
                 "action": [
                     "type": "css-display-none",
                     "selector": ".ad, .ads, .advertisement, .ad-banner, .ad-container, .ad-wrapper, .ad-unit, .advert, .advertising, .adbox, .adsbox, .ad-slot, .ad-space"
@@ -564,7 +564,7 @@ struct BlockingRules {
             ],
             // Ad position classes
             [
-                "trigger": ["url-filter": ".*", "if-domain": ["*"]],
+                "trigger": ["url-filter": ".*"],
                 "action": [
                     "type": "css-display-none",
                     "selector": ".ad-leaderboard, .ad-sidebar, .ad-footer, .ad-header, .ad-top, .ad-bottom, .ad-left, .ad-right, .ad-middle, .ad-inline, .ad-native"
@@ -572,7 +572,7 @@ struct BlockingRules {
             ],
             // Google Ads specific
             [
-                "trigger": ["url-filter": ".*", "if-domain": ["*"]],
+                "trigger": ["url-filter": ".*"],
                 "action": [
                     "type": "css-display-none",
                     "selector": "[id*='google_ads'], [id*='GoogleAds'], [id*='googleAds'], [class*='google-ad'], ins.adsbygoogle, amp-ad, amp-embed, amp-sticky-ad"
@@ -580,7 +580,7 @@ struct BlockingRules {
             ],
             // GPT/DFP ads
             [
-                "trigger": ["url-filter": ".*", "if-domain": ["*"]],
+                "trigger": ["url-filter": ".*"],
                 "action": [
                     "type": "css-display-none",
                     "selector": "[id^='div-gpt-ad'], [id*='dfp-ad'], .dfp-ad, .gpt-ad, [data-google-query-id], [data-ad-slot], [data-ad-client]"
@@ -588,7 +588,7 @@ struct BlockingRules {
             ],
             // Generic ad attributes
             [
-                "trigger": ["url-filter": ".*", "if-domain": ["*"]],
+                "trigger": ["url-filter": ".*"],
                 "action": [
                     "type": "css-display-none",
                     "selector": "[id*='ad-'], [id*='_ad_'], [id*='ad_'], [class*='ad-unit'], [class*='adUnit'], [data-ad], [data-ad-type]"
@@ -596,7 +596,7 @@ struct BlockingRules {
             ],
             // Sponsored content
             [
-                "trigger": ["url-filter": ".*", "if-domain": ["*"]],
+                "trigger": ["url-filter": ".*"],
                 "action": [
                     "type": "css-display-none",
                     "selector": ".sponsored, .sponsored-content, .sponsored-post, .promoted-content, .promoted-post, .native-ad, .partner-content, .paid-content, .branded-content"
@@ -604,7 +604,7 @@ struct BlockingRules {
             ],
             // Taboola/Outbrain widgets
             [
-                "trigger": ["url-filter": ".*", "if-domain": ["*"]],
+                "trigger": ["url-filter": ".*"],
                 "action": [
                     "type": "css-display-none",
                     "selector": ".taboola, .trc_rbox, .trc_related_container, #taboola-below-article, #taboola-right-rail, .OUTBRAIN, .outbrain-widget, [data-widget-type='taboola'], [data-widget-type='outbrain']"
@@ -612,7 +612,7 @@ struct BlockingRules {
             ],
             // RevContent/MGID widgets
             [
-                "trigger": ["url-filter": ".*", "if-domain": ["*"]],
+                "trigger": ["url-filter": ".*"],
                 "action": [
                     "type": "css-display-none",
                     "selector": ".rc-widget, [id^='rc-widget'], .mgid-container, [id^='mgid'], [data-rcwidget]"
@@ -620,7 +620,7 @@ struct BlockingRules {
             ],
             // Sticky/floating ads
             [
-                "trigger": ["url-filter": ".*", "if-domain": ["*"]],
+                "trigger": ["url-filter": ".*"],
                 "action": [
                     "type": "css-display-none",
                     "selector": ".sticky-ad, .floating-ad, .adhesion-ad, .anchor-ad, [class*='sticky-ad'], [class*='floating-ad'], [id*='sticky-ad']"
@@ -1115,7 +1115,7 @@ struct BlockingRules {
 
             // Facebook widgets
             [
-                "trigger": ["url-filter": ".*", "if-domain": ["*"]],
+                "trigger": ["url-filter": ".*"],
                 "action": [
                     "type": "css-display-none",
                     "selector": ".fb-like, .fb-share-button, .fb-comments, .fb-page, .fb-follow, .fb-send, [class*='facebook-widget'], [class*='fb-widget']"
@@ -1123,7 +1123,7 @@ struct BlockingRules {
             ],
             // Twitter widgets
             [
-                "trigger": ["url-filter": ".*", "if-domain": ["*"]],
+                "trigger": ["url-filter": ".*"],
                 "action": [
                     "type": "css-display-none",
                     "selector": ".twitter-tweet, .twitter-timeline, .twitter-share-button, .twitter-follow-button, [class*='twitter-widget']"
@@ -1131,7 +1131,7 @@ struct BlockingRules {
             ],
             // General social share buttons
             [
-                "trigger": ["url-filter": ".*", "if-domain": ["*"]],
+                "trigger": ["url-filter": ".*"],
                 "action": [
                     "type": "css-display-none",
                     "selector": ".social-share, .share-buttons, .social-buttons, .share-bar, .social-icons, [class*='social-share'], [class*='share-button']"
@@ -1139,7 +1139,7 @@ struct BlockingRules {
             ],
             // AddThis / ShareThis
             [
-                "trigger": ["url-filter": ".*", "if-domain": ["*"]],
+                "trigger": ["url-filter": ".*"],
                 "action": [
                     "type": "css-display-none",
                     "selector": ".addthis_toolbox, .addthis-smartlayers, #at-share-dock, .sharethis-inline-share-buttons, [class*='addthis'], [class*='sharethis']"
@@ -1158,80 +1158,81 @@ struct BlockingRules {
             // ========================================
 
             // Consent Management Platforms
+            // Block cookies from CMP domains (allow scripts to load so JS handlers can call their APIs)
             [
                 "trigger": ["url-filter": ".*\\.cookielaw\\.org"],
-                "action": ["type": "block"]
+                "action": ["type": "block-cookies"]
             ],
             [
                 "trigger": ["url-filter": ".*\\.onetrust\\.com"],
-                "action": ["type": "block"]
+                "action": ["type": "block-cookies"]
             ],
             [
                 "trigger": ["url-filter": ".*\\.trustarc\\.com"],
-                "action": ["type": "block"]
+                "action": ["type": "block-cookies"]
             ],
             [
                 "trigger": ["url-filter": ".*\\.cookiebot\\.com"],
-                "action": ["type": "block"]
+                "action": ["type": "block-cookies"]
             ],
             [
                 "trigger": ["url-filter": ".*\\.consensu\\.org"],
-                "action": ["type": "block"]
+                "action": ["type": "block-cookies"]
             ],
             [
                 "trigger": ["url-filter": ".*\\.privacymanager\\.io"],
-                "action": ["type": "block"]
+                "action": ["type": "block-cookies"]
             ],
             [
                 "trigger": ["url-filter": ".*\\.quantcast\\.mgr\\.consensu\\.org"],
-                "action": ["type": "block"]
+                "action": ["type": "block-cookies"]
             ],
 
             // CSS Hiding - Cookie Banners
             [
-                "trigger": ["url-filter": ".*", "if-domain": ["*"]],
+                "trigger": ["url-filter": ".*"],
                 "action": [
                     "type": "css-display-none",
                     "selector": "#cookie-banner, #cookie-consent, #cookie-notice, #cookie-popup, #cookie-modal, #cookie-law-info-bar, #cookie-policy"
                 ]
             ],
             [
-                "trigger": ["url-filter": ".*", "if-domain": ["*"]],
+                "trigger": ["url-filter": ".*"],
                 "action": [
                     "type": "css-display-none",
                     "selector": ".cookie-banner, .cookie-consent, .cookie-notice, .cookie-popup, .cookie-modal, .cookie-bar, .cookie-alert, .cookie-warning"
                 ]
             ],
             [
-                "trigger": ["url-filter": ".*", "if-domain": ["*"]],
+                "trigger": ["url-filter": ".*"],
                 "action": [
                     "type": "css-display-none",
                     "selector": "[class*='CookieConsent'], [class*='cookieConsent'], [class*='cookie-consent'], [class*='cookie_consent']"
                 ]
             ],
             [
-                "trigger": ["url-filter": ".*", "if-domain": ["*"]],
+                "trigger": ["url-filter": ".*"],
                 "action": [
                     "type": "css-display-none",
                     "selector": ".gdpr-banner, .gdpr-consent, .gdpr-notice, .gdpr-popup, #gdpr-banner, #gdpr-consent, [class*='gdpr-']"
                 ]
             ],
             [
-                "trigger": ["url-filter": ".*", "if-domain": ["*"]],
+                "trigger": ["url-filter": ".*"],
                 "action": [
                     "type": "css-display-none",
                     "selector": ".consent-banner, .consent-popup, .consent-modal, #consent-banner, #consent-popup, [class*='consent-banner']"
                 ]
             ],
             [
-                "trigger": ["url-filter": ".*", "if-domain": ["*"]],
+                "trigger": ["url-filter": ".*"],
                 "action": [
                     "type": "css-display-none",
                     "selector": "#onetrust-banner-sdk, #onetrust-consent-sdk, .onetrust-pc-dark-filter, #truste-consent-track"
                 ]
             ],
             [
-                "trigger": ["url-filter": ".*", "if-domain": ["*"]],
+                "trigger": ["url-filter": ".*"],
                 "action": [
                     "type": "css-display-none",
                     "selector": "#CybotCookiebotDialog, #CybotCookiebotDialogBodyLevelButtonLevelOptinAllowallSelection"
@@ -1243,28 +1244,28 @@ struct BlockingRules {
             // ========================================
 
             [
-                "trigger": ["url-filter": ".*", "if-domain": ["*"]],
+                "trigger": ["url-filter": ".*"],
                 "action": [
                     "type": "css-display-none",
                     "selector": ".newsletter-popup, .newsletter-modal, .newsletter-overlay, #newsletter-popup, #newsletter-modal"
                 ]
             ],
             [
-                "trigger": ["url-filter": ".*", "if-domain": ["*"]],
+                "trigger": ["url-filter": ".*"],
                 "action": [
                     "type": "css-display-none",
                     "selector": ".email-signup-popup, .email-popup, .email-modal, .email-capture, .signup-popup, .signup-modal"
                 ]
             ],
             [
-                "trigger": ["url-filter": ".*", "if-domain": ["*"]],
+                "trigger": ["url-filter": ".*"],
                 "action": [
                     "type": "css-display-none",
                     "selector": ".subscription-popup, .subscribe-popup, .subscribe-modal, #subscribe-popup, #subscription-modal"
                 ]
             ],
             [
-                "trigger": ["url-filter": ".*", "if-domain": ["*"]],
+                "trigger": ["url-filter": ".*"],
                 "action": [
                     "type": "css-display-none",
                     "selector": "[class*='newsletter-popup'], [class*='email-popup'], [class*='signup-popup'], [id*='newsletter-popup']"
@@ -1276,14 +1277,14 @@ struct BlockingRules {
             // ========================================
 
             [
-                "trigger": ["url-filter": ".*", "if-domain": ["*"]],
+                "trigger": ["url-filter": ".*"],
                 "action": [
                     "type": "css-display-none",
                     "selector": ".push-notification-prompt, .notification-prompt, .push-prompt, #push-notification, [class*='push-notification']"
                 ]
             ],
             [
-                "trigger": ["url-filter": ".*", "if-domain": ["*"]],
+                "trigger": ["url-filter": ".*"],
                 "action": [
                     "type": "css-display-none",
                     "selector": ".browser-notification-prompt, .notification-permission, .notify-prompt"
@@ -1346,14 +1347,14 @@ struct BlockingRules {
 
             // CSS Hiding - Chat widgets
             [
-                "trigger": ["url-filter": ".*", "if-domain": ["*"]],
+                "trigger": ["url-filter": ".*"],
                 "action": [
                     "type": "css-display-none",
                     "selector": "#intercom-container, .intercom-launcher, .intercom-lightweight-app, #drift-widget, #drift-frame"
                 ]
             ],
             [
-                "trigger": ["url-filter": ".*", "if-domain": ["*"]],
+                "trigger": ["url-filter": ".*"],
                 "action": [
                     "type": "css-display-none",
                     "selector": ".zopim, #launcher, .livechat-widget, [class*='crisp-client'], #tawk-chat-widget"
@@ -1392,7 +1393,7 @@ struct BlockingRules {
 
             // CSS Hiding - Survey popups
             [
-                "trigger": ["url-filter": ".*", "if-domain": ["*"]],
+                "trigger": ["url-filter": ".*"],
                 "action": [
                     "type": "css-display-none",
                     "selector": ".survey-popup, .feedback-popup, .survey-modal, .feedback-modal, [class*='survey-'], [class*='feedback-prompt']"
@@ -1404,14 +1405,14 @@ struct BlockingRules {
             // ========================================
 
             [
-                "trigger": ["url-filter": ".*", "if-domain": ["*"]],
+                "trigger": ["url-filter": ".*"],
                 "action": [
                     "type": "css-display-none",
                     "selector": ".paywall-banner, .subscription-banner, .subscribe-banner, .premium-banner, [class*='paywall-'], [class*='subscription-nag']"
                 ]
             ],
             [
-                "trigger": ["url-filter": ".*", "if-domain": ["*"]],
+                "trigger": ["url-filter": ".*"],
                 "action": [
                     "type": "css-display-none",
                     "selector": ".meter-bar, .article-meter, .metering-banner, [class*='meter-banner'], [class*='article-limit']"
@@ -1423,14 +1424,14 @@ struct BlockingRules {
             // ========================================
 
             [
-                "trigger": ["url-filter": ".*", "if-domain": ["*"]],
+                "trigger": ["url-filter": ".*"],
                 "action": [
                     "type": "css-display-none",
                     "selector": ".app-banner, .app-install-banner, .smart-banner, .smartbanner, #smart-app-banner, [class*='app-banner'], [class*='install-app']"
                 ]
             ],
             [
-                "trigger": ["url-filter": ".*", "if-domain": ["*"]],
+                "trigger": ["url-filter": ".*"],
                 "action": [
                     "type": "css-display-none",
                     "selector": ".mobile-app-banner, .download-app-banner, [class*='download-app'], [class*='get-app']"
@@ -1442,14 +1443,14 @@ struct BlockingRules {
             // ========================================
 
             [
-                "trigger": ["url-filter": ".*", "if-domain": ["*"]],
+                "trigger": ["url-filter": ".*"],
                 "action": [
                     "type": "css-display-none",
                     "selector": ".modal-backdrop:empty, .overlay-backdrop:empty, .page-overlay:empty"
                 ]
             ],
             [
-                "trigger": ["url-filter": ".*", "if-domain": ["*"]],
+                "trigger": ["url-filter": ".*"],
                 "action": [
                     "type": "css-display-none",
                     "selector": ".exit-intent-popup, .exit-popup, [class*='exit-intent'], [class*='exit-popup']"

@@ -1,16 +1,17 @@
 import Foundation
 import WebKit
 
-/// Manages content blocking rules for WKWebView using WKContentRuleListStore
-/// Handles compilation, caching, and application of blocking rules with category support
+/// Manages content blocking rules for WKWebView using WKContentRuleListStore.
+/// Compiles separate WKContentRuleList per source (built-in category or external filter list)
+/// so that toggling categories is an instant add/remove operation without recompilation.
 @MainActor
 class ContentBlockerManager: ObservableObject {
 
     /// Shared singleton instance
     static let shared = ContentBlockerManager()
 
-    /// The compiled content rule list, cached after first compilation
-    @Published private(set) var contentRuleList: WKContentRuleList?
+    /// Compiled content rule lists keyed by source identifier
+    @Published private(set) var compiledRuleLists: [String: WKContentRuleList] = [:]
 
     /// Whether rules are currently being compiled
     @Published private(set) var isCompiling: Bool = false
@@ -22,10 +23,19 @@ class ContentBlockerManager: ObservableObject {
     @Published var enabledCategories: Set<BlockingCategory> {
         didSet {
             saveEnabledCategories()
-            // Recompile rules when categories change
             if enabledCategories != oldValue {
+                let added = enabledCategories.subtracting(oldValue)
+                let removed = oldValue.subtracting(enabledCategories)
                 Task {
-                    await refreshRules()
+                    // Remove disabled categories
+                    for category in removed {
+                        let id = Self.identifier(for: category)
+                        compiledRuleLists.removeValue(forKey: id)
+                    }
+                    // Compile newly enabled categories
+                    for category in added {
+                        await compileCategoryRules(category)
+                    }
                 }
             }
         }
@@ -73,9 +83,21 @@ class ContentBlockerManager: ObservableObject {
             queue: .main
         ) { [weak self] _ in
             Task { @MainActor in
-                await self?.refreshRules()
+                await self?.refreshExternalRules()
             }
         }
+    }
+
+    // MARK: - Source Identifiers
+
+    /// Identifier for a built-in category rule list
+    static func identifier(for category: BlockingCategory) -> String {
+        "WheelBrowser-\(category.rawValue)"
+    }
+
+    /// Identifier for an external filter list
+    static func identifier(forExternal uuid: UUID) -> String {
+        "WheelBrowser-ext-\(uuid.uuidString)"
     }
 
     // MARK: - Category Management
@@ -100,6 +122,15 @@ class ContentBlockerManager: ObservableObject {
     /// Check if a specific category is enabled
     func isEnabled(_ category: BlockingCategory) -> Bool {
         enabledCategories.contains(category)
+    }
+
+    /// Check whether a category is enabled from any context (reads UserDefaults directly).
+    /// Use this from non-MainActor contexts like Tab.init().
+    nonisolated static func isCategoryEnabled(_ category: BlockingCategory) -> Bool {
+        guard let saved = UserDefaults.standard.array(forKey: "ContentBlockerEnabledCategories") as? [String] else {
+            return true // default: all categories enabled
+        }
+        return saved.contains(category.rawValue)
     }
 
     /// Toggle a specific category
@@ -133,52 +164,100 @@ class ContentBlockerManager: ObservableObject {
 
     // MARK: - Rule Compilation
 
-    /// Unique identifier for current category configuration (includes filter lists)
-    private var currentConfigurationHash: String {
-        rulesMerger.configurationHash(for: enabledCategories)
-    }
-
-    /// Compiles and caches the content blocking rules for enabled categories
+    /// Compiles and caches content blocking rules for all enabled sources
     func compileRules() async {
         guard !isCompiling else { return }
         guard !enabledCategories.isEmpty else {
-            // No categories enabled, clear rules
-            contentRuleList = nil
+            compiledRuleLists = [:]
             return
         }
 
         isCompiling = true
         lastError = nil
 
-        do {
-            // Check if we have a cached version with the same configuration
-            let configHash = currentConfigurationHash
-            if let cachedRules = try await cacheManager.loadCachedRules(for: configHash) {
-                self.contentRuleList = cachedRules
-                isCompiling = false
-                return
+        // Clean up legacy monolithic cache on first run after migration
+        await cacheManager.clearLegacyCacheIfNeeded()
+
+        // Compile each enabled built-in category independently
+        for category in enabledCategories {
+            let identifier = Self.identifier(for: category)
+            guard compiledRuleLists[identifier] == nil else { continue }
+
+            let rules = BlockingRules.rules(for: category)
+            guard !rules.isEmpty else { continue }
+
+            // 1. Try loading from cache (with version validation)
+            if cacheManager.isSourceCacheValid(identifier, hash: BlockingRules.ruleSetVersion) {
+                do {
+                    if let cached = try await cacheManager.loadCachedRules(forIdentifier: identifier) {
+                        compiledRuleLists[identifier] = cached
+                        continue
+                    }
+                } catch {
+                    // Stale/corrupt cache entry — remove it and compile fresh
+                    Log.AdBlock.warning("Cache lookup failed for \(category.rawValue), clearing: \(error.localizedDescription)")
+                    await cacheManager.removeCachedRules(forIdentifier: identifier)
+                    cacheManager.clearSourceHash(identifier)
+                }
+            } else {
+                // Hash mismatch — remove stale cached rules
+                await cacheManager.removeCachedRules(forIdentifier: identifier)
+                cacheManager.clearSourceHash(identifier)
             }
 
-            // Compile new rules
-            let rules = try await compileNewRules()
-            self.contentRuleList = rules
+            // 2. Compile fresh
+            do {
+                let compiled = try await compilationPipeline.compile(rules, identifier: identifier)
+                compiledRuleLists[identifier] = compiled
+                cacheManager.saveSourceHash(identifier, hash: BlockingRules.ruleSetVersion)
+            } catch {
+                Log.AdBlock.error("Failed to compile \(category.rawValue) (\(rules.count) rules): \(error.localizedDescription)")
+                // Continue to next category — don't abort everything
+            }
+        }
 
-            // Save configuration hash for cache validation
-            cacheManager.saveConfigurationHash(configHash)
-
-        } catch {
-            self.lastError = error
-            Log.AdBlock.error("Failed to compile rules: \(error.localizedDescription)")
+        // Compile external filter list rules
+        let externalRules = rulesMerger.gatherExternalRulesGrouped()
+        for (listID, rules) in externalRules {
+            let identifier = Self.identifier(forExternal: listID)
+            if compiledRuleLists[identifier] == nil && !rules.isEmpty {
+                let truncated = rules.count > RuleCompilationPipeline.maxRuleCount
+                    ? Array(rules.prefix(RuleCompilationPipeline.maxRuleCount))
+                    : rules
+                if let compiled = try? await compilationPipeline.compile(truncated, identifier: identifier) {
+                    compiledRuleLists[identifier] = compiled
+                } else {
+                    Log.AdBlock.warning("External list \(listID) failed to compile, skipping")
+                }
+            }
         }
 
         isCompiling = false
     }
 
+    /// Compile rules for a single category
+    private func compileCategoryRules(_ category: BlockingCategory) async {
+        let identifier = Self.identifier(for: category)
+        let rules = BlockingRules.rules(for: category)
+        guard !rules.isEmpty else { return }
+
+        do {
+            if let cached = try await cacheManager.loadCachedRules(forIdentifier: identifier) {
+                compiledRuleLists[identifier] = cached
+            } else {
+                let compiled = try await compilationPipeline.compile(rules, identifier: identifier)
+                compiledRuleLists[identifier] = compiled
+                cacheManager.saveSourceHash(identifier, hash: BlockingRules.ruleSetVersion)
+            }
+        } catch {
+            Log.AdBlock.error("Failed to compile \(category.rawValue): \(error.localizedDescription)")
+        }
+    }
+
     /// Applies content blocking rules to a WKWebView configuration
-    /// Call this before creating the WKWebView or after rules are compiled
     func applyRules(to configuration: WKWebViewConfiguration) async {
         // Ensure rules are compiled
-        if contentRuleList == nil && !isCompiling && !enabledCategories.isEmpty {
+        if compiledRuleLists.isEmpty && !isCompiling && !enabledCategories.isEmpty {
             await compileRules()
         }
 
@@ -189,17 +268,16 @@ class ContentBlockerManager: ObservableObject {
             }
         }
 
-        // Apply rules if available
-        if let rules = contentRuleList {
-            configuration.userContentController.add(rules)
+        // Apply all compiled rule lists
+        for ruleList in compiledRuleLists.values {
+            configuration.userContentController.add(ruleList)
         }
     }
 
     /// Applies content blocking rules to an existing WKWebView
-    /// Use this to enable/disable blocking on an already-created web view
     func applyRules(to webView: WKWebView) async {
         // Ensure rules are compiled
-        if contentRuleList == nil && !isCompiling && !enabledCategories.isEmpty {
+        if compiledRuleLists.isEmpty && !isCompiling && !enabledCategories.isEmpty {
             await compileRules()
         }
 
@@ -210,27 +288,52 @@ class ContentBlockerManager: ObservableObject {
             }
         }
 
-        // Apply rules if available
-        if let rules = contentRuleList {
-            webView.configuration.userContentController.add(rules)
+        // Apply all compiled rule lists
+        for ruleList in compiledRuleLists.values {
+            webView.configuration.userContentController.add(ruleList)
         }
     }
 
     /// Removes content blocking rules from a WKWebView
     func removeRules(from webView: WKWebView) {
-        if let rules = contentRuleList {
-            webView.configuration.userContentController.remove(rules)
+        for ruleList in compiledRuleLists.values {
+            webView.configuration.userContentController.remove(ruleList)
         }
     }
 
-    /// Removes all cached rules and recompiles with current categories
+    /// Refresh only external filter list rules (called when filter lists change)
+    func refreshExternalRules() async {
+        // Remove existing external rule lists
+        let externalKeys = compiledRuleLists.keys.filter { $0.hasPrefix("WheelBrowser-ext-") }
+        for key in externalKeys {
+            compiledRuleLists.removeValue(forKey: key)
+            await cacheManager.removeCachedRules(forIdentifier: key)
+        }
+
+        // Recompile external rules
+        let externalRules = rulesMerger.gatherExternalRulesGrouped()
+        for (listID, rules) in externalRules {
+            let identifier = Self.identifier(forExternal: listID)
+            guard !rules.isEmpty else { continue }
+            let truncated = rules.count > RuleCompilationPipeline.maxRuleCount
+                ? Array(rules.prefix(RuleCompilationPipeline.maxRuleCount))
+                : rules
+            if let compiled = try? await compilationPipeline.compile(truncated, identifier: identifier) {
+                compiledRuleLists[identifier] = compiled
+            }
+        }
+    }
+
+    /// Removes all cached rules and recompiles everything
     func refreshRules() async {
-        // Remove from store and clear configuration hash
-        await cacheManager.removeCachedRules()
-        cacheManager.clearConfigurationHash()
+        // Remove all from store
+        for identifier in compiledRuleLists.keys {
+            await cacheManager.removeCachedRules(forIdentifier: identifier)
+        }
+        cacheManager.clearAllSourceHashes()
 
         // Clear local cache
-        contentRuleList = nil
+        compiledRuleLists = [:]
 
         // Recompile with current categories
         await compileRules()
@@ -242,19 +345,6 @@ class ContentBlockerManager: ObservableObject {
     func recordPageLoad() {
         guard !enabledCategories.isEmpty else { return }
         stats.recordPageLoad(enabledCategories: enabledCategories)
-    }
-
-    // MARK: - Private Methods
-
-    /// Compiles new rules by gathering built-in and external sources,
-    /// then delegating to the compilation pipeline.
-    private func compileNewRules() async throws -> WKContentRuleList {
-        let (builtInRules, externalRules) = rulesMerger.gatherRules(for: enabledCategories)
-
-        return try await compilationPipeline.compileWithFallback(
-            builtInRules: builtInRules,
-            externalRules: externalRules
-        )
     }
 }
 
@@ -287,6 +377,15 @@ extension ContentBlockerManager {
             let names = enabledCategories.map { $0.displayName }.sorted().joined(separator: ", ")
             return "Blocking: \(names)"
         }
+    }
+}
+
+// MARK: - Backward Compatibility
+
+extension ContentBlockerManager {
+    /// Legacy accessor — returns the first compiled rule list (for code that expects a single list)
+    var contentRuleList: WKContentRuleList? {
+        compiledRuleLists.values.first
     }
 }
 

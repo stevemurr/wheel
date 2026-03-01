@@ -80,7 +80,9 @@ struct OmniBarTextField: NSViewRepresentable {
         func controlTextDidBeginEditing(_ obj: Notification) {
             isEditing = true
             DispatchQueue.main.async {
-                self.parent.isFocused = true
+                withAnimation(AppAnimation.panelSpring) {
+                    self.parent.isFocused = true
+                }
             }
         }
 
