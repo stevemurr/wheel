@@ -37,6 +37,12 @@ struct FilterList: Codable, Identifiable, Equatable {
     /// Homepage URL from the filter list header
     var homepage: String?
 
+    /// HTTP ETag header from the last successful download
+    var etag: String?
+
+    /// HTTP Last-Modified header from the last successful download
+    var lastModifiedHeader: String?
+
     init(
         id: UUID = UUID(),
         name: String,
@@ -48,7 +54,9 @@ struct FilterList: Codable, Identifiable, Equatable {
         checksum: String? = nil,
         lastError: String? = nil,
         version: String? = nil,
-        homepage: String? = nil
+        homepage: String? = nil,
+        etag: String? = nil,
+        lastModifiedHeader: String? = nil
     ) {
         self.id = id
         self.name = name
@@ -61,6 +69,8 @@ struct FilterList: Codable, Identifiable, Equatable {
         self.lastError = lastError
         self.version = version
         self.homepage = homepage
+        self.etag = etag
+        self.lastModifiedHeader = lastModifiedHeader
     }
 }
 

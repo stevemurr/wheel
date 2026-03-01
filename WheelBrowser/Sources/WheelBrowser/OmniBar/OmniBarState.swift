@@ -76,7 +76,8 @@ enum OmniBarPanelVisibility: Equatable {
 class OmniBarState: ObservableObject {
     @Published var mode: OmniBarMode = .address
     @Published var inputText: String = ""
-    @Published var isFocused: Bool = false
+    // NOTE: isFocused was removed — it was @Published but never read in any view,
+    // causing spurious objectWillChange signals. Use OmniBar's @State isInputFocused instead.
     @Published var visiblePanel: OmniBarPanelVisibility = .none
 
     // MARK: - Mention State
@@ -84,40 +85,39 @@ class OmniBarState: ObservableObject {
     @Published var showMentionDropdown: Bool = false
     @Published var mentionSearchText: String = ""
 
-    /// Switch to the next mode (Tab key)
+    /// Switch to the next mode (Tab key).
+    /// See setMode() for why this must NOT use withAnimation.
     func nextMode() {
         let cases = OmniBarMode.allCases
         guard let currentIndex = cases.firstIndex(of: mode) else { return }
         let nextIndex = cases.index(after: currentIndex)
-        withAnimation(AppAnimation.standard) {
-            mode = nextIndex < cases.endIndex ? cases[nextIndex] : cases[cases.startIndex]
-            inputText = ""
-        }
+        mode = nextIndex < cases.endIndex ? cases[nextIndex] : cases[cases.startIndex]
+        inputText = ""
     }
 
-    /// Switch to the previous mode (Shift+Tab)
+    /// Switch to the previous mode (Shift+Tab).
+    /// See setMode() for why this must NOT use withAnimation.
     func previousMode() {
         let cases = OmniBarMode.allCases
         guard let currentIndex = cases.firstIndex(of: mode) else { return }
-        withAnimation(AppAnimation.standard) {
-            mode = currentIndex == cases.startIndex ? cases[cases.index(before: cases.endIndex)] : cases[cases.index(before: currentIndex)]
-            inputText = ""
-        }
+        mode = currentIndex == cases.startIndex ? cases[cases.index(before: cases.endIndex)] : cases[cases.index(before: currentIndex)]
+        inputText = ""
     }
 
-    /// Set mode explicitly
+    /// Set mode explicitly.
+    /// NOTE: Do NOT wrap this in withAnimation — the mode change triggers
+    /// onChange(of: omniState.mode) → handleModeChange() which drives panel
+    /// transitions via setVisiblePanel()/dismissVisiblePanel(). Adding
+    /// withAnimation here creates nested animation contexts that produce a flash.
     func setMode(_ newMode: OmniBarMode) {
         guard mode != newMode else { return }
-        withAnimation(AppAnimation.standard) {
-            mode = newMode
-            inputText = ""
-        }
+        mode = newMode
+        inputText = ""
     }
 
     /// Reset state
     func reset() {
         inputText = ""
-        isFocused = false
     }
 
     // MARK: - Mention Methods
@@ -172,15 +172,20 @@ class OmniBarState: ObservableObject {
 
     // MARK: - Panel Visibility
 
-    /// Set the visible panel, dismissing any currently visible panel
+    /// Set the visible panel, dismissing any currently visible panel.
+    /// Skips if already showing the requested panel to avoid redundant
+    /// withAnimation transactions that cause flash.
     func setVisiblePanel(_ panel: OmniBarPanelVisibility) {
+        guard visiblePanel != panel else { return }
         withAnimation(AppAnimation.panelSpring) {
             visiblePanel = panel
         }
     }
 
-    /// Dismiss the currently visible panel
+    /// Dismiss the currently visible panel.
+    /// Skips if already dismissed to avoid redundant animation transactions.
     func dismissVisiblePanel() {
+        guard visiblePanel != .none else { return }
         withAnimation(AppAnimation.panelSpring) {
             visiblePanel = .none
         }

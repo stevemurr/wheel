@@ -60,6 +60,40 @@ WheelBrowser/
 - Keyboard navigation (up/down/enter/escape)
 - History stored in `~/Library/Application Support/WheelBrowser/history.json`
 
+## OmniBar Animation Invariants (CRITICAL - READ BEFORE TOUCHING OMNIBAR)
+
+The OmniBar has a recurring flashing/flickering bug caused by overlapping SwiftUI animation contexts. These rules MUST be followed to prevent regressions:
+
+### Rule 1: No `.animation()` on the parent VStack
+The `.animation()` modifier in `OmniBarCore.body` must ONLY be on `omniBarContent` and the find-bar `Group` — NEVER on the parent `VStack`. Placing it on the VStack causes panels to receive two overlapping animation contexts (implicit from `.animation()` + explicit from `withAnimation` in `setVisiblePanel()`), producing a flash.
+
+### Rule 2: No `withAnimation` in mode-setting methods
+`setMode()`, `nextMode()`, and `previousMode()` in `OmniBarState` must NOT wrap in `withAnimation`. Mode changes trigger `onChange(of: omniState.mode)` → `handleModeChange()` → `setVisiblePanel()` which has its own `withAnimation(panelSpring)`. Adding `withAnimation` in setMode creates nested animation contexts → flash.
+
+### Rule 3: No dismiss-then-activate in `handleModeChange`
+`handleModeChange()` must NOT call `dismissVisiblePanel()` before `activateMode()`. This creates two sequential `withAnimation` blocks — the first animates to `.none`, the second animates to the new panel — causing a visible flash. Instead, `activateMode()` directly sets the new panel (atomic swap).
+
+### Rule 4: Guard delayed dismissals against stale focus
+`handleFocusLost()` uses a 200ms delay. The delayed block MUST check `isInputFocused` before dismissing, because focus may have been regained during the delay. Without this check, the delayed dismiss fires after the new panel is already open → flash.
+
+### Rule 5: No `.contentTransition(.opacity)` on streaming content
+Views that update at high frequency (chat streaming, progress indicators) must NOT use `.contentTransition(.opacity)` or per-update `.animation()` modifiers. These create overlapping opacity fades that produce a flash effect.
+
+### Rule 6: Avoid adding `@ObservedObject` to OmniBar
+OmniBar already has 8+ observable objects. Each additional `@ObservedObject` increases the frequency of full body re-evaluations, which re-evaluate all panel visibility conditionals and can trigger spurious transitions. Extract sub-views that observe only what they need.
+
+### Rule 7: No redundant `setVisiblePanel` calls
+Handler methods (e.g., `handleFocusAISidebar`, `handleFocusSemanticSearch`) must NOT call `setVisiblePanel()` directly. `setMode()` triggers `onChange(of: mode)` → `handleModeChange()` → `activateMode()` → `setVisiblePanel()`. Calling it again creates redundant `withAnimation` transactions. `setVisiblePanel` has a guard (`guard visiblePanel != panel`) but calling it redundantly still creates unnecessary code paths.
+
+### Rule 8: Non-animated state changes BEFORE animated panel changes
+In `activateMode()`, load suggestions / search results / reading list BEFORE calling `setVisiblePanel()`. View model `@Published` mutations fire `objectWillChange` without an animation context. If they fire AFTER the animated panel change, they create non-animated body re-evals that can interleave with the transition animation.
+
+### Rule 9: Set focus BEFORE mode in handler methods
+Methods like `handleFocusAddressBar()` must set `isInputFocused = true` BEFORE `setMode()`. If mode is set first, `handleModeChange` fires and sees `isInputFocused == false`, causing it to dismiss the panel. Then the subsequent focus gain re-opens it → dismiss-then-show flash.
+
+### Rule 10: No dead `@Published` properties on OmniBarState
+Do not add `@Published` properties to `OmniBarState` that are not read by any view. Every `@Published` mutation fires `objectWillChange`, triggering a full body re-eval of OmniBar. (The removed `isFocused` property was doing this — never read, always triggering spurious updates.)
+
 ## Common Tasks
 
 ### Adding a new keyboard shortcut

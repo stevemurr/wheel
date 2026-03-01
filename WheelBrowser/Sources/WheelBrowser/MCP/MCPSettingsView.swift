@@ -61,7 +61,7 @@ struct MCPSettingsView: View {
                 HStack {
                     Image(systemName: "network")
                         .foregroundColor(.secondary)
-                    Text("http://localhost:\(mcpServer.port)/mcp")
+                    Text(verbatim: "http://localhost:\(mcpServer.port)/mcp")
                         .font(.system(.caption, design: .monospaced))
                         .foregroundColor(.secondary)
                         .textSelection(.enabled)
@@ -129,9 +129,9 @@ struct MCPSettingsView: View {
                     Text("List tools:")
                         .font(.caption)
                         .foregroundColor(.secondary)
-                    Text("""
-                    curl -X POST http://localhost:\(mcpServer.port)/mcp \\
-                      -H "Content-Type: application/json" \\
+                    Text(verbatim: """
+                    curl -X POST http://localhost:\(mcpServer.port)/mcp \
+                      -H "Content-Type: application/json" \
                       -d '{"jsonrpc":"2.0","id":1,"method":"tools/list","params":{}}'
                     """)
                     .font(.system(.caption2, design: .monospaced))
@@ -143,9 +143,9 @@ struct MCPSettingsView: View {
                     Text("Get snapshot:")
                         .font(.caption)
                         .foregroundColor(.secondary)
-                    Text("""
-                    curl -X POST http://localhost:\(mcpServer.port)/mcp \\
-                      -H "Content-Type: application/json" \\
+                    Text(verbatim: """
+                    curl -X POST http://localhost:\(mcpServer.port)/mcp \
+                      -H "Content-Type: application/json" \
                       -d '{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"browser_snapshot","arguments":{}}}'
                     """)
                     .font(.system(.caption2, design: .monospaced))

@@ -57,6 +57,12 @@ class Tab: Identifiable, ObservableObject {
             config.userContentController.addUserScript(AntiDetectionScripts.createUserScript())
         }
 
+        // Inject cookie banner dismissal script when annoyances blocking is enabled
+        if AppSettings.shared.adBlockingEnabled,
+           ContentBlockerManager.isCategoryEnabled(.annoyances) {
+            config.userContentController.addUserScript(CookieBannerScripts.createUserScript())
+        }
+
         self.webView = WKWebView(frame: .zero, configuration: config)
         self.webView.allowsBackForwardNavigationGestures = true
 

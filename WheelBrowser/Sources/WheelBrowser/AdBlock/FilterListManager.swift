@@ -89,7 +89,7 @@ class FilterListManager: ObservableObject {
 
     // MARK: - Update Methods
 
-    /// Update all enabled filter lists
+    /// Update all enabled filter lists concurrently
     func updateAll(forceUpdate: Bool = false) async {
         guard !isUpdating else { return }
 
@@ -98,23 +98,58 @@ class FilterListManager: ObservableObject {
         lastError = nil
 
         let enabledLists = filterLists.filter { $0.isEnabled }
-        var hasChanges = false
+        let totalCount = enabledLists.count
 
-        for (index, filterList) in enabledLists.enumerated() {
-            do {
-                let updated = try await updateFilterList(filterList, forceUpdate: forceUpdate)
-                if updated {
-                    hasChanges = true
+        // Fetch all lists concurrently using a task group
+        var results: [(FilterList, Result<Bool, Error>)] = []
+
+        await withTaskGroup(of: (FilterList, Result<Bool, Error>).self) { group in
+            for filterList in enabledLists {
+                group.addTask {
+                    do {
+                        let fetcher = FilterListFetcher.shared
+                        guard try await fetcher.fetchAndProcess(filterList, forceUpdate: forceUpdate) != nil else {
+                            return (filterList, .success(false))
+                        }
+                        return (filterList, .success(true))
+                    } catch {
+                        return (filterList, .failure(error))
+                    }
                 }
-            } catch {
-                // Record error but continue with other lists
+            }
+
+            var completed = 0
+            for await result in group {
+                results.append(result)
+                completed += 1
+                await MainActor.run {
+                    self.updateProgress = Double(completed) / Double(totalCount)
+                }
+            }
+        }
+
+        // Process results back on main actor
+        var hasChanges = false
+        for (filterList, result) in results {
+            switch result {
+            case .success(let updated):
+                if updated {
+                    // Re-fetch and store since the task group couldn't mutate our state
+                    do {
+                        let changed = try await updateFilterList(filterList, forceUpdate: forceUpdate)
+                        if changed { hasChanges = true }
+                    } catch {
+                        if let listIndex = filterLists.firstIndex(where: { $0.id == filterList.id }) {
+                            filterLists[listIndex].lastError = error.localizedDescription
+                        }
+                    }
+                }
+            case .failure(let error):
                 if let listIndex = filterLists.firstIndex(where: { $0.id == filterList.id }) {
                     filterLists[listIndex].lastError = error.localizedDescription
                 }
                 Log.AdBlock.error("Failed to update \(filterList.name): \(error)")
             }
-
-            updateProgress = Double(index + 1) / Double(enabledLists.count)
         }
 
         isUpdating = false
@@ -159,6 +194,17 @@ class FilterListManager: ObservableObject {
         }
 
         return allRules
+    }
+
+    /// Get enabled rules grouped by filter list ID (for per-list compilation)
+    func getEnabledRulesGrouped() -> [UUID: [[String: Any]]] {
+        var grouped: [UUID: [[String: Any]]] = [:]
+        for filterList in filterLists where filterList.isEnabled {
+            if let rules = loadRules(for: filterList) {
+                grouped[filterList.id] = rules
+            }
+        }
+        return grouped
     }
 
     /// Get enabled filter list IDs (for cache invalidation)

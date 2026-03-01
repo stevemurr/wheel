@@ -185,13 +185,75 @@ struct WebKitRuleConverter {
         return result
     }
 
+    /// Structural regex validator — checks bracket/escape balance without creating NSRegularExpression.
+    /// The patterns from buildURLFilter are constrained: only ^, $, .*, [...], and \\ + literal.
     private func isValidRegex(_ pattern: String) -> Bool {
-        do {
-            _ = try NSRegularExpression(pattern: pattern)
-            return true
-        } catch {
-            return false
+        var i = pattern.startIndex
+        while i < pattern.endIndex {
+            let ch = pattern[i]
+            if ch == "\\" {
+                // Escape sequence: must have a following character
+                let next = pattern.index(after: i)
+                guard next < pattern.endIndex else { return false }
+                i = pattern.index(after: next)
+            } else if ch == "[" {
+                // Character class: find matching ']'
+                i = pattern.index(after: i)
+                // Allow '^' as first character inside class
+                if i < pattern.endIndex && pattern[i] == "^" {
+                    i = pattern.index(after: i)
+                }
+                // Allow ']' as first character inside class (literal)
+                if i < pattern.endIndex && pattern[i] == "]" {
+                    i = pattern.index(after: i)
+                }
+                var found = false
+                while i < pattern.endIndex {
+                    if pattern[i] == "\\" {
+                        let next = pattern.index(after: i)
+                        guard next < pattern.endIndex else { return false }
+                        i = pattern.index(after: next)
+                    } else if pattern[i] == "]" {
+                        found = true
+                        i = pattern.index(after: i)
+                        break
+                    } else {
+                        i = pattern.index(after: i)
+                    }
+                }
+                if !found { return false }
+            } else if ch == "]" {
+                // Unmatched closing bracket
+                return false
+            } else if ch == "(" {
+                // We don't produce groups in buildURLFilter; patterns with '(' come from
+                // domain anchors (^https?://([^/]+\\.)?). Validate balanced parens.
+                var depth = 1
+                i = pattern.index(after: i)
+                while i < pattern.endIndex && depth > 0 {
+                    if pattern[i] == "\\" {
+                        let next = pattern.index(after: i)
+                        guard next < pattern.endIndex else { return false }
+                        i = pattern.index(after: next)
+                    } else if pattern[i] == "(" {
+                        depth += 1
+                        i = pattern.index(after: i)
+                    } else if pattern[i] == ")" {
+                        depth -= 1
+                        i = pattern.index(after: i)
+                    } else {
+                        i = pattern.index(after: i)
+                    }
+                }
+                if depth != 0 { return false }
+            } else if ch == ")" {
+                // Unmatched closing paren
+                return false
+            } else {
+                i = pattern.index(after: i)
+            }
         }
+        return true
     }
 
     // MARK: - CSS Rule Conversion

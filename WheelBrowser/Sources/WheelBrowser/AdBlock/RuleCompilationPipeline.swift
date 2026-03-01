@@ -2,18 +2,20 @@ import Foundation
 import WebKit
 
 /// Handles the compilation of content blocking rules into WKContentRuleList objects.
-/// Takes merged rule dictionaries and produces compiled WebKit rule lists.
+/// Supports per-source compilation with unique identifiers.
 @MainActor
 final class RuleCompilationPipeline {
 
     /// Maximum number of rules WebKit can handle
     static var maxRuleCount: Int { WebKitRuleConverter.maxRulesPerList }
 
-    /// Compiles an array of rule dictionaries into a WKContentRuleList.
-    /// - Parameter rules: The array of rule dictionaries in WebKit content blocker JSON format.
+    /// Compiles an array of rule dictionaries into a WKContentRuleList with a given identifier.
+    /// - Parameters:
+    ///   - rules: The array of rule dictionaries in WebKit content blocker JSON format.
+    ///   - identifier: Unique identifier for this rule list in WebKit's store.
     /// - Returns: A compiled `WKContentRuleList`.
     /// - Throws: `ContentBlockerError.compilationFailed` if serialization or compilation fails.
-    func compile(_ rules: [[String: Any]]) async throws -> WKContentRuleList {
+    func compile(_ rules: [[String: Any]], identifier: String = BlockingRules.ruleSetIdentifier) async throws -> WKContentRuleList {
         guard let jsonData = try? JSONSerialization.data(withJSONObject: rules, options: []),
               let rulesJSON = String(data: jsonData, encoding: .utf8) else {
             throw ContentBlockerError.compilationFailed
@@ -21,7 +23,7 @@ final class RuleCompilationPipeline {
 
         return try await withCheckedThrowingContinuation { continuation in
             WKContentRuleListStore.default().compileContentRuleList(
-                forIdentifier: BlockingRules.ruleSetIdentifier,
+                forIdentifier: identifier,
                 encodedContentRuleList: rulesJSON
             ) { ruleList, error in
                 if let error = error {

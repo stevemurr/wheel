@@ -3,7 +3,8 @@ import CryptoKit
 
 // MARK: - Filter List Fetcher
 
-/// Actor for downloading and processing filter lists
+/// Actor for downloading and processing filter lists.
+/// Supports HTTP conditional requests (ETag / Last-Modified) to avoid re-downloading unchanged content.
 actor FilterListFetcher {
 
     /// Shared instance
@@ -16,20 +17,42 @@ actor FilterListFetcher {
         let config = URLSessionConfiguration.default
         config.timeoutIntervalForRequest = 30
         config.timeoutIntervalForResource = 120
-        config.httpMaximumConnectionsPerHost = 2
+        config.httpMaximumConnectionsPerHost = 4
         self.session = URLSession(configuration: config)
     }
 
     // MARK: - Fetch Methods
 
-    /// Fetch a filter list from URL
-    /// - Parameter url: URL to fetch from
-    /// - Returns: The raw content string
-    func fetch(from url: URL) async throws -> String {
-        let (data, response) = try await session.data(from: url)
+    /// Fetch a filter list from URL with optional conditional request headers.
+    /// - Parameters:
+    ///   - url: URL to fetch from
+    ///   - etag: Previous ETag for If-None-Match
+    ///   - lastModified: Previous Last-Modified for If-Modified-Since
+    /// - Returns: Content string and response headers, or nil if not modified (304)
+    func fetch(
+        from url: URL,
+        etag: String? = nil,
+        lastModified: String? = nil
+    ) async throws -> (content: String, etag: String?, lastModified: String?)? {
+        var request = URLRequest(url: url)
+
+        // Add conditional headers
+        if let etag = etag {
+            request.setValue(etag, forHTTPHeaderField: "If-None-Match")
+        }
+        if let lastModified = lastModified {
+            request.setValue(lastModified, forHTTPHeaderField: "If-Modified-Since")
+        }
+
+        let (data, response) = try await session.data(for: request)
 
         guard let httpResponse = response as? HTTPURLResponse else {
             throw FilterListError.invalidResponse
+        }
+
+        // 304 Not Modified — content hasn't changed
+        if httpResponse.statusCode == 304 {
+            return nil
         }
 
         guard httpResponse.statusCode == 200 else {
@@ -40,7 +63,10 @@ actor FilterListFetcher {
             throw FilterListError.invalidEncoding
         }
 
-        return content
+        let responseEtag = httpResponse.value(forHTTPHeaderField: "ETag")
+        let responseLastModified = httpResponse.value(forHTTPHeaderField: "Last-Modified")
+
+        return (content, responseEtag, responseLastModified)
     }
 
     /// Fetch and process a filter list
@@ -53,14 +79,30 @@ actor FilterListFetcher {
         forceUpdate: Bool = false
     ) async throws -> (filterList: FilterList, rules: [[String: Any]])? {
 
-        // Fetch content
-        let content = try await fetch(from: filterList.url)
+        // Use conditional request headers unless forcing
+        let etag = forceUpdate ? nil : filterList.etag
+        let lastModified = forceUpdate ? nil : filterList.lastModifiedHeader
+
+        guard let fetchResult = try await fetch(
+            from: filterList.url,
+            etag: etag,
+            lastModified: lastModified
+        ) else {
+            // 304 Not Modified
+            return nil
+        }
+
+        let content = fetchResult.content
 
         // Calculate checksum
         let checksum = calculateChecksum(content)
 
         // Skip if unchanged (unless forced)
         if !forceUpdate && checksum == filterList.checksum {
+            // Content same but update stored headers for future conditional requests
+            var updatedList = filterList
+            updatedList.etag = fetchResult.etag ?? filterList.etag
+            updatedList.lastModifiedHeader = fetchResult.lastModified ?? filterList.lastModifiedHeader
             return nil
         }
 
@@ -83,6 +125,8 @@ actor FilterListFetcher {
         updatedList.lastError = nil
         updatedList.version = metadata.version
         updatedList.homepage = metadata.homepage
+        updatedList.etag = fetchResult.etag
+        updatedList.lastModifiedHeader = fetchResult.lastModified
 
         if stats.truncated {
             Log.AdBlock.warning("\(filterList.name) truncated to \(WebKitRuleConverter.maxRulesPerList) rules")

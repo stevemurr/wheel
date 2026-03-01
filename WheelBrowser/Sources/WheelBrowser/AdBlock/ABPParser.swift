@@ -102,17 +102,28 @@ actor ABPParser {
     /// - Parameter content: The raw filter list text content
     /// - Returns: Array of parsed rules
     func parse(_ content: String) async -> [ABPRule] {
-        let lines = content.components(separatedBy: .newlines)
+        // Estimate capacity: average ~40 chars per line
         var rules: [ABPRule] = []
+        rules.reserveCapacity(content.count / 40)
 
-        for line in lines {
+        // Stream lines instead of materializing all substrings at once
+        content.enumerateLines { line, _ in
             let trimmed = line.trimmingCharacters(in: .whitespaces)
 
             // Skip empty lines
-            guard !trimmed.isEmpty else { continue }
+            guard !trimmed.isEmpty else { return }
+
+            // Skip comments and headers early to avoid allocation
+            if trimmed.hasPrefix("!") || trimmed.hasPrefix("[Adblock") {
+                return
+            }
 
             // Parse the line
-            let rule = parseLine(trimmed)
+            let rule = self.parseLine(trimmed)
+
+            // Skip unsupported rules to reduce downstream work
+            if case .unsupported = rule { return }
+
             rules.append(rule)
         }
 

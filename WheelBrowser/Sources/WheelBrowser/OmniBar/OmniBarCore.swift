@@ -105,7 +105,7 @@ struct OmniBar: View {
         }
         .onReceive(NotificationCenter.default.publisher(for: .showScrapePanel)) { _ in
             omniState.setMode(.scraping)
-            omniState.setVisiblePanel(.scraping)
+            // NOTE: Do NOT call setVisiblePanel here — handled by setMode → handleModeChange → activateMode.
         }
         .task {
             await checkIfCurrentPageIsSaved()

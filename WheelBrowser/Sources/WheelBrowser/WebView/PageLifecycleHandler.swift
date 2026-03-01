@@ -61,6 +61,11 @@ final class PageLifecycleHandler {
         // Record page load for blocking stats
         if AppSettings.shared.adBlockingEnabled {
             ContentBlockerManager.shared.recordPageLoad()
+
+            // Safety-net cookie banner dismissal after page fully loads
+            if ContentBlockerManager.shared.isEnabled(.annoyances) {
+                webView.evaluateJavaScript("if(window.__wheelCookieBanner){window.__wheelCookieBanner.dismiss()}") { _, _ in }
+            }
         }
 
         // Record to browsing history with current workspace

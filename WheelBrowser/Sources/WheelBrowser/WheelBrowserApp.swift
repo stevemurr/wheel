@@ -39,6 +39,13 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         // Normal (non-headless) startup
         NSApp.activate(ignoringOtherApps: true)
 
+        // Pre-compile ad blocking rules so they're ready before the first tab opens
+        if AppSettings.shared.adBlockingEnabled {
+            Task { @MainActor in
+                await ContentBlockerManager.shared.compileRules()
+            }
+        }
+
         // Log startup configuration
         let settings = AppSettings.shared
         Log.Services.info("LLM endpoint: \(settings.llmEndpoint)")
