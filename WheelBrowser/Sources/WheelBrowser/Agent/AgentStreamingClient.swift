@@ -138,7 +138,7 @@ final class AgentStreamingClient {
                 return reasoningContent
             }
 
-            if let extractedAction = AgentResponseParser.extractActionFromReasoning(reasoningContent) {
+            if let extractedAction = AgentReasoningExtractor.extract(from: reasoningContent) {
                 Log.Agent.debug("callLLM: Extracted action from reasoning_content: \(extractedAction)")
                 return "THOUGHT: (extracted from reasoning)\nACTION: \(extractedAction)"
             }
