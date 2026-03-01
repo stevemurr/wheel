@@ -52,6 +52,11 @@ class Tab: Identifiable, ObservableObject {
         // Inject link hover detection script for link previews
         config.userContentController.addUserScript(LinkHoverScripts.createUserScript())
 
+        // Inject anti-detection scripts in headless mode
+        if HeadlessConfig.current.enabled {
+            config.userContentController.addUserScript(AntiDetectionScripts.createUserScript())
+        }
+
         self.webView = WKWebView(frame: .zero, configuration: config)
         self.webView.allowsBackForwardNavigationGestures = true
 

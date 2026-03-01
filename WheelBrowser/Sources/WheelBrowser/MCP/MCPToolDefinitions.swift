@@ -109,6 +109,48 @@ enum MCPToolDefinitions {
                 "required": [] as [String]
             ]
         ],
+        [
+            "name": "browser_screenshot",
+            "description": "Take a screenshot of the current page, returned as base64-encoded PNG",
+            "inputSchema": [
+                "type": "object",
+                "properties": [:] as [String: Any],
+                "required": [] as [String]
+            ]
+        ],
+        [
+            "name": "browser_new_tab",
+            "description": "Open a new browser tab, optionally navigating to a URL",
+            "inputSchema": [
+                "type": "object",
+                "properties": [
+                    "url": ["type": "string", "description": "Optional URL to load in the new tab"]
+                ],
+                "required": [] as [String]
+            ]
+        ],
+        [
+            "name": "browser_close_tab",
+            "description": "Close a browser tab by its ID. Closes the active tab if no ID provided.",
+            "inputSchema": [
+                "type": "object",
+                "properties": [
+                    "tabId": ["type": "string", "description": "UUID of the tab to close (defaults to active tab)"]
+                ],
+                "required": [] as [String]
+            ]
+        ],
+        [
+            "name": "browser_switch_tab",
+            "description": "Switch to a different browser tab by its ID",
+            "inputSchema": [
+                "type": "object",
+                "properties": [
+                    "tabId": ["type": "string", "description": "UUID of the tab to switch to"]
+                ],
+                "required": ["tabId"]
+            ]
+        ],
     ]
 
     /// Generate the initialize response

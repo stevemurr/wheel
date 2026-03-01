@@ -2,16 +2,42 @@ import SwiftUI
 import AppKit
 
 class AppDelegate: NSObject, NSApplicationDelegate {
+    /// Retained reference to the headless window controller (prevents deallocation).
+    private var headlessController: HeadlessWindowController?
+
     func applicationWillFinishLaunching(_ notification: Notification) {
-        NSApp.setActivationPolicy(.regular)
+        if HeadlessConfig.current.enabled {
+            // Hide from Dock and menu bar in headless mode
+            NSApp.setActivationPolicy(.accessory)
+        } else {
+            NSApp.setActivationPolicy(.regular)
+        }
     }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
-        NSApp.activate(ignoringOtherApps: true)
-
         // Configure logging sinks
         Log.addSink(ConsoleSink(minimumLevel: .debug))
         Log.addSink(OSLogSink())
+
+        if HeadlessConfig.current.enabled {
+            Log.MCP.info("Starting in headless mode")
+
+            // Close the SwiftUI-created WindowGroup window
+            DispatchQueue.main.async {
+                for window in NSApp.windows {
+                    window.close()
+                }
+            }
+
+            // Create and set up the headless window controller
+            let controller = HeadlessWindowController()
+            controller.setup()
+            self.headlessController = controller
+            return
+        }
+
+        // Normal (non-headless) startup
+        NSApp.activate(ignoringOtherApps: true)
 
         // Log startup configuration
         let settings = AppSettings.shared

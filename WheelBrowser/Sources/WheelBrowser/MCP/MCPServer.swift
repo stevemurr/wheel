@@ -1,5 +1,7 @@
 import Foundation
 import Network
+import WebKit
+import AppKit
 
 /// Model Context Protocol server for external client access to browser automation
 @MainActor
@@ -281,8 +283,69 @@ class MCPServer: ObservableObject {
     }
 
     private func callTool(name: String, arguments: [String: Any]) async throws -> Any {
-        guard let browserState = browserState,
-              let bridge = browserState.accessibilityBridge else {
+        guard let browserState = browserState else {
+            throw AgentError.webViewUnavailable
+        }
+
+        // Tools that don't require an accessibility bridge
+        switch name {
+        case "browser_screenshot":
+            guard let webView = browserState.activeTab?.webView else {
+                throw AgentError.webViewUnavailable
+            }
+            let config = WKSnapshotConfiguration()
+            let image = try await webView.takeSnapshot(configuration: config)
+            guard let tiffData = image.tiffRepresentation,
+                  let bitmapRep = NSBitmapImageRep(data: tiffData),
+                  let pngData = bitmapRep.representation(using: .png, properties: [:]) else {
+                throw AgentError.invalidRequest("Failed to capture screenshot")
+            }
+            let base64 = pngData.base64EncodedString()
+            return [
+                "content": [[
+                    "type": "image",
+                    "data": base64,
+                    "mimeType": "image/png"
+                ]]
+            ]
+
+        case "browser_new_tab":
+            if let urlString = arguments["url"] as? String,
+               let url = URL(string: urlString) {
+                browserState.addTab(withURL: url)
+            } else {
+                browserState.addTab()
+            }
+            let newTab = browserState.activeTab
+            return makeTextResponse("Opened new tab \(newTab?.id.uuidString ?? "")")
+
+        case "browser_close_tab":
+            if let tabIdString = arguments["tabId"] as? String,
+               let tabId = UUID(uuidString: tabIdString) {
+                browserState.closeTab(tabId)
+                return makeTextResponse("Closed tab \(tabIdString)")
+            } else {
+                browserState.closeActiveTab()
+                return makeTextResponse("Closed active tab")
+            }
+
+        case "browser_switch_tab":
+            guard let tabIdString = arguments["tabId"] as? String,
+                  let tabId = UUID(uuidString: tabIdString) else {
+                throw AgentError.invalidRequest("Missing or invalid tabId")
+            }
+            guard browserState.tab(for: tabId) != nil else {
+                throw AgentError.invalidRequest("Tab not found: \(tabIdString)")
+            }
+            browserState.selectTab(tabId)
+            return makeTextResponse("Switched to tab \(tabIdString)")
+
+        default:
+            break
+        }
+
+        // Tools that require the accessibility bridge
+        guard let bridge = browserState.accessibilityBridge else {
             throw AgentError.webViewUnavailable
         }
 
