@@ -42,13 +42,7 @@ extension OmniBar {
     }
 
     var downloadsPanelSubtitle: String {
-        let activeCount = downloadManager.downloads.filter { $0.status == .downloading }.count
-        if activeCount > 0 {
-            return "\(activeCount) downloading"
-        } else if !downloadManager.downloads.isEmpty {
-            return "\(downloadManager.downloads.count) items"
-        }
-        return ""
+        downloadManager.panelSubtitle
     }
 
     var agentPanelSubtitle: String {

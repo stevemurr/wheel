@@ -32,23 +32,22 @@ class DownloadHandler: NSObject, WKDownloadDelegate {
         var destinationURL = downloadsURL.appendingPathComponent(suggestedFilename)
         destinationURL = Self.uniqueFileURL(basePath: destinationURL)
 
-        // Register with DownloadManager and set up progress tracking
+        // Register with DownloadManager
         let sourceURL = response.url ?? URL(string: "about:blank")!
         let expectedLength = response.expectedContentLength
 
         Task { @MainActor in
-            _ = DownloadManager.shared.startDownload(download, filename: suggestedFilename, url: sourceURL)
-            DownloadManager.shared.updateDestination(download, destination: destinationURL)
-
-            // Set initial total bytes if known
-            if expectedLength > 0 {
-                DownloadManager.shared.updateProgress(download, bytesReceived: 0, totalBytes: expectedLength)
-            }
+            _ = DownloadManager.shared.startDownload(
+                download,
+                filename: suggestedFilename,
+                url: sourceURL,
+                destination: destinationURL,
+                totalBytes: expectedLength
+            )
         }
 
         // Set up KVO observation for download progress
-        let observation = download.progress.observe(\.fractionCompleted, options: [.new]) { [weak self] progress, _ in
-            guard self != nil else { return }
+        let observation = download.progress.observe(\.fractionCompleted, options: [.new]) { progress, _ in
             let totalBytes = progress.totalUnitCount
             let completedBytes = progress.completedUnitCount
             Task { @MainActor in
