@@ -30,8 +30,6 @@ struct OmniBar: View {
     @State var isSending = false
     @State var isHovering = false
     @State var findText: String = ""
-    /// Track if the view has appeared to prevent initial animation flash
-    @State var hasAppeared: Bool = false
     /// Track if current page is saved to reading list
     @State var isCurrentPageSaved: Bool = false
 
@@ -103,9 +101,6 @@ struct OmniBar: View {
             omniState.inputText = tab.url?.absoluteString ?? ""
             suggestionsVM.browserState = browserState
             mentionSuggestionsVM.browserState = browserState
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
-                hasAppeared = true
-            }
         }
         .onReceive(NotificationCenter.default.publisher(for: .focusAddressBar)) { _ in handleFocusAddressBar() }
         .onReceive(NotificationCenter.default.publisher(for: .focusAISidebar)) { _ in handleFocusAISidebar() }

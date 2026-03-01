@@ -25,7 +25,7 @@ extension OmniBar {
     @ViewBuilder
     var panelViews: some View {
         // Suggestions panel - appears above OmniBar when in address mode (shows tabs + history)
-        if hasAppeared && isHistoryPanelVisible {
+        if isHistoryPanelVisible {
             OmniPanel(
                 title: "Go to",
                 icon: "magnifyingglass",
@@ -44,7 +44,7 @@ extension OmniBar {
         }
 
         // Chat panel - appears above OmniBar when in chat mode
-        if hasAppeared && isChatPanelVisible {
+        if isChatPanelVisible {
             OmniPanel(
                 title: "Chat",
                 icon: "bubble.left.and.bubble.right.fill",
@@ -68,7 +68,7 @@ extension OmniBar {
         }
 
         // Semantic search panel - appears above OmniBar when in semantic mode
-        if hasAppeared && isSemanticPanelVisible {
+        if isSemanticPanelVisible {
             OmniPanel(
                 title: "Semantic Search",
                 icon: "brain.head.profile",
@@ -95,7 +95,7 @@ extension OmniBar {
         }
 
         // Agent panel - appears above OmniBar when in agent mode
-        if hasAppeared && isAgentPanelVisible {
+        if isAgentPanelVisible {
             OmniPanel(
                 title: "Agent",
                 icon: "wand.and.stars",
@@ -119,7 +119,7 @@ extension OmniBar {
         }
 
         // Reading list panel - appears above OmniBar when in reading list mode
-        if hasAppeared && isReadingListPanelVisible {
+        if isReadingListPanelVisible {
             OmniPanel(
                 title: "Reading List",
                 icon: "bookmark.fill",
@@ -138,7 +138,7 @@ extension OmniBar {
         }
 
         // Downloads panel - appears above OmniBar when downloads are active
-        if hasAppeared && downloadManager.showDownloadsPanel {
+        if downloadManager.showDownloadsPanel {
             OmniPanel(
                 title: "Downloads",
                 icon: "arrow.down.circle.fill",
@@ -161,7 +161,7 @@ extension OmniBar {
         }
 
         // Scrape panel - appears above OmniBar when in scraping mode
-        if hasAppeared && isScrapingPanelVisible {
+        if isScrapingPanelVisible {
             OmniPanel(
                 title: "Web Scraping",
                 icon: "network",
