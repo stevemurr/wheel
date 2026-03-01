@@ -59,14 +59,24 @@ enum AgentResponseParser {
 
         Log.Agent.debug("parseAction: Attempting to parse '\(trimmed)'")
 
-        // click(id)
-        if let match = trimmed.range(of: #"click\s*\(\s*(\d+)\s*\)"#, options: .regularExpression) {
-            let idStr = trimmed[match].replacingOccurrences(of: "click", with: "")
-                .replacingOccurrences(of: "(", with: "")
-                .replacingOccurrences(of: ")", with: "")
-                .trimmingCharacters(in: .whitespaces)
-            if let id = Int(idStr) {
-                return .click(elementId: id)
+        // click(id) or click(id, modifiers)
+        if let match = trimmed.range(of: #"click\s*\(\s*(\d+)\s*(?:,\s*([\w+]+))?\s*\)"#, options: .regularExpression) {
+            let matched = String(trimmed[match])
+            // Extract the inner content between parentheses
+            if let parenStart = matched.firstIndex(of: "("),
+               let parenEnd = matched.lastIndex(of: ")") {
+                let inner = matched[matched.index(after: parenStart)..<parenEnd]
+                    .trimmingCharacters(in: .whitespaces)
+                let parts = inner.split(separator: ",", maxSplits: 1).map { $0.trimmingCharacters(in: .whitespaces) }
+                if let id = Int(parts[0]) {
+                    let modifiers: ClickModifiers
+                    if parts.count > 1 {
+                        modifiers = ClickModifiers.from(parts[1])
+                    } else {
+                        modifiers = .none
+                    }
+                    return .click(elementId: id, modifiers: modifiers)
+                }
             }
         }
 

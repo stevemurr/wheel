@@ -125,10 +125,16 @@ enum HarmonyFormatParser {
                                 return .navigate(url: url)
                             }
                         case "click":
+                            let modifiers: ClickModifiers
+                            if let modArray = json["modifiers"] as? [String] {
+                                modifiers = ClickModifiers.from(modArray)
+                            } else {
+                                modifiers = .none
+                            }
                             if let id = json["id"] as? Int {
-                                return .click(elementId: id)
+                                return .click(elementId: id, modifiers: modifiers)
                             } else if let idStr = json["id"] as? String, let id = Int(idStr) {
-                                return .click(elementId: id)
+                                return .click(elementId: id, modifiers: modifiers)
                             }
                         case "type":
                             let id: Int?
@@ -167,8 +173,17 @@ enum HarmonyFormatParser {
                 let idSegment = String(response[idRange])
                 if let digitRange = idSegment.range(of: #"\d+"#, options: .regularExpression) {
                     if let id = Int(idSegment[digitRange]) {
+                        // Try to extract modifiers array from the same JSON block
+                        var modifiers = ClickModifiers.none
+                        if let modRange = response.range(of: #""modifiers"\s*:\s*\[([^\]]*)\]"#, options: .regularExpression) {
+                            let modStr = String(response[modRange])
+                            let names = modStr.components(separatedBy: CharacterSet(charactersIn: "\"[],:"))
+                                .map { $0.trimmingCharacters(in: .whitespaces) }
+                                .filter { !$0.isEmpty && $0 != "modifiers" }
+                            modifiers = ClickModifiers.from(names)
+                        }
                         Log.Agent.debug("parseHarmonyToolCall: Extracted click(id: \(id))")
-                        return .click(elementId: id)
+                        return .click(elementId: id, modifiers: modifiers)
                     }
                 }
             }

@@ -26,9 +26,38 @@ struct AgentResult {
     let steps: [AgentStep]
 }
 
+/// Modifier keys that can be held during a click action
+struct ClickModifiers: Equatable {
+    var shift: Bool = false
+    var command: Bool = false  // metaKey on web
+    var control: Bool = false
+    var option: Bool = false   // altKey on web
+    static let none = ClickModifiers()
+
+    /// Parse from an array of modifier name strings (e.g. ["shift", "command"])
+    static func from(_ names: [String]) -> ClickModifiers {
+        var m = ClickModifiers()
+        for name in names {
+            switch name.lowercased() {
+            case "shift": m.shift = true
+            case "command", "cmd", "meta": m.command = true
+            case "control", "ctrl": m.control = true
+            case "option", "alt": m.option = true
+            default: break
+            }
+        }
+        return m
+    }
+
+    /// Parse from a "+" delimited string like "shift+command"
+    static func from(_ string: String) -> ClickModifiers {
+        from(string.split(separator: "+").map { $0.trimmingCharacters(in: .whitespaces) })
+    }
+}
+
 /// Available actions the agent can take
 enum AgentAction: Equatable {
-    case click(elementId: Int)
+    case click(elementId: Int, modifiers: ClickModifiers = .none)
     case type(elementId: Int, text: String)
     case pressEnter
     case scroll(direction: ScrollDirection)
@@ -403,7 +432,7 @@ class AgentEngine: ObservableObject {
 
             // Build normalized action for loop detection
             var elementDescription: String? = nil
-            if case .click(let elementId) = action {
+            if case .click(let elementId, _) = action {
                 if let element = elementById[elementId] {
                     elementDescription = "\(element.tag):\(element.text ?? element.ariaLabel ?? element.placeholder ?? "unknown")"
                 }
@@ -524,12 +553,13 @@ class AgentEngine: ObservableObject {
     /// Build a human-readable description of an action, using element info from the snapshot when available
     private func describeAction(_ action: AgentAction, elementById: [Int: PageElement]? = nil) -> String {
         switch action {
-        case .click(let id):
+        case .click(let id, let modifiers):
+            let modDesc = modifiers == .none ? "" : " (with modifiers)"
             if let elements = elementById, let el = elements[id] {
                 let label = el.text ?? el.ariaLabel ?? el.placeholder ?? el.tag
-                return "Clicking '\(label)'"
+                return "Clicking '\(label)'\(modDesc)"
             }
-            return "Clicking element #\(id)"
+            return "Clicking element #\(id)\(modDesc)"
         case .type(let id, let text):
             if let elements = elementById, let el = elements[id] {
                 let label = el.ariaLabel ?? el.placeholder ?? el.tag
@@ -573,7 +603,7 @@ class AgentEngine: ObservableObject {
         let preState = await bridge.capturePreActionState()
 
         switch action {
-        case .click(let elementId):
+        case .click(let elementId, let modifiers):
             // Re-validate element before clicking (handles SPA re-renders)
             let element = elementById[elementId]
             let resolvedId = try await bridge.revalidateElement(
@@ -581,7 +611,7 @@ class AgentEngine: ObservableObject {
                 expectedTag: element?.tag,
                 expectedText: element?.text
             )
-            try await bridge.click(elementId: resolvedId)
+            try await bridge.click(elementId: resolvedId, modifiers: modifiers)
             try await bridge.waitForLoad(timeout: 3.0)
             let delta = await bridge.quickDelta(before: preState)
             let reMatchNote = resolvedId != elementId ? " (re-matched from #\(elementId))" : ""

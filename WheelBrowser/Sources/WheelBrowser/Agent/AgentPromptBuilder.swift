@@ -12,8 +12,9 @@ enum AgentPromptBuilder {
     ACTION: [one action]
 
     AVAILABLE ACTIONS:
-    click(id)          - Click element by ID
-    type(id, "text")   - Type text into element
+    click(id)              - Click element by ID
+    click(id, modifiers)   - Click with modifier keys (shift, command, control, option). Combine with +, e.g. click(5, shift+command)
+    type(id, "text")       - Type text into element
     press_enter        - Press enter key
     scroll(up/down)    - Scroll the page
     navigate("url")    - Go to URL

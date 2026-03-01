@@ -295,7 +295,13 @@ class MCPServer: ObservableObject {
             guard let elementId = arguments["elementId"] as? Int else {
                 throw AgentError.invalidRequest("Missing elementId")
             }
-            try await bridge.click(elementId: elementId)
+            let modifiers: ClickModifiers
+            if let modArray = arguments["modifiers"] as? [String] {
+                modifiers = ClickModifiers.from(modArray)
+            } else {
+                modifiers = .none
+            }
+            try await bridge.click(elementId: elementId, modifiers: modifiers)
             return makeTextResponse("Clicked element #\(elementId)")
 
         case "browser_type":

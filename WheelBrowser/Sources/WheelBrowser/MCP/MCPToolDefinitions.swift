@@ -24,11 +24,16 @@ enum MCPToolDefinitions {
         ],
         [
             "name": "browser_click",
-            "description": "Click an element by its ID",
+            "description": "Click an element by its ID, optionally with modifier keys",
             "inputSchema": [
                 "type": "object",
                 "properties": [
-                    "elementId": ["type": "integer", "description": "The element ID from the snapshot"]
+                    "elementId": ["type": "integer", "description": "The element ID from the snapshot"],
+                    "modifiers": [
+                        "type": "array",
+                        "items": ["type": "string", "enum": ["shift", "command", "control", "option"]],
+                        "description": "Modifier keys to hold during click (e.g. command to open in new tab)"
+                    ]
                 ],
                 "required": ["elementId"]
             ]

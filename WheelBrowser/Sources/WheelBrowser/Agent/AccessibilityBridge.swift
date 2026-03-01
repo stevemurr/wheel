@@ -368,14 +368,20 @@ class AccessibilityBridge {
 
     // MARK: - Click
 
-    /// Click an element by its agent ID
-    func click(elementId: Int) async throws {
+    /// Click an element by its agent ID, optionally with modifier keys
+    func click(elementId: Int, modifiers: ClickModifiers = .none) async throws {
         guard let webView = webView else {
             throw AgentError.webViewUnavailable
         }
 
         // Track for pressEnter
         lastInteractedElementId = elementId
+
+        let hasModifiers = modifiers != .none
+        let shiftFlag = modifiers.shift ? "true" : "false"
+        let metaFlag = modifiers.command ? "true" : "false"
+        let ctrlFlag = modifiers.control ? "true" : "false"
+        let altFlag = modifiers.option ? "true" : "false"
 
         let script = """
         (function() {
@@ -417,13 +423,18 @@ class AccessibilityBridge {
                 cancelable: true,
                 view: window,
                 clientX: x,
-                clientY: y
+                clientY: y,
+                shiftKey: \(shiftFlag),
+                metaKey: \(metaFlag),
+                ctrlKey: \(ctrlFlag),
+                altKey: \(altFlag)
             });
 
             el.dispatchEvent(clickEvent);
 
-            // Also try direct click for links and buttons
-            if (el.click) {
+            // Also try direct click for links and buttons (skip when modifiers
+            // are present because el.click() cannot carry modifier flags)
+            if (!(\(hasModifiers)) && el.click) {
                 el.click();
             }
 
