@@ -68,6 +68,9 @@ extension OmniBar {
         // Dismiss any currently visible panel
         omniState.dismissVisiblePanel()
 
+        // Skip panel activation when input is unfocused (e.g. during Escape dismissal).
+        // Normal mode changes (Tab cycling, clicking mode buttons) happen while focused.
+        guard isInputFocused else { return }
         activateMode(newMode, isFocusGain: false)
     }
 
