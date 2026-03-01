@@ -157,7 +157,8 @@ class AgentEngine: ObservableObject {
 
     private let browserState: BrowserState
     private let settings: AppSettings
-    private let llmClient: AgentStreamingClient
+    private let llmClient: any LLMClient
+    private let bridgeProvider: any BrowserBridgeProvider
     private let loopDetector = AgentLoopDetector()
     private var currentTaskHandle: Task<AgentResult, Never>?
     private weak var boundTab: Tab?
@@ -191,6 +192,15 @@ class AgentEngine: ObservableObject {
         self.browserState = browserState
         self.settings = settings
         self.llmClient = AgentStreamingClient(settings: settings)
+        self.bridgeProvider = browserState
+    }
+
+    /// Test initializer allowing injection of mock dependencies
+    init(browserState: BrowserState, llmClient: any LLMClient, bridgeProvider: any BrowserBridgeProvider) {
+        self.browserState = browserState
+        self.settings = AppSettings.shared
+        self.llmClient = llmClient
+        self.bridgeProvider = bridgeProvider
     }
 
     /// Returns the title of the bound tab, if any
@@ -367,7 +377,7 @@ class AgentEngine: ObservableObject {
             }
 
             // 1. Observe - Get page snapshot
-            guard let bridge = browserState.accessibilityBridge(for: tabId) else {
+            guard let bridge = bridgeProvider.bridge(for: tabId) else {
                 throw AgentError.webViewUnavailable
             }
 
@@ -598,7 +608,7 @@ class AgentEngine: ObservableObject {
         let delta: ActionDelta?
     }
 
-    private func executeAction(_ action: AgentAction, bridge: AccessibilityBridge, elementById: [Int: PageElement] = [:]) async throws -> ActionResult {
+    private func executeAction(_ action: AgentAction, bridge: any BrowserBridge, elementById: [Int: PageElement] = [:]) async throws -> ActionResult {
         // Capture pre-action state for delta computation
         let preState = await bridge.capturePreActionState()
 
@@ -716,7 +726,7 @@ class AgentEngine: ObservableObject {
     // MARK: - Post-done() Verification
 
     /// Lightweight heuristic check before accepting done(). Returns rejection reason or nil if OK.
-    private func verifyDoneCondition(bridge: AccessibilityBridge) async -> String? {
+    private func verifyDoneCondition(bridge: any BrowserBridge) async -> String? {
         do {
             let snapshot = try await bridge.snapshot()
 

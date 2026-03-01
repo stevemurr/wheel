@@ -3,7 +3,7 @@ import WebKit
 
 /// Bridge for interacting with web pages through JavaScript injection
 @MainActor
-class AccessibilityBridge {
+class AccessibilityBridge: BrowserBridge {
     private weak var webView: WKWebView?
 
     /// Track the last element we interacted with for pressEnter

@@ -133,6 +133,19 @@ struct PageSnapshot: Codable {
         let height: Double
     }
 
+    /// Memberwise initializer for programmatic construction (e.g., tests)
+    init(url: String, title: String, elements: [PageElement], scrollPosition: ScrollPosition, viewportSize: ViewportSize, captchaDetected: Bool = false, captchaType: String? = nil, headings: [PageHeading]? = nil, contentSummary: String? = nil) {
+        self.url = url
+        self.title = title
+        self.elements = elements
+        self.scrollPosition = scrollPosition
+        self.viewportSize = viewportSize
+        self.captchaDetected = captchaDetected
+        self.captchaType = captchaType
+        self.headings = headings
+        self.contentSummary = contentSummary
+    }
+
     // For backwards compatibility with existing snapshots that may not have all fields
     init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)

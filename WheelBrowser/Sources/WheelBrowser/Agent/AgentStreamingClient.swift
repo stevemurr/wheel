@@ -1,8 +1,13 @@
 import Foundation
 
+/// Protocol for LLM communication, enabling dependency injection for testing
+protocol LLMClient: Sendable {
+    func callLLM(prompt: String, systemPrompt: String) async throws -> String
+}
+
 /// Handles LLM API communication for the agent, including retry logic
 /// and response parsing for reasoning models.
-final class AgentStreamingClient {
+final class AgentStreamingClient: LLMClient {
 
     private let settings: AppSettings
 
