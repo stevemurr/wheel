@@ -1,11 +1,14 @@
 import SwiftUI
 
-/// Consolidated animation state to reduce multiple animation modifiers to one
-/// Using a struct with Equatable conformance allows combining multiple values
+/// Animation state scoped to `omniBarContent` only (not the parent VStack).
+/// This ensures the implicit animation drives only the input bar expansion
+/// (nav buttons, pill width), while panel transitions are driven solely by
+/// explicit `withAnimation` in `setVisiblePanel()`/`dismissVisiblePanel()`.
+/// Placing this on the VStack would cause panels to receive two overlapping
+/// animation contexts, producing a visual flash on focus gain.
 private struct OmniBarAnimationState: Equatable {
     let shouldExpand: Bool
     let isInputFocused: Bool
-    let visiblePanels: UInt8  // Bitmask for panel visibility
 }
 
 /// The OmniBar - a unified input bar for URL navigation, AI chat, and semantic search
@@ -45,18 +48,6 @@ struct OmniBar: View {
     var isReadingListPanelVisible: Bool { omniState.isPanelVisible(for: .readingList) }
     var isScrapingPanelVisible: Bool { omniState.isPanelVisible(for: .scraping) }
 
-    /// Bitmask combining all panel visibility states for animation consolidation
-    private var visiblePanelFlags: UInt8 {
-        var flags: UInt8 = 0
-        if isHistoryPanelVisible { flags |= 1 }
-        if isChatPanelVisible { flags |= 2 }
-        if isSemanticPanelVisible { flags |= 4 }
-        if isAgentPanelVisible { flags |= 8 }
-        if isReadingListPanelVisible { flags |= 16 }
-        if downloadManager.showDownloadsPanel { flags |= 32 }
-        if isScrapingPanelVisible { flags |= 64 }
-        return flags
-    }
 
     var body: some View {
         VStack(spacing: 0) {
@@ -80,6 +71,10 @@ struct OmniBar: View {
 
             // OmniBar itself
             omniBarContent
+                .animation(AppAnimation.panelSpring, value: OmniBarAnimationState(
+                    shouldExpand: shouldExpand,
+                    isInputFocused: isInputFocused
+                ))
         }
         .animation(AppAnimation.standard, value: tab.isFindBarVisible)
         .onHover { hovering in
@@ -87,12 +82,6 @@ struct OmniBar: View {
                 isHovering = hovering
             }
         }
-        // Consolidated animation for all state changes - uses struct to combine multiple values
-        .animation(AppAnimation.panelSpring, value: OmniBarAnimationState(
-            shouldExpand: shouldExpand,
-            isInputFocused: isInputFocused,
-            visiblePanels: visiblePanelFlags
-        ))
         .onChange(of: tab.url) { _, newURL in handleURLChange(newURL) }
         .onChange(of: omniState.inputText) { _, newValue in handleInputTextChange(newValue) }
         .onChange(of: isInputFocused) { _, focused in handleFocusChange(focused) }
