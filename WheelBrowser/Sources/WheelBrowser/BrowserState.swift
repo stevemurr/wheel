@@ -21,7 +21,13 @@ struct WorkspaceTabState: Codable {
     let activeTabId: UUID?
 }
 
-class BrowserState: ObservableObject {
+class BrowserState: ObservableObject, BrowserBridgeProvider {
+    /// Returns a BrowserBridge for a specific tab (protocol conformance)
+    @MainActor
+    func bridge(for tabId: UUID) -> (any BrowserBridge)? {
+        return accessibilityBridge(for: tabId)
+    }
+
     @Published var tabs: [Tab] = []
     private var tabsByID: [UUID: Tab] = [:]
     @Published var activeTabId: UUID?

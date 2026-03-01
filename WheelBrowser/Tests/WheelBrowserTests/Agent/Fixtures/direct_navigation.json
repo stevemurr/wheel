@@ -1,0 +1,17 @@
+{
+    "name": "direct_navigation",
+    "description": "Navigate directly to a URL and verify arrival",
+    "startURL": "about:blank",
+    "task": "Navigate to https://news.ycombinator.com",
+    "maxSteps": 5,
+    "timeout": 30,
+    "successCriteria": {
+        "requireAgentSuccess": true,
+        "urlContains": "news.ycombinator.com",
+        "titleContains": "Hacker News",
+        "pageContains": null,
+        "summaryContains": null,
+        "maxExpectedSteps": 2
+    },
+    "tags": ["navigation", "basic"]
+}

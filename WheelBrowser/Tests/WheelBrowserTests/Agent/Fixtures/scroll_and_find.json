@@ -1,0 +1,17 @@
+{
+    "name": "scroll_and_find",
+    "description": "Scroll down a page to find content below the fold",
+    "startURL": "https://en.wikipedia.org/wiki/Swift_(programming_language)",
+    "task": "Scroll down to find the 'See also' section on this Wikipedia page",
+    "maxSteps": 15,
+    "timeout": 60,
+    "successCriteria": {
+        "requireAgentSuccess": true,
+        "urlContains": null,
+        "titleContains": null,
+        "pageContains": "See also",
+        "summaryContains": null,
+        "maxExpectedSteps": 8
+    },
+    "tags": ["scroll", "navigation"]
+}

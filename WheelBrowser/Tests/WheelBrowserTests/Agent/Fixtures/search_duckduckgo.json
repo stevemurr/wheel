@@ -1,0 +1,17 @@
+{
+    "name": "search_duckduckgo",
+    "description": "Search for a term on DuckDuckGo and verify results appear",
+    "startURL": "https://duckduckgo.com",
+    "task": "Search for 'Swift programming language'",
+    "maxSteps": 15,
+    "timeout": 60,
+    "successCriteria": {
+        "requireAgentSuccess": true,
+        "urlContains": "q=",
+        "titleContains": null,
+        "pageContains": "Swift",
+        "summaryContains": null,
+        "maxExpectedSteps": 5
+    },
+    "tags": ["search", "form", "basic"]
+}

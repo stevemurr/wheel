@@ -1,0 +1,17 @@
+{
+    "name": "multi_step_navigation",
+    "description": "Navigate through multiple pages to reach a specific destination",
+    "startURL": "https://en.wikipedia.org",
+    "task": "Go to the Wikipedia article about Python (programming language), then click the link to Guido van Rossum",
+    "maxSteps": 25,
+    "timeout": 120,
+    "successCriteria": {
+        "requireAgentSuccess": true,
+        "urlContains": "Guido_van_Rossum",
+        "titleContains": "Guido van Rossum",
+        "pageContains": null,
+        "summaryContains": null,
+        "maxExpectedSteps": 12
+    },
+    "tags": ["navigation", "multi-step"]
+}

@@ -1,0 +1,17 @@
+{
+    "name": "navigate_wikipedia",
+    "description": "Navigate to a specific Wikipedia article via search",
+    "startURL": "https://en.wikipedia.org",
+    "task": "Find the Wikipedia article about Alan Turing",
+    "maxSteps": 20,
+    "timeout": 90,
+    "successCriteria": {
+        "requireAgentSuccess": true,
+        "urlContains": "Alan_Turing",
+        "titleContains": "Alan Turing",
+        "pageContains": null,
+        "summaryContains": null,
+        "maxExpectedSteps": 8
+    },
+    "tags": ["navigation", "search"]
+}

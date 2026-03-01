@@ -1,0 +1,17 @@
+{
+    "name": "read_content",
+    "description": "Navigate to a page and extract specific information",
+    "startURL": "https://en.wikipedia.org/wiki/Rust_(programming_language)",
+    "task": "Read the first paragraph of this Wikipedia article and tell me who designed the Rust programming language",
+    "maxSteps": 10,
+    "timeout": 60,
+    "successCriteria": {
+        "requireAgentSuccess": true,
+        "urlContains": null,
+        "titleContains": null,
+        "pageContains": null,
+        "summaryContains": "Graydon Hoare",
+        "maxExpectedSteps": 5
+    },
+    "tags": ["read", "information-extraction"]
+}
