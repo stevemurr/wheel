@@ -1,11 +1,12 @@
 import SwiftUI
 
 /// Animation state scoped to `omniBarContent` only (not the parent VStack).
-/// This ensures the implicit animation drives only the input bar expansion
-/// (nav buttons, pill width), while panel transitions are driven solely by
-/// explicit `withAnimation` in `setVisiblePanel()`/`dismissVisiblePanel()`.
-/// Placing this on the VStack would cause panels to receive two overlapping
-/// animation contexts, producing a visual flash on focus gain.
+/// Similarly, the find-bar animation is scoped to a Group wrapper around
+/// `OmniBarFindBar`. Both modifiers are kept off the parent VStack so that
+/// panel transitions are driven solely by explicit `withAnimation` in
+/// `setVisiblePanel()`/`dismissVisiblePanel()`. Placing either animation on
+/// the VStack would cause panels to receive two overlapping animation
+/// contexts, producing a visual flash on first activation.
 private struct OmniBarAnimationState: Equatable {
     let shouldExpand: Bool
     let isInputFocused: Bool
@@ -63,11 +64,14 @@ struct OmniBar: View {
                     .zIndex(1000)
             }
 
-            // Find bar - appears above OmniBar when active
-            if tab.isFindBarVisible {
-                OmniBarFindBar(tab: tab, findText: $findText, isFocused: _isFindFieldFocused)
-                    .transition(.move(edge: .bottom).combined(with: .opacity))
+            // Find bar - animation scoped here so it doesn't affect panelViews
+            Group {
+                if tab.isFindBarVisible {
+                    OmniBarFindBar(tab: tab, findText: $findText, isFocused: _isFindFieldFocused)
+                        .transition(.move(edge: .bottom).combined(with: .opacity))
+                }
             }
+            .animation(AppAnimation.standard, value: tab.isFindBarVisible)
 
             // OmniBar itself
             omniBarContent
@@ -76,7 +80,6 @@ struct OmniBar: View {
                     isInputFocused: isInputFocused
                 ))
         }
-        .animation(AppAnimation.standard, value: tab.isFindBarVisible)
         .onHover { hovering in
             withAnimation(AppAnimation.medium) {
                 isHovering = hovering
