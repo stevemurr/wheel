@@ -17,8 +17,7 @@ struct OverlayWebView: NSViewRepresentable {
         config.preferences.setValue(true, forKey: "allowsPictureInPictureMediaPlayback")
 
         // Inject dark mode script at document start to prevent flash of light content
-        let darkModeScript = Self.createDarkModeUserScript()
-        config.userContentController.addUserScript(darkModeScript)
+        config.userContentController.addUserScript(DarkModeScripts.createUserScript())
 
         let webView = WKWebView(frame: .zero, configuration: config)
         webView.allowsBackForwardNavigationGestures = true
@@ -52,40 +51,6 @@ struct OverlayWebView: NSViewRepresentable {
 
     func makeCoordinator() -> Coordinator {
         Coordinator(item: item, isLoading: $isLoading, isReaderMode: $isReaderMode)
-    }
-
-    // MARK: - Dark Mode Helper
-
-    /// Creates a dark mode user script based on current settings
-    private static func createDarkModeUserScript() -> WKUserScript {
-        let settings = AppSettings.shared
-        let shouldEnable: Bool
-
-        switch settings.darkModeMode {
-        case .on:
-            shouldEnable = true
-        case .off:
-            shouldEnable = false
-        case .auto:
-            // Check system appearance synchronously
-            if let appearance = NSApp.effectiveAppearance.bestMatch(from: [.darkAqua, .aqua]) {
-                shouldEnable = appearance == .darkAqua
-            } else {
-                shouldEnable = false
-            }
-        }
-
-        let script = DarkModeScripts.generateBundle(
-            enabled: shouldEnable,
-            brightness: settings.darkModeBrightness,
-            contrast: settings.darkModeContrast
-        )
-
-        return WKUserScript(
-            source: script,
-            injectionTime: .atDocumentStart,
-            forMainFrameOnly: false
-        )
     }
 
     // MARK: - Coordinator

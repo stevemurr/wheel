@@ -1,7 +1,41 @@
 import Foundation
+import WebKit
+import AppKit
 
 /// JavaScript bundle for dark mode functionality
 struct DarkModeScripts {
+
+    /// Creates a WKUserScript for dark mode injection at document start.
+    /// Shared factory used by Tab and OverlayWebView to avoid duplication.
+    static func createUserScript() -> WKUserScript {
+        let settings = AppSettings.shared
+        let shouldEnable: Bool
+
+        switch settings.darkModeMode {
+        case .on:
+            shouldEnable = true
+        case .off:
+            shouldEnable = false
+        case .auto:
+            if let appearance = NSApp.effectiveAppearance.bestMatch(from: [.darkAqua, .aqua]) {
+                shouldEnable = appearance == .darkAqua
+            } else {
+                shouldEnable = false
+            }
+        }
+
+        let script = DarkModeScripts.generateBundle(
+            enabled: shouldEnable,
+            brightness: settings.darkModeBrightness,
+            contrast: settings.darkModeContrast
+        )
+
+        return WKUserScript(
+            source: script,
+            injectionTime: .atDocumentStart,
+            forMainFrameOnly: false
+        )
+    }
 
     /// Generate the complete dark mode JavaScript bundle
     /// - Parameters:
