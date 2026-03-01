@@ -157,7 +157,7 @@ class AgentEngine: ObservableObject {
 
     private let browserState: BrowserState
     private let settings: AppSettings
-    private let llmClient: any LLMClient
+    private let llmClient: any AgentLLMClient
     private let bridgeProvider: any BrowserBridgeProvider
     private let loopDetector = AgentLoopDetector()
     private var currentTaskHandle: Task<AgentResult, Never>?
@@ -196,7 +196,7 @@ class AgentEngine: ObservableObject {
     }
 
     /// Test initializer allowing injection of mock dependencies
-    init(browserState: BrowserState, llmClient: any LLMClient, bridgeProvider: any BrowserBridgeProvider) {
+    init(browserState: BrowserState, llmClient: any AgentLLMClient, bridgeProvider: any BrowserBridgeProvider) {
         self.browserState = browserState
         self.settings = AppSettings.shared
         self.llmClient = llmClient

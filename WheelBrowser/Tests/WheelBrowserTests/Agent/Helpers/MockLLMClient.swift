@@ -13,7 +13,7 @@ import Foundation
 /// let engine = AgentEngine(browserState: state, llmClient: mock, bridgeProvider: provider)
 /// ```
 @MainActor
-final class MockLLMClient: LLMClient {
+final class MockLLMClient: AgentLLMClient {
     /// Scripted responses returned in order
     private var responses: [String]
     /// Index of the next response to return

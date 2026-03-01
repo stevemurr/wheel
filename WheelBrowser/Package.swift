@@ -32,7 +32,10 @@ let package = Package(
         .testTarget(
             name: "WheelBrowserTests",
             dependencies: ["WheelBrowser"],
-            path: "Tests/WheelBrowserTests"
+            path: "Tests/WheelBrowserTests",
+            resources: [
+                .copy("Agent/Fixtures")
+            ]
         )
     ]
 )
