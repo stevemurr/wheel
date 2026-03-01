@@ -150,9 +150,11 @@ struct ChatPanelMessageBubble: View {
                         Markdown(message.content)
                             .markdownTheme(markdownTheme)
                             .textSelection(.enabled)
+                            .contentTransition(.opacity)
+                            .animation(.easeIn(duration: 0.08), value: message.content.count)
                             .frame(maxWidth: .infinity, alignment: .leading)
                             .padding(.horizontal, 12)
-                            .padding(.vertical, 10)
+                            .padding(.vertical, 12)
                     }
                 }
                 .frame(minWidth: 60, alignment: message.role == .user ? .trailing : .leading)
@@ -247,6 +249,8 @@ struct ChatPanelMessageBubble: View {
                 }
                 .paragraph { configuration in
                     configuration.label
+                        .relativeLineSpacing(.em(0.15))
+                        .fixedSize(horizontal: false, vertical: true)
                         .markdownMargin(top: 0, bottom: 6)
                 }
                 .code {
@@ -266,7 +270,9 @@ struct ChatPanelMessageBubble: View {
                 }
                 .paragraph { configuration in
                     configuration.label
-                        .markdownMargin(top: 0, bottom: 8)
+                        .relativeLineSpacing(.em(0.18))
+                        .fixedSize(horizontal: false, vertical: true)
+                        .markdownMargin(top: 0, bottom: 10)
                 }
                 .code {
                     FontFamilyVariant(.monospaced)
@@ -295,21 +301,21 @@ struct ChatPanelMessageBubble: View {
                 .heading1 { configuration in
                     configuration.label
                         .markdownTextStyle { FontSize(15); FontWeight(.bold) }
-                        .markdownMargin(top: 12, bottom: 6)
+                        .markdownMargin(top: 14, bottom: 6)
                 }
                 .heading2 { configuration in
                     configuration.label
                         .markdownTextStyle { FontSize(14); FontWeight(.bold) }
-                        .markdownMargin(top: 10, bottom: 5)
+                        .markdownMargin(top: 12, bottom: 5)
                 }
                 .heading3 { configuration in
                     configuration.label
                         .markdownTextStyle { FontSize(13.5); FontWeight(.semibold) }
-                        .markdownMargin(top: 8, bottom: 4)
+                        .markdownMargin(top: 10, bottom: 4)
                 }
                 .listItem { configuration in
                     configuration.label
-                        .markdownMargin(top: 3, bottom: 3)
+                        .markdownMargin(top: 4, bottom: 4)
                 }
                 // Stylish table rendering with native macOS appearance
                 .table { configuration in

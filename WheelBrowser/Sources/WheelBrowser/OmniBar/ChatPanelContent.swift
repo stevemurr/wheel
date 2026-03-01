@@ -6,6 +6,10 @@ struct ChatPanelContent: View {
     @ObservedObject var agentManager: AgentManager
     @State private var lastScrollTime: Date = .distantPast
 
+    private var latestUserMessageID: UUID? {
+        agentManager.messages.last(where: { $0.role == .user })?.id
+    }
+
     var body: some View {
         ScrollViewReader { proxy in
             ScrollView(showsIndicators: true) {
@@ -77,13 +81,17 @@ struct ChatPanelContent: View {
                 .padding(.vertical, 12)
             }
             .onChange(of: agentManager.messages.count) { _, _ in
-                // Scroll to bottom on new message
-                proxy.scrollToBottom(animated: true)
+                // Pin user question at top of viewport
+                if let userID = latestUserMessageID {
+                    withAnimation(AppAnimation.standard) {
+                        proxy.scrollTo(userID, anchor: .top)
+                    }
+                }
             }
             .onChange(of: agentManager.messages.last?.content) { _, _ in
-                // Throttled scroll during streaming (max once per 100ms)
+                // Throttled scroll during streaming (max once per 150ms)
                 let now = Date()
-                if now.timeIntervalSince(lastScrollTime) > 0.1 {
+                if now.timeIntervalSince(lastScrollTime) > 0.15 {
                     lastScrollTime = now
                     proxy.scrollToBottom(animated: false)
                 }

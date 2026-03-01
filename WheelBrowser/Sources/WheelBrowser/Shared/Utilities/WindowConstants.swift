@@ -48,6 +48,6 @@ enum WindowConstants {
 
     // MARK: - Timing
     static let hoverAnimationDuration: Double = 0.1
-    static let streamingFlushInterval: TimeInterval = 0.1
+    static let streamingFlushInterval: TimeInterval = 0.065
     static let screenshotDelay: Duration = .milliseconds(500)
 }
