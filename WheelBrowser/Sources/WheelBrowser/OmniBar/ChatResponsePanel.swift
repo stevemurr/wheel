@@ -150,8 +150,6 @@ struct ChatPanelMessageBubble: View {
                         Markdown(message.content)
                             .markdownTheme(markdownTheme)
                             .textSelection(.enabled)
-                            .contentTransition(.opacity)
-                            .animation(.easeIn(duration: 0.08), value: message.content.count)
                             .frame(maxWidth: .infinity, alignment: .leading)
                             .padding(.horizontal, 12)
                             .padding(.vertical, 12)
@@ -250,7 +248,6 @@ struct ChatPanelMessageBubble: View {
                 .paragraph { configuration in
                     configuration.label
                         .relativeLineSpacing(.em(0.15))
-                        .fixedSize(horizontal: false, vertical: true)
                         .markdownMargin(top: 0, bottom: 6)
                 }
                 .code {
@@ -271,7 +268,6 @@ struct ChatPanelMessageBubble: View {
                 .paragraph { configuration in
                     configuration.label
                         .relativeLineSpacing(.em(0.18))
-                        .fixedSize(horizontal: false, vertical: true)
                         .markdownMargin(top: 0, bottom: 10)
                 }
                 .code {

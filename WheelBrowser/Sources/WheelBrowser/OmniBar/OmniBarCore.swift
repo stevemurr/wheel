@@ -81,9 +81,7 @@ struct OmniBar: View {
                 ))
         }
         .onHover { hovering in
-            withAnimation(AppAnimation.medium) {
-                isHovering = hovering
-            }
+            isHovering = hovering
         }
         .onChange(of: tab.url) { _, newURL in handleURLChange(newURL) }
         .onChange(of: omniState.inputText) { _, newValue in handleInputTextChange(newValue) }
