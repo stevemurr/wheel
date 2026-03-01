@@ -45,10 +45,7 @@ struct OmniBar: View {
     var isSemanticPanelVisible: Bool { omniState.isPanelVisible(for: .semantic) }
     var isAgentPanelVisible: Bool { omniState.isPanelVisible(for: .agent) }
     var isReadingListPanelVisible: Bool { omniState.isPanelVisible(for: .readingList) }
-    // NOTE: Dual source of truth — intentionally checks both omniState and scrapeManager
-    // because scraping can be triggered externally (e.g., keyboard shortcut) bypassing omniState.
-    // A future refactor should unify these into a single state source.
-    var isScrapingPanelVisible: Bool { omniState.isPanelVisible(for: .scraping) || scrapeManager.showScrapePanel }
+    var isScrapingPanelVisible: Bool { omniState.isPanelVisible(for: .scraping) }
 
     /// Bitmask combining all panel visibility states for animation consolidation
     private var visiblePanelFlags: UInt8 {
@@ -121,6 +118,10 @@ struct OmniBar: View {
         .onReceive(NotificationCenter.default.publisher(for: Notification.Name("pageSaveStateChanged"))) { notification in
             handlePageSaveStateChanged(notification)
         }
+        .onReceive(NotificationCenter.default.publisher(for: .showScrapePanel)) { _ in
+            omniState.setMode(.scraping)
+            omniState.setVisiblePanel(.scraping)
+        }
         .task {
             await checkIfCurrentPageIsSaved()
         }
@@ -143,49 +144,11 @@ struct OmniBar: View {
                 inputAreaWithSuggestions
                     .zIndex(100)
 
-                // Chat panel toggle (only in chat mode with messages)
-                if omniState.mode == .chat && !agentManager.messages.isEmpty {
-                    PanelToggleButton(isExpanded: omniState.showChatPanel) {
-                        if omniState.showChatPanel {
-                            omniState.dismissChatPanel()
-                        } else {
-                            omniState.openChatPanel()
-                        }
-                    }
-                }
-
-                // Semantic panel toggle (only in semantic mode with results)
-                if omniState.mode == .semantic && !semanticSearchVM.results.isEmpty {
-                    PanelToggleButton(isExpanded: omniState.showSemanticPanel) {
-                        if omniState.showSemanticPanel {
-                            omniState.dismissSemanticPanel()
-                        } else {
-                            omniState.openSemanticPanel()
-                        }
-                    }
-                }
-
-                // Agent panel toggle (only in agent mode with steps or running)
-                if omniState.mode == .agent && (!agentEngine.steps.isEmpty || agentEngine.isRunning) {
-                    PanelToggleButton(isExpanded: omniState.showAgentPanel) {
-                        if omniState.showAgentPanel {
-                            omniState.dismissAgentPanel()
-                        } else {
-                            omniState.openAgentPanel()
-                        }
-                    }
-                }
-
-                // Reading list panel toggle (only in reading list mode with items)
-                if omniState.mode == .readingList && !readingListVM.items.isEmpty {
-                    PanelToggleButton(isExpanded: omniState.showReadingListPanel) {
-                        if omniState.showReadingListPanel {
-                            omniState.dismissReadingListPanel()
-                        } else {
-                            omniState.openReadingListPanel()
-                        }
-                    }
-                }
+                // Panel toggle buttons for modes with content
+                panelToggle(for: .chat, hasContent: !agentManager.messages.isEmpty)
+                panelToggle(for: .semantic, hasContent: !semanticSearchVM.results.isEmpty)
+                panelToggle(for: .agent, hasContent: !agentEngine.steps.isEmpty || agentEngine.isRunning)
+                panelToggle(for: .readingList, hasContent: !readingListVM.items.isEmpty)
 
                 // Saved indicator
                 if isCurrentPageSaved {
@@ -244,6 +207,22 @@ struct OmniBar: View {
                     }
                 }
             )
+        }
+    }
+
+    // MARK: - Panel Toggle Helper
+
+    @ViewBuilder
+    func panelToggle(for mode: OmniBarMode, hasContent: Bool) -> some View {
+        if omniState.mode == mode && hasContent {
+            let panel = mode.correspondingPanel
+            PanelToggleButton(isExpanded: omniState.visiblePanel == panel) {
+                if omniState.visiblePanel == panel {
+                    omniState.dismissVisiblePanel()
+                } else {
+                    omniState.setVisiblePanel(panel)
+                }
+            }
         }
     }
 

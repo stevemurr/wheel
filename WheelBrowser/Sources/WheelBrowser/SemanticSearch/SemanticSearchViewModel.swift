@@ -2,13 +2,15 @@ import SwiftUI
 
 /// ViewModel for semantic search in the OmniBar
 @MainActor
-class SemanticSearchViewModel: ObservableObject {
+class SemanticSearchViewModel: ObservableObject, ListSelectable {
     @Published var results: [SemanticSearchResult] = []
     @Published var isSearching = false
     @Published var selectedIndex: Int = -1
     @Published var hasSearched = false
 
     private let searchDebouncer = Debouncer(delay: .milliseconds(300))
+
+    var selectableCount: Int { results.count }
 
     var selectedResult: SemanticSearchResult? {
         guard selectedIndex >= 0 && selectedIndex < results.count else { return nil }
@@ -45,16 +47,6 @@ class SemanticSearchViewModel: ObservableObject {
         selectedIndex = results.isEmpty ? -1 : 0
         isSearching = false
         hasSearched = true
-    }
-
-    func selectNext() {
-        guard !results.isEmpty else { return }
-        selectedIndex = min(selectedIndex + 1, results.count - 1)
-    }
-
-    func selectPrevious() {
-        guard !results.isEmpty else { return }
-        selectedIndex = max(selectedIndex - 1, 0)
     }
 
     func clear() {
@@ -412,39 +404,6 @@ struct SemanticResultRow: View {
 
     /// Highlight occurrences of matched query terms in the given string
     private func highlightTerms(in string: String) -> Text {
-        guard !matchedTerms.isEmpty else {
-            return Text(string).foregroundColor(.primary)
-        }
-
-        let lowerString = string.lowercased()
-        var highlighted = Set<Int>()
-
-        // Find all character positions that match any query term
-        for term in matchedTerms {
-            let lowerTerm = term.lowercased()
-            var searchStart = lowerString.startIndex
-            while let range = lowerString.range(of: lowerTerm, range: searchStart..<lowerString.endIndex) {
-                let startOffset = lowerString.distance(from: lowerString.startIndex, to: range.lowerBound)
-                let endOffset = lowerString.distance(from: lowerString.startIndex, to: range.upperBound)
-                for i in startOffset..<endOffset {
-                    highlighted.insert(i)
-                }
-                searchStart = range.upperBound
-            }
-        }
-
-        guard !highlighted.isEmpty else {
-            return Text(string).foregroundColor(.primary)
-        }
-
-        var result = Text("")
-        for (i, char) in string.enumerated() {
-            if highlighted.contains(i) {
-                result = result + Text(String(char)).bold().foregroundColor(.primary)
-            } else {
-                result = result + Text(String(char)).foregroundColor(.secondary)
-            }
-        }
-        return result
+        HighlightedTextBuilder.fromTerms(string, terms: matchedTerms)
     }
 }

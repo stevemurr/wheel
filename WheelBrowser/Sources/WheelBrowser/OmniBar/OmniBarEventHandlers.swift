@@ -56,29 +56,7 @@ extension OmniBar {
     }
 
     private func handleFocusGained() {
-        switch omniState.mode {
-        case .address:
-            omniState.openHistoryPanel()
-            if omniState.inputText.isEmpty {
-                suggestionsVM.loadRecentHistory()
-            } else {
-                suggestionsVM.updateSuggestions(for: omniState.inputText)
-            }
-        case .semantic:
-            omniState.openSemanticPanel()
-            if !omniState.inputText.isEmpty {
-                semanticSearchVM.search(query: omniState.inputText)
-            }
-        case .readingList:
-            omniState.openReadingListPanel()
-            readingListVM.loadSavedPages()
-        case .chat:
-            break
-        case .agent:
-            omniState.openAgentPanel()
-        case .scraping:
-            omniState.openScrapingPanel()
-        }
+        activateMode(omniState.mode, isFocusGain: true)
     }
 
     // MARK: - Mode Change
@@ -90,31 +68,45 @@ extension OmniBar {
         // Dismiss any currently visible panel
         omniState.dismissVisiblePanel()
 
-        // Mode-specific setup
-        switch newMode {
+        activateMode(newMode, isFocusGain: false)
+    }
+
+    /// Shared mode activation logic for both focus gain and mode change.
+    /// - Parameters:
+    ///   - mode: The mode to activate
+    ///   - isFocusGain: `true` when called from focus gain (chat skips panel open), `false` from mode change
+    private func activateMode(_ mode: OmniBarMode, isFocusGain: Bool) {
+        switch mode {
+        case .address:
+            if !isFocusGain || isInputFocused {
+                omniState.setVisiblePanel(.history)
+            }
+            if omniState.inputText.isEmpty {
+                suggestionsVM.loadRecentHistory()
+            } else {
+                suggestionsVM.updateSuggestions(for: omniState.inputText)
+            }
         case .chat:
-            if tab.url == nil {
-                omniState.removeMention(.currentPage)
+            if !isFocusGain {
+                if tab.url == nil {
+                    omniState.removeMention(.currentPage)
+                }
             }
             if !agentManager.messages.isEmpty {
-                omniState.openChatPanel()
-            }
-        case .address:
-            if isInputFocused {
-                omniState.openHistoryPanel()
+                omniState.setVisiblePanel(.chat)
             }
         case .semantic:
-            omniState.openSemanticPanel()
+            omniState.setVisiblePanel(.semantic)
             if !omniState.inputText.isEmpty {
                 semanticSearchVM.search(query: omniState.inputText)
             }
         case .agent:
-            omniState.openAgentPanel()
+            omniState.setVisiblePanel(.agent)
         case .readingList:
-            omniState.openReadingListPanel()
+            omniState.setVisiblePanel(.readingList)
             readingListVM.loadSavedPages()
         case .scraping:
-            omniState.openScrapingPanel()
+            omniState.setVisiblePanel(.scraping)
         }
     }
 
@@ -131,40 +123,38 @@ extension OmniBar {
                 tab.hideFindBar()
             }
             findText = ""
-        } else if omniState.showHistoryPanel {
-            omniState.dismissHistoryPanel()
-            isInputFocused = false
-            omniState.inputText = tab.url?.absoluteString ?? ""
-        } else if omniState.showChatPanel {
-            omniState.dismissChatPanel()
-            isInputFocused = false
-        } else if omniState.showSemanticPanel {
-            omniState.dismissSemanticPanel()
-            isInputFocused = false
-            omniState.inputText = ""
-        } else if omniState.showAgentPanel {
-            omniState.dismissAgentPanel()
-            isInputFocused = false
-            omniState.inputText = ""
-        } else if omniState.showReadingListPanel {
-            omniState.dismissReadingListPanel()
-            isInputFocused = false
-            omniState.inputText = ""
-        } else if omniState.showScrapingPanel || scrapeManager.showScrapePanel {
-            omniState.dismissScrapingPanel()
-            scrapeManager.dismissPanel()
-            if omniState.mode == .scraping {
-                omniState.mode = .address
-            }
-            isInputFocused = false
-            omniState.inputText = ""
+        } else if omniState.visiblePanel != .none {
+            dismissCurrentPanel()
         } else if isInputFocused {
             isInputFocused = false
             if omniState.mode == .address {
                 omniState.inputText = tab.url?.absoluteString ?? ""
-            } else if omniState.mode == .semantic || omniState.mode == .agent || omniState.mode == .readingList || omniState.mode == .scraping {
+            } else {
                 omniState.inputText = ""
             }
+        }
+    }
+
+    /// Dismiss the currently visible panel with mode-specific cleanup
+    private func dismissCurrentPanel() {
+        let panel = omniState.visiblePanel
+        omniState.dismissVisiblePanel()
+        isInputFocused = false
+
+        switch panel {
+        case .history:
+            omniState.inputText = tab.url?.absoluteString ?? ""
+        case .chat:
+            break // Chat preserves input
+        case .scraping:
+            if omniState.mode == .scraping {
+                omniState.mode = .address
+            }
+            omniState.inputText = ""
+        case .semantic, .agent, .readingList, .downloads:
+            omniState.inputText = ""
+        case .none:
+            break
         }
     }
 
@@ -188,7 +178,7 @@ extension OmniBar {
         isInputFocused = true
         omniState.resetMentions(includeCurrentPage: tab.url != nil)
         if !agentManager.messages.isEmpty {
-            omniState.openChatPanel()
+            omniState.setVisiblePanel(.chat)
         }
     }
 
@@ -205,7 +195,7 @@ extension OmniBar {
     func handleFocusSemanticSearch() {
         omniState.setMode(.semantic)
         isInputFocused = true
-        omniState.openSemanticPanel()
+        omniState.setVisiblePanel(.semantic)
     }
 
     // MARK: - Find in Page
@@ -224,7 +214,7 @@ extension OmniBar {
     func handleFocusReadingList() {
         omniState.setMode(.readingList)
         isInputFocused = true
-        omniState.openReadingListPanel()
+        omniState.setVisiblePanel(.readingList)
         readingListVM.loadSavedPages()
     }
 
@@ -255,6 +245,116 @@ extension OmniBar {
             withAnimation(AppAnimation.medium) {
                 isCurrentPageSaved = isSaved
             }
+        }
+    }
+}
+
+// MARK: - OmniBarKeyboardHandler Conformance
+
+extension OmniBar: OmniBarKeyboardHandler {
+    func handleKeyboardCommand(_ command: KeyboardCommand, mode: OmniBarMode, text: String) -> Bool {
+        // Chat mode has special mention-aware keyboard handling
+        if mode == .chat {
+            if let result = handleChatKeyboardCommand(command, text: text) {
+                return result
+            }
+        }
+        return handleGeneralKeyboardCommand(command, mode: mode)
+    }
+
+    /// Chat mode keyboard handling. Returns `true` if handled, `false` if not handled,
+    /// `nil` if chat mode didn't claim it and general handling should proceed.
+    private func handleChatKeyboardCommand(_ command: KeyboardCommand, text: String) -> Bool? {
+        switch command {
+        case .moveUp:
+            // Only swallow arrow keys when mention dropdown is open
+            guard omniState.showMentionDropdown else { return nil }
+            mentionSuggestionsVM.selectPrevious()
+            return true
+
+        case .moveDown:
+            guard omniState.showMentionDropdown else { return nil }
+            mentionSuggestionsVM.selectNext()
+            return true
+
+        case .submit:
+            if omniState.showMentionDropdown && !mentionSuggestionsVM.suggestions.isEmpty {
+                handleMentionSelection()
+            } else {
+                handleSubmit()
+            }
+            return true
+
+        case .escape:
+            if omniState.showMentionDropdown {
+                omniState.dismissMentionDropdown()
+                mentionSuggestionsVM.clear()
+            } else {
+                NotificationCenter.default.post(name: .escapePressed, object: nil)
+            }
+            return true
+
+        case .deleteBackward:
+            if text.isEmpty {
+                if let lastMention = omniState.mentions.last {
+                    omniState.removeMention(lastMention)
+                }
+                return true
+            }
+            return false
+
+        case .tab, .shiftTab:
+            return nil
+        }
+    }
+
+    /// General keyboard handling shared across all modes.
+    private func handleGeneralKeyboardCommand(_ command: KeyboardCommand, mode: OmniBarMode) -> Bool {
+        switch command {
+        case .submit:
+            handleSubmit()
+            return true
+
+        case .moveUp:
+            switch mode {
+            case .address: suggestionsVM.selectPrevious()
+            case .semantic: semanticSearchVM.selectPrevious()
+            case .readingList: readingListVM.selectPrevious()
+            case .chat, .agent, .scraping: return false
+            }
+            return true
+
+        case .moveDown:
+            switch mode {
+            case .address: suggestionsVM.selectNext()
+            case .semantic: semanticSearchVM.selectNext()
+            case .readingList: readingListVM.selectNext()
+            case .chat, .agent, .scraping: return false
+            }
+            return true
+
+        case .tab:
+            let wasChat = omniState.mode == .chat
+            omniState.nextMode()
+            if !wasChat && omniState.mode == .chat {
+                omniState.resetMentions(includeCurrentPage: tab.url != nil)
+            }
+            return true
+
+        case .shiftTab:
+            let wasChat = omniState.mode == .chat
+            omniState.previousMode()
+            if !wasChat && omniState.mode == .chat {
+                omniState.resetMentions(includeCurrentPage: tab.url != nil)
+            }
+            return true
+
+        case .escape:
+            NotificationCenter.default.post(name: .escapePressed, object: nil)
+            return true
+
+        case .deleteBackward:
+            return false
         }
     }
 }

@@ -1,5 +1,13 @@
 import SwiftUI
 
+/// Constants for search scoring to avoid magic numbers
+private enum SearchScoreConstants {
+    static let openTabDefault = 1100
+    static let exactMatch = 1000
+    static let maxTabSuggestionsWhenEmpty = 10
+    static let maxTotalSuggestions = 20
+}
+
 /// Represents a suggestion that can be either an open tab or a history entry
 enum Suggestion: Identifiable {
     case openTab(tab: Tab, score: Int, titleMatches: [Int] = [], urlMatches: [Int] = [])
@@ -83,11 +91,40 @@ enum Suggestion: Identifiable {
     }
 }
 
+/// Protocol for list-based ViewModels with keyboard selection wrapping
+@MainActor
+protocol ListSelectable: AnyObject {
+    var selectedIndex: Int { get set }
+    var selectableCount: Int { get }
+}
+
+extension ListSelectable {
+    func selectNext() {
+        guard selectableCount > 0 else { return }
+        if selectedIndex == -1 {
+            selectedIndex = 0
+        } else {
+            selectedIndex = (selectedIndex + 1) % selectableCount
+        }
+    }
+
+    func selectPrevious() {
+        guard selectableCount > 0 else { return }
+        if selectedIndex == -1 {
+            selectedIndex = selectableCount - 1
+        } else {
+            selectedIndex = (selectedIndex - 1 + selectableCount) % selectableCount
+        }
+    }
+}
+
 /// View model for managing address bar suggestions
 @MainActor
-class SuggestionsViewModel: ObservableObject {
+class SuggestionsViewModel: ObservableObject, ListSelectable {
     @Published var suggestions: [Suggestion] = []
     @Published var selectedIndex: Int = -1
+
+    var selectableCount: Int { suggestions.count }
 
     /// Reference to browser state for accessing open tabs
     weak var browserState: BrowserState?
@@ -108,49 +145,39 @@ class SuggestionsViewModel: ObservableObject {
     private func performSearch(for query: String) async {
         guard !Task.isCancelled else { return }
 
-            var allSuggestions: [Suggestion] = []
+        var allSuggestions: [Suggestion] = []
 
-            // Search open tabs first
-            if let browserState = browserState {
-                let tabSuggestions = searchTabs(query: query, tabs: browserState.tabs)
-                allSuggestions.append(contentsOf: tabSuggestions)
+        // Search open tabs first
+        if let browserState = browserState {
+            let tabSuggestions = searchTabs(query: query, tabs: browserState.tabs)
+            allSuggestions.append(contentsOf: tabSuggestions)
+        }
+
+        // Search history — returns results with match indices already computed
+        let historyResults = history.searchWithMatches(query: query, limit: SearchScoreConstants.maxTotalSuggestions)
+
+        // Exclude URLs that are already shown as open tabs
+        let openTabURLs = openTabURLSet(from: allSuggestions)
+
+        for result in historyResults {
+            if !openTabURLs.contains(result.entry.url) {
+                allSuggestions.append(.history(
+                    entry: result.entry,
+                    score: result.score,
+                    titleMatches: result.titleMatches,
+                    urlMatches: result.urlMatches
+                ))
             }
+        }
 
-            // Search history (empty query returns recent entries)
-            let historyResults = history.search(query: query, limit: 20)
+        // Sort: open tabs first, then by score
+        allSuggestions.sort { a, b in
+            if a.isOpenTab && !b.isOpenTab { return true }
+            if !a.isOpenTab && b.isOpenTab { return false }
+            return a.score > b.score
+        }
 
-            // Convert history results to suggestions, excluding URLs that are already open tabs
-            let openTabURLs = Set(allSuggestions.compactMap { suggestion -> String? in
-                if case .openTab(let tab, _, _, _) = suggestion {
-                    return tab.url?.absoluteString
-                }
-                return nil
-            })
-
-            for entry in historyResults {
-                // Skip if this URL is already shown as an open tab
-                if !openTabURLs.contains(entry.url) {
-                    let result = FuzzySearch.bestMatch(query: query, title: entry.title, url: entry.url)
-                    allSuggestions.append(.history(
-                        entry: entry,
-                        score: result?.bestScore ?? 0,
-                        titleMatches: result?.titleMatch?.matchedIndices ?? [],
-                        urlMatches: result?.urlMatch?.matchedIndices ?? []
-                    ))
-                }
-            }
-
-            // Sort all suggestions: open tabs first (sorted by score), then history (by score)
-            allSuggestions.sort { a, b in
-                // Open tabs always come first
-                if a.isOpenTab && !b.isOpenTab { return true }
-                if !a.isOpenTab && b.isOpenTab { return false }
-                // Within the same category, sort by score (higher first)
-                return a.score > b.score
-            }
-
-            // Limit total suggestions
-            allSuggestions = Array(allSuggestions.prefix(20))
+        allSuggestions = Array(allSuggestions.prefix(SearchScoreConstants.maxTotalSuggestions))
 
         guard !Task.isCancelled else { return }
 
@@ -164,38 +191,32 @@ class SuggestionsViewModel: ObservableObject {
 
         var allSuggestions: [Suggestion] = []
 
-        // Add all open tabs first
+        // Add open tabs (limited when no query to avoid pushing history off)
         if let browserState = browserState {
-            for tab in browserState.tabs {
-                allSuggestions.append(.openTab(tab: tab, score: 1000)) // High score for open tabs
+            let tabs = Array(browserState.tabs.prefix(SearchScoreConstants.maxTabSuggestionsWhenEmpty))
+            for tab in tabs {
+                allSuggestions.append(.openTab(tab: tab, score: SearchScoreConstants.openTabDefault))
             }
         }
 
-        // Get open tab URLs to filter history
-        let openTabURLs = Set(allSuggestions.compactMap { suggestion -> String? in
-            if case .openTab(let tab, _, _, _) = suggestion {
-                return tab.url?.absoluteString
-            }
-            return nil
-        })
+        let openTabURLs = openTabURLSet(from: allSuggestions)
 
         // Add recent history entries (excluding open tab URLs)
-        for entry in history.entries.prefix(20) {
+        for entry in history.entries.prefix(SearchScoreConstants.maxTotalSuggestions) {
             if !openTabURLs.contains(entry.url) {
                 allSuggestions.append(.history(entry: entry, score: 0))
             }
         }
 
-        // Limit total and update
-        suggestions = Array(allSuggestions.prefix(20))
+        suggestions = Array(allSuggestions.prefix(SearchScoreConstants.maxTotalSuggestions))
         selectedIndex = -1
     }
 
     /// Search open tabs using fuzzy matching
     private func searchTabs(query: String, tabs: [Tab]) -> [Suggestion] {
         guard !query.isEmpty else {
-            // Return all tabs when query is empty
-            return tabs.map { .openTab(tab: $0, score: 1000) }
+            return Array(tabs.prefix(SearchScoreConstants.maxTabSuggestionsWhenEmpty))
+                .map { .openTab(tab: $0, score: SearchScoreConstants.openTabDefault) }
         }
 
         return tabs.compactMap { tab -> Suggestion? in
@@ -208,8 +229,6 @@ class SuggestionsViewModel: ObservableObject {
             }
 
             let bestScore = max(titleMatch?.score ?? 0, urlMatch?.score ?? 0)
-
-            // Filter out tabs with no match
             guard bestScore > 0 else { return nil }
 
             return .openTab(
@@ -221,28 +240,14 @@ class SuggestionsViewModel: ObservableObject {
         }
     }
 
-    /// Select the next suggestion (down arrow)
-    func selectNext() {
-        guard !suggestions.isEmpty else { return }
-        if selectedIndex == -1 {
-            selectedIndex = 0
-        } else if selectedIndex < suggestions.count - 1 {
-            selectedIndex += 1
-        } else {
-            selectedIndex = 0 // Wrap
-        }
-    }
-
-    /// Select the previous suggestion (up arrow)
-    func selectPrevious() {
-        guard !suggestions.isEmpty else { return }
-        if selectedIndex == -1 {
-            selectedIndex = suggestions.count - 1
-        } else if selectedIndex > 0 {
-            selectedIndex -= 1
-        } else {
-            selectedIndex = suggestions.count - 1 // Wrap
-        }
+    /// Extract the set of open tab URLs from suggestions (4D: deduplicated helper)
+    private func openTabURLSet(from suggestions: [Suggestion]) -> Set<String> {
+        Set(suggestions.compactMap { suggestion -> String? in
+            if case .openTab(let tab, _, _, _) = suggestion {
+                return tab.url?.absoluteString
+            }
+            return nil
+        })
     }
 
     /// Get the currently selected suggestion, if any

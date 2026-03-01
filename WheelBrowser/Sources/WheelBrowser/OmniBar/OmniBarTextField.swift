@@ -1,22 +1,30 @@
 import SwiftUI
 
+/// Protocol for handling keyboard commands from the OmniBar text field.
+/// The parent view provides the implementation, absorbing mode-specific logic
+/// that previously required passing multiple ViewModels as parameters.
+@MainActor
+protocol OmniBarKeyboardHandler {
+    /// Handle a keyboard command in the current mode.
+    /// - Parameters:
+    ///   - command: The keyboard command to handle
+    ///   - mode: The current OmniBar mode
+    ///   - text: The current text in the field
+    /// - Returns: `true` if the command was handled (swallow the event), `false` to let AppKit handle it
+    func handleKeyboardCommand(_ command: KeyboardCommand, mode: OmniBarMode, text: String) -> Bool
+}
+
 // MARK: - Custom TextField for OmniBar
 
 struct OmniBarTextField: NSViewRepresentable {
     @Binding var text: String
     @Binding var isFocused: Bool
     let mode: OmniBarMode
-    @ObservedObject var suggestionsVM: SuggestionsViewModel
-    @ObservedObject var semanticSearchVM: SemanticSearchViewModel
-    @ObservedObject var mentionSuggestionsVM: MentionSuggestionsViewModel
-    @ObservedObject var readingListVM: ReadingListViewModel
-    @ObservedObject var omniState: OmniBarState
     let placeholder: String
+    let keyboardHandler: any OmniBarKeyboardHandler
     var onSubmit: () -> Void
-    var onTabPress: () -> Void
-    var onShiftTabPress: () -> Void
     var onAtTrigger: (String) -> Void
-    var onMentionSelect: () -> Void
+    var onAtDismiss: () -> Void
 
     func makeNSView(context: Context) -> NSTextField {
         let textField = NSTextField()
@@ -124,21 +132,13 @@ struct OmniBarTextField: NSViewRepresentable {
 
                 // Only trigger if query doesn't contain spaces (single word/partial)
                 if isValidTrigger && !query.contains(" ") {
-                    DispatchQueue.main.async {
-                        self.parent.onAtTrigger(query)
-                    }
+                    parent.onAtTrigger(query)
                     return
                 }
             }
 
             // No valid @ trigger - dismiss dropdown if open
-            Task { @MainActor [weak self] in
-                guard let self else { return }
-                if self.parent.omniState.showMentionDropdown {
-                    self.parent.omniState.dismissMentionDropdown()
-                    self.parent.mentionSuggestionsVM.clear()
-                }
-            }
+            parent.onAtDismiss()
         }
 
         func control(_ control: NSControl, textView: NSTextView, doCommandBy commandSelector: Selector) -> Bool {
@@ -146,148 +146,7 @@ struct OmniBarTextField: NSViewRepresentable {
                 return false
             }
 
-            // Chat mode has special mention-aware keyboard handling
-            if parent.mode == .chat {
-                if let result = handleChatModeCommand(command) {
-                    return result
-                }
-            }
-
-            return handleGeneralCommand(command)
-        }
-
-        // MARK: - Chat Mode Keyboard Handling
-
-        /// Handles keyboard commands specific to chat mode (mention navigation, backspace to remove mentions).
-        /// Returns `true` if handled, `false` if not handled, `nil` if chat mode didn't claim it and general handling should proceed.
-        private func handleChatModeCommand(_ command: KeyboardCommand) -> Bool? {
-            switch command {
-            case .moveUp:
-                Task { @MainActor [weak self] in
-                    guard let self else { return }
-                    if self.parent.omniState.showMentionDropdown {
-                        self.parent.mentionSuggestionsVM.selectPrevious()
-                    }
-                }
-                return true
-
-            case .moveDown:
-                Task { @MainActor [weak self] in
-                    guard let self else { return }
-                    if self.parent.omniState.showMentionDropdown {
-                        self.parent.mentionSuggestionsVM.selectNext()
-                    }
-                }
-                return true
-
-            case .submit:
-                Task { @MainActor [weak self] in
-                    guard let self else { return }
-                    if self.parent.omniState.showMentionDropdown && !self.parent.mentionSuggestionsVM.suggestions.isEmpty {
-                        self.parent.onMentionSelect()
-                    } else {
-                        self.parent.onSubmit()
-                    }
-                }
-                return true
-
-            case .escape:
-                Task { @MainActor [weak self] in
-                    guard let self else { return }
-                    if self.parent.omniState.showMentionDropdown {
-                        self.parent.omniState.dismissMentionDropdown()
-                        self.parent.mentionSuggestionsVM.clear()
-                    } else {
-                        NotificationCenter.default.post(name: .escapePressed, object: nil)
-                    }
-                }
-                return true
-
-            case .deleteBackward:
-                // If text is empty, try to remove the last mention chip
-                if parent.text.isEmpty {
-                    Task { @MainActor [weak self] in
-                        guard let self else { return }
-                        if let lastMention = self.parent.omniState.mentions.last {
-                            self.parent.omniState.removeMention(lastMention)
-                        }
-                    }
-                    return true
-                }
-                return false // Let normal backspace behavior happen if text is not empty
-
-            case .tab, .shiftTab:
-                // Not claimed by chat mode — fall through to general handling
-                return nil
-            }
-        }
-
-        // MARK: - General Keyboard Handling
-
-        /// Handles keyboard commands shared across all modes (navigation, tab switching, submit, escape).
-        private func handleGeneralCommand(_ command: KeyboardCommand) -> Bool {
-            switch command {
-            case .submit:
-                parent.onSubmit()
-                return true
-
-            case .moveUp:
-                Task { @MainActor [weak self] in
-                    guard let self else { return }
-                    switch self.parent.mode {
-                    case .address:
-                        self.parent.suggestionsVM.selectPrevious()
-                    case .semantic:
-                        self.parent.semanticSearchVM.selectPrevious()
-                    case .readingList:
-                        self.parent.readingListVM.selectPrevious()
-                    case .chat, .agent, .scraping:
-                        break
-                    }
-                }
-                switch parent.mode {
-                case .address, .semantic, .readingList:
-                    return true
-                case .chat, .agent, .scraping:
-                    return false
-                }
-
-            case .moveDown:
-                Task { @MainActor [weak self] in
-                    guard let self else { return }
-                    switch self.parent.mode {
-                    case .address:
-                        self.parent.suggestionsVM.selectNext()
-                    case .semantic:
-                        self.parent.semanticSearchVM.selectNext()
-                    case .readingList:
-                        self.parent.readingListVM.selectNext()
-                    case .chat, .agent, .scraping:
-                        break
-                    }
-                }
-                switch parent.mode {
-                case .address, .semantic, .readingList:
-                    return true
-                case .chat, .agent, .scraping:
-                    return false
-                }
-
-            case .tab:
-                parent.onTabPress()
-                return true
-
-            case .shiftTab:
-                parent.onShiftTabPress()
-                return true
-
-            case .escape:
-                NotificationCenter.default.post(name: .escapePressed, object: nil)
-                return true
-
-            case .deleteBackward:
-                return false
-            }
+            return parent.keyboardHandler.handleKeyboardCommand(command, mode: parent.mode, text: parent.text)
         }
     }
 }

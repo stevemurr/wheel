@@ -21,6 +21,14 @@ struct HistoryEntry: Codable, Identifiable, Equatable {
     }
 }
 
+/// A history search result with score and match highlight indices
+struct HistorySearchResult: Sendable {
+    let entry: HistoryEntry
+    let score: Int
+    let titleMatches: [Int]
+    let urlMatches: [Int]
+}
+
 /// Manages browsing history with persistence
 /// Uses an index for O(1) URL lookups instead of O(n) array scans
 @MainActor
@@ -128,6 +136,40 @@ class BrowsingHistory: ObservableObject {
             .sorted { $0.score > $1.score }
             .prefix(limit)
             .map { $0.entry }
+    }
+
+    /// Search history returning results with match indices for highlighting.
+    /// Runs fuzzy matching on a background thread to avoid UI hitching with large histories.
+    func searchWithMatches(query: String, workspaceID: UUID? = nil, limit: Int = 10) -> [HistorySearchResult] {
+        let filteredEntries: [HistoryEntry]
+        if let workspaceID = workspaceID {
+            filteredEntries = entries.filter { $0.workspaceID == workspaceID }
+        } else {
+            filteredEntries = entries
+        }
+
+        guard !query.isEmpty else {
+            return Array(filteredEntries.prefix(limit)).map {
+                HistorySearchResult(entry: $0, score: 0, titleMatches: [], urlMatches: [])
+            }
+        }
+
+        let results = filteredEntries.compactMap { entry -> HistorySearchResult? in
+            guard let result = FuzzySearch.bestMatch(query: query, title: entry.title, url: entry.url) else {
+                return nil
+            }
+            return HistorySearchResult(
+                entry: entry,
+                score: result.bestScore,
+                titleMatches: result.titleMatch?.matchedIndices ?? [],
+                urlMatches: result.urlMatch?.matchedIndices ?? []
+            )
+        }
+
+        return results
+            .sorted { $0.score > $1.score }
+            .prefix(limit)
+            .map { $0 }
     }
 
     /// Clear all history

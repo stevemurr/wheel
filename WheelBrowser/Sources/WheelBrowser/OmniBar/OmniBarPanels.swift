@@ -32,7 +32,7 @@ extension OmniBar {
                 iconColor: .accentColor,
                 borderColor: .blue,
                 subtitle: historyPanelSubtitle,
-                onDismiss: { omniState.dismissHistoryPanel() }
+                onDismiss: { omniState.dismissVisiblePanel() }
             ) {
                 HistoryPanelContent(
                     viewModel: suggestionsVM,
@@ -60,7 +60,7 @@ extension OmniBar {
                         }
                     })
                 },
-                onDismiss: { omniState.dismissChatPanel() }
+                onDismiss: { omniState.dismissVisiblePanel() }
             ) {
                 ChatPanelContent(agentManager: agentManager)
             }
@@ -82,7 +82,7 @@ extension OmniBar {
                         }
                     })
                 },
-                onDismiss: { omniState.dismissSemanticPanel() }
+                onDismiss: { omniState.dismissVisiblePanel() }
             ) {
                 SemanticSearchPanelContent(
                     viewModel: semanticSearchVM,
@@ -111,7 +111,7 @@ extension OmniBar {
                             .disabled(agentEngine.steps.isEmpty)
                     })
                 },
-                onDismiss: { omniState.dismissAgentPanel() }
+                onDismiss: { omniState.dismissVisiblePanel() }
             ) {
                 AgentPanelContent(agentEngine: agentEngine, browserState: browserState)
             }
@@ -126,7 +126,7 @@ extension OmniBar {
                 iconColor: .pink,
                 borderColor: .pink,
                 subtitle: readingListPanelSubtitle,
-                onDismiss: { omniState.dismissReadingListPanel() }
+                onDismiss: { omniState.dismissVisiblePanel() }
             ) {
                 ReadingListPanelContent(
                     viewModel: readingListVM,
@@ -160,8 +160,8 @@ extension OmniBar {
             .panelWrapper()
         }
 
-        // Scrape panel - appears above OmniBar when in scraping mode or when scrape jobs are active
-        if hasAppeared && (omniState.mode == .scraping || scrapeManager.showScrapePanel) {
+        // Scrape panel - appears above OmniBar when in scraping mode
+        if hasAppeared && isScrapingPanelVisible {
             OmniPanel(
                 title: "Web Scraping",
                 icon: "network",
@@ -178,8 +178,7 @@ extension OmniBar {
                     })
                 },
                 onDismiss: {
-                    scrapeManager.dismissPanel()
-                    omniState.dismissScrapingPanel()
+                    omniState.dismissVisiblePanel()
                     if omniState.mode == .scraping {
                         omniState.mode = .address
                     }

@@ -2,11 +2,13 @@ import SwiftUI
 
 /// ViewModel for the reading list panel in the OmniBar
 @MainActor
-class ReadingListViewModel: ObservableObject {
+class ReadingListViewModel: ObservableObject, ListSelectable {
     @Published var items: [SavedPageRecord] = []
     @Published var selectedIndex: Int = -1
     @Published var isLoading = false
     @Published var hasLoaded = false
+
+    var selectableCount: Int { items.count }
 
     private let searchDebouncer = Debouncer(delay: .milliseconds(150))
 
@@ -97,16 +99,6 @@ class ReadingListViewModel: ObservableObject {
                 Log.OmniBar.error("ReadingListViewModel: Failed to unsave page", error: error)
             }
         }
-    }
-
-    func selectNext() {
-        guard !items.isEmpty else { return }
-        selectedIndex = min(selectedIndex + 1, items.count - 1)
-    }
-
-    func selectPrevious() {
-        guard !items.isEmpty else { return }
-        selectedIndex = max(selectedIndex - 1, 0)
     }
 
     func clear() {

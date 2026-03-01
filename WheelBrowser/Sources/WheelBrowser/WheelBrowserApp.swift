@@ -298,4 +298,7 @@ extension Notification.Name {
 
     // Scrape page
     static let scrapePage = Notification.Name("scrapePage")
+
+    // Show scrape panel (posted by ScrapeManager when a job starts)
+    static let showScrapePanel = Notification.Name("showScrapePanel")
 }

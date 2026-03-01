@@ -1,5 +1,13 @@
 import SwiftUI
 
+/// Named constants for OmniBar input pill layout
+private enum OmniBarLayout {
+    static let collapsedMinWidth: CGFloat = 280
+    static let collapsedMaxWidth: CGFloat = 360
+    static let expandedMinWidth: CGFloat = 400
+    static let expandedMaxWidth: CGFloat = 540
+}
+
 // MARK: - Input Pill, Mode Indicator, Action Button
 
 extension OmniBar {
@@ -20,34 +28,17 @@ extension OmniBar {
                 text: $omniState.inputText,
                 isFocused: $isInputFocused,
                 mode: omniState.mode,
-                suggestionsVM: suggestionsVM,
-                semanticSearchVM: semanticSearchVM,
-                mentionSuggestionsVM: mentionSuggestionsVM,
-                readingListVM: readingListVM,
-                omniState: omniState,
                 placeholder: omniState.mode == .chat && !omniState.mentions.isEmpty ? "Ask about these pages..." : omniState.placeholder,
+                keyboardHandler: self,
                 onSubmit: handleSubmit,
-                onTabPress: {
-                    let wasChat = omniState.mode == .chat
-                    omniState.nextMode()
-                    // Reset mentions when entering chat mode
-                    if !wasChat && omniState.mode == .chat {
-                        omniState.resetMentions(includeCurrentPage: tab.url != nil)
-                    }
-                },
-                onShiftTabPress: {
-                    let wasChat = omniState.mode == .chat
-                    omniState.previousMode()
-                    // Reset mentions when entering chat mode
-                    if !wasChat && omniState.mode == .chat {
-                        omniState.resetMentions(includeCurrentPage: tab.url != nil)
-                    }
-                },
                 onAtTrigger: { query in
                     handleAtTrigger(query: query)
                 },
-                onMentionSelect: {
-                    handleMentionSelection()
+                onAtDismiss: {
+                    if omniState.showMentionDropdown {
+                        omniState.dismissMentionDropdown()
+                        mentionSuggestionsVM.clear()
+                    }
                 }
             )
 
@@ -56,7 +47,10 @@ extension OmniBar {
         }
         .padding(.horizontal, 14)
         .padding(.vertical, 10)
-        .frame(minWidth: shouldExpand ? 400 : 280, maxWidth: shouldExpand ? 540 : 360)
+        .frame(
+            minWidth: shouldExpand ? OmniBarLayout.expandedMinWidth : OmniBarLayout.collapsedMinWidth,
+            maxWidth: shouldExpand ? OmniBarLayout.expandedMaxWidth : OmniBarLayout.collapsedMaxWidth
+        )
         .background {
             Capsule()
                 .fill(.ultraThinMaterial)

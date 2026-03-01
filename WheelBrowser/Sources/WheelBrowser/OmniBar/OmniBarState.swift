@@ -2,13 +2,61 @@ import SwiftUI
 import Combine
 
 /// Represents the current mode of the OmniBar
-enum OmniBarMode: Equatable {
+enum OmniBarMode: Equatable, CaseIterable {
     case address
     case chat
     case semantic
     case agent
     case readingList
     case scraping
+
+    /// SF Symbol icon for this mode
+    var icon: String {
+        switch self {
+        case .address: return "magnifyingglass"
+        case .chat: return "sparkles"
+        case .semantic: return "brain.head.profile"
+        case .agent: return "wand.and.stars"
+        case .readingList: return "bookmark.fill"
+        case .scraping: return "network"
+        }
+    }
+
+    /// Placeholder text for the input field in this mode
+    var placeholder: String {
+        switch self {
+        case .address: return "Search or enter URL"
+        case .chat: return "Ask about this page..."
+        case .semantic: return "Search history semantically..."
+        case .agent: return "Describe a task for the agent..."
+        case .readingList: return "Search reading list..."
+        case .scraping: return "Scraping jobs..."
+        }
+    }
+
+    /// Accent color for this mode
+    var color: Color {
+        switch self {
+        case .address: return .accentColor
+        case .chat: return .purple
+        case .semantic: return .orange
+        case .agent: return .green
+        case .readingList: return .pink
+        case .scraping: return .cyan
+        }
+    }
+
+    /// The panel visibility value corresponding to this mode
+    var correspondingPanel: OmniBarPanelVisibility {
+        switch self {
+        case .address: return .history
+        case .chat: return .chat
+        case .semantic: return .semantic
+        case .agent: return .agent
+        case .readingList: return .readingList
+        case .scraping: return .scraping
+        }
+    }
 }
 
 /// Represents which panel is currently visible (mutually exclusive)
@@ -31,14 +79,6 @@ class OmniBarState: ObservableObject {
     @Published var isFocused: Bool = false
     @Published var visiblePanel: OmniBarPanelVisibility = .none
 
-    // Backwards-compatible computed accessors
-    var showChatPanel: Bool { visiblePanel == .chat }
-    var showHistoryPanel: Bool { visiblePanel == .history }
-    var showSemanticPanel: Bool { visiblePanel == .semantic }
-    var showAgentPanel: Bool { visiblePanel == .agent }
-    var showReadingListPanel: Bool { visiblePanel == .readingList }
-    var showScrapingPanel: Bool { visiblePanel == .scraping }
-
     // MARK: - Mention State
     @Published var mentions: [Mention] = [.currentPage]
     @Published var showMentionDropdown: Bool = false
@@ -46,53 +86,22 @@ class OmniBarState: ObservableObject {
 
     /// Switch to the next mode (Tab key)
     func nextMode() {
+        let cases = OmniBarMode.allCases
+        guard let currentIndex = cases.firstIndex(of: mode) else { return }
+        let nextIndex = cases.index(after: currentIndex)
         withAnimation(AppAnimation.standard) {
-            switch mode {
-            case .address:
-                mode = .chat
-                inputText = ""
-            case .chat:
-                mode = .semantic
-                inputText = ""
-            case .semantic:
-                mode = .agent
-                inputText = ""
-            case .agent:
-                mode = .readingList
-                inputText = ""
-            case .readingList:
-                mode = .scraping
-                inputText = ""
-            case .scraping:
-                mode = .address
-                inputText = ""
-            }
+            mode = nextIndex < cases.endIndex ? cases[nextIndex] : cases[cases.startIndex]
+            inputText = ""
         }
     }
 
     /// Switch to the previous mode (Shift+Tab)
     func previousMode() {
+        let cases = OmniBarMode.allCases
+        guard let currentIndex = cases.firstIndex(of: mode) else { return }
         withAnimation(AppAnimation.standard) {
-            switch mode {
-            case .address:
-                mode = .scraping
-                inputText = ""
-            case .chat:
-                mode = .address
-                inputText = ""
-            case .semantic:
-                mode = .chat
-                inputText = ""
-            case .agent:
-                mode = .semantic
-                inputText = ""
-            case .readingList:
-                mode = .agent
-                inputText = ""
-            case .scraping:
-                mode = .readingList
-                inputText = ""
-            }
+            mode = currentIndex == cases.startIndex ? cases[cases.index(before: cases.endIndex)] : cases[cases.index(before: currentIndex)]
+            inputText = ""
         }
     }
 
@@ -177,95 +186,14 @@ class OmniBarState: ObservableObject {
         }
     }
 
-    // MARK: - Legacy Panel Methods (delegate to setVisiblePanel/dismissVisiblePanel)
-
-    func dismissChatPanel() { dismissVisiblePanel() }
-    func openChatPanel() { setVisiblePanel(.chat) }
-
-    func dismissHistoryPanel() { dismissVisiblePanel() }
-    func openHistoryPanel() { setVisiblePanel(.history) }
-
-    func dismissSemanticPanel() { dismissVisiblePanel() }
-    func openSemanticPanel() { setVisiblePanel(.semantic) }
-
-    func dismissAgentPanel() { dismissVisiblePanel() }
-    func openAgentPanel() { setVisiblePanel(.agent) }
-
-    func dismissReadingListPanel() { dismissVisiblePanel() }
-    func openReadingListPanel() { setVisiblePanel(.readingList) }
-
-    func dismissScrapingPanel() { dismissVisiblePanel() }
-    func openScrapingPanel() { setVisiblePanel(.scraping) }
-
     /// Check if a panel is visible for the given mode
     func isPanelVisible(for mode: OmniBarMode) -> Bool {
-        switch mode {
-        case .address:
-            return visiblePanel == .history && self.mode == .address
-        case .chat:
-            return visiblePanel == .chat && self.mode == .chat
-        case .semantic:
-            return visiblePanel == .semantic && self.mode == .semantic
-        case .agent:
-            return visiblePanel == .agent && self.mode == .agent
-        case .readingList:
-            return visiblePanel == .readingList && self.mode == .readingList
-        case .scraping:
-            return visiblePanel == .scraping && self.mode == .scraping
-        }
+        visiblePanel == mode.correspondingPanel && self.mode == mode
     }
 
-    /// Icon for the current mode
-    var modeIcon: String {
-        switch mode {
-        case .address:
-            return "magnifyingglass"
-        case .chat:
-            return "sparkles"
-        case .semantic:
-            return "brain.head.profile"
-        case .agent:
-            return "wand.and.stars"
-        case .readingList:
-            return "bookmark.fill"
-        case .scraping:
-            return "network"
-        }
-    }
+    // MARK: - Pass-through Accessors
 
-    /// Placeholder text for the current mode
-    var placeholder: String {
-        switch mode {
-        case .address:
-            return "Search or enter URL"
-        case .chat:
-            return "Ask about this page..."
-        case .semantic:
-            return "Search history semantically..."
-        case .agent:
-            return "Describe a task for the agent..."
-        case .readingList:
-            return "Search reading list..."
-        case .scraping:
-            return "Scraping jobs..."
-        }
-    }
-
-    /// Accent color for the current mode
-    var modeColor: Color {
-        switch mode {
-        case .address:
-            return .accentColor
-        case .chat:
-            return .purple
-        case .semantic:
-            return .orange
-        case .agent:
-            return .green
-        case .readingList:
-            return .pink
-        case .scraping:
-            return .cyan
-        }
-    }
+    var modeIcon: String { mode.icon }
+    var placeholder: String { mode.placeholder }
+    var modeColor: Color { mode.color }
 }

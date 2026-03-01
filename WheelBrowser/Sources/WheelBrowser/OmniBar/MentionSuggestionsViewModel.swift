@@ -2,10 +2,12 @@ import SwiftUI
 
 /// ViewModel for managing @ mention suggestions in chat mode
 @MainActor
-class MentionSuggestionsViewModel: ObservableObject {
+class MentionSuggestionsViewModel: ObservableObject, ListSelectable {
     @Published var suggestions: [MentionSuggestion] = []
     @Published var selectedIndex: Int = -1
     @Published var isSearching = false
+
+    var selectableCount: Int { suggestions.count }
 
     /// Reference to browser state for accessing open tabs
     weak var browserState: BrowserState?
@@ -45,122 +47,119 @@ class MentionSuggestionsViewModel: ObservableObject {
     ) async {
         guard !Task.isCancelled else { return }
 
-            var allSuggestions: [MentionSuggestion] = []
+        var allSuggestions: [MentionSuggestion] = []
 
-            // Get excluded IDs for filtering
-            let excludedIds = Set(excluding.map { $0.id })
+        // Get excluded IDs for filtering
+        let excludedIds = Set(excluding.map { $0.id })
 
-            // Check if there are open overlay windows (mini windows should be default when present)
-            let hasOpenOverlays = !OverlayWindowManager.shared.windows.isEmpty
+        // Check if there are open overlay windows (mini windows should be default when present)
+        let hasOpenOverlays = !OverlayWindowManager.shared.windows.isEmpty
 
-            // Add "Current Page" option if not already mentioned
-            if !excludedIds.contains(Mention.currentPage.id) {
-                let pageScore: Int
-                if query.isEmpty {
-                    // Lower score when overlays are open so they become the default
-                    pageScore = hasOpenOverlays ? 950 : 1000
-                } else {
-                    // Check if query matches "page", "current", etc.
-                    let targets = ["page", "current", "this"]
-                    let bestMatch = targets.map { FuzzySearch.score(query: query, target: $0) }.max() ?? 0
-                    pageScore = bestMatch > 0 ? bestMatch + 500 : 0 // Boost if matches
-                }
-                if pageScore > 0 {
-                    allSuggestions.append(MentionSuggestion(mention: .currentPage, score: pageScore))
-                }
+        // Add "Current Page" option if not already mentioned
+        if !excludedIds.contains(Mention.currentPage.id) {
+            let pageScore: Int
+            if query.isEmpty {
+                // Lower score when overlays are open so they become the default
+                pageScore = hasOpenOverlays ? 950 : 1000
+            } else {
+                let targets = ["page", "current", "this"]
+                let bestMatch = targets.map { FuzzySearch.score(query: query, target: $0) }.max() ?? 0
+                pageScore = bestMatch > 0 ? bestMatch + 500 : 0
             }
-
-            // Add "History" option if not already mentioned
-            if !excludedIds.contains(Mention.history.id) {
-                let historyScore: Int
-                if query.isEmpty {
-                    historyScore = 900 // Show when dropdown opens
-                } else {
-                    let targets = ["history", "search", "find", "past", "browsing"]
-                    let bestMatch = targets.map { FuzzySearch.score(query: query, target: $0) }.max() ?? 0
-                    historyScore = bestMatch > 0 ? bestMatch + 400 : 0
-                }
-                if historyScore > 0 {
-                    allSuggestions.append(MentionSuggestion(mention: .history, score: historyScore))
-                }
+            if pageScore > 0 {
+                allSuggestions.append(MentionSuggestion(mention: .currentPage, score: pageScore))
             }
+        }
 
-            // Add "Web" option if not already mentioned
-            if !excludedIds.contains(Mention.web.id) {
-                let webScore: Int
-                if query.isEmpty {
-                    webScore = 850 // Show when dropdown opens
-                } else {
-                    let targets = ["web", "all", "pages", "sites", "internet"]
-                    let bestMatch = targets.map { FuzzySearch.score(query: query, target: $0) }.max() ?? 0
-                    webScore = bestMatch > 0 ? bestMatch + 350 : 0
-                }
-                if webScore > 0 {
-                    allSuggestions.append(MentionSuggestion(mention: .web, score: webScore))
-                }
+        // Add "History" option if not already mentioned
+        if !excludedIds.contains(Mention.history.id) {
+            let historyScore: Int
+            if query.isEmpty {
+                historyScore = 900
+            } else {
+                let targets = ["history", "search", "find", "past", "browsing"]
+                let bestMatch = targets.map { FuzzySearch.score(query: query, target: $0) }.max() ?? 0
+                historyScore = bestMatch > 0 ? bestMatch + 400 : 0
             }
-
-            // Add "Reading List" option if not already mentioned
-            if !excludedIds.contains(Mention.readingList.id) {
-                let readingListScore: Int
-                if query.isEmpty {
-                    readingListScore = 800 // Show when dropdown opens
-                } else {
-                    let targets = ["reading", "list", "saved", "bookmarks", "later"]
-                    let bestMatch = targets.map { FuzzySearch.score(query: query, target: $0) }.max() ?? 0
-                    readingListScore = bestMatch > 0 ? bestMatch + 300 : 0
-                }
-                if readingListScore > 0 {
-                    allSuggestions.append(MentionSuggestion(mention: .readingList, score: readingListScore))
-                }
+            if historyScore > 0 {
+                allSuggestions.append(MentionSuggestion(mention: .history, score: historyScore))
             }
+        }
 
-            // Search open tabs
-            if let browserState = browserState {
-                let tabSuggestions = searchTabs(
-                    query: query,
-                    tabs: browserState.tabs,
-                    excludedIds: excludedIds,
-                    currentTabId: currentTabId
-                )
-                allSuggestions.append(contentsOf: tabSuggestions)
+        // Add "Web" option if not already mentioned
+        if !excludedIds.contains(Mention.web.id) {
+            let webScore: Int
+            if query.isEmpty {
+                webScore = 850
+            } else {
+                let targets = ["web", "all", "pages", "sites", "internet"]
+                let bestMatch = targets.map { FuzzySearch.score(query: query, target: $0) }.max() ?? 0
+                webScore = bestMatch > 0 ? bestMatch + 350 : 0
             }
+            if webScore > 0 {
+                allSuggestions.append(MentionSuggestion(mention: .web, score: webScore))
+            }
+        }
 
-            // Search open overlay windows (mini windows)
-            let overlaySuggestions = searchOverlays(
+        // Add "Reading List" option if not already mentioned
+        if !excludedIds.contains(Mention.readingList.id) {
+            let readingListScore: Int
+            if query.isEmpty {
+                readingListScore = 800
+            } else {
+                let targets = ["reading", "list", "saved", "bookmarks", "later"]
+                let bestMatch = targets.map { FuzzySearch.score(query: query, target: $0) }.max() ?? 0
+                readingListScore = bestMatch > 0 ? bestMatch + 300 : 0
+            }
+            if readingListScore > 0 {
+                allSuggestions.append(MentionSuggestion(mention: .readingList, score: readingListScore))
+            }
+        }
+
+        // Search open tabs
+        if let browserState = browserState {
+            let tabSuggestions = searchTabs(
                 query: query,
-                overlays: OverlayWindowManager.shared.windows,
-                excludedIds: excludedIds
+                tabs: browserState.tabs,
+                excludedIds: excludedIds,
+                currentTabId: currentTabId
             )
-            allSuggestions.append(contentsOf: overlaySuggestions)
+            allSuggestions.append(contentsOf: tabSuggestions)
+        }
 
-            // Search semantic results (from history)
-            let semanticSuggestions = await searchSemanticHistory(
-                query: query,
-                excludedIds: excludedIds
-            )
-            allSuggestions.append(contentsOf: semanticSuggestions)
+        // Search open overlay windows (mini windows)
+        let overlaySuggestions = searchOverlays(
+            query: query,
+            overlays: OverlayWindowManager.shared.windows,
+            excludedIds: excludedIds
+        )
+        allSuggestions.append(contentsOf: overlaySuggestions)
 
-            // Sort by score (higher first), tabs before semantic results at equal score
-            allSuggestions.sort { a, b in
-                if a.score != b.score {
-                    return a.score > b.score
-                }
-                // Prefer tabs over semantic results
-                if case .tab = a.mention, case .semanticResult = b.mention {
-                    return true
-                }
-                return false
+        // Search semantic results (from history)
+        let semanticSuggestions = await searchSemanticHistory(
+            query: query,
+            excludedIds: excludedIds
+        )
+        allSuggestions.append(contentsOf: semanticSuggestions)
+
+        // Sort by score (higher first), tabs before semantic results at equal score
+        allSuggestions.sort { a, b in
+            if a.score != b.score {
+                return a.score > b.score
             }
+            if case .tab = a.mention, case .semanticResult = b.mention {
+                return true
+            }
+            return false
+        }
 
-            // Limit to 10 results
-            allSuggestions = Array(allSuggestions.prefix(10))
+        allSuggestions = Array(allSuggestions.prefix(10))
 
-            guard !Task.isCancelled else { return }
+        guard !Task.isCancelled else { return }
 
-            suggestions = allSuggestions
-            selectedIndex = suggestions.isEmpty ? -1 : 0
-            isSearching = false
+        suggestions = allSuggestions
+        selectedIndex = suggestions.isEmpty ? -1 : 0
+        isSearching = false
     }
 
     /// Search open overlay windows using fuzzy matching
@@ -283,26 +282,6 @@ class MentionSuggestionsViewModel: ObservableObject {
             let score = Int(result.score * 500)
 
             return MentionSuggestion(mention: mention, score: score)
-        }
-    }
-
-    /// Select the next suggestion (down arrow)
-    func selectNext() {
-        guard !suggestions.isEmpty else { return }
-        if selectedIndex < suggestions.count - 1 {
-            selectedIndex += 1
-        } else {
-            selectedIndex = 0 // Wrap to top
-        }
-    }
-
-    /// Select the previous suggestion (up arrow)
-    func selectPrevious() {
-        guard !suggestions.isEmpty else { return }
-        if selectedIndex > 0 {
-            selectedIndex -= 1
-        } else {
-            selectedIndex = suggestions.count - 1 // Wrap to bottom
         }
     }
 

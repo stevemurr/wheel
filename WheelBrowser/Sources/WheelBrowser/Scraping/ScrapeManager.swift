@@ -133,7 +133,6 @@ class ScrapeManager: ObservableObject {
     static let shared = ScrapeManager()
 
     @Published var jobs: [ScrapeJob] = []
-    @Published var showScrapePanel: Bool = false
 
     /// Active SSE subscription tasks per job ID
     private var subscriptionTasks: [String: Task<Void, Never>] = [:]
@@ -196,10 +195,8 @@ class ScrapeManager: ObservableObject {
 
         jobs.insert(job, at: 0)
 
-        // Show panel when job starts
-        withAnimation(AppAnimation.springStandard) {
-            showScrapePanel = true
-        }
+        // Notify OmniBar to show scraping panel
+        NotificationCenter.default.post(name: .showScrapePanel, object: nil)
 
         // Subscribe to SSE events for this job
         subscribeToJobEvents(jobId: jobId, service: service)
@@ -235,20 +232,6 @@ class ScrapeManager: ObservableObject {
             subscriptionTasks.removeValue(forKey: id)
         }
         jobs.removeAll { !$0.status.isActive }
-    }
-
-    /// Toggle panel visibility
-    func togglePanel() {
-        withAnimation(AppAnimation.springStandard) {
-            showScrapePanel.toggle()
-        }
-    }
-
-    /// Dismiss the panel
-    func dismissPanel() {
-        withAnimation(AppAnimation.springStandard) {
-            showScrapePanel = false
-        }
     }
 
     // MARK: - SSE Event Handling

@@ -2,12 +2,16 @@ import SwiftUI
 
 // MARK: - Suggestion Row (handles both open tabs and history)
 
-struct SuggestionRow: View {
+struct SuggestionRow: View, Equatable {
     let suggestion: Suggestion
     let isSelected: Bool
     let onSelect: () -> Void
 
     @State private var isHovering = false
+
+    static func == (lhs: SuggestionRow, rhs: SuggestionRow) -> Bool {
+        lhs.suggestion.id == rhs.suggestion.id && lhs.isSelected == rhs.isSelected
+    }
 
     private var domain: String {
         suggestion.url.urlCleanDomain
@@ -26,7 +30,7 @@ struct SuggestionRow: View {
             // Title and URL
             VStack(alignment: .leading, spacing: 2) {
                 HStack(spacing: 6) {
-                    highlightedText(title, matchedIndices: suggestion.titleMatches)
+                    HighlightedTextBuilder.fromIndices(title, indices: suggestion.titleMatches)
                         .font(.system(size: 13))
                         .lineLimit(1)
 
@@ -44,7 +48,7 @@ struct SuggestionRow: View {
                     }
                 }
 
-                highlightedText(displayURL, matchedIndices: displayURLMatchIndices)
+                HighlightedTextBuilder.fromIndices(displayURL, indices: displayURLMatchIndices)
                     .font(.system(size: 11))
                     .lineLimit(1)
             }
@@ -98,7 +102,7 @@ struct SuggestionRow: View {
                 .frame(width: 28, height: 28)
                 .background(
                     RoundedRectangle(cornerRadius: 6)
-                        .fill(colorForDomain(domain))
+                        .fill(DomainColor.color(for: domain))
                 )
         } else {
             Image(systemName: "globe")
@@ -115,7 +119,6 @@ struct SuggestionRow: View {
     @ViewBuilder
     private var rightIndicator: some View {
         if suggestion.isOpenTab {
-            // Show "Switch" action hint for open tabs
             Text("Switch")
                 .font(.system(size: 10, weight: .medium))
                 .foregroundColor(.green.opacity(0.8))
@@ -126,7 +129,6 @@ struct SuggestionRow: View {
                         .fill(Color.green.opacity(0.1))
                 )
         } else if let timeAgo = relativeTimeString {
-            // Show time for history entries
             Text(timeAgo)
                 .font(.system(size: 10, weight: .medium))
                 .foregroundColor(.secondary.opacity(0.7))
@@ -143,23 +145,31 @@ struct SuggestionRow: View {
         URLFormatter.shared.displayURL(suggestion.url)
     }
 
-    /// Adjust URL match indices to account for scheme/www stripping in display URL
+    /// Adjust URL match indices to account for scheme/www stripping in display URL.
+    /// Derives the offset by finding the display URL within the raw URL (single source of truth).
     private var displayURLMatchIndices: [Int] {
         let rawURL = suggestion.url
         let indices = suggestion.urlMatches
         guard !indices.isEmpty else { return [] }
 
-        // Calculate how many characters were stripped from the front
-        var stripped = 0
-        if rawURL.hasPrefix("https://") {
-            stripped = 8
-        } else if rawURL.hasPrefix("http://") {
-            stripped = 7
-        }
-        // Account for www. removal (only if it follows the scheme)
-        let afterScheme = rawURL.dropFirst(stripped)
-        if afterScheme.hasPrefix("www.") {
-            stripped += 4
+        // Derive the offset by finding where the display URL starts in the raw URL
+        let display = displayURL
+        let stripped: Int
+        if let range = rawURL.range(of: display) {
+            stripped = rawURL.distance(from: rawURL.startIndex, to: range.lowerBound)
+        } else {
+            // Fallback: calculate based on known scheme patterns
+            var offset = 0
+            if rawURL.hasPrefix("https://") {
+                offset = 8
+            } else if rawURL.hasPrefix("http://") {
+                offset = 7
+            }
+            let afterScheme = rawURL.dropFirst(offset)
+            if afterScheme.hasPrefix("www.") {
+                offset += 4
+            }
+            stripped = offset
         }
 
         return indices.compactMap { idx in
@@ -168,29 +178,8 @@ struct SuggestionRow: View {
         }
     }
 
-    private func highlightedText(_ string: String, matchedIndices: [Int]) -> Text {
-        guard !matchedIndices.isEmpty else {
-            return Text(string).foregroundColor(.primary)
-        }
-        let indexSet = Set(matchedIndices)
-        var result = Text("")
-        for (i, char) in string.enumerated() {
-            if indexSet.contains(i) {
-                result = result + Text(String(char)).bold().foregroundColor(.primary)
-            } else {
-                result = result + Text(String(char)).foregroundColor(.secondary)
-            }
-        }
-        return result
-    }
-
     private var relativeTimeString: String? {
-        // Only for history entries
         guard case .history(let entry, _, _, _) = suggestion else { return nil }
         return entry.timestamp.relativeTimeString()
-    }
-
-    private func colorForDomain(_ domain: String) -> Color {
-        DomainColor.color(for: domain)
     }
 }
