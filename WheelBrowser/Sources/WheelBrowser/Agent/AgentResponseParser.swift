@@ -111,6 +111,17 @@ enum AgentResponseParser {
             return .navigate(url: url)
         }
 
+        // read_text(id)
+        if let match = trimmed.range(of: #"read_text\s*\(\s*(\d+)\s*\)"#, options: .regularExpression) {
+            let idStr = trimmed[match].replacingOccurrences(of: "read_text", with: "")
+                .replacingOccurrences(of: "(", with: "")
+                .replacingOccurrences(of: ")", with: "")
+                .trimmingCharacters(in: .whitespaces)
+            if let id = Int(idStr) {
+                return .readText(elementId: id)
+            }
+        }
+
         // back()
         if trimmed.lowercased().hasPrefix("back()") || trimmed.lowercased().hasPrefix("back") && trimmed.count < 10 {
             return .back

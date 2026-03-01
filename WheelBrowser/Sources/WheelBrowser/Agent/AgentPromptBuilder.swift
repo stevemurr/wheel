@@ -3,7 +3,7 @@ import Foundation
 /// Builds prompts for the agent's LLM interactions.
 enum AgentPromptBuilder {
 
-    /// The system prompt that instructs the LLM on response format and available actions.
+    /// The base system prompt that instructs the LLM on response format and available actions.
     static let systemPrompt = """
     You are a browser automation agent. Analyze the page snapshot and decide what action to take.
 
@@ -18,6 +18,7 @@ enum AgentPromptBuilder {
     scroll(up/down)    - Scroll the page
     navigate("url")    - Go to URL
     back()             - Go back to the previous page (use when stuck or need to try a different path)
+    read_text(id)      - Read the text content near an element (use for extracting information)
     done("summary")    - IMPORTANT: Call this when the task is complete!
 
     WHEN TO CALL done():
@@ -46,6 +47,9 @@ enum AgentPromptBuilder {
     THOUGHT: This page isn't what I need, let me go back and try a different link.
     ACTION: back()
 
+    THOUGHT: I need to read the article text near the heading to extract the answer.
+    ACTION: read_text(12)
+
     RULES:
     - Call done() as soon as the task objective is achieved
     - Do NOT keep taking actions after the task is complete
@@ -54,6 +58,28 @@ enum AgentPromptBuilder {
     - Do NOT use JSON, XML, special tokens, or <|tags|>
     """
 
+    /// Build a dynamic system prompt with contextual additions based on current state
+    static func buildSystemPrompt(stepsRemaining: Int, maxSteps: Int, recentErrors: Int) -> String {
+        var prompt = systemPrompt
+
+        // Steps remaining warning
+        if stepsRemaining <= 10 && stepsRemaining > 0 {
+            prompt += "\n\nIMPORTANT: You have only \(stepsRemaining) steps remaining out of \(maxSteps). "
+            prompt += "Prioritize completing the task quickly. If the objective is mostly achieved, call done()."
+        }
+
+        // Error recovery guidance
+        if recentErrors >= 2 {
+            prompt += "\n\nNOTE: Several recent actions have failed. Consider:"
+            prompt += "\n- Taking a fresh snapshot by trying a different action"
+            prompt += "\n- The page may have changed since your last observation"
+            prompt += "\n- Element IDs may have shifted; look at the current page state carefully"
+            prompt += "\n- If an element keeps failing, try a different approach to achieve the same goal"
+        }
+
+        return prompt
+    }
+
     /// Build the user prompt for the LLM, incorporating task, page state, and history.
     static func buildPrompt(task: String, snapshot: PageSnapshot, previousSteps: [AgentStep]) -> String {
         var prompt = "TASK: \(task)\n\n"
@@ -61,8 +87,20 @@ enum AgentPromptBuilder {
         prompt += snapshot.textRepresentation
         prompt += "\n\n"
 
-        // Include recent history
-        let recentSteps = previousSteps.suffix(6)
+        // Two-tier history: compressed older steps + full detail of recent steps
+        let recentWindowSize = 8
+        if previousSteps.count > recentWindowSize {
+            let olderSteps = Array(previousSteps.prefix(previousSteps.count - recentWindowSize))
+            let compressed = compressSteps(olderSteps)
+            if !compressed.isEmpty {
+                prompt += "EARLIER HISTORY (summary):\n"
+                prompt += compressed
+                prompt += "\n\n"
+            }
+        }
+
+        // Tier 2: Full detail of recent steps (always include errors regardless of window)
+        let recentSteps = previousSteps.suffix(recentWindowSize)
         if !recentSteps.isEmpty {
             prompt += "RECENT HISTORY:\n"
             for step in recentSteps {
@@ -94,5 +132,66 @@ enum AgentPromptBuilder {
 
         prompt += "What should I do next? If the task is complete, call done().\n"
         return prompt
+    }
+
+    // MARK: - Step Compression
+
+    /// Compress older steps into a summary grouped by page visited
+    private static func compressSteps(_ steps: [AgentStep]) -> String {
+        guard !steps.isEmpty else { return "" }
+
+        // Group steps by the pages they were on (using observation steps as markers)
+        var pages: [(url: String, actions: [String], errors: [String])] = []
+        var currentURL = ""
+        var currentActions: [String] = []
+        var currentErrors: [String] = []
+
+        for step in steps {
+            switch step.type {
+            case .observation:
+                // Start a new page group if URL changed
+                if let urlLine = step.content.components(separatedBy: "\n")
+                    .first(where: { $0.hasPrefix("URL:") }) {
+                    let url = urlLine.replacingOccurrences(of: "URL: ", with: "").trimmingCharacters(in: .whitespaces)
+                    if url != currentURL {
+                        if !currentURL.isEmpty {
+                            pages.append((url: currentURL, actions: currentActions, errors: currentErrors))
+                        }
+                        currentURL = url
+                        currentActions = []
+                        currentErrors = []
+                    }
+                }
+            case .action:
+                currentActions.append(step.content)
+            case .error:
+                currentErrors.append(step.content)
+            default:
+                break
+            }
+        }
+
+        // Don't forget the last page group
+        if !currentURL.isEmpty {
+            pages.append((url: currentURL, actions: currentActions, errors: currentErrors))
+        }
+
+        // Build compressed summary
+        var summary = ""
+        for page in pages {
+            let host = URL(string: page.url)?.host ?? page.url
+            summary += "On \(host): "
+            if page.actions.isEmpty {
+                summary += "observed page"
+            } else {
+                summary += page.actions.joined(separator: ", ")
+            }
+            if !page.errors.isEmpty {
+                summary += " [ERRORS: \(page.errors.joined(separator: "; "))]"
+            }
+            summary += "\n"
+        }
+
+        return summary
     }
 }

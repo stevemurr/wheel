@@ -223,6 +223,18 @@ enum HarmonyFormatParser {
             }
         }
 
+        // browser.read_text
+        if response.contains("browser.read_text") || response.contains("read_text") {
+            if let idRange = response.range(of: #""(?:element_?id|id)"\s*:\s*(\d+)"#, options: .regularExpression) {
+                let idStr = String(response[idRange])
+                if let numRange = idStr.range(of: #"\d+"#, options: .regularExpression) {
+                    if let id = Int(idStr[numRange]) {
+                        return .readText(elementId: id)
+                    }
+                }
+            }
+        }
+
         // browser.done
         if response.contains("browser.done") || response.contains("task.complete") {
             if let summaryRange = response.range(of: #""summary"\s*:\s*"([^"]*)""#, options: .regularExpression) {

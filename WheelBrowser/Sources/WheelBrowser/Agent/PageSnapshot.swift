@@ -57,6 +57,58 @@ struct PageElement: Codable, Identifiable {
     }
 }
 
+/// Represents a page heading (h1-h3) for content awareness
+struct PageHeading: Codable {
+    let level: Int
+    let text: String
+}
+
+/// Captures what changed after an action for enriched feedback
+struct ActionDelta {
+    let urlChanged: Bool
+    let newURL: String?
+    let titleChanged: Bool
+    let newTitle: String?
+    let elementCountBefore: Int
+    let elementCountAfter: Int
+    let captchaAppeared: Bool
+    let captchaDisappeared: Bool
+
+    var significantDOMChange: Bool {
+        let diff = abs(elementCountAfter - elementCountBefore)
+        return diff > 5 || (elementCountBefore > 0 && Double(diff) / Double(elementCountBefore) > 0.3)
+    }
+
+    /// Human-readable description of what changed for the LLM
+    var description: String {
+        var parts: [String] = []
+
+        if urlChanged, let url = newURL {
+            parts.append("Page navigated to \(url).")
+        }
+
+        if titleChanged, let title = newTitle {
+            parts.append("Page title changed to \"\(title)\".")
+        }
+
+        if significantDOMChange {
+            parts.append("Page content changed significantly (\(elementCountBefore) → \(elementCountAfter) elements).")
+        } else if elementCountAfter != elementCountBefore {
+            parts.append("Minor page update (\(elementCountBefore) → \(elementCountAfter) elements).")
+        }
+
+        if captchaAppeared {
+            parts.append("A captcha/challenge appeared.")
+        }
+
+        if captchaDisappeared {
+            parts.append("Captcha/challenge resolved.")
+        }
+
+        return parts.isEmpty ? "No visible change." : parts.joined(separator: " ")
+    }
+}
+
 /// A snapshot of the current page state
 struct PageSnapshot: Codable {
     let url: String
@@ -66,6 +118,8 @@ struct PageSnapshot: Codable {
     let viewportSize: ViewportSize
     let captchaDetected: Bool
     let captchaType: String?
+    let headings: [PageHeading]?
+    let contentSummary: String?
 
     struct ScrollPosition: Codable {
         let x: Double
@@ -79,7 +133,7 @@ struct PageSnapshot: Codable {
         let height: Double
     }
 
-    // For backwards compatibility with existing snapshots that don't have captcha fields
+    // For backwards compatibility with existing snapshots that may not have all fields
     init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         url = try container.decode(String.self, forKey: .url)
@@ -89,6 +143,8 @@ struct PageSnapshot: Codable {
         viewportSize = try container.decode(ViewportSize.self, forKey: .viewportSize)
         captchaDetected = try container.decodeIfPresent(Bool.self, forKey: .captchaDetected) ?? false
         captchaType = try container.decodeIfPresent(String.self, forKey: .captchaType)
+        headings = try container.decodeIfPresent([PageHeading].self, forKey: .headings)
+        contentSummary = try container.decodeIfPresent(String.self, forKey: .contentSummary)
     }
 
     /// A text representation of the page for the LLM
@@ -103,6 +159,23 @@ struct PageSnapshot: Codable {
             lines.append("")
             lines.append("⚠️ CAPTCHA/CHALLENGE DETECTED: \(captchaType ?? "unknown type")")
             lines.append("   Call wait_for_user(\"Please solve the captcha\") to wait for the user to complete it.")
+        }
+
+        // Page headings for content awareness
+        if let headings = headings, !headings.isEmpty {
+            lines.append("")
+            lines.append("Page Headings:")
+            for heading in headings {
+                let indent = String(repeating: "  ", count: heading.level)
+                lines.append("\(indent)H\(heading.level): \(heading.text)")
+            }
+        }
+
+        // Content summary for information-retrieval tasks
+        if let summary = contentSummary, !summary.isEmpty {
+            lines.append("")
+            lines.append("Page Content Summary:")
+            lines.append(summary)
         }
 
         lines.append("")

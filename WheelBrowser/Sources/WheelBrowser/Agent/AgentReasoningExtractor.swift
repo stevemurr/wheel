@@ -41,6 +41,11 @@ enum AgentReasoningExtractor {
             return String(reasoning[match])
         }
 
+        // read_text(id)
+        if let match = reasoning.range(of: #"read_text\s*\(\s*\d+\s*\)"#, options: [.regularExpression, .caseInsensitive]) {
+            return String(reasoning[match])
+        }
+
         // done("summary")
         if let match = reasoning.range(of: #"done\s*\([\"'][^\"']+[\"']\)"#, options: [.regularExpression, .caseInsensitive]) {
             return String(reasoning[match])

@@ -34,12 +34,22 @@ struct NormalizedAction: Hashable {
         case .done:
             self.type = "done"
             self.target = ""
+        case .readText:
+            self.type = "readText"
+            self.target = ""
         }
     }
 }
 
-/// Agent-specific loop detector that tracks NormalizedAction history
-/// and detects various stuck patterns.
+/// Suggested recovery strategy when a loop is detected
+enum LoopRecoveryStrategy {
+    case goBack
+    case scrollDown
+    case admitFailure(reason: String)
+}
+
+/// Agent-specific loop detector that tracks NormalizedAction history,
+/// URL-based progress, and detects various stuck patterns.
 final class AgentLoopDetector {
     /// History of recent actions for semantic loop detection
     private(set) var recentActions: [NormalizedAction] = []
@@ -47,6 +57,8 @@ final class AgentLoopDetector {
     private(set) var consecutiveParseFailures: Int = 0
     /// Track loop recovery attempts
     private(set) var loopRecoveryAttempts: Int = 0
+    /// Track visited URLs for progress detection
+    private(set) var visitedURLs: [String] = []
 
     let maxConsecutiveParseFailures = 3
     let maxLoopRecoveryAttempts = 2
@@ -54,10 +66,26 @@ final class AgentLoopDetector {
     /// Record a new normalized action
     func recordAction(_ action: NormalizedAction) {
         recentActions.append(action)
-        // Keep only last 8 actions for pattern detection
-        if recentActions.count > 8 {
+        // Keep only last 10 actions for pattern detection
+        if recentActions.count > 10 {
             recentActions.removeFirst()
         }
+    }
+
+    /// Record a URL visit for progress tracking
+    func recordURL(_ url: String) {
+        // Normalize by stripping fragments
+        let normalized = url.components(separatedBy: "#").first ?? url
+        if visitedURLs.last != normalized {
+            visitedURLs.append(normalized)
+        }
+    }
+
+    /// Check if the agent has been visiting new URLs (making progress)
+    var isVisitingNewURLs: Bool {
+        guard visitedURLs.count >= 3 else { return false }
+        let recentURLs = visitedURLs.suffix(3)
+        return Set(recentURLs).count >= 2
     }
 
     /// Record a parse failure and return the current count
@@ -87,6 +115,37 @@ final class AgentLoopDetector {
         recentActions.removeAll()
         consecutiveParseFailures = 0
         loopRecoveryAttempts = 0
+        visitedURLs.removeAll()
+    }
+
+    /// Suggest a recovery strategy based on the detected loop type
+    func suggestRecovery(loopType: String, canGoBack: Bool) -> LoopRecoveryStrategy {
+        // Scroll loops -> go back
+        if loopType.contains("Scroll loop") {
+            if canGoBack {
+                return .goBack
+            }
+            return .admitFailure(reason: "Stuck scrolling with no back history")
+        }
+
+        // Click loops with scroll-type content -> try scrolling to reveal new elements
+        if loopType.contains("clicking same") || loopType.contains("Oscillating") {
+            let hasScrollActions = recentActions.contains { $0.type == "scroll" }
+            if !hasScrollActions {
+                return .scrollDown
+            }
+            if canGoBack {
+                return .goBack
+            }
+            return .admitFailure(reason: "Stuck clicking with no alternatives")
+        }
+
+        // No back history -> admit failure
+        if !canGoBack {
+            return .admitFailure(reason: "No navigation history available to recover")
+        }
+
+        return .goBack
     }
 
     /// Detect if the agent is stuck in a loop pattern.
@@ -96,6 +155,16 @@ final class AgentLoopDetector {
 
         // Need at least 4 actions to detect patterns
         guard actions.count >= 4 else { return nil }
+
+        // Suppress false positives: if the agent is visiting new URLs, it's making progress
+        if isVisitingNewURLs {
+            // Only detect the most severe patterns (exact same action 4x)
+            let lastFour = Array(actions.suffix(4))
+            if Set(lastFour).count == 1 {
+                return "Same action repeated 4 times"
+            }
+            return nil
+        }
 
         // Pattern 1: Same action repeated 4+ times in a row
         let lastFour = Array(actions.suffix(4))

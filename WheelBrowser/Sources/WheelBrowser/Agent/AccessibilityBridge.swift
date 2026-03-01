@@ -148,6 +148,38 @@ class AccessibilityBridge {
                 captchaType = 'Cloudflare Turnstile';
             }
 
+            // Capture visible headings (h1-h3)
+            const headings = [];
+            document.querySelectorAll('h1, h2, h3').forEach(h => {
+                const hRect = h.getBoundingClientRect();
+                const hStyle = window.getComputedStyle(h);
+                const hVisible = hRect.width > 0 && hRect.height > 0 &&
+                    hStyle.visibility !== 'hidden' && hStyle.display !== 'none';
+                if (hVisible) {
+                    const level = parseInt(h.tagName.substring(1));
+                    const hText = (h.innerText || h.textContent || '').trim().replace(/\\s+/g, ' ');
+                    if (hText) {
+                        headings.push({ level: level, text: hText.substring(0, 200) });
+                    }
+                }
+            });
+
+            // Capture content summary from main content area
+            let contentSummary = null;
+            const mainEl = document.querySelector('main, article, [role="main"], .content, #content');
+            const contentRoot = mainEl || document.body;
+            if (contentRoot) {
+                const clone = contentRoot.cloneNode(true);
+                clone.querySelectorAll('script, style, nav, footer, header, aside, [aria-hidden="true"]').forEach(el => el.remove());
+                let rawText = (clone.textContent || '').replace(/\\s+/g, ' ').trim();
+                if (rawText.length > 3000) {
+                    rawText = rawText.substring(0, 3000) + '...';
+                }
+                if (rawText.length > 50) {
+                    contentSummary = rawText;
+                }
+            }
+
             return {
                 url: window.location.href,
                 title: document.title,
@@ -163,7 +195,9 @@ class AccessibilityBridge {
                     height: window.innerHeight
                 },
                 captchaDetected: captchaDetected,
-                captchaType: captchaType
+                captchaType: captchaType,
+                headings: headings,
+                contentSummary: contentSummary
             };
         })();
         """
@@ -182,6 +216,153 @@ class AccessibilityBridge {
             throw error
         } catch {
             throw AgentError.snapshotFailed(error.localizedDescription)
+        }
+    }
+
+    // MARK: - Element Re-validation
+
+    /// Validate that an element still exists and is visible. If not, attempt to re-find by text/tag match.
+    /// Returns the (possibly updated) element ID to use.
+    func revalidateElement(elementId: Int, expectedTag: String?, expectedText: String?) async throws -> Int {
+        guard let webView = webView else {
+            throw AgentError.webViewUnavailable
+        }
+
+        let escapedTag = JavaScriptEscaper.escape(expectedTag ?? "")
+        let escapedText = JavaScriptEscaper.escape(expectedText ?? "")
+
+        let script = """
+        (function() {
+            // First, try the original element by data-agent-id
+            const el = document.querySelector('[data-agent-id="\(elementId)"]');
+            if (el) {
+                const rect = el.getBoundingClientRect();
+                const style = window.getComputedStyle(el);
+                const isVisible = rect.width > 0 && rect.height > 0 &&
+                    style.visibility !== 'hidden' && style.display !== 'none' &&
+                    style.opacity !== '0';
+                if (isVisible) {
+                    return { found: true, id: \(elementId), reMatched: false };
+                }
+            }
+
+            // Element not found or not visible - try to re-find by tag + text
+            const tag = "\(escapedTag)";
+            const text = "\(escapedText)";
+            if (!tag && !text) {
+                return { found: false, id: \(elementId), reMatched: false };
+            }
+
+            const candidates = tag ? document.querySelectorAll(tag) : document.querySelectorAll('*');
+            for (const candidate of candidates) {
+                const rect = candidate.getBoundingClientRect();
+                const style = window.getComputedStyle(candidate);
+                const isVisible = rect.width > 0 && rect.height > 0 &&
+                    style.visibility !== 'hidden' && style.display !== 'none';
+                if (!isVisible) continue;
+
+                const candidateText = (candidate.innerText || candidate.textContent || '').trim();
+                if (text && candidateText.includes(text)) {
+                    // Found a match - assign a new agent ID if needed
+                    let newId = candidate.dataset.agentId;
+                    if (!newId) {
+                        // Find the next available ID
+                        const allIds = document.querySelectorAll('[data-agent-id]');
+                        let maxId = 0;
+                        allIds.forEach(el => {
+                            const id = parseInt(el.dataset.agentId);
+                            if (id > maxId) maxId = id;
+                        });
+                        newId = String(maxId + 1);
+                        candidate.dataset.agentId = newId;
+                    }
+                    return { found: true, id: parseInt(newId), reMatched: true };
+                }
+            }
+
+            return { found: false, id: \(elementId), reMatched: false };
+        })();
+        """
+
+        do {
+            let result = try await webView.evaluateJavaScript(script)
+            guard let dict = result as? [String: Any],
+                  let found = dict["found"] as? Bool else {
+                return elementId
+            }
+
+            if found {
+                let resolvedId = dict["id"] as? Int ?? elementId
+                let reMatched = dict["reMatched"] as? Bool ?? false
+                if reMatched {
+                    Log.Agent.info("Element #\(elementId) re-matched to #\(resolvedId) by text/tag")
+                }
+                return resolvedId
+            }
+
+            return elementId
+        } catch {
+            return elementId
+        }
+    }
+
+    // MARK: - Read Text
+
+    /// Read the text content in the vicinity of an element
+    func readText(elementId: Int) async throws -> String {
+        guard let webView = webView else {
+            throw AgentError.webViewUnavailable
+        }
+
+        let script = """
+        (function() {
+            const el = document.querySelector('[data-agent-id="\(elementId)"]');
+            if (!el) {
+                return { success: false, error: 'Element not found (ID: \(elementId))' };
+            }
+
+            // Get the element's own text
+            let ownText = (el.innerText || el.textContent || '').trim();
+
+            // Also get text from nearby siblings and parent content
+            let contextText = '';
+            const parent = el.parentElement;
+            if (parent) {
+                contextText = (parent.innerText || parent.textContent || '').trim();
+            }
+
+            // Use the richer context if available, fall back to own text
+            let text = contextText.length > ownText.length ? contextText : ownText;
+
+            // Clean up whitespace
+            text = text.replace(/\\s+/g, ' ').trim();
+
+            // Cap length
+            if (text.length > 2000) {
+                text = text.substring(0, 2000) + '...';
+            }
+
+            return { success: true, text: text };
+        })();
+        """
+
+        do {
+            let result = try await webView.evaluateJavaScript(script)
+            guard let dict = result as? [String: Any],
+                  let success = dict["success"] as? Bool else {
+                throw AgentError.javascriptError("Invalid response from readText script")
+            }
+
+            if !success {
+                let error = dict["error"] as? String ?? "Unknown readText error"
+                throw AgentError.javascriptError(error)
+            }
+
+            return dict["text"] as? String ?? ""
+        } catch let error as AgentError {
+            throw error
+        } catch {
+            throw AgentError.javascriptError(error.localizedDescription)
         }
     }
 
@@ -570,8 +751,67 @@ class AccessibilityBridge {
         }
     }
 
+    /// Capture a lightweight pre-action state for delta comparison
+    func capturePreActionState() async -> (url: String, title: String, elementCount: Int, captchaDetected: Bool) {
+        guard let webView = webView else {
+            return ("", "", -1, false)
+        }
+
+        let script = """
+        (function() {
+            const selectors = 'a[href],button,input,select,textarea,[role="button"],[onclick],[tabindex]:not([tabindex="-1"])';
+            const count = document.querySelectorAll(selectors).length;
+            const hasCaptcha = !!(document.querySelector('iframe[src*="recaptcha"]') ||
+                document.querySelector('.g-recaptcha') ||
+                document.querySelector('[data-sitekey]') ||
+                document.querySelector('iframe[src*="hcaptcha"]') ||
+                document.querySelector('.h-captcha') ||
+                document.querySelector('#challenge-running') ||
+                document.querySelector('#challenge-form') ||
+                document.querySelector('iframe[src*="turnstile"]') ||
+                document.querySelector('.cf-turnstile'));
+            return {
+                url: window.location.href,
+                title: document.title,
+                elementCount: count,
+                captchaDetected: hasCaptcha
+            };
+        })();
+        """
+
+        do {
+            let result = try await webView.evaluateJavaScript(script)
+            guard let dict = result as? [String: Any] else {
+                return ("", "", -1, false)
+            }
+            return (
+                url: dict["url"] as? String ?? "",
+                title: dict["title"] as? String ?? "",
+                elementCount: dict["elementCount"] as? Int ?? -1,
+                captchaDetected: dict["captchaDetected"] as? Bool ?? false
+            )
+        } catch {
+            return ("", "", -1, false)
+        }
+    }
+
+    /// Compute what changed between pre-action state and current page state
+    func quickDelta(before: (url: String, title: String, elementCount: Int, captchaDetected: Bool)) async -> ActionDelta {
+        let after = await capturePreActionState()
+        return ActionDelta(
+            urlChanged: before.url != after.url,
+            newURL: before.url != after.url ? after.url : nil,
+            titleChanged: before.title != after.title,
+            newTitle: before.title != after.title ? after.title : nil,
+            elementCountBefore: before.elementCount,
+            elementCountAfter: after.elementCount,
+            captchaAppeared: !before.captchaDetected && after.captchaDetected,
+            captchaDisappeared: before.captchaDetected && !after.captchaDetected
+        )
+    }
+
     /// Get the count of interactive elements on the page
-    private func getInteractiveElementCount() async -> Int {
+    func getInteractiveElementCount() async -> Int {
         guard let webView = webView else { return -1 }
 
         let script = """

@@ -36,6 +36,7 @@ enum AgentAction: Equatable {
     case back
     case waitForUser(reason: String)
     case wait(seconds: Double)
+    case readText(elementId: Int)
     case done(summary: String)
 
     enum ScrollDirection: String {
@@ -140,6 +141,9 @@ class AgentEngine: ObservableObject {
 
     /// Maximum wall-clock time (in seconds) for a task before stopping
     var taskTimeout: TimeInterval = 300
+
+    /// Maximum number of times done() verification can reject and continue
+    private let maxDoneRejections = 2
 
     /// The threshold (0.0-1.0) at which to show warnings (default 80%)
     private let warningThreshold: Double = 0.8
@@ -286,6 +290,7 @@ class AgentEngine: ObservableObject {
 
     private func executeTask(_ task: String) async throws -> AgentResult {
         var iteration = 0
+        var doneRejections = 0
         currentStepCount = 0
         let startTime = Date()
         Log.Agent.info("Starting task: \(task) (maxSteps=\(maxSteps), timeout=\(Int(taskTimeout))s)")
@@ -338,6 +343,10 @@ class AgentEngine: ObservableObject {
             }
 
             let snapshot = try await bridge.snapshot()
+
+            // Track URL for progress detection
+            loopDetector.recordURL(snapshot.url)
+
             let observationStep = AgentStep(
                 type: .observation,
                 content: "Page: \(snapshot.title)\nURL: \(snapshot.url)\n\(snapshot.elements.count) interactive elements",
@@ -347,8 +356,14 @@ class AgentEngine: ObservableObject {
 
             // 2. Think - Ask LLM for next action
             let prompt = AgentPromptBuilder.buildPrompt(task: task, snapshot: snapshot, previousSteps: steps)
+            let recentErrors = steps.suffix(6).filter { $0.type == .error }.count
+            let dynamicSystemPrompt = AgentPromptBuilder.buildSystemPrompt(
+                stepsRemaining: stepsRemaining,
+                maxSteps: maxSteps,
+                recentErrors: recentErrors
+            )
             Log.Agent.debug("Sending prompt to LLM (length: \(prompt.count) chars)")
-            let llmResponse = try await llmClient.callLLM(prompt: prompt, systemPrompt: AgentPromptBuilder.systemPrompt)
+            let llmResponse = try await llmClient.callLLM(prompt: prompt, systemPrompt: dynamicSystemPrompt)
             Log.Agent.info("LLM Response:\n\(llmResponse)")
 
             // Parse thought and action
@@ -402,7 +417,9 @@ class AgentEngine: ObservableObject {
 
                 if loopDetector.loopRecoveryAttempts < loopDetector.maxLoopRecoveryAttempts {
                     let attempt = loopDetector.recordRecoveryAttempt()
-                    Log.Agent.warning("Stuck loop detected (\(loopType)) - attempting recovery \(attempt)/\(loopDetector.maxLoopRecoveryAttempts)")
+                    let canGoBack = boundTab?.canGoBack ?? false
+                    let strategy = loopDetector.suggestRecovery(loopType: loopType, canGoBack: canGoBack)
+                    Log.Agent.warning("Stuck loop detected (\(loopType)) - attempting recovery \(attempt)/\(loopDetector.maxLoopRecoveryAttempts) via \(strategy)")
 
                     // Surface loop status in UI
                     progress = "Agent appears stuck, attempting recovery..."
@@ -410,20 +427,38 @@ class AgentEngine: ObservableObject {
                         tab.agentProgress = "Recovering from loop..."
                     }
 
-                    if let tab = boundTab, tab.canGoBack {
+                    switch strategy {
+                    case .goBack:
                         let recoveryStep = AgentStep(type: .action, content: "Loop detected (\(loopType)), going back to try different approach", timestamp: Date())
                         steps.append(recoveryStep)
 
-                        tab.goBack()
+                        boundTab?.goBack()
                         try await bridge.waitForLoad(timeout: 5.0)
-
                         loopDetector.clearActions()
 
                         let resultStep = AgentStep(type: .result, content: "Navigated back after loop detection", timestamp: Date())
                         steps.append(resultStep)
 
-                        try await Task.sleep(nanoseconds: 500_000_000)
+                        try await Task.sleep(nanoseconds: 300_000_000)
                         continue
+
+                    case .scrollDown:
+                        let recoveryStep = AgentStep(type: .action, content: "Loop detected (\(loopType)), scrolling down to find new elements", timestamp: Date())
+                        steps.append(recoveryStep)
+
+                        try await bridge.scroll(deltaY: 400)
+                        loopDetector.clearActions()
+
+                        let resultStep = AgentStep(type: .result, content: "Scrolled down after loop detection to reveal new elements", timestamp: Date())
+                        steps.append(resultStep)
+
+                        try await Task.sleep(nanoseconds: 300_000_000)
+                        continue
+
+                    case .admitFailure(let reason):
+                        Log.Agent.warning("Recovery not possible: \(reason)")
+                        // Fall through to forced completion below
+                        break
                     }
                 }
 
@@ -435,22 +470,45 @@ class AgentEngine: ObservableObject {
 
             // 3. Act - Execute the action
             do {
-                let result = try await executeAction(action, bridge: bridge)
+                let actionResult = try await executeAction(action, bridge: bridge, elementById: elementById)
 
                 if case .done(let summary) = action {
+                    // Post-done() verification
+                    if doneRejections < maxDoneRejections {
+                        if let rejection = await verifyDoneCondition(bridge: bridge) {
+                            doneRejections += 1
+                            Log.Agent.warning("done() rejected (\(doneRejections)/\(maxDoneRejections)): \(rejection)")
+                            let correctionStep = AgentStep(type: .error, content: "Verification failed: \(rejection) Please re-examine the page and try again.", timestamp: Date())
+                            steps.append(correctionStep)
+                            continue
+                        }
+                    }
+
                     Log.Agent.info("Task completed successfully: \(summary)")
                     let doneStep = AgentStep(type: .done, content: summary, timestamp: Date())
                     steps.append(doneStep)
                     return AgentResult(success: true, summary: summary, steps: steps)
                 }
 
-                let resultStep = AgentStep(type: .result, content: result, timestamp: Date())
+                let resultStep = AgentStep(type: .result, content: actionResult.message, timestamp: Date())
                 steps.append(resultStep)
 
-                try await Task.sleep(nanoseconds: 500_000_000)
+                // Adaptive delay based on what changed
+                if let delta = actionResult.delta {
+                    if delta.urlChanged {
+                        // Already waited in waitForLoad, no extra delay needed
+                    } else if delta.significantDOMChange {
+                        try await Task.sleep(nanoseconds: 300_000_000) // 300ms
+                    } else {
+                        try await Task.sleep(nanoseconds: 100_000_000) // 100ms
+                    }
+                } else {
+                    try await Task.sleep(nanoseconds: 100_000_000) // 100ms default
+                }
 
             } catch {
-                let errorStep = AgentStep(type: .error, content: error.localizedDescription, timestamp: Date())
+                let mappedMessage = ActionErrorMapper.mapError(error, action: action)
+                let errorStep = AgentStep(type: .error, content: mappedMessage, timestamp: Date())
                 steps.append(errorStep)
             }
         }
@@ -493,26 +551,60 @@ class AgentEngine: ObservableObject {
             return "Waiting for user: \(reason)"
         case .wait(let seconds):
             return "Waiting \(String(format: "%.0f", seconds)) seconds"
+        case .readText(let id):
+            if let elements = elementById, let el = elements[id] {
+                let label = el.text ?? el.ariaLabel ?? el.tag
+                return "Reading text near '\(label)'"
+            }
+            return "Reading text near element #\(id)"
         case .done(let summary):
             return "Done: \(summary)"
         }
     }
 
-    private func executeAction(_ action: AgentAction, bridge: AccessibilityBridge) async throws -> String {
+    /// Result of executing an action, including feedback delta
+    struct ActionResult {
+        let message: String
+        let delta: ActionDelta?
+    }
+
+    private func executeAction(_ action: AgentAction, bridge: AccessibilityBridge, elementById: [Int: PageElement] = [:]) async throws -> ActionResult {
+        // Capture pre-action state for delta computation
+        let preState = await bridge.capturePreActionState()
+
         switch action {
         case .click(let elementId):
-            try await bridge.click(elementId: elementId)
+            // Re-validate element before clicking (handles SPA re-renders)
+            let element = elementById[elementId]
+            let resolvedId = try await bridge.revalidateElement(
+                elementId: elementId,
+                expectedTag: element?.tag,
+                expectedText: element?.text
+            )
+            try await bridge.click(elementId: resolvedId)
             try await bridge.waitForLoad(timeout: 3.0)
-            return "Clicked element #\(elementId)"
+            let delta = await bridge.quickDelta(before: preState)
+            let reMatchNote = resolvedId != elementId ? " (re-matched from #\(elementId))" : ""
+            return ActionResult(message: "Clicked element #\(resolvedId)\(reMatchNote). \(delta.description)", delta: delta)
 
         case .type(let elementId, let text):
-            try await bridge.type(elementId: elementId, text: text)
-            return "Typed \"\(text)\" into element #\(elementId)"
+            // Re-validate element before typing (handles SPA re-renders)
+            let element = elementById[elementId]
+            let resolvedId = try await bridge.revalidateElement(
+                elementId: elementId,
+                expectedTag: element?.tag,
+                expectedText: element?.placeholder ?? element?.ariaLabel
+            )
+            try await bridge.type(elementId: resolvedId, text: text)
+            let delta = await bridge.quickDelta(before: preState)
+            let reMatchNote = resolvedId != elementId ? " (re-matched from #\(elementId))" : ""
+            return ActionResult(message: "Typed \"\(text)\" into element #\(resolvedId)\(reMatchNote). \(delta.description)", delta: delta)
 
         case .pressEnter:
             try await bridge.pressEnter()
             try await bridge.waitForLoad(timeout: 3.0)
-            return "Pressed Enter"
+            let delta = await bridge.quickDelta(before: preState)
+            return ActionResult(message: "Pressed Enter. \(delta.description)", delta: delta)
 
         case .scroll(let direction):
             switch direction {
@@ -525,53 +617,102 @@ class AgentEngine: ObservableObject {
             case .bottom:
                 try await bridge.scrollToBottom()
             }
-            return "Scrolled \(direction.rawValue)"
+            let delta = await bridge.quickDelta(before: preState)
+            return ActionResult(message: "Scrolled \(direction.rawValue). \(delta.description)", delta: delta)
 
         case .navigate(let urlString):
             let validatedURL = try NavigationPolicy.validate(urlString)
             let tab = try requireBoundTab()
             tab.load(validatedURL.absoluteString)
             try await bridge.waitForLoad(timeout: 10.0)
-            return "Navigated to \(validatedURL.absoluteString)"
+            let delta = await bridge.quickDelta(before: preState)
+            return ActionResult(message: "Navigated to \(validatedURL.absoluteString). \(delta.description)", delta: delta)
 
         case .back:
             let tab = try requireBoundTab()
             guard tab.canGoBack else {
-                return "Cannot go back - no history"
+                return ActionResult(message: "Cannot go back - no history", delta: nil)
             }
             tab.goBack()
             try await bridge.waitForLoad(timeout: 5.0)
             loopDetector.clearActions()
-            return "Navigated back to previous page"
+            let delta = await bridge.quickDelta(before: preState)
+            return ActionResult(message: "Navigated back to previous page. \(delta.description)", delta: delta)
 
         case .waitForUser(let reason):
             isWaitingForUser = true
             waitingReason = reason
             Log.Agent.info("Waiting for user action: \(reason)")
 
-            let startURL = try? await bridge.snapshot().url
+            let startState = preState
             for _ in 0..<60 {
                 try Task.checkCancellation()
                 try await Task.sleep(nanoseconds: 2_000_000_000)
 
-                if let currentURL = try? await bridge.snapshot().url,
-                   currentURL != startURL {
+                let currentState = await bridge.capturePreActionState()
+                let urlChanged = currentState.url != startState.url
+                let captchaGone = startState.captchaDetected && !currentState.captchaDetected
+                let domShift = abs(currentState.elementCount - startState.elementCount) > 5
+
+                if urlChanged || captchaGone || domShift {
                     isWaitingForUser = false
                     waitingReason = ""
-                    return "User completed action - page changed"
+                    let delta = await bridge.quickDelta(before: startState)
+                    return ActionResult(message: "User completed action. \(delta.description)", delta: delta)
                 }
             }
 
             isWaitingForUser = false
             waitingReason = ""
-            return "Timed out waiting for user action"
+            return ActionResult(message: "Timed out waiting for user action", delta: nil)
 
         case .wait(let seconds):
             try await Task.sleep(nanoseconds: UInt64(seconds * 1_000_000_000))
-            return "Waited \(seconds) seconds"
+            let delta = await bridge.quickDelta(before: preState)
+            return ActionResult(message: "Waited \(seconds) seconds. \(delta.description)", delta: delta)
+
+        case .readText(let elementId):
+            let text = try await bridge.readText(elementId: elementId)
+            if text.isEmpty {
+                return ActionResult(message: "No text found near element #\(elementId).", delta: nil)
+            }
+            return ActionResult(message: "Text near element #\(elementId): \(text)", delta: nil)
 
         case .done(let summary):
-            return summary
+            return ActionResult(message: summary, delta: nil)
+        }
+    }
+
+    // MARK: - Post-done() Verification
+
+    /// Lightweight heuristic check before accepting done(). Returns rejection reason or nil if OK.
+    private func verifyDoneCondition(bridge: AccessibilityBridge) async -> String? {
+        do {
+            let snapshot = try await bridge.snapshot()
+
+            // Check if page shows error
+            let title = snapshot.title.lowercased()
+            let url = snapshot.url.lowercased()
+            if title.contains("404") || title.contains("not found") || title.contains("error") ||
+               url.contains("/404") || url.contains("/error") {
+                return "The page appears to show an error (title: \"\(snapshot.title)\")."
+            }
+
+            // Check if captcha is still present
+            if snapshot.captchaDetected {
+                return "A captcha/challenge is still present on the page. It must be resolved first."
+            }
+
+            // Check if page has loaded (very few elements suggests blank/loading page)
+            if snapshot.elements.count <= 3 {
+                return "The page appears to still be loading (only \(snapshot.elements.count) elements found)."
+            }
+
+            return nil
+        } catch {
+            // If we can't even take a snapshot, don't block done()
+            Log.Agent.warning("Verification snapshot failed: \(error.localizedDescription)")
+            return nil
         }
     }
 }
