@@ -23,24 +23,28 @@ extension OmniBar {
                 mentionChips
             }
 
-            // Input field
-            OmniBarTextField(
-                text: $omniState.inputText,
-                isFocused: $isInputFocused,
-                mode: omniState.mode,
-                placeholder: omniState.mode == .chat && !omniState.mentions.isEmpty ? "Ask about these pages..." : omniState.placeholder,
-                keyboardHandler: self,
-                onSubmit: handleSubmit,
-                onAtTrigger: { query in
-                    handleAtTrigger(query: query)
-                },
-                onAtDismiss: {
-                    if omniState.showMentionDropdown {
-                        omniState.dismissMentionDropdown()
-                        mentionSuggestionsVM.clear()
+            // Input field or inline agent status
+            if showInlineAgentStatus {
+                agentInlineStatus
+            } else {
+                OmniBarTextField(
+                    text: $omniState.inputText,
+                    isFocused: $isInputFocused,
+                    mode: omniState.mode,
+                    placeholder: omniState.mode == .chat && !omniState.mentions.isEmpty ? "Ask about these pages..." : omniState.placeholder,
+                    keyboardHandler: self,
+                    onSubmit: handleSubmit,
+                    onAtTrigger: { query in
+                        handleAtTrigger(query: query)
+                    },
+                    onAtDismiss: {
+                        if omniState.showMentionDropdown {
+                            omniState.dismissMentionDropdown()
+                            mentionSuggestionsVM.clear()
+                        }
                     }
-                }
-            )
+                )
+            }
 
             // Action button (clear in address mode, send in chat mode)
             actionButton
@@ -174,6 +178,59 @@ extension OmniBar {
 
         case .scraping:
             EmptyView() // Scraping mode has no action button
+        }
+    }
+
+    // MARK: - Inline Agent Status
+
+    /// Show inline status when agent is running but panel is dismissed
+    private var showInlineAgentStatus: Bool {
+        omniState.mode == .agent
+            && agentEngine.isRunning
+            && omniState.visiblePanel != .agent
+            && !agentEngine.steps.isEmpty
+    }
+
+    /// Compact single-line view of the latest agent step, tappable to open panel
+    private var agentInlineStatus: some View {
+        Button {
+            omniState.setVisiblePanel(.agent)
+        } label: {
+            HStack(spacing: 6) {
+                Image(systemName: agentStepIcon(for: agentEngine.steps.last!.type))
+                    .foregroundColor(agentStepColor(for: agentEngine.steps.last!.type))
+                    .font(.system(size: 11, weight: .medium))
+
+                Text(agentEngine.steps.last!.content.components(separatedBy: .newlines).first ?? "")
+                    .font(.system(size: 12))
+                    .foregroundColor(.primary)
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+        }
+        .buttonStyle(.plain)
+    }
+
+    private func agentStepIcon(for type: AgentStep.StepType) -> String {
+        switch type {
+        case .observation: return "eye"
+        case .thought: return "brain"
+        case .action: return "hand.tap"
+        case .result: return "checkmark"
+        case .error: return "exclamationmark.triangle"
+        case .done: return "flag.checkered"
+        }
+    }
+
+    private func agentStepColor(for type: AgentStep.StepType) -> Color {
+        switch type {
+        case .observation: return .blue
+        case .thought: return .purple
+        case .action: return .orange
+        case .result: return .green
+        case .error: return .red
+        case .done: return .green
         }
     }
 }
