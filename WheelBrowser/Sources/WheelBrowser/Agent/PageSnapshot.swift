@@ -120,6 +120,8 @@ struct PageSnapshot: Codable {
     let captchaType: String?
     let headings: [PageHeading]?
     let contentSummary: String?
+    let totalElementsFound: Int?
+    let elementsCapped: Bool?
 
     struct ScrollPosition: Codable {
         let x: Double
@@ -134,7 +136,7 @@ struct PageSnapshot: Codable {
     }
 
     /// Memberwise initializer for programmatic construction (e.g., tests)
-    init(url: String, title: String, elements: [PageElement], scrollPosition: ScrollPosition, viewportSize: ViewportSize, captchaDetected: Bool = false, captchaType: String? = nil, headings: [PageHeading]? = nil, contentSummary: String? = nil) {
+    init(url: String, title: String, elements: [PageElement], scrollPosition: ScrollPosition, viewportSize: ViewportSize, captchaDetected: Bool = false, captchaType: String? = nil, headings: [PageHeading]? = nil, contentSummary: String? = nil, totalElementsFound: Int? = nil, elementsCapped: Bool? = nil) {
         self.url = url
         self.title = title
         self.elements = elements
@@ -144,6 +146,8 @@ struct PageSnapshot: Codable {
         self.captchaType = captchaType
         self.headings = headings
         self.contentSummary = contentSummary
+        self.totalElementsFound = totalElementsFound
+        self.elementsCapped = elementsCapped
     }
 
     // For backwards compatibility with existing snapshots that may not have all fields
@@ -158,6 +162,8 @@ struct PageSnapshot: Codable {
         captchaType = try container.decodeIfPresent(String.self, forKey: .captchaType)
         headings = try container.decodeIfPresent([PageHeading].self, forKey: .headings)
         contentSummary = try container.decodeIfPresent(String.self, forKey: .contentSummary)
+        totalElementsFound = try container.decodeIfPresent(Int.self, forKey: .totalElementsFound)
+        elementsCapped = try container.decodeIfPresent(Bool.self, forKey: .elementsCapped)
     }
 
     /// A text representation of the page for the LLM
@@ -192,7 +198,11 @@ struct PageSnapshot: Codable {
         }
 
         lines.append("")
-        lines.append("Interactive Elements:")
+        if let capped = elementsCapped, capped, let total = totalElementsFound {
+            lines.append("Interactive Elements (showing \(elements.count) of \(total). Scroll to reveal more.):")
+        } else {
+            lines.append("Interactive Elements:")
+        }
 
         for element in elements where element.isVisible {
             lines.append("  \(element.description)")

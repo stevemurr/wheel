@@ -89,7 +89,9 @@ enum AgentPromptBuilder {
         prompt += "\n\n"
 
         // Two-tier history: compressed older steps + full detail of recent steps
-        let recentWindowSize = 8
+        // Adaptive window: base 4 steps, +1 per recent error, up to 8
+        let recentErrorCount = previousSteps.suffix(10).filter { $0.type == .error }.count
+        let recentWindowSize = min(4 + recentErrorCount, 8)
         if previousSteps.count > recentWindowSize {
             let olderSteps = Array(previousSteps.prefix(previousSteps.count - recentWindowSize))
             let compressed = compressSteps(olderSteps)

@@ -28,8 +28,7 @@ enum AgentScripts {
             '[tabindex]:not([tabindex="-1"])'
         ];
 
-        const elements = [];
-        let id = 0;
+        const collected = [];
 
         document.querySelectorAll(interactiveSelectors.join(', ')).forEach(el => {
             const rect = el.getBoundingClientRect();
@@ -59,25 +58,49 @@ enum AgentScripts {
 
             if (!hasInfo) return;
 
-            elements.push({
-                id: id++,
-                tag: el.tagName.toLowerCase(),
-                role: el.getAttribute('role') || null,
-                text: text || null,
-                placeholder: el.placeholder || null,
-                ariaLabel: el.getAttribute('aria-label') || el.title || el.alt || null,
-                href: el.tagName === 'A' ? el.href : null,
-                isVisible: true,
-                isEnabled: !el.disabled,
-                boundingBox: {
-                    x: rect.x,
-                    y: rect.y,
-                    width: rect.width,
-                    height: rect.height
+            collected.push({
+                domEl: el,
+                data: {
+                    id: 0,
+                    tag: el.tagName.toLowerCase(),
+                    role: el.getAttribute('role') || null,
+                    text: text || null,
+                    placeholder: el.placeholder || null,
+                    ariaLabel: el.getAttribute('aria-label') || el.title || el.alt || null,
+                    href: el.tagName === 'A' ? el.href : null,
+                    isVisible: true,
+                    isEnabled: !el.disabled,
+                    boundingBox: {
+                        x: rect.x,
+                        y: rect.y,
+                        width: rect.width,
+                        height: rect.height
+                    }
                 }
             });
+        });
 
-            el.dataset.agentId = String(id - 1);
+        const MAX_ELEMENTS = 40;
+        const totalFound = collected.length;
+        if (collected.length > MAX_ELEMENTS) {
+            const priorityOf = (item) => {
+                const tag = item.data.tag;
+                if (tag === 'input' || tag === 'textarea' || tag === 'select') return 0;
+                if (tag === 'button' || item.data.role === 'button') return 1;
+                return 2;
+            };
+            collected.sort((a, b) => {
+                const pa = priorityOf(a), pb = priorityOf(b);
+                if (pa !== pb) return pa - pb;
+                return (a.data.boundingBox.y || 0) - (b.data.boundingBox.y || 0);
+            });
+            collected.length = MAX_ELEMENTS;
+        }
+
+        const elements = collected.map((item, i) => {
+            item.data.id = i;
+            item.domEl.dataset.agentId = String(i);
+            return item.data;
         });
 
         let captchaDetected = false;
@@ -145,8 +168,8 @@ enum AgentScripts {
             const clone = contentRoot.cloneNode(true);
             clone.querySelectorAll('script, style, nav, footer, header, aside, [aria-hidden="true"]').forEach(el => el.remove());
             let rawText = (clone.textContent || '').replace(/\\s+/g, ' ').trim();
-            if (rawText.length > 3000) {
-                rawText = rawText.substring(0, 3000) + '...';
+            if (rawText.length > 1500) {
+                rawText = rawText.substring(0, 1500) + '...';
             }
             if (rawText.length > 50) {
                 contentSummary = rawText;
@@ -170,7 +193,9 @@ enum AgentScripts {
             captchaDetected: captchaDetected,
             captchaType: captchaType,
             headings: headings,
-            contentSummary: contentSummary
+            contentSummary: contentSummary,
+            totalElementsFound: totalFound,
+            elementsCapped: totalFound > MAX_ELEMENTS
         };
     })();
     """

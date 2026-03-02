@@ -5,9 +5,14 @@ protocol AgentLLMClient: Sendable {
     func callLLM(prompt: String, systemPrompt: String) async throws -> String
 }
 
+/// Extended protocol that adds streaming support for real-time UI feedback
+protocol AgentStreamingLLMClient: AgentLLMClient {
+    func streamLLM(prompt: String, systemPrompt: String) -> AsyncThrowingStream<String, Error>
+}
+
 /// Handles LLM API communication for the agent, including retry logic
 /// and response parsing for reasoning models.
-final class AgentStreamingClient: AgentLLMClient {
+final class AgentStreamingClient: AgentStreamingLLMClient {
 
     private let settings: AppSettings
 
@@ -31,7 +36,7 @@ final class AgentStreamingClient: AgentLLMClient {
                 ["role": "user", "content": prompt]
             ],
             "temperature": 0.3,
-            "max_tokens": 4000
+            "max_tokens": 1000
         ]
 
         let bodyData = try JSONSerialization.data(withJSONObject: body)
@@ -64,7 +69,7 @@ final class AgentStreamingClient: AgentLLMClient {
                 if httpResponse.statusCode >= 500 || httpResponse.statusCode == 429 {
                     let errorBody = String(data: data, encoding: .utf8) ?? "Unknown error"
                     Log.Agent.warning("callLLM: HTTP \(httpResponse.statusCode) (attempt \(attempt)/\(maxRetries))")
-                    Log.Agent.debug("callLLM: Request details - Endpoint: \(endpoint), Model: \(settings.selectedModel), Prompt length: \(prompt.count) chars, max_tokens: 4000")
+                    Log.Agent.debug("callLLM: Request details - Endpoint: \(endpoint), Model: \(settings.selectedModel), Prompt length: \(prompt.count) chars, max_tokens: 1000")
                     Log.Agent.debug("callLLM: Error response body: \(errorBody)")
 
                     if attempt < maxRetries {
@@ -103,6 +108,70 @@ final class AgentStreamingClient: AgentLLMClient {
         }
 
         throw lastError ?? AgentError.llmRequestFailed("Unknown error after \(maxRetries) retries")
+    }
+
+    /// Stream LLM response token-by-token via SSE.
+    /// Yields content chunks as they arrive. On failure, caller should fall back to callLLM().
+    func streamLLM(prompt: String, systemPrompt: String) -> AsyncThrowingStream<String, Error> {
+        AsyncThrowingStream { continuation in
+            Task {
+                do {
+                    guard let baseURL = settings.llmBaseURL else {
+                        throw AgentError.llmNotConfigured
+                    }
+
+                    let endpoint = baseURL.appendingPathComponent("chat/completions")
+
+                    let body: [String: Any] = [
+                        "model": settings.selectedModel,
+                        "messages": [
+                            ["role": "system", "content": systemPrompt],
+                            ["role": "user", "content": prompt]
+                        ],
+                        "temperature": 0.3,
+                        "max_tokens": 1000,
+                        "stream": true
+                    ]
+
+                    let bodyData = try JSONSerialization.data(withJSONObject: body)
+
+                    var request = URLRequest(url: endpoint)
+                    request.httpMethod = "POST"
+                    request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+
+                    if settings.useAPIKey && settings.hasAPIKey {
+                        request.setValue("Bearer \(settings.llmAPIKey)", forHTTPHeaderField: "Authorization")
+                    }
+
+                    request.httpBody = bodyData
+
+                    let (bytes, response) = try await URLSession.shared.bytes(for: request)
+
+                    guard let httpResponse = response as? HTTPURLResponse else {
+                        throw AgentError.llmRequestFailed("Invalid response")
+                    }
+
+                    guard httpResponse.statusCode == 200 else {
+                        throw AgentError.llmRequestFailed("HTTP \(httpResponse.statusCode)")
+                    }
+
+                    let processor = StreamingResponseProcessor()
+
+                    for try await jsonString in bytes.sseEvents {
+                        let chunks = processor.processSSEEvent(jsonString)
+                        for chunk in chunks {
+                            if case .content(let text) = chunk {
+                                continuation.yield(text)
+                            }
+                        }
+                    }
+
+                    continuation.finish()
+                } catch {
+                    continuation.finish(throwing: error)
+                }
+            }
+        }
     }
 
     /// Parse the raw JSON response data from an LLM API call.

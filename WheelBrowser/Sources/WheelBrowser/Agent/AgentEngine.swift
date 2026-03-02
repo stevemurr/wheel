@@ -85,6 +85,7 @@ struct AgentState: Equatable {
     var isWaitingForUser: Bool = false
     var waitingReason: String = ""
     var guardrailWarning: String?
+    var streamingThought: String?
 
     static func == (lhs: AgentState, rhs: AgentState) -> Bool {
         lhs.isRunning == rhs.isRunning &&
@@ -95,7 +96,8 @@ struct AgentState: Equatable {
         lhs.boundTabId == rhs.boundTabId &&
         lhs.isWaitingForUser == rhs.isWaitingForUser &&
         lhs.waitingReason == rhs.waitingReason &&
-        lhs.guardrailWarning == rhs.guardrailWarning
+        lhs.guardrailWarning == rhs.guardrailWarning &&
+        lhs.streamingThought == rhs.streamingThought
     }
 }
 
@@ -151,6 +153,11 @@ class AgentEngine: ObservableObject {
     var guardrailWarning: String? {
         get { state.guardrailWarning }
         set { state.guardrailWarning = newValue }
+    }
+
+    var streamingThought: String? {
+        get { state.streamingThought }
+        set { state.streamingThought = newValue }
     }
 
     // MARK: - Dependencies
@@ -277,6 +284,7 @@ class AgentEngine: ObservableObject {
         cleanupTabBinding()
         isRunning = false
         guardrailWarning = nil
+        streamingThought = nil
         currentStepCount = 0
         loopDetector.reset()
     }
@@ -313,6 +321,52 @@ class AgentEngine: ObservableObject {
 
         boundTab = nil
         boundTabId = nil
+    }
+
+    // MARK: - Streaming LLM
+
+    /// Call the LLM with streaming if supported, providing real-time thought feedback.
+    /// Falls back to non-streaming callLLM() on stream error or if client doesn't support streaming.
+    private func callLLMWithStreaming(prompt: String, systemPrompt: String) async throws -> String {
+        guard let streamingClient = llmClient as? AgentStreamingLLMClient else {
+            return try await llmClient.callLLM(prompt: prompt, systemPrompt: systemPrompt)
+        }
+
+        do {
+            var fullResponse = ""
+            var lastUIUpdate = Date.distantPast
+            let flushInterval = WindowConstants.streamingFlushInterval
+
+            defer { streamingThought = nil }
+
+            for try await token in streamingClient.streamLLM(prompt: prompt, systemPrompt: systemPrompt) {
+                fullResponse += token
+
+                let now = Date()
+                if now.timeIntervalSince(lastUIUpdate) >= flushInterval {
+                    lastUIUpdate = now
+                    // Extract the THOUGHT portion for display (text between "THOUGHT:" and "ACTION:")
+                    if let thoughtRange = fullResponse.range(of: "THOUGHT:", options: .caseInsensitive) {
+                        let afterThought = fullResponse[thoughtRange.upperBound...]
+                        if let actionRange = afterThought.range(of: "ACTION:", options: .caseInsensitive) {
+                            streamingThought = String(afterThought[..<actionRange.lowerBound]).trimmingCharacters(in: .whitespacesAndNewlines)
+                        } else {
+                            streamingThought = String(afterThought).trimmingCharacters(in: .whitespacesAndNewlines)
+                        }
+                    }
+                }
+            }
+
+            guard !fullResponse.isEmpty else {
+                throw AgentError.invalidLLMResponse("Empty streaming response")
+            }
+
+            return fullResponse
+        } catch {
+            Log.Agent.warning("Streaming failed, falling back to non-streaming: \(error.localizedDescription)")
+            streamingThought = nil
+            return try await llmClient.callLLM(prompt: prompt, systemPrompt: systemPrompt)
+        }
     }
 
     // MARK: - Task Execution
@@ -402,7 +456,7 @@ class AgentEngine: ObservableObject {
                 recentErrors: recentErrors
             )
             Log.Agent.debug("Sending prompt to LLM (length: \(prompt.count) chars)")
-            let llmResponse = try await llmClient.callLLM(prompt: prompt, systemPrompt: dynamicSystemPrompt)
+            let llmResponse = try await callLLMWithStreaming(prompt: prompt, systemPrompt: dynamicSystemPrompt)
             Log.Agent.info("LLM Response:\n\(llmResponse)")
 
             // Parse thought and action

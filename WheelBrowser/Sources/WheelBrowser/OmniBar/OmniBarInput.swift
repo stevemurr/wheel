@@ -191,21 +191,35 @@ extension OmniBar {
             && !agentEngine.steps.isEmpty
     }
 
-    /// Compact single-line view of the latest agent step, tappable to open panel
+    /// Compact single-line view of the latest agent step, tappable to open panel.
+    /// Prefers live streaming thought when available.
     private var agentInlineStatus: some View {
         Button {
             omniState.setVisiblePanel(.agent)
         } label: {
             HStack(spacing: 6) {
-                Image(systemName: agentStepIcon(for: agentEngine.steps.last!.type))
-                    .foregroundColor(agentStepColor(for: agentEngine.steps.last!.type))
-                    .font(.system(size: 11, weight: .medium))
+                if let streamingText = agentEngine.state.streamingThought, !streamingText.isEmpty {
+                    Image(systemName: "brain")
+                        .foregroundColor(.purple)
+                        .font(.system(size: 11, weight: .medium))
+                        .symbolEffect(.pulse)
 
-                Text(agentEngine.steps.last!.content.components(separatedBy: .newlines).first ?? "")
-                    .font(.system(size: 12))
-                    .foregroundColor(.primary)
-                    .lineLimit(1)
-                    .truncationMode(.tail)
+                    Text(streamingText.components(separatedBy: .newlines).last ?? "")
+                        .font(.system(size: 12))
+                        .foregroundColor(.secondary)
+                        .lineLimit(1)
+                        .truncationMode(.tail)
+                } else {
+                    Image(systemName: agentStepIcon(for: agentEngine.steps.last!.type))
+                        .foregroundColor(agentStepColor(for: agentEngine.steps.last!.type))
+                        .font(.system(size: 11, weight: .medium))
+
+                    Text(agentEngine.steps.last!.content.components(separatedBy: .newlines).first ?? "")
+                        .font(.system(size: 12))
+                        .foregroundColor(.primary)
+                        .lineLimit(1)
+                        .truncationMode(.tail)
+                }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
         }

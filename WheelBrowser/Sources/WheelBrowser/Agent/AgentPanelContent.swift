@@ -37,6 +37,12 @@ struct AgentPanelContent: View {
                             AgentStepRow(step: step)
                                 .id(step.id)
                         }
+
+                        // Streaming thought (live LLM output)
+                        if let streamingText = agentEngine.state.streamingThought, !streamingText.isEmpty {
+                            AgentStreamingThoughtRow(text: streamingText)
+                                .id("streaming-thought")
+                        }
                     } else {
                         // Empty state
                         OmniPanelEmptyState(
@@ -54,6 +60,13 @@ struct AgentPanelContent: View {
                 if let lastStep = agentEngine.steps.last {
                     withAnimation {
                         proxy.scrollTo(lastStep.id, anchor: .bottom)
+                    }
+                }
+            }
+            .onChange(of: agentEngine.state.streamingThought) { _, newValue in
+                if newValue != nil {
+                    withAnimation {
+                        proxy.scrollTo("streaming-thought", anchor: .bottom)
                     }
                 }
             }
@@ -269,6 +282,36 @@ private struct GuardrailWarningRow: View {
             RoundedRectangle(cornerRadius: 6)
                 .fill(Color.orange.opacity(0.1))
         )
+    }
+}
+
+// MARK: - Streaming Thought Row
+
+private struct AgentStreamingThoughtRow: View {
+    let text: String
+
+    var body: some View {
+        HStack(spacing: 12) {
+            ZStack {
+                RoundedRectangle(cornerRadius: 6)
+                    .fill(Color.purple.opacity(0.15))
+                    .frame(width: 28, height: 28)
+
+                Image(systemName: "brain")
+                    .font(.system(size: 12, weight: .medium))
+                    .foregroundColor(.purple)
+                    .symbolEffect(.pulse)
+            }
+
+            Text(text)
+                .font(.system(size: 13))
+                .foregroundColor(.secondary)
+                .lineLimit(3)
+
+            Spacer()
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 8)
     }
 }
 
