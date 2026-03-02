@@ -1,0 +1,376 @@
+[
+  {
+    "action" : {
+      "type" : "block-cookies"
+    },
+    "trigger" : {
+      "url-filter" : ".*\\.cookielaw\\.org"
+    }
+  },
+  {
+    "action" : {
+      "type" : "block-cookies"
+    },
+    "trigger" : {
+      "url-filter" : ".*\\.onetrust\\.com"
+    }
+  },
+  {
+    "action" : {
+      "type" : "block-cookies"
+    },
+    "trigger" : {
+      "url-filter" : ".*\\.trustarc\\.com"
+    }
+  },
+  {
+    "action" : {
+      "type" : "block-cookies"
+    },
+    "trigger" : {
+      "url-filter" : ".*\\.cookiebot\\.com"
+    }
+  },
+  {
+    "action" : {
+      "type" : "block-cookies"
+    },
+    "trigger" : {
+      "url-filter" : ".*\\.consensu\\.org"
+    }
+  },
+  {
+    "action" : {
+      "type" : "block-cookies"
+    },
+    "trigger" : {
+      "url-filter" : ".*\\.privacymanager\\.io"
+    }
+  },
+  {
+    "action" : {
+      "type" : "block-cookies"
+    },
+    "trigger" : {
+      "url-filter" : ".*\\.quantcast\\.mgr\\.consensu\\.org"
+    }
+  },
+  {
+    "action" : {
+      "selector" : "#cookie-banner, #cookie-consent, #cookie-notice, #cookie-popup, #cookie-modal, #cookie-law-info-bar, #cookie-policy",
+      "type" : "css-display-none"
+    },
+    "trigger" : {
+      "url-filter" : ".*"
+    }
+  },
+  {
+    "action" : {
+      "selector" : ".cookie-banner, .cookie-consent, .cookie-notice, .cookie-popup, .cookie-modal, .cookie-bar, .cookie-alert, .cookie-warning",
+      "type" : "css-display-none"
+    },
+    "trigger" : {
+      "url-filter" : ".*"
+    }
+  },
+  {
+    "action" : {
+      "selector" : "[class*='CookieConsent'], [class*='cookieConsent'], [class*='cookie-consent'], [class*='cookie_consent']",
+      "type" : "css-display-none"
+    },
+    "trigger" : {
+      "url-filter" : ".*"
+    }
+  },
+  {
+    "action" : {
+      "selector" : ".gdpr-banner, .gdpr-consent, .gdpr-notice, .gdpr-popup, #gdpr-banner, #gdpr-consent, [class*='gdpr-']",
+      "type" : "css-display-none"
+    },
+    "trigger" : {
+      "url-filter" : ".*"
+    }
+  },
+  {
+    "action" : {
+      "selector" : ".consent-banner, .consent-popup, .consent-modal, #consent-banner, #consent-popup, [class*='consent-banner']",
+      "type" : "css-display-none"
+    },
+    "trigger" : {
+      "url-filter" : ".*"
+    }
+  },
+  {
+    "action" : {
+      "selector" : "#onetrust-banner-sdk, #onetrust-consent-sdk, .onetrust-pc-dark-filter, #truste-consent-track",
+      "type" : "css-display-none"
+    },
+    "trigger" : {
+      "url-filter" : ".*"
+    }
+  },
+  {
+    "action" : {
+      "selector" : "#CybotCookiebotDialog, #CybotCookiebotDialogBodyLevelButtonLevelOptinAllowallSelection",
+      "type" : "css-display-none"
+    },
+    "trigger" : {
+      "url-filter" : ".*"
+    }
+  },
+  {
+    "action" : {
+      "selector" : ".newsletter-popup, .newsletter-modal, .newsletter-overlay, #newsletter-popup, #newsletter-modal",
+      "type" : "css-display-none"
+    },
+    "trigger" : {
+      "url-filter" : ".*"
+    }
+  },
+  {
+    "action" : {
+      "selector" : ".email-signup-popup, .email-popup, .email-modal, .email-capture, .signup-popup, .signup-modal",
+      "type" : "css-display-none"
+    },
+    "trigger" : {
+      "url-filter" : ".*"
+    }
+  },
+  {
+    "action" : {
+      "selector" : ".subscription-popup, .subscribe-popup, .subscribe-modal, #subscribe-popup, #subscription-modal",
+      "type" : "css-display-none"
+    },
+    "trigger" : {
+      "url-filter" : ".*"
+    }
+  },
+  {
+    "action" : {
+      "selector" : "[class*='newsletter-popup'], [class*='email-popup'], [class*='signup-popup'], [id*='newsletter-popup']",
+      "type" : "css-display-none"
+    },
+    "trigger" : {
+      "url-filter" : ".*"
+    }
+  },
+  {
+    "action" : {
+      "selector" : ".push-notification-prompt, .notification-prompt, .push-prompt, #push-notification, [class*='push-notification']",
+      "type" : "css-display-none"
+    },
+    "trigger" : {
+      "url-filter" : ".*"
+    }
+  },
+  {
+    "action" : {
+      "selector" : ".browser-notification-prompt, .notification-permission, .notify-prompt",
+      "type" : "css-display-none"
+    },
+    "trigger" : {
+      "url-filter" : ".*"
+    }
+  },
+  {
+    "action" : {
+      "type" : "block"
+    },
+    "trigger" : {
+      "url-filter" : ".*\\.intercom\\.io"
+    }
+  },
+  {
+    "action" : {
+      "type" : "block"
+    },
+    "trigger" : {
+      "url-filter" : ".*\\.intercomcdn\\.com"
+    }
+  },
+  {
+    "action" : {
+      "type" : "block"
+    },
+    "trigger" : {
+      "url-filter" : ".*\\.drift\\.com"
+    }
+  },
+  {
+    "action" : {
+      "type" : "block"
+    },
+    "trigger" : {
+      "url-filter" : ".*\\.zopim\\.com"
+    }
+  },
+  {
+    "action" : {
+      "type" : "block"
+    },
+    "trigger" : {
+      "url-filter" : ".*\\.livechatinc\\.com"
+    }
+  },
+  {
+    "action" : {
+      "type" : "block"
+    },
+    "trigger" : {
+      "url-filter" : ".*\\.crisp\\.chat"
+    }
+  },
+  {
+    "action" : {
+      "type" : "block"
+    },
+    "trigger" : {
+      "url-filter" : ".*\\.tawk\\.to"
+    }
+  },
+  {
+    "action" : {
+      "type" : "block"
+    },
+    "trigger" : {
+      "url-filter" : ".*\\.olark\\.com"
+    }
+  },
+  {
+    "action" : {
+      "type" : "block"
+    },
+    "trigger" : {
+      "url-filter" : ".*\\.freshchat\\.com"
+    }
+  },
+  {
+    "action" : {
+      "type" : "block"
+    },
+    "trigger" : {
+      "url-filter" : ".*\\.hs-scripts\\.com"
+    }
+  },
+  {
+    "action" : {
+      "selector" : "#intercom-container, .intercom-launcher, .intercom-lightweight-app, #drift-widget, #drift-frame",
+      "type" : "css-display-none"
+    },
+    "trigger" : {
+      "url-filter" : ".*"
+    }
+  },
+  {
+    "action" : {
+      "selector" : ".zopim, #launcher, .livechat-widget, [class*='crisp-client'], #tawk-chat-widget",
+      "type" : "css-display-none"
+    },
+    "trigger" : {
+      "url-filter" : ".*"
+    }
+  },
+  {
+    "action" : {
+      "type" : "block"
+    },
+    "trigger" : {
+      "url-filter" : ".*\\.qualtrics\\.com"
+    }
+  },
+  {
+    "action" : {
+      "type" : "block"
+    },
+    "trigger" : {
+      "url-filter" : ".*\\.surveymonkey\\.com\/collect"
+    }
+  },
+  {
+    "action" : {
+      "type" : "block"
+    },
+    "trigger" : {
+      "url-filter" : ".*\\.medallia\\.com"
+    }
+  },
+  {
+    "action" : {
+      "type" : "block"
+    },
+    "trigger" : {
+      "url-filter" : ".*\\.uservoice\\.com"
+    }
+  },
+  {
+    "action" : {
+      "type" : "block"
+    },
+    "trigger" : {
+      "url-filter" : ".*\\.usabilla\\.com"
+    }
+  },
+  {
+    "action" : {
+      "selector" : ".survey-popup, .feedback-popup, .survey-modal, .feedback-modal, [class*='survey-'], [class*='feedback-prompt']",
+      "type" : "css-display-none"
+    },
+    "trigger" : {
+      "url-filter" : ".*"
+    }
+  },
+  {
+    "action" : {
+      "selector" : ".paywall-banner, .subscription-banner, .subscribe-banner, .premium-banner, [class*='paywall-'], [class*='subscription-nag']",
+      "type" : "css-display-none"
+    },
+    "trigger" : {
+      "url-filter" : ".*"
+    }
+  },
+  {
+    "action" : {
+      "selector" : ".meter-bar, .article-meter, .metering-banner, [class*='meter-banner'], [class*='article-limit']",
+      "type" : "css-display-none"
+    },
+    "trigger" : {
+      "url-filter" : ".*"
+    }
+  },
+  {
+    "action" : {
+      "selector" : ".app-banner, .app-install-banner, .smart-banner, .smartbanner, #smart-app-banner, [class*='app-banner'], [class*='install-app']",
+      "type" : "css-display-none"
+    },
+    "trigger" : {
+      "url-filter" : ".*"
+    }
+  },
+  {
+    "action" : {
+      "selector" : ".mobile-app-banner, .download-app-banner, [class*='download-app'], [class*='get-app']",
+      "type" : "css-display-none"
+    },
+    "trigger" : {
+      "url-filter" : ".*"
+    }
+  },
+  {
+    "action" : {
+      "selector" : ".modal-backdrop:empty, .overlay-backdrop:empty, .page-overlay:empty",
+      "type" : "css-display-none"
+    },
+    "trigger" : {
+      "url-filter" : ".*"
+    }
+  },
+  {
+    "action" : {
+      "selector" : ".exit-intent-popup, .exit-popup, [class*='exit-intent'], [class*='exit-popup']",
+      "type" : "css-display-none"
+    },
+    "trigger" : {
+      "url-filter" : ".*"
+    }
+  }
+]

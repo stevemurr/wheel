@@ -327,6 +327,10 @@ struct ConstellationView: View {
                 }
                 if !response.unmatchedUrls.isEmpty {
                     Log.Search.warning("Constellation: \(response.unmatchedUrls.count) URLs unmatched by DIndex (not indexed?)")
+                    let sample = response.unmatchedUrls.prefix(10)
+                    for url in sample {
+                        Log.Search.debug("  unmatched: \(url)")
+                    }
                 }
 
                 // Guard stale response: mode or node count changed during await

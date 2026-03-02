@@ -47,11 +47,19 @@ enum ConstellationClusterer {
             let domains = memberIds.compactMap { nodeById[$0]?.domain }
             let topDomains = topN(domains, n: 3)
 
+            // Generate readable label from page titles
+            let titles = memberIds.compactMap { url -> String? in
+                response.documents[url]?.title ?? nodeById[url]?.title
+            }.filter { !$0.isEmpty }
+            let label = generateLabel(titles: titles, topDomains: topDomains)
+                ?? topDomains.first
+                ?? dc.label
+
             let colorIdx = idx % ConstellationCluster.clusterColors.count
             clusters.append(ConstellationCluster(
                 id: dc.clusterId,
                 nodeIds: memberIds,
-                label: dc.label,
+                label: label,
                 color: ConstellationCluster.clusterColors[colorIdx],
                 topDomains: topDomains
             ))
@@ -93,5 +101,58 @@ enum ConstellationClusterer {
             .sorted { $0.value != $1.value ? $0.value > $1.value : $0.key < $1.key }
             .prefix(n)
             .map(\.key)
+    }
+
+    // MARK: - Label generation
+
+    private static let stopWords: Set<String> = [
+        // Common English
+        "the", "and", "for", "are", "but", "not", "you", "all", "can", "had",
+        "her", "was", "one", "our", "out", "has", "have", "been", "from", "its",
+        "that", "this", "with", "will", "your", "about", "into", "them", "then",
+        "than", "they", "what", "when", "where", "which", "who", "how", "each",
+        "she", "his", "him", "does", "did", "get", "got", "just", "more", "most",
+        "some", "very", "also", "here", "there", "would", "could", "should",
+        // Web noise
+        "http", "https", "www", "html", "htm", "php", "asp", "page", "home",
+        "index", "site", "web", "online", "untitled", "null", "undefined",
+        "com", "org", "net", "dev",
+    ]
+
+    /// Generate a readable label from page titles in a cluster.
+    /// Returns `nil` if no meaningful words remain after filtering.
+    private static func generateLabel(titles: [String], topDomains: [String]) -> String? {
+        let domainFragments = Set(topDomains.flatMap { domain in
+            domain.lowercased()
+                .components(separatedBy: ".")
+                .filter { $0.count > 2 }
+        })
+
+        // Count word frequency, deduplicated per-title
+        var wordCounts: [String: Int] = [:]
+        for title in titles {
+            let words = title.lowercased()
+                .components(separatedBy: CharacterSet.alphanumerics.inverted)
+                .filter { word in
+                    word.count > 2
+                        && !stopWords.contains(word)
+                        && !domainFragments.contains(word)
+                }
+            // Deduplicate within this title
+            for word in Set(words) {
+                wordCounts[word, default: 0] += 1
+            }
+        }
+
+        let topWords = wordCounts
+            .sorted { $0.value != $1.value ? $0.value > $1.value : $0.key < $1.key }
+            .prefix(3)
+            .map { $0.key.prefix(1).uppercased() + $0.key.dropFirst() }
+
+        guard !topWords.isEmpty else { return nil }
+
+        // Use top 2 if third word only appeared once, otherwise top 3
+        let count = topWords.count >= 3 && wordCounts[topWords[2].lowercased()] ?? 0 <= 1 ? 2 : topWords.count
+        return topWords.prefix(count).joined(separator: " & ")
     }
 }

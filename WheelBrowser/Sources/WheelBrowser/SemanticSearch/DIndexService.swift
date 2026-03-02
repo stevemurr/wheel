@@ -31,12 +31,19 @@ actor DIndexService {
     ) async throws {
         let categoryStrings = categories.map { $0.rawValue }
         Log.Search.debug("DIndexService.indexPage: url=\(url.absoluteString), title=\(title ?? "nil"), contentLength=\(content.count), categories=\(categoryStrings)")
-        let response = try await client.index(
-            content: content,
-            title: title,
-            url: url.absoluteString,
-            categories: categoryStrings
-        )
+        let response = try await withExponentialBackoff(
+            maxAttempts: 3,
+            initialDelay: 1.0,
+            maxDelay: 8.0,
+            shouldRetry: isDIndexTransient
+        ) {
+            try await client.index(
+                content: content,
+                title: title,
+                url: url.absoluteString,
+                categories: categoryStrings
+            )
+        }
         Log.Search.debug("DIndexService.indexPage completed: chunks=\(response.chunksCreated)")
     }
 
@@ -53,12 +60,18 @@ actor DIndexService {
         limit: Int = 20
     ) async throws -> [DIndexSearchItem] {
         Log.Search.debug("DIndexService.search: query='\(query)', categories=\(categories?.map { $0.rawValue } ?? []), limit=\(limit)")
-        let response: SearchResponse
-        if let cats = categories, !cats.isEmpty {
-            let categoryStrings = cats.map { $0.rawValue }
-            response = try await client.search(query: query, categories: categoryStrings, topK: limit)
-        } else {
-            response = try await client.search(query: query, topK: limit)
+        let response: SearchResponse = try await withExponentialBackoff(
+            maxAttempts: 3,
+            initialDelay: 0.5,
+            maxDelay: 4.0,
+            shouldRetry: isDIndexTransient
+        ) {
+            if let cats = categories, !cats.isEmpty {
+                let categoryStrings = cats.map { $0.rawValue }
+                return try await client.search(query: query, categories: categoryStrings, topK: limit)
+            } else {
+                return try await client.search(query: query, topK: limit)
+            }
         }
         // Return one result per document using the best chunk's content,
         // with additional chunks for expandable citations
@@ -248,12 +261,11 @@ extension DIndexService {
 
     /// Request semantic clustering of documents from the DIndex server.
     /// Makes a direct HTTP POST since DIndexClient doesn't have this method yet.
-    /// Returns 404/error until the backend endpoint ships — callers handle this gracefully.
     func clusterDocuments(urls: [String], maxClusters: Int = 8) async throws -> ClusterResponse {
         Log.Search.debug("DIndexService.clusterDocuments: \(urls.count) urls, maxClusters=\(maxClusters)")
 
         let clusterURL = endpoint.appendingPathComponent("api/v1/cluster")
-        var request = URLRequest(url: clusterURL)
+        var request = URLRequest(url: clusterURL, timeoutInterval: 30)
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         if let key = apiKey {
@@ -265,19 +277,30 @@ extension DIndexService {
             maxClusters: maxClusters,
             includeSummaries: true
         )
-        request.httpBody = try JSONEncoder().encode(body)
+        let encoder = JSONEncoder()
+        encoder.keyEncodingStrategy = .convertToSnakeCase
+        request.httpBody = try encoder.encode(body)
 
-        let (data, httpResponse) = try await URLSession.shared.data(for: request)
+        return try await withExponentialBackoff(
+            maxAttempts: 3,
+            initialDelay: 1.0,
+            maxDelay: 8.0,
+            shouldRetry: isDIndexTransient
+        ) {
+            let (data, httpResponse) = try await URLSession.shared.data(for: request)
 
-        if let status = (httpResponse as? HTTPURLResponse)?.statusCode, status != 200 {
-            throw ClusterError.httpError(status)
+            if let status = (httpResponse as? HTTPURLResponse)?.statusCode, status != 200 {
+                let responseBody = String(data: data, encoding: .utf8) ?? "<non-utf8>"
+                Log.Search.warning("DIndexService.clusterDocuments: HTTP \(status): \(responseBody)")
+                throw ClusterError.httpError(status)
+            }
+
+            let decoder = JSONDecoder()
+            decoder.keyDecodingStrategy = .convertFromSnakeCase
+            let response = try decoder.decode(ClusterResponse.self, from: data)
+            Log.Search.debug("DIndexService.clusterDocuments: \(response.clusters.count) clusters, \(response.unmatchedUrls.count) unmatched, \(response.clusterTimeMs)ms")
+            return response
         }
-
-        let decoder = JSONDecoder()
-        decoder.keyDecodingStrategy = .convertFromSnakeCase
-        let response = try decoder.decode(ClusterResponse.self, from: data)
-        Log.Search.debug("DIndexService.clusterDocuments: \(response.clusters.count) clusters, \(response.unmatchedUrls.count) unmatched, \(response.clusterTimeMs)ms")
-        return response
     }
 }
 
@@ -285,6 +308,24 @@ extension DIndexService {
 
 enum ClusterError: Error {
     case httpError(Int)
+
+    /// Whether this error is transient and worth retrying
+    var isTransient: Bool {
+        if case .httpError(let status) = self {
+            return status >= 500
+        }
+        return false
+    }
+}
+
+/// Whether a DIndex error is transient (network/5xx) and worth retrying
+private func isDIndexTransient(_ error: Error) -> Bool {
+    if let clusterError = error as? ClusterError {
+        return clusterError.isTransient
+    }
+    // Network errors (timeout, connection refused, etc.) are transient
+    let nsError = error as NSError
+    return nsError.domain == NSURLErrorDomain
 }
 
 struct ClusterRequest: Codable {
