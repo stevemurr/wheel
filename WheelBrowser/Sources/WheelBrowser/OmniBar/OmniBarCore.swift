@@ -7,9 +7,17 @@ import SwiftUI
 /// `setVisiblePanel()`/`dismissVisiblePanel()`. Placing either animation on
 /// the VStack would cause panels to receive two overlapping animation
 /// contexts, producing a visual flash on first activation.
+///
+/// NOTE: `isInputFocused` was intentionally removed from this struct.
+/// Including it caused the `.animation()` modifier on `omniBarContent` to
+/// fire on every focus change — even when `shouldExpand` was already true
+/// (e.g. cursor hovering). This created a second animation context that
+/// competed with `setVisiblePanel()`'s `withAnimation`, producing a flash
+/// when the history panel first opened. The pill's focus-dependent visual
+/// changes (shadow, border color, icon tint) are subtle enough to change
+/// instantly without animation.
 private struct OmniBarAnimationState: Equatable {
     let shouldExpand: Bool
-    let isInputFocused: Bool
 }
 
 /// The OmniBar - a unified input bar for URL navigation, AI chat, and semantic search
@@ -76,8 +84,7 @@ struct OmniBar: View {
             // OmniBar itself
             omniBarContent
                 .animation(AppAnimation.panelSpring, value: OmniBarAnimationState(
-                    shouldExpand: shouldExpand,
-                    isInputFocused: isInputFocused
+                    shouldExpand: shouldExpand
                 ))
         }
         .onHover { hovering in

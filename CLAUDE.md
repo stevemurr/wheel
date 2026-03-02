@@ -94,6 +94,12 @@ Methods like `handleFocusAddressBar()` must set `isInputFocused = true` BEFORE `
 ### Rule 10: No dead `@Published` properties on OmniBarState
 Do not add `@Published` properties to `OmniBarState` that are not read by any view. Every `@Published` mutation fires `objectWillChange`, triggering a full body re-eval of OmniBar. (The removed `isFocused` property was doing this — never read, always triggering spurious updates.)
 
+### Rule 11: No `withAnimation` wrapping `isInputFocused = true`
+Setting `isInputFocused` must NOT be wrapped in `withAnimation`. The pill expansion is already animated by the implicit `.animation()` on `omniBarContent` (which tracks `shouldExpand` via `OmniBarAnimationState`), and panel transitions are animated by `setVisiblePanel()`'s own `withAnimation`. Adding a `withAnimation` around the focus change creates overlapping animation contexts that produce a flash on first focus.
+
+### Rule 12: Only track `shouldExpand` in `OmniBarAnimationState`
+`OmniBarAnimationState` must only contain `shouldExpand`, NOT `isInputFocused`. Including `isInputFocused` causes the `.animation()` modifier to fire on every focus change — even when `shouldExpand` is already `true` (e.g. cursor is hovering). This creates a second animation context competing with `setVisiblePanel()`'s `withAnimation`, producing a flash when the history panel opens. The pill's focus-dependent visuals (shadow, border, icon tint) are subtle enough to change instantly.
+
 ## Common Tasks
 
 ### Adding a new keyboard shortcut

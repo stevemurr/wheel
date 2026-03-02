@@ -80,9 +80,11 @@ struct OmniBarTextField: NSViewRepresentable {
         func controlTextDidBeginEditing(_ obj: Notification) {
             isEditing = true
             DispatchQueue.main.async {
-                withAnimation(AppAnimation.panelSpring) {
-                    self.parent.isFocused = true
-                }
+                // No withAnimation here — the implicit .animation() on omniBarContent
+                // handles pill expansion, and setVisiblePanel() handles panel transitions.
+                // Wrapping this in withAnimation created a third overlapping animation
+                // context that fought with those two, producing a flash on first focus.
+                self.parent.isFocused = true
             }
         }
 

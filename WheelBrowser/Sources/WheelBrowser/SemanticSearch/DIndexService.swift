@@ -7,8 +7,12 @@ import DIndexClient
 /// a remote DIndex server for embedding-based semantic search.
 actor DIndexService {
     private let client: DIndexClient
+    private let endpoint: URL
+    private let apiKey: String?
 
     init(endpoint: URL, apiKey: String?) {
+        self.endpoint = endpoint
+        self.apiKey = apiKey
         self.client = DIndexClient(baseURL: endpoint, apiKey: apiKey)
     }
 
@@ -239,4 +243,71 @@ extension DIndexService {
         Log.Search.debug("DIndexService.subscribeScrapeEvents: jobId=\(jobId)")
         return client.subscribeToJobEvents(jobId: jobId)
     }
+
+    // MARK: - Clustering
+
+    /// Request semantic clustering of documents from the DIndex server.
+    /// Makes a direct HTTP POST since DIndexClient doesn't have this method yet.
+    /// Returns 404/error until the backend endpoint ships — callers handle this gracefully.
+    func clusterDocuments(urls: [String], maxClusters: Int = 8) async throws -> ClusterResponse {
+        Log.Search.debug("DIndexService.clusterDocuments: \(urls.count) urls, maxClusters=\(maxClusters)")
+
+        let clusterURL = endpoint.appendingPathComponent("api/v1/cluster")
+        var request = URLRequest(url: clusterURL)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        if let key = apiKey {
+            request.setValue("Bearer \(key)", forHTTPHeaderField: "Authorization")
+        }
+
+        let body = ClusterRequest(
+            documentUrls: urls,
+            maxClusters: maxClusters,
+            includeSummaries: true
+        )
+        request.httpBody = try JSONEncoder().encode(body)
+
+        let (data, httpResponse) = try await URLSession.shared.data(for: request)
+
+        if let status = (httpResponse as? HTTPURLResponse)?.statusCode, status != 200 {
+            throw ClusterError.httpError(status)
+        }
+
+        let decoder = JSONDecoder()
+        decoder.keyDecodingStrategy = .convertFromSnakeCase
+        let response = try decoder.decode(ClusterResponse.self, from: data)
+        Log.Search.debug("DIndexService.clusterDocuments: \(response.clusters.count) clusters, \(response.unmatchedUrls.count) unmatched, \(response.clusterTimeMs)ms")
+        return response
+    }
+}
+
+// MARK: - Cluster Types (local until DIndexClient adds support)
+
+enum ClusterError: Error {
+    case httpError(Int)
+}
+
+struct ClusterRequest: Codable {
+    let documentUrls: [String]
+    let maxClusters: Int
+    let includeSummaries: Bool
+}
+
+struct ClusterResponse: Codable {
+    let clusters: [DocumentCluster]
+    let documents: [String: DocumentSummary]
+    let unmatchedUrls: [String]
+    let clusterTimeMs: Int
+}
+
+struct DocumentCluster: Codable {
+    let clusterId: String
+    let label: String
+    let documentUrls: [String]
+}
+
+struct DocumentSummary: Codable {
+    let title: String?
+    let summary: String?
+    let snippet: String?
 }

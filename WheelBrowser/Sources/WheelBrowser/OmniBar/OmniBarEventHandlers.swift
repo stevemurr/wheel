@@ -187,9 +187,9 @@ extension OmniBar {
     func handleFocusAddressBar() {
         // Set focus BEFORE mode so that handleModeChange sees isInputFocused=true
         // and activates the panel directly, instead of dismissing then re-showing (flash).
-        withAnimation(AppAnimation.panelSpring) {
-            isInputFocused = true
-        }
+        // No withAnimation — pill expansion is driven by the implicit .animation() on
+        // omniBarContent, and panel transitions by setVisiblePanel()'s own withAnimation.
+        isInputFocused = true
         omniState.setMode(.address)
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
             if let window = NSApp.keyWindow,
@@ -203,9 +203,8 @@ extension OmniBar {
 
     func handleFocusAISidebar() {
         // Set focus BEFORE mode — see handleFocusAddressBar for why.
-        withAnimation(AppAnimation.panelSpring) {
-            isInputFocused = true
-        }
+        // No withAnimation — see handleFocusAddressBar for why.
+        isInputFocused = true
         omniState.resetMentions(includeCurrentPage: tab.url != nil)
         omniState.setMode(.chat)
         // NOTE: Do NOT call setVisiblePanel here — setMode triggers
@@ -215,9 +214,8 @@ extension OmniBar {
     // MARK: - Focus Chat Input
 
     func handleFocusChatInput() {
-        withAnimation(AppAnimation.panelSpring) {
-            isInputFocused = true
-        }
+        // No withAnimation — see handleFocusAddressBar for why.
+        isInputFocused = true
         omniState.resetMentions(includeCurrentPage: tab.url != nil)
         omniState.setMode(.chat)
     }
@@ -225,9 +223,8 @@ extension OmniBar {
     // MARK: - Focus Semantic Search
 
     func handleFocusSemanticSearch() {
-        withAnimation(AppAnimation.panelSpring) {
-            isInputFocused = true
-        }
+        // No withAnimation — see handleFocusAddressBar for why.
+        isInputFocused = true
         omniState.setMode(.semantic)
         // NOTE: Do NOT call setVisiblePanel here — handled by setMode → handleModeChange → activateMode.
     }
@@ -246,9 +243,8 @@ extension OmniBar {
     // MARK: - Focus Reading List
 
     func handleFocusReadingList() {
-        withAnimation(AppAnimation.panelSpring) {
-            isInputFocused = true
-        }
+        // No withAnimation — see handleFocusAddressBar for why.
+        isInputFocused = true
         omniState.setMode(.readingList)
         // NOTE: Do NOT call setVisiblePanel here — handled by setMode → handleModeChange → activateMode.
         // readingListVM.loadSavedPages() is called inside activateMode.

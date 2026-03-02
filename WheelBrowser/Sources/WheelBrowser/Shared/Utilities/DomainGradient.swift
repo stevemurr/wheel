@@ -2,6 +2,15 @@ import SwiftUI
 
 /// Utility for generating consistent gradients and initials based on domain names
 struct DomainGradient {
+    /// Deterministic hash (djb2) that produces the same value across app launches.
+    /// Swift's built-in `String.hashValue` uses randomized seeds since Swift 4.2.
+    private static func stableHash(_ string: String) -> UInt64 {
+        var hash: UInt64 = 5381
+        for byte in string.utf8 {
+            hash = ((hash &<< 5) &+ hash) &+ UInt64(byte)
+        }
+        return hash
+    }
     /// Generate a consistent gradient based on the domain host
     /// - Parameter host: The URL host (e.g., "www.example.com")
     /// - Returns: A linear gradient from top-leading to bottom-trailing
@@ -9,7 +18,7 @@ struct DomainGradient {
         let colors: [Color]
         if let host = host {
             let cleanHost = host.removingWWWPrefix
-            let hash = abs(cleanHost.hashValue)
+            let hash = stableHash(cleanHost)
             let hue1 = Double(hash % 360) / 360.0
             let hue2 = Double((hash / 360) % 360) / 360.0
 
@@ -38,7 +47,7 @@ struct DomainGradient {
         let colors: [Color]
         if let host = host {
             let cleanHost = host.removingWWWPrefix
-            let hash = abs(cleanHost.hashValue)
+            let hash = stableHash(cleanHost)
             let hue1 = Double(hash % 360) / 360.0
             let hue2 = Double((hash / 360) % 360) / 360.0
 
@@ -58,6 +67,19 @@ struct DomainGradient {
             startPoint: .topLeading,
             endPoint: .bottomTrailing
         )
+    }
+
+    /// Generate a single solid color based on the domain host
+    /// - Parameter host: The URL host (e.g., "www.example.com")
+    /// - Returns: A consistent color for the domain
+    static func solidColor(for host: String?) -> Color {
+        if let host = host {
+            let cleanHost = host.removingWWWPrefix
+            let hash = stableHash(cleanHost)
+            let hue = Double(hash % 360) / 360.0
+            return Color(hue: hue, saturation: 0.6, brightness: 0.7)
+        }
+        return Color.gray.opacity(0.5)
     }
 
     /// Get the initial character for a domain

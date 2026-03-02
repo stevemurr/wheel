@@ -9,7 +9,7 @@ let package = Package(
     dependencies: [
         .package(url: "https://github.com/gonzalezreal/swift-markdown-ui", from: "2.3.0"),
         .package(url: "https://github.com/scinfu/SwiftSoup", from: "2.6.0"),
-        .package(path: "../../dindex/DIndexClient")
+        .package(path: "../../dindex/DIndexClient"),
     ],
     targets: [
         .executableTarget(
@@ -17,7 +17,7 @@ let package = Package(
             dependencies: [
                 .product(name: "MarkdownUI", package: "swift-markdown-ui"),
                 .product(name: "SwiftSoup", package: "SwiftSoup"),
-                "DIndexClient"
+                "DIndexClient",
             ],
             path: "Sources/WheelBrowser",
             resources: [

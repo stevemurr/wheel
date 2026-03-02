@@ -266,6 +266,11 @@ struct WheelBrowserApp: App {
                     NotificationCenter.default.post(name: .showTabWheel, object: nil)
                 }
                 .keyboardShortcut("w", modifiers: [.command, .option])
+
+                Button("Show Constellation") {
+                    NotificationCenter.default.post(name: .showConstellation, object: nil)
+                }
+                .keyboardShortcut("t", modifiers: [.command, .option])
             }
         }
 
@@ -334,4 +339,7 @@ extension Notification.Name {
 
     // Show scrape panel (posted by ScrapeManager when a job starts)
     static let showScrapePanel = Notification.Name("showScrapePanel")
+
+    // Constellation tab canvas
+    static let showConstellation = Notification.Name("showConstellation")
 }
