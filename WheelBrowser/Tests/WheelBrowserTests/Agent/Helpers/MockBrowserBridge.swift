@@ -83,6 +83,10 @@ final class MockBrowserBridge: BrowserBridge {
         return elementId // Always confirms the element is still valid
     }
 
+    func getPageLinks() async throws -> String {
+        return "Example Link -> https://example.com\nAnother Link -> https://example.com/page2"
+    }
+
     func capturePreActionState() async -> PreActionState {
         return (url: currentURL, title: currentTitle, elementCount: 10, captchaDetected: false)
     }

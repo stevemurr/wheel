@@ -106,6 +106,22 @@ class AccessibilityBridge: BrowserBridge {
         }
     }
 
+    // MARK: - Read Links
+
+    /// Get all links on the page (deduplicated, capped at 50)
+    func getPageLinks() async throws -> String {
+        guard let webView = webView else {
+            throw AgentError.webViewUnavailable
+        }
+
+        do {
+            let result = try await webView.evaluateJavaScript(AgentScripts.readLinks)
+            return (result as? String) ?? ""
+        } catch {
+            throw AgentError.javascriptError(error.localizedDescription)
+        }
+    }
+
     // MARK: - Click
 
     /// Click an element by its agent ID, optionally with modifier keys

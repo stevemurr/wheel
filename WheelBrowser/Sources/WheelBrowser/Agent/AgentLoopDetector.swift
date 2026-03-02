@@ -37,6 +37,24 @@ struct NormalizedAction: Hashable {
         case .readText:
             self.type = "readText"
             self.target = ""
+        case .scrape(let url, _, _):
+            self.type = "scrape"
+            self.target = url
+        case .newTab:
+            self.type = "newTab"
+            self.target = ""
+        case .openTab(let url):
+            self.type = "openTab"
+            self.target = url
+        case .switchTab(let index):
+            self.type = "switchTab"
+            self.target = String(index)
+        case .extractContent:
+            self.type = "extractContent"
+            self.target = ""
+        case .readLinks:
+            self.type = "readLinks"
+            self.target = ""
         }
     }
 }

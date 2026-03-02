@@ -66,6 +66,12 @@ enum AgentAction: Equatable {
     case waitForUser(reason: String)
     case wait(seconds: Double)
     case readText(elementId: Int)
+    case scrape(url: String, depth: UInt8, maxPages: Int)
+    case newTab
+    case openTab(url: String)
+    case switchTab(index: Int)
+    case extractContent
+    case readLinks
     case done(summary: String)
 
     enum ScrollDirection: String {
@@ -651,6 +657,24 @@ class AgentEngine: ObservableObject {
                 return "Reading text near '\(label)'"
             }
             return "Reading text near element #\(id)"
+        case .scrape(let url, let depth, let maxPages):
+            if let host = URL(string: url)?.host {
+                return "Scraping \(host) (depth: \(depth), max: \(maxPages) pages)"
+            }
+            return "Scraping \(url) (depth: \(depth), max: \(maxPages) pages)"
+        case .newTab:
+            return "Opening new blank tab"
+        case .openTab(let url):
+            if let host = URL(string: url)?.host {
+                return "Opening new tab: \(host)"
+            }
+            return "Opening new tab: \(url)"
+        case .switchTab(let index):
+            return "Switching to tab #\(index)"
+        case .extractContent:
+            return "Extracting full page content"
+        case .readLinks:
+            return "Reading all links on page"
         case .done(let summary):
             return "Done: \(summary)"
         }
@@ -771,6 +795,77 @@ class AgentEngine: ObservableObject {
                 return ActionResult(message: "No text found near element #\(elementId).", delta: nil)
             }
             return ActionResult(message: "Text near element #\(elementId): \(text)", delta: nil)
+
+        case .scrape(let urlString, let depth, let maxPages):
+            let validatedURL = try NavigationPolicy.validate(urlString)
+            try await ScrapeManager.shared.startScrape(
+                url: validatedURL,
+                depth: depth,
+                stayOnDomain: true,
+                maxPages: maxPages
+            )
+            return ActionResult(message: "Scrape job started for \(validatedURL.absoluteString) (depth: \(depth), max: \(maxPages) pages). Scraping runs in the background.", delta: nil)
+
+        case .newTab:
+            browserState.addTab()
+            return ActionResult(message: "Opened new blank tab. Agent remains on current tab.", delta: nil)
+
+        case .openTab(let urlString):
+            let validatedURL = try NavigationPolicy.validate(urlString)
+            browserState.addTab(withURL: validatedURL)
+            return ActionResult(message: "Opened new tab with \(validatedURL.absoluteString). Agent remains on current tab.", delta: nil)
+
+        case .switchTab(let index):
+            let zeroBasedIndex = index - 1
+            guard zeroBasedIndex >= 0, zeroBasedIndex < browserState.tabs.count else {
+                return ActionResult(message: "Invalid tab index \(index). There are \(browserState.tabs.count) tabs (1-\(browserState.tabs.count)).", delta: nil)
+            }
+            let targetTab = browserState.tabs[zeroBasedIndex]
+
+            // Clear agent flag on old tab
+            if let oldTab = boundTab {
+                oldTab.hasActiveAgent = false
+            }
+
+            // Rebind to the new tab
+            browserState.selectTab(targetTab.id)
+            boundTab = targetTab
+            boundTabId = targetTab.id
+            targetTab.hasActiveAgent = true
+            targetTab.agentProgress = progress
+
+            let tabLabel = targetTab.title.isEmpty ? (targetTab.url?.absoluteString ?? "untitled") : targetTab.title
+            return ActionResult(message: "Switched to tab #\(index): \(tabLabel)", delta: nil)
+
+        case .extractContent:
+            let tab = try requireBoundTab()
+            let extractor = ContentExtractor()
+            if let pageContext = await extractor.extractContent(from: tab) {
+                var text = pageContext.textContent
+                if text.count > 4000 {
+                    text = String(text.prefix(4000)) + "... (truncated)"
+                }
+                return ActionResult(message: "Page content (\(pageContext.title)):\n\(text)", delta: nil)
+            }
+            return ActionResult(message: "Could not extract page content.", delta: nil)
+
+        case .readLinks:
+            let links = try await bridge.getPageLinks()
+            if links.isEmpty {
+                return ActionResult(message: "No links found on this page.", delta: nil)
+            }
+            // Truncate to last complete line within 3000 chars to keep prompt manageable
+            var linksText = links
+            if linksText.count > 3000 {
+                let truncated = String(linksText.prefix(3000))
+                if let lastNewline = truncated.lastIndex(of: "\n") {
+                    linksText = String(truncated[...lastNewline])
+                } else {
+                    linksText = truncated
+                }
+                linksText += "... (more links on page)"
+            }
+            return ActionResult(message: "Links on page:\n\(linksText)", delta: nil)
 
         case .done(let summary):
             return ActionResult(message: summary, delta: nil)

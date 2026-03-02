@@ -172,6 +172,62 @@ enum AgentResponseParser {
             return .done(summary: summary)
         }
 
+        // scrape("url", depth, maxPages)
+        if let match = trimmed.range(of: #"scrape\s*\(\s*["'](.+?)["']\s*,\s*(\d+)\s*,\s*(\d+)\s*\)"#, options: .regularExpression) {
+            let content = String(trimmed[match])
+            // Extract URL between quotes
+            if let urlRange = content.range(of: #"["'](.+?)["']"#, options: .regularExpression) {
+                var url = String(content[urlRange])
+                url = url.trimmingCharacters(in: CharacterSet(charactersIn: "\"'"))
+                // Extract the two numeric args after the URL
+                let afterURL = String(content[urlRange.upperBound...])
+                let numbers = afterURL.components(separatedBy: CharacterSet.decimalDigits.inverted)
+                    .filter { !$0.isEmpty }
+                if numbers.count >= 2,
+                   let depth = UInt8(numbers[0]),
+                   let maxPages = Int(numbers[1]) {
+                    return .scrape(url: url, depth: depth, maxPages: maxPages)
+                }
+            }
+        }
+
+        // new_tab
+        if trimmed.lowercased().hasPrefix("new_tab") {
+            return .newTab
+        }
+
+        // open_tab("url")
+        if let match = trimmed.range(of: #"open_tab\s*\(\s*["'](.+?)["']\s*\)"#, options: .regularExpression) {
+            let url = String(trimmed[match])
+                .replacingOccurrences(of: "open_tab", with: "")
+                .replacingOccurrences(of: "(", with: "")
+                .replacingOccurrences(of: ")", with: "")
+                .trimmingCharacters(in: .whitespaces)
+                .trimmingCharacters(in: CharacterSet(charactersIn: "\"'"))
+            return .openTab(url: url)
+        }
+
+        // switch_tab(index)
+        if let match = trimmed.range(of: #"switch_tab\s*\(\s*(\d+)\s*\)"#, options: .regularExpression) {
+            let idStr = trimmed[match].replacingOccurrences(of: "switch_tab", with: "")
+                .replacingOccurrences(of: "(", with: "")
+                .replacingOccurrences(of: ")", with: "")
+                .trimmingCharacters(in: .whitespaces)
+            if let index = Int(idStr) {
+                return .switchTab(index: index)
+            }
+        }
+
+        // extract_content
+        if trimmed.lowercased().hasPrefix("extract_content") {
+            return .extractContent
+        }
+
+        // read_links
+        if trimmed.lowercased().hasPrefix("read_links") {
+            return .readLinks
+        }
+
         // Log unmatched action for debugging
         Log.Agent.debug("parseAction: No pattern matched for '\(trimmed)'")
 

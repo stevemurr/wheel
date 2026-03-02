@@ -61,7 +61,7 @@ public struct LLMRequestOptions: Sendable {
     public static let deterministic = LLMRequestOptions(temperature: 0.3, maxTokens: 2048)
 
     /// Options for agent/automation use cases
-    public static let agent = LLMRequestOptions(temperature: 0.3, maxTokens: 1000)
+    public static let agent = LLMRequestOptions(temperature: 0.3, maxTokens: 16384)
 
     /// Options for creative/generation tasks
     public static let creative = LLMRequestOptions(temperature: 0.9, maxTokens: 4096)

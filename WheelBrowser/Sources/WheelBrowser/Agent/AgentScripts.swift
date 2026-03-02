@@ -508,6 +508,27 @@ enum AgentScripts {
     })();
     """
 
+    // MARK: - Read Links
+
+    static let readLinks = """
+    (function() {
+        const seen = new Set();
+        const links = [];
+        document.querySelectorAll('a[href]').forEach(a => {
+            const href = a.href;
+            if (!href || href.startsWith('javascript:') || href === '#' || seen.has(href)) return;
+            seen.add(href);
+            let text = (a.innerText || a.textContent || '').trim().replace(/\\s+/g, ' ');
+            if (text.length > 80) text = text.substring(0, 80) + '...';
+            if (!text) text = a.getAttribute('aria-label') || a.title || '';
+            if (!text) text = '(no text)';
+            links.push(text + ' -> ' + href);
+        });
+        if (links.length > 50) links.length = 50;
+        return links.join('\\n');
+    })();
+    """
+
     // MARK: - Page Text
 
     static let pageText = """

@@ -214,4 +214,94 @@ struct AgentResponseParserTests {
         let action = AgentResponseParser.parseAction("  click(5)  ")
         #expect(action == .click(elementId: 5))
     }
+
+    // MARK: - parseAction: scrape
+
+    @Test("Parses scrape with double-quoted URL")
+    func scrapeDoubleQuoted() {
+        let action = AgentResponseParser.parseAction(#"scrape("https://example.com", 2, 100)"#)
+        #expect(action == .scrape(url: "https://example.com", depth: 2, maxPages: 100))
+    }
+
+    @Test("Parses scrape with single-quoted URL")
+    func scrapeSingleQuoted() {
+        let action = AgentResponseParser.parseAction("scrape('https://example.com/path', 1, 50)")
+        #expect(action == .scrape(url: "https://example.com/path", depth: 1, maxPages: 50))
+    }
+
+    @Test("Parses scrape with whitespace variations")
+    func scrapeWhitespace() {
+        let action = AgentResponseParser.parseAction(#"scrape( "https://example.com" , 3 , 200 )"#)
+        #expect(action == .scrape(url: "https://example.com", depth: 3, maxPages: 200))
+    }
+
+    // MARK: - parseAction: new_tab
+
+    @Test("Parses new_tab")
+    func newTab() {
+        let action = AgentResponseParser.parseAction("new_tab")
+        #expect(action == .newTab)
+    }
+
+    @Test("Parses new_tab case insensitive")
+    func newTabCaseInsensitive() {
+        let action = AgentResponseParser.parseAction("NEW_TAB")
+        #expect(action == .newTab)
+    }
+
+    // MARK: - parseAction: open_tab
+
+    @Test("Parses open_tab with double-quoted URL")
+    func openTabDoubleQuoted() {
+        let action = AgentResponseParser.parseAction(#"open_tab("https://example.com")"#)
+        #expect(action == .openTab(url: "https://example.com"))
+    }
+
+    @Test("Parses open_tab with single-quoted URL")
+    func openTabSingleQuoted() {
+        let action = AgentResponseParser.parseAction("open_tab('https://example.com/page')")
+        #expect(action == .openTab(url: "https://example.com/page"))
+    }
+
+    // MARK: - parseAction: switch_tab
+
+    @Test("Parses switch_tab with index")
+    func switchTab() {
+        let action = AgentResponseParser.parseAction("switch_tab(2)")
+        #expect(action == .switchTab(index: 2))
+    }
+
+    @Test("Parses switch_tab with whitespace")
+    func switchTabWhitespace() {
+        let action = AgentResponseParser.parseAction("switch_tab( 3 )")
+        #expect(action == .switchTab(index: 3))
+    }
+
+    // MARK: - parseAction: extract_content
+
+    @Test("Parses extract_content")
+    func extractContent() {
+        let action = AgentResponseParser.parseAction("extract_content")
+        #expect(action == .extractContent)
+    }
+
+    @Test("Parses extract_content case insensitive")
+    func extractContentCaseInsensitive() {
+        let action = AgentResponseParser.parseAction("EXTRACT_CONTENT")
+        #expect(action == .extractContent)
+    }
+
+    // MARK: - parseAction: read_links
+
+    @Test("Parses read_links")
+    func readLinks() {
+        let action = AgentResponseParser.parseAction("read_links")
+        #expect(action == .readLinks)
+    }
+
+    @Test("Parses read_links case insensitive")
+    func readLinksCaseInsensitive() {
+        let action = AgentResponseParser.parseAction("READ_LINKS")
+        #expect(action == .readLinks)
+    }
 }

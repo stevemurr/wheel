@@ -16,6 +16,7 @@ protocol BrowserBridge: AnyObject {
     func waitForLoad(timeout: TimeInterval, stableThreshold: TimeInterval) async throws
     func readText(elementId: Int) async throws -> String
     func revalidateElement(elementId: Int, expectedTag: String?, expectedText: String?) async throws -> Int
+    func getPageLinks() async throws -> String
     func capturePreActionState() async -> PreActionState
     func quickDelta(before: PreActionState) async -> ActionDelta
 }

@@ -36,7 +36,7 @@ final class AgentStreamingClient: AgentStreamingLLMClient {
                 ["role": "user", "content": prompt]
             ],
             "temperature": 0.3,
-            "max_tokens": 1000
+            "max_tokens": 16384
         ]
 
         let bodyData = try JSONSerialization.data(withJSONObject: body)
@@ -69,7 +69,7 @@ final class AgentStreamingClient: AgentStreamingLLMClient {
                 if httpResponse.statusCode >= 500 || httpResponse.statusCode == 429 {
                     let errorBody = String(data: data, encoding: .utf8) ?? "Unknown error"
                     Log.Agent.warning("callLLM: HTTP \(httpResponse.statusCode) (attempt \(attempt)/\(maxRetries))")
-                    Log.Agent.debug("callLLM: Request details - Endpoint: \(endpoint), Model: \(settings.selectedModel), Prompt length: \(prompt.count) chars, max_tokens: 1000")
+                    Log.Agent.debug("callLLM: Request details - Endpoint: \(endpoint), Model: \(settings.selectedModel), Prompt length: \(prompt.count) chars, max_tokens: 16384")
                     Log.Agent.debug("callLLM: Error response body: \(errorBody)")
 
                     if attempt < maxRetries {
@@ -129,7 +129,7 @@ final class AgentStreamingClient: AgentStreamingLLMClient {
                             ["role": "user", "content": prompt]
                         ],
                         "temperature": 0.3,
-                        "max_tokens": 1000,
+                        "max_tokens": 16384,
                         "stream": true
                     ]
 

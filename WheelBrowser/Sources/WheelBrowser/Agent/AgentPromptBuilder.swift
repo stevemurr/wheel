@@ -20,6 +20,12 @@ enum AgentPromptBuilder {
     navigate("url")    - Go to URL
     back()             - Go back to the previous page (use when stuck or need to try a different path)
     read_text(id)      - Read the text content near an element (use for extracting information)
+    extract_content    - Get the full text content of the current page
+    read_links         - List all links on the current page (capped at 50)
+    scrape("url", depth, maxPages) - Start a background scrape job (e.g. scrape("https://example.com", 1, 50))
+    new_tab            - Open a new blank tab (agent stays on current tab)
+    open_tab("url")    - Open a URL in a new tab (agent stays on current tab)
+    switch_tab(index)  - Switch to tab by 1-based index (rebinds agent to that tab)
     done("summary")    - IMPORTANT: Call this when the task is complete!
 
     WHEN TO CALL done():
@@ -50,6 +56,21 @@ enum AgentPromptBuilder {
 
     THOUGHT: I need to read the article text near the heading to extract the answer.
     ACTION: read_text(12)
+
+    THOUGHT: I need to see all the links on this search results page before choosing which to scrape.
+    ACTION: read_links
+
+    THOUGHT: I found the URLs I need. I'll scrape this site with depth 1 and up to 50 pages.
+    ACTION: scrape("https://example.com", 1, 50)
+
+    THOUGHT: I need the full page text to analyze the content.
+    ACTION: extract_content
+
+    SCRAPING RULES:
+    - Use read_links first to discover URLs before scraping
+    - scrape() runs in the background and returns immediately — you can issue multiple scrape calls in sequence
+    - scrape() always stays on the same domain for safety
+    - After issuing all scrape calls, call done() — do not wait for scrapes to finish
 
     RULES:
     - Call done() as soon as the task objective is achieved
