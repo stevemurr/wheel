@@ -312,17 +312,29 @@ struct ConstellationView: View {
         guard settings.dindexEnabled,
               let service = SemanticSearchManagerV2.shared.dIndexService else { return }
 
-        let urls = nodes.map { $0.url.absoluteString }
+        let urls = nodes.map { $0.id }
         let currentMode = state.mode
         let nodeCount = nodes.count
 
         Task { @MainActor in
+            Log.Search.info("Constellation: requesting semantic clustering for \(urls.count) URLs")
             do {
                 let response = try await service.clusterDocuments(urls: urls)
 
+                Log.Search.info("Constellation: received \(response.clusters.count) clusters, \(response.unmatchedUrls.count) unmatched, \(response.documents.count) documents")
+                for cluster in response.clusters {
+                    Log.Search.info("  Cluster '\(cluster.label)': \(cluster.documentUrls.count) docs")
+                }
+                if !response.unmatchedUrls.isEmpty {
+                    Log.Search.warning("Constellation: \(response.unmatchedUrls.count) URLs unmatched by DIndex (not indexed?)")
+                }
+
                 // Guard stale response: mode or node count changed during await
                 guard state.mode == currentMode,
-                      state.nodes.count == nodeCount else { return }
+                      state.nodes.count == nodeCount else {
+                    Log.Search.info("Constellation: discarding stale cluster response (mode or node count changed)")
+                    return
+                }
 
                 // Build semantic clusters
                 let semanticClusters = ConstellationClusterer.clusterFromDIndex(
@@ -333,7 +345,7 @@ struct ConstellationView: View {
                 // Populate node summaries from response (non-@Published nodeDict, no spurious re-renders)
                 for (urlString, docSummary) in response.documents {
                     if var node = state.nodeDict[urlString] {
-                        node.summary = docSummary.summary
+                        node.summary = docSummary.snippet
                         node.snippet = docSummary.snippet
                         state.nodeDict[urlString] = node
                     }
@@ -346,8 +358,13 @@ struct ConstellationView: View {
                     existingPositions: existingPositions
                 )
             } catch {
-                // Silent failure — domain clusters remain
-                Log.Search.debug("Semantic clustering unavailable: \(error.localizedDescription)")
+                Log.Search.warning("Constellation: semantic clustering failed: \(error)")
+                if let clusterError = error as? ClusterError {
+                    switch clusterError {
+                    case .httpError(let status):
+                        Log.Search.warning("Constellation: HTTP \(status) from cluster endpoint")
+                    }
+                }
             }
         }
     }

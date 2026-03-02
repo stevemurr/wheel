@@ -308,6 +308,5 @@ struct DocumentCluster: Codable {
 
 struct DocumentSummary: Codable {
     let title: String?
-    let summary: String?
-    let snippet: String?
+    let snippet: String
 }
