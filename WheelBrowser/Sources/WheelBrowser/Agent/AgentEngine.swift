@@ -577,7 +577,7 @@ class AgentEngine: ObservableObject {
                         if let rejection = await verifyDoneCondition(bridge: bridge) {
                             doneRejections += 1
                             Log.Agent.warning("done() rejected (\(doneRejections)/\(maxDoneRejections)): \(rejection)")
-                            let correctionStep = AgentStep(type: .error, content: "Verification failed: \(rejection) Please re-examine the page and try again.", timestamp: Date())
+                            let correctionStep = AgentStep(type: .error, content: "Verification failed: \(rejection) Do NOT call done() again immediately. Instead, take a corrective action (navigate, scroll, click, or try a different approach). If the task truly cannot be completed, call done(\"Unable to complete: \(rejection)\").", timestamp: Date())
                             steps.append(correctionStep)
                             continue
                         }

@@ -160,16 +160,35 @@ enum AgentResponseParser {
             }
         }
 
-        // done("summary")
-        if let match = trimmed.range(of: #"done\s*\(\s*[\"'](.+?)[\"']\s*\)"#, options: .regularExpression) {
-            let summary = String(trimmed[match])
-                .replacingOccurrences(of: "done", with: "")
-                .replacingOccurrences(of: "(", with: "")
-                .replacingOccurrences(of: ")", with: "")
-                .trimmingCharacters(in: .whitespaces)
-                .trimmingCharacters(in: CharacterSet(charactersIn: "\"'"))
-            Log.Agent.info("parseAction: Matched done() with summary: \(summary)")
-            return .done(summary: summary)
+        // done("summary") — lenient: accepts quoted, unquoted, empty parens, and bare "done"
+        if trimmed.lowercased().hasPrefix("done") {
+            // Try quoted form first: done("summary") or done('summary')
+            if let match = trimmed.range(of: #"done\s*\(\s*[\"'](.+?)[\"']\s*\)"#, options: .regularExpression) {
+                let summary = String(trimmed[match])
+                    .replacingOccurrences(of: "done", with: "")
+                    .replacingOccurrences(of: "(", with: "")
+                    .replacingOccurrences(of: ")", with: "")
+                    .trimmingCharacters(in: .whitespaces)
+                    .trimmingCharacters(in: CharacterSet(charactersIn: "\"'"))
+                Log.Agent.info("parseAction: Matched done() with quoted summary: \(summary)")
+                return .done(summary: summary)
+            }
+            // Unquoted form: done(summary text here)
+            if let match = trimmed.range(of: #"done\s*\(\s*(.+?)\s*\)"#, options: .regularExpression) {
+                let summary = String(trimmed[match])
+                    .replacingOccurrences(of: "done", with: "")
+                    .replacingOccurrences(of: "(", with: "")
+                    .replacingOccurrences(of: ")", with: "")
+                    .trimmingCharacters(in: .whitespaces)
+                    .trimmingCharacters(in: CharacterSet(charactersIn: "\"'"))
+                if !summary.isEmpty {
+                    Log.Agent.info("parseAction: Matched done() with unquoted summary: \(summary)")
+                    return .done(summary: summary)
+                }
+            }
+            // Empty parens or bare word: done() or done
+            Log.Agent.info("parseAction: Matched bare done, using default summary")
+            return .done(summary: "Task completed")
         }
 
         // scrape("url", depth, maxPages)
@@ -230,10 +249,6 @@ enum AgentResponseParser {
 
         // Log unmatched action for debugging
         Log.Agent.debug("parseAction: No pattern matched for '\(trimmed)'")
-
-        if trimmed.lowercased().hasPrefix("done") {
-            Log.Agent.debug("parseAction: Looks like done() but didn't match regex. Check for missing quotes.")
-        }
 
         return nil
     }

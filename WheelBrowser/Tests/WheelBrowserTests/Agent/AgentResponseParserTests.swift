@@ -177,10 +177,51 @@ struct AgentResponseParserTests {
 
     // MARK: - parseAction: done
 
-    @Test("Parses done with summary")
+    @Test("Parses done with double-quoted summary")
     func doneWithSummary() {
         let action = AgentResponseParser.parseAction(#"done("Task completed successfully")"#)
         #expect(action == .done(summary: "Task completed successfully"))
+    }
+
+    @Test("Parses done with single-quoted summary")
+    func doneSingleQuoted() {
+        let action = AgentResponseParser.parseAction("done('Found the search results')")
+        #expect(action == .done(summary: "Found the search results"))
+    }
+
+    @Test("Parses done with unquoted summary")
+    func doneUnquoted() {
+        let action = AgentResponseParser.parseAction("done(Task completed successfully)")
+        #expect(action == .done(summary: "Task completed successfully"))
+    }
+
+    @Test("Parses done with empty parens")
+    func doneEmptyParens() {
+        let action = AgentResponseParser.parseAction("done()")
+        #expect(action == .done(summary: "Task completed"))
+    }
+
+    @Test("Parses bare done without parens")
+    func doneBareWord() {
+        let action = AgentResponseParser.parseAction("done")
+        #expect(action == .done(summary: "Task completed"))
+    }
+
+    @Test("Parses done with whitespace variations")
+    func doneWhitespace() {
+        let action = AgentResponseParser.parseAction(#"  done(  "summary here"  )  "#)
+        #expect(action == .done(summary: "summary here"))
+    }
+
+    @Test("Parses unquoted done in full THOUGHT/ACTION response")
+    func doneUnquotedInResponse() {
+        let response = """
+        THOUGHT: The search results are showing, task is complete.
+        ACTION: done(Successfully found the results)
+        """
+        let result = AgentResponseParser.parseResponse(response)
+        #expect(result != nil)
+        #expect(result?.action == .done(summary: "Successfully found the results"))
     }
 
     // MARK: - parseAction: multi-action truncation

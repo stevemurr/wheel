@@ -149,12 +149,12 @@ enum AgentPromptBuilder {
         let stepCount = previousSteps.filter { $0.type == .action }.count
 
         if isLooping {
-            prompt += "WARNING: You have repeated the same action multiple times. Consider if the task is already complete and call done() if so.\n\n"
+            prompt += "WARNING: You have repeated the same action multiple times. Consider if the task is already complete and call done(\"summary\") if so.\n\n"
         } else if stepCount >= 5 {
             prompt += "REMINDER: If the task objective has been achieved, call done(\"summary\") to complete.\n\n"
         }
 
-        prompt += "What should I do next? If the task is complete, call done().\n"
+        prompt += "What should I do next? If the task is complete, call done(\"summary\").\n"
         return prompt
     }
 
