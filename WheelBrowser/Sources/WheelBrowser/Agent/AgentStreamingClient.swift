@@ -114,7 +114,7 @@ final class AgentStreamingClient: AgentStreamingLLMClient {
     /// Yields content chunks as they arrive. On failure, caller should fall back to callLLM().
     func streamLLM(prompt: String, systemPrompt: String) -> AsyncThrowingStream<String, Error> {
         AsyncThrowingStream { continuation in
-            Task {
+            let task = Task {
                 do {
                     guard let baseURL = settings.llmBaseURL else {
                         throw AgentError.llmNotConfigured
@@ -158,10 +158,18 @@ final class AgentStreamingClient: AgentStreamingLLMClient {
                     let processor = StreamingResponseProcessor()
 
                     for try await jsonString in bytes.sseEvents {
+                        try Task.checkCancellation()
                         let chunks = processor.processSSEEvent(jsonString)
                         for chunk in chunks {
-                            if case .content(let text) = chunk {
+                            switch chunk {
+                            case .content(let text):
                                 continuation.yield(text)
+                            case .finishReason(let reason):
+                                if reason == "length" {
+                                    Log.Agent.warning("streamLLM: Response truncated (finish_reason=length)")
+                                }
+                            case .thinking:
+                                break // Agent streaming only yields content
                             }
                         }
                     }
@@ -170,6 +178,10 @@ final class AgentStreamingClient: AgentStreamingLLMClient {
                 } catch {
                     continuation.finish(throwing: error)
                 }
+            }
+
+            continuation.onTermination = { @Sendable _ in
+                task.cancel()
             }
         }
     }

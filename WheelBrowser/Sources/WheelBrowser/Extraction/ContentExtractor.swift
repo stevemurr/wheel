@@ -48,9 +48,14 @@ class ContentExtractor {
         guard tab.url != nil else { return nil }
 
         return await withCheckedContinuation { continuation in
-            tab.webView.evaluateJavaScript(extractionScript) { result, error in
+            tab.webView.evaluateJavaScript(extractionScript) { [weak self] result, error in
                 if let error = error {
                     Log.Browser.error("Content extraction error", error: error)
+                    continuation.resume(returning: nil)
+                    return
+                }
+
+                guard let self = self else {
                     continuation.resume(returning: nil)
                     return
                 }

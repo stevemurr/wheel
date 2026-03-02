@@ -175,6 +175,9 @@ class AgentManager: ObservableObject {
                         safeUpdateMessage(id: assistantMessageId) { $0.content = buffer }
                         lastUpdateTime = now
                     }
+
+                case .finishReason:
+                    break // Handled in streamLLM()
                 }
             }
 
@@ -233,7 +236,7 @@ class AgentManager: ObservableObject {
 
     private func streamLLM() -> AsyncThrowingStream<StreamChunk, Error> {
         AsyncThrowingStream { continuation in
-            Task {
+            let task = Task {
                 do {
                     guard let url = URL(string: "\(settings.llmEndpoint)/chat/completions") else {
                         throw LLMError.invalidURL
@@ -276,7 +279,11 @@ class AgentManager: ObservableObject {
                     // Parse SSE stream and classify each event
                     let processor = self.streamProcessor
                     for try await jsonString in bytes.sseEvents {
+                        try Task.checkCancellation()
                         for chunk in processor.processSSEEvent(jsonString) {
+                            if case .finishReason(let reason) = chunk, reason == "length" {
+                                Log.Chat.warning("streamLLM: Response truncated (finish_reason=length)")
+                            }
                             continuation.yield(chunk)
                         }
                     }
@@ -285,6 +292,10 @@ class AgentManager: ObservableObject {
                 } catch {
                     continuation.finish(throwing: error)
                 }
+            }
+
+            continuation.onTermination = { @Sendable _ in
+                task.cancel()
             }
         }
     }

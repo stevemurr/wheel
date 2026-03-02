@@ -3,24 +3,57 @@ import Foundation
 /// Parses OpenAI Harmony-format LLM responses into (thought, AgentAction) pairs.
 enum HarmonyFormatParser {
 
+    /// Find the end of a JSON object starting at `from`, correctly skipping braces inside strings.
+    /// Returns the index one past the closing `}`, or nil if no balanced close is found.
+    static func findJSONEnd(in str: String, from start: String.Index) -> String.Index? {
+        guard str[start] == "{" else { return nil }
+
+        var braceCount = 0
+        var inString = false
+        var prevWasBackslash = false
+
+        for idx in str.indices[start...] {
+            let ch = str[idx]
+
+            if inString {
+                if ch == "\\" && !prevWasBackslash {
+                    prevWasBackslash = true
+                    continue
+                }
+                if ch == "\"" && !prevWasBackslash {
+                    inString = false
+                }
+                prevWasBackslash = false
+                continue
+            }
+
+            // Not inside a string
+            switch ch {
+            case "\"":
+                inString = true
+                prevWasBackslash = false
+            case "{":
+                braceCount += 1
+            case "}":
+                braceCount -= 1
+                if braceCount == 0 {
+                    return str.index(after: idx)
+                }
+            default:
+                break
+            }
+        }
+
+        return nil
+    }
+
     /// Parse a Harmony-format response string into a thought and action.
     static func parse(_ response: String) -> (thought: String, action: AgentAction)? {
         // Check for JSON wrapper with thought/action fields
         if let messageStart = response.range(of: "<|message|>"),
            let jsonStart = response[messageStart.upperBound...].firstIndex(of: "{") {
 
-            var braceCount = 0
-            var jsonEnd: String.Index?
-            for idx in response.indices[jsonStart...] {
-                if response[idx] == "{" { braceCount += 1 }
-                else if response[idx] == "}" {
-                    braceCount -= 1
-                    if braceCount == 0 {
-                        jsonEnd = response.index(after: idx)
-                        break
-                    }
-                }
-            }
+            let jsonEnd = findJSONEnd(in: response, from: jsonStart)
 
             if let jsonEnd = jsonEnd {
                 let jsonString = String(response[jsonStart..<jsonEnd])
@@ -97,18 +130,7 @@ enum HarmonyFormatParser {
             if let messageStart = response.range(of: "<|message|>"),
                let jsonStart = response[messageStart.upperBound...].firstIndex(of: "{") {
 
-                var braceCount = 0
-                var jsonEnd: String.Index?
-                for idx in response.indices[jsonStart...] {
-                    if response[idx] == "{" { braceCount += 1 }
-                    else if response[idx] == "}" {
-                        braceCount -= 1
-                        if braceCount == 0 {
-                            jsonEnd = response.index(after: idx)
-                            break
-                        }
-                    }
-                }
+                let jsonEnd = findJSONEnd(in: response, from: jsonStart)
 
                 if let jsonEnd = jsonEnd {
                     let jsonString = String(response[jsonStart..<jsonEnd])
@@ -237,10 +259,25 @@ enum HarmonyFormatParser {
 
         // browser.scroll
         if response.contains("browser.scroll") {
-            if response.contains("\"down\"") || response.contains("down") {
+            // Try to extract direction from JSON "direction" field first
+            if let dirRange = response.range(of: #""direction"\s*:\s*"(down|up|top|bottom)""#, options: .regularExpression) {
+                let dirStr = String(response[dirRange])
+                if let dir = dirStr.range(of: #"(down|up|top|bottom)"#, options: .regularExpression, range: dirStr.index(dirStr.startIndex, offsetBy: 12)..<dirStr.endIndex) {
+                    let dirValue = String(dirStr[dir])
+                    if let scrollDir = AgentAction.ScrollDirection(rawValue: dirValue) {
+                        return .scroll(direction: scrollDir)
+                    }
+                }
+            }
+            // Fall back to quoted-only checks to avoid matching natural language
+            if response.contains("\"down\"") {
                 return .scroll(direction: .down)
-            } else if response.contains("\"up\"") || response.contains("up") {
+            } else if response.contains("\"up\"") {
                 return .scroll(direction: .up)
+            } else if response.contains("\"top\"") {
+                return .scroll(direction: .top)
+            } else if response.contains("\"bottom\"") {
+                return .scroll(direction: .bottom)
             }
         }
 

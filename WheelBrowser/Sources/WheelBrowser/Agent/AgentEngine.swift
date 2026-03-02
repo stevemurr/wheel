@@ -770,7 +770,7 @@ class AgentEngine: ObservableObject {
                 let currentState = await bridge.capturePreActionState()
                 let urlChanged = currentState.url != startState.url
                 let captchaGone = startState.captchaDetected && !currentState.captchaDetected
-                let domShift = abs(currentState.elementCount - startState.elementCount) > 5
+                let domShift = currentState.elementCount >= 0 && startState.elementCount >= 0 && abs(currentState.elementCount - startState.elementCount) > 5
 
                 if urlChanged || captchaGone || domShift {
                     isWaitingForUser = false

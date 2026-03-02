@@ -75,6 +75,7 @@ struct ActionDelta {
     let captchaDisappeared: Bool
 
     var significantDOMChange: Bool {
+        guard elementCountBefore >= 0 && elementCountAfter >= 0 else { return false }
         let diff = abs(elementCountAfter - elementCountBefore)
         return diff > 5 || (elementCountBefore > 0 && Double(diff) / Double(elementCountBefore) > 0.3)
     }
@@ -93,7 +94,7 @@ struct ActionDelta {
 
         if significantDOMChange {
             parts.append("Page content changed significantly (\(elementCountBefore) → \(elementCountAfter) elements).")
-        } else if elementCountAfter != elementCountBefore {
+        } else if elementCountBefore >= 0 && elementCountAfter >= 0 && elementCountAfter != elementCountBefore {
             parts.append("Minor page update (\(elementCountBefore) → \(elementCountAfter) elements).")
         }
 

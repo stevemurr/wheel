@@ -60,6 +60,7 @@ class AccessibilityBridge: BrowserBridge {
             let result = try await webView.evaluateJavaScript(script)
             guard let dict = result as? [String: Any],
                   let found = dict["found"] as? Bool else {
+                Log.Agent.warning("revalidateElement(#\(elementId)): Unexpected JS result format, returning original ID")
                 return elementId
             }
 
@@ -74,6 +75,7 @@ class AccessibilityBridge: BrowserBridge {
 
             return elementId
         } catch {
+            Log.Agent.warning("revalidateElement(#\(elementId)): JS error: \(error.localizedDescription), returning original ID")
             return elementId
         }
     }
@@ -116,7 +118,15 @@ class AccessibilityBridge: BrowserBridge {
 
         do {
             let result = try await webView.evaluateJavaScript(AgentScripts.readLinks)
-            return (result as? String) ?? ""
+            if result == nil || result is NSNull {
+                return ""
+            }
+            guard let links = result as? String else {
+                throw AgentError.javascriptError("getPageLinks: Expected String but got \(Swift.type(of: result))")
+            }
+            return links
+        } catch let error as AgentError {
+            throw error
         } catch {
             throw AgentError.javascriptError(error.localizedDescription)
         }
@@ -291,7 +301,7 @@ class AccessibilityBridge: BrowserBridge {
         }
 
         let startTime = Date()
-        var lastElementCount = -1
+        var lastElementCount: Int? = nil
         var lastChangeTime = Date()
 
         while Date().timeIntervalSince(startTime) < timeout {
@@ -301,6 +311,13 @@ class AccessibilityBridge: BrowserBridge {
             }
 
             let currentCount = await getInteractiveElementCount()
+
+            // Skip invalid readings (-1 means WebView error)
+            guard currentCount >= 0 else {
+                Log.Agent.debug("waitForLoad: getInteractiveElementCount returned -1, skipping")
+                try await Task.sleep(nanoseconds: 100_000_000)
+                continue
+            }
 
             if currentCount != lastElementCount {
                 lastElementCount = currentCount
@@ -352,12 +369,16 @@ class AccessibilityBridge: BrowserBridge {
 
     /// Get the count of interactive elements on the page
     func getInteractiveElementCount() async -> Int {
-        guard let webView = webView else { return -1 }
+        guard let webView = webView else {
+            Log.Agent.debug("getInteractiveElementCount: WebView is nil")
+            return -1
+        }
 
         do {
             let result = try await webView.evaluateJavaScript(AgentScripts.interactiveElementCount)
             return (result as? Int) ?? -1
         } catch {
+            Log.Agent.debug("getInteractiveElementCount: JS error: \(error.localizedDescription)")
             return -1
         }
     }
