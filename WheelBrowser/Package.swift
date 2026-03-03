@@ -23,7 +23,8 @@ let package = Package(
             resources: [
                 .copy("Resources/AppIcon.icns"),
                 .copy("Resources/BlockingRules"),
-                .copy("Resources/Scripts")
+                .copy("Resources/Scripts"),
+                .copy("Resources/WidgetSystem")
             ]
         ),
         .executableTarget(

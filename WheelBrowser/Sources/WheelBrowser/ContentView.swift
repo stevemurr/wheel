@@ -90,7 +90,7 @@ private struct TabWebViewContainer: View {
                 if tab.url == nil && tab.isChatTab {
                     FullPageChatView(agentManager: agentManager)
                 } else if tab.url == nil {
-                    NewTabPageView()
+                    PipelineNewTabPageView()
                 } else {
                     WebViewRepresentable(tab: tab)
                 }

@@ -139,5 +139,10 @@ class AppSettings: ObservableObject {
         }
     }
 
+    // MARK: - Widget System Settings
+
+    /// BFF proxy endpoint for widget data fetching (empty = direct HTTP)
+    @AppStorage("bffEndpoint") var bffEndpoint: String = ""
+
     private init() {}
 }

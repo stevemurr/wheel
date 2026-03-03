@@ -30,9 +30,6 @@ final class AppContainer {
     /// Agent studio manager for AI agents
     private(set) lazy var agentStudioManager = AgentStudioManager.shared
 
-    /// New tab page manager
-    private(set) lazy var newTabPageManager = NewTabPageManager.shared
-
     // MARK: - Initialization
 
     private init() {

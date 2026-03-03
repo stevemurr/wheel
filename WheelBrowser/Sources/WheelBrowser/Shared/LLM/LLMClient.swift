@@ -65,6 +65,9 @@ public struct LLMRequestOptions: Sendable {
 
     /// Options for creative/generation tasks
     public static let creative = LLMRequestOptions(temperature: 0.9, maxTokens: 4096)
+
+    /// Options for widget spec generation (deterministic, focused)
+    public static let widgetGeneration = LLMRequestOptions(temperature: 0.0, maxTokens: 2048)
 }
 
 /// Errors that can occur during LLM operations
