@@ -28,27 +28,3 @@ struct CircularIconButton: View {
         }
     }
 }
-
-/// A circular button with customizable icon and background colors
-struct ColoredCircularIconButton: View {
-    let icon: String
-    let iconColor: Color
-    let backgroundColor: Color
-    let action: () -> Void
-    var size: CGFloat = 22
-    var iconSize: CGFloat = 10
-
-    var body: some View {
-        Button(action: action) {
-            Image(systemName: icon)
-                .font(.system(size: iconSize, weight: .bold))
-                .foregroundColor(iconColor)
-                .frame(width: size, height: size)
-                .background(
-                    Circle()
-                        .fill(backgroundColor)
-                )
-        }
-        .buttonStyle(.plain)
-    }
-}

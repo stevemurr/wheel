@@ -120,39 +120,3 @@ struct TabPreviewCard: View {
         }
     }
 }
-
-// MARK: - Large Add Button
-
-struct LargeAddButton: View {
-    let action: () -> Void
-
-    @State private var isHovered = false
-
-    private let cardWidth: CGFloat = 160
-    private let thumbnailHeight: CGFloat = 100
-    private let cornerRadius: CGFloat = 8
-
-    var body: some View {
-        Button(action: action) {
-            ZStack {
-                RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
-                    .fill(Color(nsColor: .quaternaryLabelColor).opacity(isHovered ? 0.5 : 0.3))
-
-                RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
-                    .strokeBorder(
-                        Color(nsColor: .separatorColor).opacity(0.5),
-                        style: StrokeStyle(lineWidth: 1, dash: [4, 3])
-                    )
-
-                Image(systemName: "plus")
-                    .font(.system(size: 24, weight: .medium))
-                    .foregroundColor(Color(nsColor: .secondaryLabelColor))
-            }
-            .frame(width: cardWidth, height: thumbnailHeight)
-        }
-        .buttonStyle(.plain)
-        .scaleEffect(isHovered ? 1.05 : 1.0)
-        .animation(AppAnimation.hoverSpring, value: isHovered)
-        .onHover { isHovered = $0 }
-    }
-}

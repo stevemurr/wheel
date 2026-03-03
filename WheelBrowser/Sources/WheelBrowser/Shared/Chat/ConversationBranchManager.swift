@@ -56,16 +56,4 @@ enum ConversationBranchManager {
 
         return newMessages
     }
-
-    /// Switch to a different branch at the given message index.
-    /// This is a placeholder for future implementation when full branch persistence is added.
-    static func switchBranch(
-        at index: Int,
-        to branchIndex: Int,
-        in messages: [ChatMessage]
-    ) -> [ChatMessage] {
-        // Full branch switching requires persistent storage of all branches.
-        // For now, return messages unchanged.
-        return messages
-    }
 }

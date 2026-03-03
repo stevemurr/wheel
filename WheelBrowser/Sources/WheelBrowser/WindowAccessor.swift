@@ -166,16 +166,7 @@ final class TrafficLightPillView: NSView {
     }
 
     private func updateColors() {
-        // Use semi-transparent colors that work in both light and dark mode
-        let isDarkMode = NSApp.effectiveAppearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
-
-        if isDarkMode {
-            // Subtle light overlay in dark mode
-            layer?.backgroundColor = NSColor.white.withAlphaComponent(0.08).cgColor
-        } else {
-            // Subtle dark overlay in light mode
-            layer?.backgroundColor = NSColor.black.withAlphaComponent(0.06).cgColor
-        }
+        layer?.backgroundColor = NSColor.black.withAlphaComponent(0.06).cgColor
     }
 }
 
