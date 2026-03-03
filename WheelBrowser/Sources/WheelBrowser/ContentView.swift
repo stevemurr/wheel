@@ -10,7 +10,6 @@ private struct BrowserContentArea: View {
     var agentEngine: AgentEngine
     @ObservedObject var wheelState: TabWheelState
     let contentExtractor: ContentExtractor
-    let isConstellationVisible: Bool
 
     var body: some View {
         GeometryReader { geometry in
@@ -38,9 +37,7 @@ private struct BrowserContentArea: View {
                         agentEngine: agentEngine,
                         contentExtractor: contentExtractor
                     )
-                    .opacity(isConstellationVisible ? 0 : 1)
-                    .allowsHitTesting(!isConstellationVisible)
-                }
+}
 
                 // Middle-click interceptor (full overlay, passes through other clicks)
                 RightClickInterceptorView(onMiddleClick: { position, size in
@@ -269,7 +266,6 @@ struct ContentView: View {
     @ObservedObject private var downloadManager = DownloadManager.shared
     @ObservedObject private var wheelState = TabWheelState.shared
     @ObservedObject private var scrapeManager = ScrapeManager.shared
-    @ObservedObject private var constellationState = ConstellationState.shared
     private let contentExtractor = ContentExtractor()
 
     /// URL to show scrape config sheet for
@@ -306,8 +302,7 @@ struct ContentView: View {
                         settings: settings,
                         agentEngine: agentEngine,
                         wheelState: wheelState,
-                        contentExtractor: contentExtractor,
-                        isConstellationVisible: constellationState.isVisible
+                        contentExtractor: contentExtractor
                     )
                 }
             }
@@ -354,18 +349,6 @@ struct ContentView: View {
                 // Show tab wheel at center of window
                 let initialIndex = state.activeTabIndex ?? 0
                 wheelState.show(at: .zero, initialIndex: initialIndex, tabCount: state.tabs.count)
-            }
-            .onReceive(NotificationCenter.default.publisher(for: .showConstellation)) { _ in
-                constellationState.show()
-            }
-            .overlay {
-                if constellationState.isVisible {
-                    ConstellationView(
-                        state: constellationState,
-                        browserState: state
-                    )
-                    .transition(.opacity)
-                }
             }
             .onReceive(NotificationCenter.default.publisher(for: .scrapePage)) { _ in
                 if let url = state.activeTab?.url {
