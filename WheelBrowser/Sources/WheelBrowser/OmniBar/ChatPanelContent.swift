@@ -4,10 +4,20 @@ import SwiftUI
 
 struct ChatPanelContent: View {
     @ObservedObject var agentManager: AgentManager
+    var onSubmitPrompt: ((String) -> Void)?
     @State private var lastScrollTime: Date = .distantPast
 
     private var latestUserMessageID: UUID? {
         agentManager.messages.last(where: { $0.role == .user })?.id
+    }
+
+    /// Follow-up suggestions from the last assistant message (when not streaming)
+    private var followUpSuggestions: [String] {
+        guard !agentManager.isStreamingActive,
+              let lastAssistant = agentManager.messages.last(where: { $0.role == .assistant }) else {
+            return []
+        }
+        return lastAssistant.suggestedFollowUps
     }
 
     var body: some View {
@@ -15,12 +25,10 @@ struct ChatPanelContent: View {
             ScrollView(showsIndicators: true) {
                 VStack(spacing: 8) {
                     if agentManager.messages.isEmpty {
-                        OmniPanelEmptyState(
-                            icon: "bubble.left.and.bubble.right",
-                            title: "Start a conversation",
-                            subtitle: "Ask questions about the current page"
-                        )
-                        .padding(.top, 30)
+                        WelcomeStateView(compact: true) { prompt in
+                            onSubmitPrompt?(prompt)
+                        }
+                        .padding(.top, 20)
 
                         if let error = agentManager.error {
                             Text(error)
@@ -36,9 +44,28 @@ struct ChatPanelContent: View {
                             .controlSize(.small)
                         }
                     } else {
-                        ForEach(agentManager.messages) { message in
+                        ForEach(Array(agentManager.messages.enumerated()), id: \.element.id) { index, message in
                             VStack(alignment: .leading, spacing: 4) {
-                                ChatPanelMessageBubble(message: message)
+                                ChatPanelMessageBubble(
+                                    message: message,
+                                    onEdit: { newContent in
+                                        Task {
+                                            await agentManager.editAndResend(
+                                                messageIndex: index,
+                                                newContent: newContent,
+                                                pageContexts: []
+                                            )
+                                        }
+                                    },
+                                    onRegenerate: {
+                                        Task {
+                                            await agentManager.regenerateResponse(at: index)
+                                        }
+                                    },
+                                    onSelectArtifact: { artifact in
+                                        agentManager.selectedArtifact = artifact
+                                    }
+                                )
 
                                 // Retry button for failed messages
                                 if message.isFailed {
@@ -69,6 +96,14 @@ struct ChatPanelContent: View {
                                 }
                             }
                             .id(message.id)
+                        }
+
+                        // Follow-up suggestions after last assistant message
+                        if !followUpSuggestions.isEmpty {
+                            FollowUpSuggestionsView(suggestions: followUpSuggestions) { suggestion in
+                                onSubmitPrompt?(suggestion)
+                            }
+                            .padding(.top, 4)
                         }
 
                         // Invisible anchor at the bottom for scrolling

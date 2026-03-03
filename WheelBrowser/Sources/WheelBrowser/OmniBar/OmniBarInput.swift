@@ -26,12 +26,30 @@ extension OmniBar {
             // Input field or inline agent status
             if showInlineAgentStatus {
                 agentInlineStatus
+            } else if omniState.mode == .chat {
+                // Multi-line editor for chat mode
+                OmniBarTextEditor(
+                    text: $omniState.inputText,
+                    isFocused: $isInputFocused,
+                    placeholder: !omniState.mentions.isEmpty ? "Ask about these pages..." : omniState.placeholder,
+                    keyboardHandler: self,
+                    onSubmit: handleSubmit,
+                    onAtTrigger: { query in
+                        handleAtTrigger(query: query)
+                    },
+                    onAtDismiss: {
+                        if omniState.showMentionDropdown {
+                            omniState.dismissMentionDropdown()
+                            mentionSuggestionsVM.clear()
+                        }
+                    }
+                )
             } else {
                 OmniBarTextField(
                     text: $omniState.inputText,
                     isFocused: $isInputFocused,
                     mode: omniState.mode,
-                    placeholder: omniState.mode == .chat && !omniState.mentions.isEmpty ? "Ask about these pages..." : omniState.placeholder,
+                    placeholder: omniState.placeholder,
                     keyboardHandler: self,
                     onSubmit: handleSubmit,
                     onAtTrigger: { query in
@@ -77,11 +95,19 @@ extension OmniBar {
     // MARK: - Mode Indicator
 
     var modeIndicator: some View {
-        ModeIndicatorView(
-            agentManager: agentManager,
-            omniState: omniState,
-            isInputFocused: isInputFocused
-        )
+        HStack(spacing: 4) {
+            ModeIndicatorView(
+                agentManager: agentManager,
+                omniState: omniState,
+                isInputFocused: isInputFocused
+            )
+
+            // Model selector badge (only in chat mode when focused)
+            if omniState.mode == .chat && isInputFocused {
+                ModelSelectorBadge()
+                    .transition(.opacity.combined(with: .scale(scale: 0.8)))
+            }
+        }
     }
 
     // MARK: - Action Button
@@ -104,25 +130,12 @@ extension OmniBar {
             }
 
         case .chat:
-            Button(action: handleSubmit) {
-                ZStack {
-                    if isSending {
-                        ProgressView()
-                            .scaleEffect(0.5)
-                    } else {
-                        Image(systemName: "arrow.up")
-                            .font(.system(size: 10, weight: .bold))
-                            .foregroundColor(omniState.inputText.isEmpty ? .secondary : .white)
-                    }
-                }
-                .frame(width: 22, height: 22)
-                .background(
-                    Circle()
-                        .fill(omniState.inputText.isEmpty ? Color.secondary.opacity(0.2) : Color.purple)
-                )
-            }
-            .buttonStyle(.plain)
-            .disabled(omniState.inputText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || isSending)
+            ChatModeActionButton(
+                agentManager: agentManager,
+                inputText: omniState.inputText,
+                isSending: isSending,
+                onSubmit: handleSubmit
+            )
 
         case .semantic:
             if isInputFocused && !omniState.inputText.isEmpty {
@@ -296,5 +309,53 @@ private struct AgentActionButton: View {
         }
         .buttonStyle(.plain)
         .disabled(inputText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || agentEngine.isRunning)
+    }
+}
+
+/// Extracted sub-view for chat mode send/stop button (Rule 13).
+/// Isolates `agentManager.isStreamingActive` reads from OmniBar.body.
+private struct ChatModeActionButton: View {
+    @ObservedObject var agentManager: AgentManager
+    var inputText: String
+    var isSending: Bool
+    var onSubmit: () -> Void
+
+    var body: some View {
+        if agentManager.isStreamingActive {
+            // Stop button during streaming
+            Button(action: { agentManager.stopGeneration() }) {
+                Image(systemName: "stop.fill")
+                    .font(.system(size: 8, weight: .bold))
+                    .foregroundColor(.white)
+                    .frame(width: 22, height: 22)
+                    .background(
+                        Circle()
+                            .fill(Color.red.opacity(0.85))
+                    )
+            }
+            .buttonStyle(.plain)
+            .help("Stop generation")
+        } else {
+            // Send button
+            Button(action: onSubmit) {
+                ZStack {
+                    if isSending {
+                        ProgressView()
+                            .scaleEffect(0.5)
+                    } else {
+                        Image(systemName: "arrow.up")
+                            .font(.system(size: 10, weight: .bold))
+                            .foregroundColor(inputText.isEmpty ? .secondary : .white)
+                    }
+                }
+                .frame(width: 22, height: 22)
+                .background(
+                    Circle()
+                        .fill(inputText.isEmpty ? Color.secondary.opacity(0.2) : Color.purple)
+                )
+            }
+            .buttonStyle(.plain)
+            .disabled(inputText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || isSending)
+        }
     }
 }

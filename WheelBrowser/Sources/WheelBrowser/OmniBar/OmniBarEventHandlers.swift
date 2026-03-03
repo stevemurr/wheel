@@ -166,6 +166,12 @@ extension OmniBar {
     // MARK: - Escape Pressed
 
     func handleEscapePressed() {
+        // Stop streaming if active (Escape during streaming)
+        if agentManager.isStreamingActive {
+            agentManager.stopGeneration()
+            return
+        }
+
         if downloadManager.showDownloadsPanel {
             downloadManager.dismissPanel()
         } else if omniState.showMentionDropdown {
@@ -282,6 +288,27 @@ extension OmniBar {
         omniState.setMode(.readingList)
         // NOTE: Do NOT call setVisiblePanel here — handled by setMode → handleModeChange → activateMode.
         // readingListVM.loadSavedPages() is called inside activateMode.
+    }
+
+    // MARK: - Chat Action Shortcuts
+
+    func handleCopyLastResponse() {
+        guard let lastAssistant = agentManager.messages.last(where: { $0.role == .assistant }) else { return }
+        PasteboardHelper.copy(lastAssistant.content)
+    }
+
+    func handleRegenerateResponse() {
+        guard let lastIdx = agentManager.messages.lastIndex(where: { $0.role == .assistant }) else { return }
+        Task {
+            await agentManager.regenerateResponse(at: lastIdx)
+        }
+    }
+
+    func handleEditLastMessage() {
+        // Focus chat mode and let the user edit via inline editor
+        isInputFocused = true
+        omniState.setMode(.chat)
+        omniState.setVisiblePanel(.chat)
     }
 
     // MARK: - Search State Helpers

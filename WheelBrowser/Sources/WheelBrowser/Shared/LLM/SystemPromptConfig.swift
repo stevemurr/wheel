@@ -15,6 +15,13 @@ enum SystemPromptConfig {
 
     When the user asks about the current page, use the page context provided in the message.
     Be concise but helpful. Focus on the most relevant information for the user's question.
+
+    After your response, suggest 2-3 relevant follow-up questions the user might ask. Format them as:
+    [SUGGESTIONS]
+    - First follow-up question
+    - Second follow-up question
+    - Third follow-up question
+    [/SUGGESTIONS]
     """
 
     /// Resolved chat system prompt — uses custom if set, otherwise default

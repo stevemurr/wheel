@@ -33,6 +33,14 @@ struct ThinkingBubble: View {
         self._isExpanded = State(initialValue: message.isStreaming)
     }
 
+    /// Duration label: shows "Thought for Xs" or live timer during streaming
+    private var durationLabel: String {
+        if let duration = message.thinkingDurationSeconds {
+            return "Thought for \(Int(duration))s"
+        }
+        return "\(message.content.count) chars"
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             // Header row with toggle
@@ -56,13 +64,22 @@ struct ThinkingBubble: View {
                         .foregroundColor(.purple.opacity(0.8))
 
                     if message.isStreaming {
-                        ChatPanelPulsingDot()
-                            .scaleEffect(0.7)
+                        // Live timer using TimelineView (Rule 5: no .contentTransition on streaming)
+                        if let startTime = message.thinkingStartTime {
+                            ThinkingLiveTimer(startTime: startTime)
+                        } else {
+                            ChatPanelPulsingDot()
+                                .scaleEffect(0.7)
+                        }
+
+                        // Subtle indeterminate progress bar
+                        ThinkingProgressBar()
+                            .frame(width: 40, height: 2)
                     }
 
                     Spacer()
 
-                    Text("\(message.content.count) chars")
+                    Text(durationLabel)
                         .font(.system(size: 9))
                         .foregroundColor(.secondary.opacity(0.5))
                 }
@@ -73,6 +90,14 @@ struct ThinkingBubble: View {
             .buttonStyle(.plain)
             .onHover { hovering in
                 isHovered = hovering
+            }
+            // Auto-collapse when streaming ends
+            .onChange(of: message.isStreaming) { _, newValue in
+                if !newValue && isExpanded {
+                    withAnimation(AppAnimation.medium) {
+                        isExpanded = false
+                    }
+                }
             }
 
             // Expandable content
@@ -104,11 +129,49 @@ struct ThinkingBubble: View {
     }
 }
 
+/// Live timer that updates every second during thinking (Rule 5 compliant - no contentTransition)
+private struct ThinkingLiveTimer: View {
+    let startTime: Date
+
+    var body: some View {
+        TimelineView(.periodic(from: startTime, by: 1)) { timeline in
+            let elapsed = Int(timeline.date.timeIntervalSince(startTime))
+            Text("\(elapsed)s")
+                .font(.system(size: 10, weight: .medium, design: .monospaced))
+                .foregroundColor(.purple.opacity(0.6))
+        }
+    }
+}
+
+/// Subtle indeterminate progress bar for thinking state
+private struct ThinkingProgressBar: View {
+    @State private var offset: CGFloat = -1
+
+    var body: some View {
+        GeometryReader { geometry in
+            RoundedRectangle(cornerRadius: 1)
+                .fill(Color.purple.opacity(0.3))
+                .frame(width: geometry.size.width * 0.4)
+                .offset(x: offset * geometry.size.width * 0.6)
+        }
+        .clipShape(RoundedRectangle(cornerRadius: 1))
+        .background(Color.purple.opacity(0.1))
+        .onAppear {
+            withAnimation(.easeInOut(duration: 1.2).repeatForever(autoreverses: true)) {
+                offset = 1
+            }
+        }
+    }
+}
+
 /// Compact message bubble for the chat panel
 struct ChatPanelMessageBubble: View {
     let message: ChatMessage
+    var onEdit: ((String) -> Void)?
+    var onRegenerate: (() -> Void)?
+    var onSelectArtifact: ((ChatArtifact) -> Void)?
     @State private var isHovered = false
-    @State private var showCopied = false
+    @State private var isEditing = false
 
     var body: some View {
         // Special handling for thinking messages - use collapsible view
@@ -139,54 +202,72 @@ struct ChatPanelMessageBubble: View {
                     }
                 }
 
-                // Message content
-                Group {
-                    if message.content.isEmpty && message.isStreaming {
-                        ChatPanelTypingIndicator()
-                            .padding(.horizontal, 12)
-                            .padding(.vertical, 10)
-                    } else {
-                        // Render full markdown
-                        Markdown(message.content)
-                            .markdownTheme(markdownTheme)
-                            .textSelection(.enabled)
-                            .frame(maxWidth: .infinity, alignment: .leading)
+                // Inline editor or message content
+                if isEditing && message.role == .user {
+                    InlineMessageEditor(
+                        originalContent: message.content,
+                        onSave: { newContent in
+                            isEditing = false
+                            onEdit?(newContent)
+                        },
+                        onCancel: { isEditing = false }
+                    )
+                } else {
+                    // Message content
+                    Group {
+                        if message.content.isEmpty && message.isStreaming {
+                            ChatPanelTypingIndicator()
+                                .padding(.horizontal, 12)
+                                .padding(.vertical, 10)
+                        } else {
+                            VStack(alignment: .leading, spacing: 0) {
+                                // Render full markdown with shared theme
+                                Markdown(message.content)
+                                    .markdownTheme(ChatMarkdownTheme.theme(for: message.role))
+                                    .textSelection(.enabled)
+                                    .frame(maxWidth: .infinity, alignment: .leading)
+
+                                // Streaming cursor (blinking bar at end of content)
+                                if message.isStreaming && !message.content.isEmpty {
+                                    StreamingCursor()
+                                }
+
+                                // Artifact chips for assistant messages
+                                if message.role == .assistant && !message.artifacts.isEmpty {
+                                    ScrollView(.horizontal, showsIndicators: false) {
+                                        HStack(spacing: 6) {
+                                            ForEach(message.artifacts) { artifact in
+                                                ArtifactChip(artifact: artifact) {
+                                                    onSelectArtifact?(artifact)
+                                                }
+                                            }
+                                        }
+                                    }
+                                    .padding(.top, 6)
+                                }
+                            }
                             .padding(.horizontal, 12)
                             .padding(.vertical, 12)
-                    }
-                }
-                .frame(minWidth: 60, alignment: message.role == .user ? .trailing : .leading)
-                .background(bubbleBackground)
-                .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
-                .overlay(
-                    RoundedRectangle(cornerRadius: 12, style: .continuous)
-                        .stroke(bubbleBorder, lineWidth: 1.0)
-                )
-
-                // Action toolbar for assistant messages (copy button)
-                if message.role == .assistant && !message.content.isEmpty && !message.isStreaming {
-                    HStack(spacing: 8) {
-                        Button(action: copyMessage) {
-                            HStack(spacing: 4) {
-                                Image(systemName: showCopied ? "checkmark" : "doc.on.doc")
-                                    .font(.system(size: 10, weight: .medium))
-                                Text(showCopied ? "Copied" : "Copy")
-                                    .font(.system(size: 10, weight: .medium))
-                            }
-                            .foregroundColor(showCopied ? .green : .secondary)
-                            .padding(.horizontal, 8)
-                            .padding(.vertical, 4)
-                            .background(
-                                RoundedRectangle(cornerRadius: 6, style: .continuous)
-                                    .fill(Color(nsColor: .controlBackgroundColor).opacity(isHovered ? 1.0 : 0.6))
-                            )
                         }
-                        .buttonStyle(.plain)
-
-                        Spacer()
                     }
-                    .opacity(isHovered || showCopied ? 1.0 : 0.0)
-                    .animation(AppAnimation.standardOut, value: isHovered)
+                    .frame(minWidth: 60, alignment: message.role == .user ? .trailing : .leading)
+                    .background(bubbleBackground)
+                    .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 12, style: .continuous)
+                            .stroke(bubbleBorder, lineWidth: 1.0)
+                    )
+                }
+
+                // Hover action bar (replaces old copy-only toolbar)
+                if !message.isStreaming && !message.content.isEmpty && !isEditing {
+                    MessageActionBar(
+                        message: message,
+                        isHovered: isHovered,
+                        onEdit: message.role == .user ? { isEditing = true } : nil,
+                        onCopy: { PasteboardHelper.copy(message.content) },
+                        onRegenerate: message.role == .assistant ? onRegenerate : nil
+                    )
                 }
             }
             .frame(maxWidth: message.role == .user ? 400 : .infinity, alignment: message.role == .user ? .trailing : .leading)
@@ -198,15 +279,6 @@ struct ChatPanelMessageBubble: View {
         .padding(.vertical, 2)
         .onHover { hovering in
             isHovered = hovering
-        }
-    }
-
-    private func copyMessage() {
-        PasteboardHelper.copy(message.content)
-        showCopied = true
-        Task {
-            try? await Task.sleep(for: .seconds(2))
-            showCopied = false
         }
     }
 
@@ -237,121 +309,22 @@ struct ChatPanelMessageBubble: View {
         }
     }
 
-    private var markdownTheme: Theme {
-        switch message.role {
-        case .user:
-            return Theme()
-                .text {
-                    ForegroundColor(.white)
-                    FontSize(13.5)
+}
+
+/// Blinking cursor shown at the end of streaming content (Rule 5 compliant)
+private struct StreamingCursor: View {
+    @State private var isVisible = true
+
+    var body: some View {
+        RoundedRectangle(cornerRadius: 1)
+            .fill(Color.purple)
+            .frame(width: 2, height: 14)
+            .opacity(isVisible ? 1.0 : 0.0)
+            .onAppear {
+                withAnimation(.easeInOut(duration: 0.5).repeatForever(autoreverses: true)) {
+                    isVisible = false
                 }
-                .paragraph { configuration in
-                    configuration.label
-                        .relativeLineSpacing(.em(0.15))
-                        .markdownMargin(top: 0, bottom: 6)
-                }
-                .code {
-                    ForegroundColor(.white.opacity(0.95))
-                    BackgroundColor(.white.opacity(0.15))
-                    FontSize(12)
-                }
-                .link {
-                    ForegroundColor(.white)
-                    UnderlineStyle(.single)
-                }
-        default:
-            return Theme()
-                .text {
-                    ForegroundColor(.primary)
-                    FontSize(13.5)
-                }
-                .paragraph { configuration in
-                    configuration.label
-                        .relativeLineSpacing(.em(0.18))
-                        .markdownMargin(top: 0, bottom: 10)
-                }
-                .code {
-                    FontFamilyVariant(.monospaced)
-                    FontSize(12)
-                    BackgroundColor(Color(nsColor: .quaternaryLabelColor).opacity(0.15))
-                }
-                .codeBlock { configuration in
-                    ScrollView(.horizontal, showsIndicators: false) {
-                        configuration.label
-                            .padding(10)
-                    }
-                    .background(Color(nsColor: .textBackgroundColor).opacity(0.8))
-                    .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 8, style: .continuous)
-                            .stroke(Color(nsColor: .separatorColor).opacity(0.2), lineWidth: 0.5)
-                    )
-                    .markdownMargin(top: 8, bottom: 8)
-                }
-                .link {
-                    ForegroundColor(.accentColor)
-                }
-                .strong {
-                    FontWeight(.semibold)
-                }
-                .heading1 { configuration in
-                    configuration.label
-                        .markdownTextStyle { FontSize(15); FontWeight(.bold) }
-                        .markdownMargin(top: 14, bottom: 6)
-                }
-                .heading2 { configuration in
-                    configuration.label
-                        .markdownTextStyle { FontSize(14); FontWeight(.bold) }
-                        .markdownMargin(top: 12, bottom: 5)
-                }
-                .heading3 { configuration in
-                    configuration.label
-                        .markdownTextStyle { FontSize(13.5); FontWeight(.semibold) }
-                        .markdownMargin(top: 10, bottom: 4)
-                }
-                .listItem { configuration in
-                    configuration.label
-                        .markdownMargin(top: 4, bottom: 4)
-                }
-                // Stylish table rendering with native macOS appearance
-                .table { configuration in
-                    configuration.label
-                        .fixedSize(horizontal: false, vertical: true)
-                        .markdownTableBorderStyle(
-                            TableBorderStyle(
-                                .allBorders,
-                                color: Color(nsColor: .separatorColor).opacity(0.4),
-                                width: 1
-                            )
-                        )
-                        .markdownTableBackgroundStyle(
-                            .alternatingRows(
-                                Color(nsColor: .controlBackgroundColor).opacity(0.3),
-                                Color.clear,
-                                header: Color(nsColor: .controlBackgroundColor).opacity(0.6)
-                            )
-                        )
-                        .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
-                        .overlay(
-                            RoundedRectangle(cornerRadius: 8, style: .continuous)
-                                .stroke(Color(nsColor: .separatorColor).opacity(0.3), lineWidth: 1)
-                        )
-                        .markdownMargin(top: 8, bottom: 12)
-                }
-                .tableCell { configuration in
-                    configuration.label
-                        .markdownTextStyle {
-                            if configuration.row == 0 {
-                                FontWeight(.semibold)
-                            }
-                            FontSize(12.5)
-                            BackgroundColor(nil)
-                        }
-                        .fixedSize(horizontal: false, vertical: true)
-                        .padding(.vertical, 8)
-                        .padding(.horizontal, 10)
-                }
-        }
+            }
     }
 }
 

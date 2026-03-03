@@ -298,5 +298,14 @@ private struct OmniBarNotificationModifier: ViewModifier {
                 guard !omniBar.agentManager.isFullPageChatActive else { return }
                 omniBar.omniState.setMode(.scraping)
             }
+            .onReceive(NotificationCenter.default.publisher(for: .copyLastResponse)) { _ in
+                omniBar.handleCopyLastResponse()
+            }
+            .onReceive(NotificationCenter.default.publisher(for: .regenerateResponse)) { _ in
+                omniBar.handleRegenerateResponse()
+            }
+            .onReceive(NotificationCenter.default.publisher(for: .editLastMessage)) { _ in
+                omniBar.handleEditLastMessage()
+            }
     }
 }

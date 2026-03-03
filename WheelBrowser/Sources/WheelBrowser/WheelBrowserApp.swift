@@ -118,6 +118,23 @@ struct WheelBrowserApp: App {
                     NotificationCenter.default.post(name: .focusSemanticSearch, object: nil)
                 }
                 .keyboardShortcut("j", modifiers: .command)
+
+                Divider()
+
+                Button("Copy Last Response") {
+                    NotificationCenter.default.post(name: .copyLastResponse, object: nil)
+                }
+                .keyboardShortcut("c", modifiers: [.command, .shift])
+
+                Button("Regenerate Response") {
+                    NotificationCenter.default.post(name: .regenerateResponse, object: nil)
+                }
+                .keyboardShortcut("r", modifiers: [.command, .shift])
+
+                Button("Edit Last Message") {
+                    NotificationCenter.default.post(name: .editLastMessage, object: nil)
+                }
+                .keyboardShortcut("e", modifiers: [.command, .shift])
             }
 
 // Navigation commands
@@ -345,4 +362,9 @@ extension Notification.Name {
 
     // Open link in new tab (from context menu)
     static let openLinkInNewTab = Notification.Name("openLinkInNewTab")
+
+    // Chat actions
+    static let copyLastResponse = Notification.Name("copyLastResponse")
+    static let regenerateResponse = Notification.Name("regenerateResponse")
+    static let editLastMessage = Notification.Name("editLastMessage")
 }

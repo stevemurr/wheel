@@ -4,41 +4,59 @@ import SwiftUI
 /// Replaces `NewTabPageView` with a centered message thread or empty state.
 struct FullPageChatView: View {
     @ObservedObject var agentManager: AgentManager
+    var onSubmitPrompt: ((String) -> Void)?
     @State private var lastScrollTime: Date = .distantPast
+    @State private var selectedArtifact: ChatArtifact?
 
     private var latestUserMessageID: UUID? {
         agentManager.messages.last(where: { $0.role == .user })?.id
     }
 
+    /// Follow-up suggestions from the last assistant message
+    private var followUpSuggestions: [String] {
+        guard !agentManager.isStreamingActive,
+              let lastAssistant = agentManager.messages.last(where: { $0.role == .assistant }) else {
+            return []
+        }
+        return lastAssistant.suggestedFollowUps
+    }
+
     var body: some View {
-        Group {
-            if agentManager.messages.isEmpty {
-                emptyState
-            } else {
-                messageList
+        HStack(spacing: 0) {
+            // Main chat column
+            chatColumn
+                .frame(maxWidth: selectedArtifact != nil ? 400 : .infinity)
+
+            // Artifact panel (slides in from right)
+            if let artifact = selectedArtifact {
+                Divider()
+
+                ArtifactPanelView(artifact: artifact) {
+                    withAnimation(AppAnimation.standard) {
+                        selectedArtifact = nil
+                    }
+                }
+                .frame(minWidth: 350, maxWidth: 600)
+                .transition(.move(edge: .trailing).combined(with: .opacity))
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(Color(nsColor: .textBackgroundColor))
+        .animation(AppAnimation.standard, value: selectedArtifact != nil)
     }
 
-    // MARK: - Empty State
+    // MARK: - Chat Column
 
-    private var emptyState: some View {
-        VStack(spacing: 12) {
-            Image(systemName: "sparkles")
-                .font(.system(size: 36, weight: .light))
-                .foregroundStyle(.purple.opacity(0.6))
-
-            Text("What can I help you with?")
-                .font(.system(size: 24, weight: .semibold, design: .rounded))
-                .foregroundStyle(.primary)
-
-            Text("Type in the bar below to start a conversation")
-                .font(.system(size: 14))
-                .foregroundStyle(.secondary)
+    private var chatColumn: some View {
+        Group {
+            if agentManager.messages.isEmpty {
+                WelcomeStateView(compact: false) { prompt in
+                    onSubmitPrompt?(prompt)
+                }
+            } else {
+                messageList
+            }
         }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
     // MARK: - Message List
@@ -47,15 +65,44 @@ struct FullPageChatView: View {
         ScrollViewReader { proxy in
             ScrollView(showsIndicators: true) {
                 VStack(spacing: 8) {
-                    ForEach(agentManager.messages) { message in
+                    ForEach(Array(agentManager.messages.enumerated()), id: \.element.id) { index, message in
                         VStack(alignment: .leading, spacing: 4) {
-                            ChatPanelMessageBubble(message: message)
+                            ChatPanelMessageBubble(
+                                message: message,
+                                onEdit: { newContent in
+                                    Task {
+                                        await agentManager.editAndResend(
+                                            messageIndex: index,
+                                            newContent: newContent,
+                                            pageContexts: []
+                                        )
+                                    }
+                                },
+                                onRegenerate: {
+                                    Task {
+                                        await agentManager.regenerateResponse(at: index)
+                                    }
+                                },
+                                onSelectArtifact: { artifact in
+                                    withAnimation(AppAnimation.standard) {
+                                        selectedArtifact = artifact
+                                    }
+                                }
+                            )
 
                             if message.isFailed {
                                 retryButton
                             }
                         }
                         .id(message.id)
+                    }
+
+                    // Follow-up suggestions
+                    if !followUpSuggestions.isEmpty {
+                        FollowUpSuggestionsView(suggestions: followUpSuggestions) { suggestion in
+                            onSubmitPrompt?(suggestion)
+                        }
+                        .padding(.top, 4)
                     }
 
                     Color.clear

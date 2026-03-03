@@ -16,6 +16,37 @@ public struct ChatMessage: Identifiable, Equatable, Hashable, Codable {
     public var conversationId: UUID?
     public var isFailed: Bool
 
+    // MARK: - Thinking duration
+
+    /// Duration the model spent thinking (set after stream completes)
+    public var thinkingDurationSeconds: TimeInterval?
+    /// When thinking started (for live timer during streaming)
+    public var thinkingStartTime: Date?
+
+    // MARK: - Follow-up suggestions
+
+    /// AI-suggested follow-up prompts parsed from model output
+    public var suggestedFollowUps: [String]
+
+    // MARK: - Stop generation
+
+    /// Whether the user stopped generation mid-stream
+    public var wasStoppedByUser: Bool
+
+    // MARK: - Artifacts
+
+    /// Extracted code blocks / documents from this message
+    public var artifacts: [ChatArtifact]
+
+    // MARK: - Branching (edit / regenerate)
+
+    /// The original message ID this is a branch of
+    public var parentId: UUID?
+    /// Which branch variant this is (0-based)
+    public var branchIndex: Int
+    /// Total number of branches at this point
+    public var totalBranches: Int
+
     /// The role of the message sender
     public enum MessageRole: String, Codable, Hashable {
         case user
@@ -33,7 +64,15 @@ public struct ChatMessage: Identifiable, Equatable, Hashable, Codable {
         tokens: Int? = nil,
         modelUsed: String? = nil,
         conversationId: UUID? = nil,
-        isFailed: Bool = false
+        isFailed: Bool = false,
+        thinkingDurationSeconds: TimeInterval? = nil,
+        thinkingStartTime: Date? = nil,
+        suggestedFollowUps: [String] = [],
+        wasStoppedByUser: Bool = false,
+        artifacts: [ChatArtifact] = [],
+        parentId: UUID? = nil,
+        branchIndex: Int = 0,
+        totalBranches: Int = 1
     ) {
         self.id = id
         self.role = role
@@ -44,6 +83,14 @@ public struct ChatMessage: Identifiable, Equatable, Hashable, Codable {
         self.modelUsed = modelUsed
         self.conversationId = conversationId
         self.isFailed = isFailed
+        self.thinkingDurationSeconds = thinkingDurationSeconds
+        self.thinkingStartTime = thinkingStartTime
+        self.suggestedFollowUps = suggestedFollowUps
+        self.wasStoppedByUser = wasStoppedByUser
+        self.artifacts = artifacts
+        self.parentId = parentId
+        self.branchIndex = branchIndex
+        self.totalBranches = totalBranches
     }
 
     // MARK: - Convenience Initializers
