@@ -68,10 +68,17 @@ private func withTimeout<T: Sendable>(seconds: TimeInterval, operation: @escapin
             throw TimeoutError()
         }
 
+        // Wait for the first task to complete (either result or timeout)
         guard let result = try await group.next() else {
             throw TimeoutError()
         }
+        // Cancel the remaining task (the sleep timer or the operation)
         group.cancelAll()
+        // Await remaining tasks to ensure full cleanup before returning.
+        // This prevents the operation from running in the background after timeout.
+        while !group.isEmpty {
+            _ = try? await group.next()
+        }
         return result
     }
 }

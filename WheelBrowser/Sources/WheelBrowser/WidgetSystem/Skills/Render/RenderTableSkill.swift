@@ -6,7 +6,7 @@ struct RenderTableSkill: WidgetSkill {
 
     let paramSchema = """
     {
-      "columns": "array (required) — array of {key, label, sortable?, format?} objects",
+      "columns": "array of objects (required) — each object has: {\"key\": \"field_name\", \"label\": \"Display Name\", \"sortable\": true/false (optional, default true), \"format\": \"plain|currency|percent|number|temperature\" (optional, default \"plain\")}. Example: [{\"key\": \"name\", \"label\": \"Name\"}, {\"key\": \"price\", \"label\": \"Price\", \"format\": \"currency\"}]",
       "input": "reference (required) — {{step_id.output}} from a previous step"
     }
     """

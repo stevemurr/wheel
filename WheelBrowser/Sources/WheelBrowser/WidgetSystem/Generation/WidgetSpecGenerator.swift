@@ -6,6 +6,7 @@ final class WidgetSpecGenerator {
     private let llmClient: any LLMClient
     private let registry: SkillRegistry
     private let maxRepairAttempts = 2
+    private let jsonDecoder = JSONDecoder()
 
     init(llmClient: any LLMClient, registry: SkillRegistry) {
         self.llmClient = llmClient
@@ -53,7 +54,13 @@ final class WidgetSpecGenerator {
             } catch let validationError as SpecValidationError {
                 if attempt < maxRepairAttempts {
                     messages.append(.assistant(response))
-                    messages.append(.user("The spec failed validation: \(validationError.localizedDescription). Please fix the issue and output the corrected JSON."))
+                    messages.append(.user("""
+                    The spec failed validation: \(validationError.localizedDescription)
+
+                    Please carefully review the ENTIRE spec for any other issues as well, then output the fully corrected JSON. \
+                    Make sure all required parameters are present for each skill, all references point to preceding steps, \
+                    and the last step is a render skill. Output ONLY the JSON object.
+                    """))
                     lastError = validationError
                     continue
                 }
@@ -65,24 +72,49 @@ final class WidgetSpecGenerator {
     }
 
     private func parseSpec(from response: String) throws -> WidgetPipelineSpec {
-        // Strip markdown code fences if present
         var json = response.trimmingCharacters(in: .whitespacesAndNewlines)
-        if json.hasPrefix("```") {
-            // Remove opening fence (with optional language tag)
-            if let firstNewline = json.firstIndex(of: "\n") {
-                json = String(json[json.index(after: firstNewline)...])
+
+        // Extract content from markdown code fences anywhere in the response
+        if let fenceStart = json.range(of: "```json"),
+           let contentStart = json.range(of: "\n", range: fenceStart.upperBound..<json.endIndex) {
+            let afterFence = json[contentStart.upperBound...]
+            if let fenceEnd = afterFence.range(of: "```") {
+                json = String(afterFence[afterFence.startIndex..<fenceEnd.lowerBound])
+                    .trimmingCharacters(in: .whitespacesAndNewlines)
             }
-            // Remove closing fence
-            if json.hasSuffix("```") {
-                json = String(json.dropLast(3))
+        } else if let fenceStart = json.range(of: "```"),
+                  let contentStart = json.range(of: "\n", range: fenceStart.upperBound..<json.endIndex) {
+            let afterFence = json[contentStart.upperBound...]
+            if let fenceEnd = afterFence.range(of: "```") {
+                json = String(afterFence[afterFence.startIndex..<fenceEnd.lowerBound])
+                    .trimmingCharacters(in: .whitespacesAndNewlines)
             }
-            json = json.trimmingCharacters(in: .whitespacesAndNewlines)
+        }
+
+        // Fallback: extract first top-level JSON object using brace matching
+        if !json.hasPrefix("{"), let braceStart = json.firstIndex(of: "{") {
+            var depth = 0
+            var braceEnd: String.Index?
+            var inString = false
+            var escape = false
+            for i in json.indices[braceStart...] {
+                let c = json[i]
+                if escape { escape = false; continue }
+                if c == "\\" && inString { escape = true; continue }
+                if c == "\"" { inString = !inString; continue }
+                if inString { continue }
+                if c == "{" { depth += 1 }
+                else if c == "}" { depth -= 1; if depth == 0 { braceEnd = i; break } }
+            }
+            if let braceEnd {
+                json = String(json[braceStart...braceEnd])
+            }
         }
 
         guard let data = json.data(using: .utf8) else {
             throw WidgetError.specGenerationFailed("Response is not valid UTF-8")
         }
 
-        return try JSONDecoder().decode(WidgetPipelineSpec.self, from: data)
+        return try jsonDecoder.decode(WidgetPipelineSpec.self, from: data)
     }
 }

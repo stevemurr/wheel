@@ -14,6 +14,6 @@ struct MapFieldsSkill: WidgetSkill {
 
     func execute(params: [String: Any]) async throws -> Any {
         let input = params["input"] ?? []
-        return try sandbox.execute(skill: .mapFields, params: params, input: input)
+        return try await sandbox.execute(skill: .mapFields, params: params, input: input)
     }
 }

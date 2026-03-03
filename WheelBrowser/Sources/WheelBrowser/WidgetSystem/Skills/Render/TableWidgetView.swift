@@ -58,33 +58,40 @@ struct TableWidgetView: View {
         }
     }
 
+    @ViewBuilder
     private func headerCell(_ col: TableColumn) -> some View {
-        Button(action: {
-            if col.sortable {
+        if col.sortable {
+            Button(action: {
                 if sortColumn == col.key {
                     sortAscending.toggle()
                 } else {
                     sortColumn = col.key
                     sortAscending = true
                 }
+            }) {
+                headerCellContent(col)
             }
-        }) {
-            HStack(spacing: 4) {
-                Text(col.label)
-                    .font(.system(size: 11, weight: .semibold))
-                    .foregroundStyle(.secondary)
-
-                if sortColumn == col.key {
-                    Image(systemName: sortAscending ? "chevron.up" : "chevron.down")
-                        .font(.system(size: 8))
-                        .foregroundStyle(.secondary)
-                }
-            }
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(.horizontal, 8)
-            .padding(.vertical, 6)
+            .buttonStyle(.plain)
+        } else {
+            headerCellContent(col)
         }
-        .buttonStyle(.plain)
+    }
+
+    private func headerCellContent(_ col: TableColumn) -> some View {
+        HStack(spacing: 4) {
+            Text(col.label)
+                .font(.system(size: 11, weight: .semibold))
+                .foregroundStyle(.secondary)
+
+            if sortColumn == col.key {
+                Image(systemName: sortAscending ? "chevron.up" : "chevron.down")
+                    .font(.system(size: 8))
+                    .foregroundStyle(.secondary)
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.horizontal, 8)
+        .padding(.vertical, 6)
     }
 
     private func dataCell(_ value: Any?, format: ValueFormat) -> some View {

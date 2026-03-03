@@ -7,7 +7,7 @@ struct RenderCompositeSkill: WidgetSkill {
     let paramSchema = """
     {
       "layout": "string (required) — one of: vstack, hstack, grid_2col",
-      "children": "array (required) — array of render skill specs, each with {skill, params}",
+      "children": "array of objects (required) — each child is a render spec: {\"skill\": \"<render_skill_name>\", \"params\": {<skill_params_without_input>}}. The parent's input is injected automatically if the child omits 'input'. Example: [{\"skill\": \"render_stat_card\", \"params\": {\"label\": \"Total\", \"value_field\": \"value\"}}, {\"skill\": \"render_chart\", \"params\": {\"chart_type\": \"bar\", \"x_field\": \"name\", \"y_field\": \"count\"}}]",
       "input": "reference (required) — {{step_id.output}} from a previous step"
     }
     """
@@ -24,11 +24,12 @@ struct RenderCompositeSkill: WidgetSkill {
 
         // Each child is a mini render spec with skill + params
         var children: [RenderInput] = []
-        for childSpec in childSpecs {
-            guard let skillRaw = childSpec["skill"] as? String,
-                  let skill = SkillName(rawValue: skillRaw),
-                  skill.isRenderSkill else {
-                continue
+        for (childIndex, childSpec) in childSpecs.enumerated() {
+            guard let skillRaw = childSpec["skill"] as? String else {
+                throw WidgetError.renderFailed("Composite child \(childIndex) is missing 'skill' key")
+            }
+            guard let skill = SkillName(rawValue: skillRaw), skill.isRenderSkill else {
+                throw WidgetError.renderFailed("Composite child \(childIndex) has invalid render skill '\(skillRaw)'")
             }
 
             var childParams = (childSpec["params"] as? [String: Any]) ?? [:]
@@ -39,9 +40,10 @@ struct RenderCompositeSkill: WidgetSkill {
 
             let renderSkill = renderSkillFor(skill)
             let result = try await renderSkill.execute(params: childParams)
-            if let renderInput = result as? RenderInput {
-                children.append(renderInput)
+            guard let renderInput = result as? RenderInput else {
+                throw WidgetError.renderFailed("Composite child \(childIndex) (\(skillRaw)) did not produce a RenderInput")
             }
+            children.append(renderInput)
         }
 
         return RenderInput.composite(layout: layout, children: children)
@@ -53,6 +55,7 @@ struct RenderCompositeSkill: WidgetSkill {
         case .renderStatCard: return RenderStatCardSkill()
         case .renderChart: return RenderChartSkill()
         case .renderTable: return RenderTableSkill()
+        case .renderComposite: return RenderCompositeSkill()
         default: return RenderListSkill()
         }
     }

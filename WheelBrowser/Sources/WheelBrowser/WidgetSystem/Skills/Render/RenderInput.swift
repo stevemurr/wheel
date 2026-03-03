@@ -11,7 +11,8 @@ enum RenderInput {
 
 // MARK: - List Types
 
-struct ListItem {
+struct ListItem: Identifiable {
+    let id = UUID()
     let headline: String
     var subheadline: String?
     var badge: Badge?

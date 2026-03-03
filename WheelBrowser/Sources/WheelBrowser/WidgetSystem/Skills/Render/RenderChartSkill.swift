@@ -6,11 +6,11 @@ struct RenderChartSkill: WidgetSkill {
 
     let paramSchema = """
     {
-      "chart_type": "string (required) — one of: line, bar, area, candlestick, scatter, pie, doughnut",
+      "chart_type": "string (required) — one of: line, bar, area, scatter, pie, doughnut. Use 'line' or 'area' for time series, 'bar' for comparisons, 'pie'/'doughnut' for proportions. For pie/doughnut, x_field is the label and y_field is the value.",
       "title": "string (optional) — chart title",
-      "x_field": "string (required) — field for x-axis values",
+      "x_field": "string (required) — field for x-axis values (or label field for pie/doughnut)",
       "y_field": "string (required) — field for y-axis values",
-      "series_field": "string (optional) — field to split data into series",
+      "series_field": "string (optional) — field to split data into multiple series (not used with pie/doughnut)",
       "color_scheme": "string (optional) — color scheme name",
       "input": "reference (required) — {{step_id.output}} from a previous step"
     }

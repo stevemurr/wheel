@@ -52,16 +52,26 @@ enum ReferenceResolver {
             return output
         }
 
-        // Multiple references or mixed text — do string interpolation
-        var result = string
-        for match in matches.reversed() {
+        // Multiple references or mixed text — build result by walking the original
+        // string forward, copying literal segments and inserting resolved values.
+        var result = ""
+        var cursor = string.startIndex
+        for match in matches {
             let stepId = String(string[Range(match.range(at: 1), in: string)!])
             guard let output = context[stepId] else {
                 throw WidgetError.invalidReference(stepId: "", ref: stepId)
             }
-            let replacement = "\(output)"
-            result.replaceSubrange(Range(match.range, in: result)!, with: replacement)
+            guard let matchRange = Range(match.range, in: string) else {
+                continue
+            }
+            // Append the literal text before this match
+            result += string[cursor..<matchRange.lowerBound]
+            // Append the resolved value
+            result += "\(output)"
+            cursor = matchRange.upperBound
         }
+        // Append any trailing literal text
+        result += string[cursor...]
         return result
     }
 }

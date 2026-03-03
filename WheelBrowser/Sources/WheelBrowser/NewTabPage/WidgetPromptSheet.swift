@@ -63,6 +63,9 @@ struct WidgetPromptSheet: View {
                 TextField("e.g., Show top posts from r/swift sorted by score", text: $prompt)
                     .textFieldStyle(.roundedBorder)
                     .onSubmit { generateWidget() }
+                    .onChange(of: prompt) { _, _ in
+                        error = nil
+                    }
             }
 
             if let error {
@@ -88,6 +91,7 @@ struct WidgetPromptSheet: View {
                 }
                 .buttonStyle(.borderedProminent)
                 .disabled(prompt.trimmingCharacters(in: .whitespaces).isEmpty || isGenerating)
+                .accessibilityLabel(isGenerating ? "Generating widget" : "Generate")
             }
         }
         .padding()

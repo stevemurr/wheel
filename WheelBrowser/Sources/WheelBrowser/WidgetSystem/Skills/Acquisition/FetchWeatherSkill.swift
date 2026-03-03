@@ -8,7 +8,7 @@ struct FetchWeatherSkill: WidgetSkill {
     {
       "city": "string (required) — city name, e.g. 'London', 'New York'",
       "units": "string (optional, default 'metric') — one of: metric, imperial, standard",
-      "api_key": "string (optional) — OpenWeatherMap API key. Uses built-in key if omitted."
+      "_output_fields": "city (string), temp (double), feels_like (double), humidity (int), description (string), icon (string), wind_speed (double), units (string)"
     }
     """
 

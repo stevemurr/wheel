@@ -16,6 +16,11 @@
       "description": "How often to refresh the widget data, in seconds",
       "minimum": 300
     },
+    "widget_id": {
+      "type": "string",
+      "format": "uuid",
+      "description": "Optional unique identifier for this widget instance. Generated automatically if omitted."
+    },
     "thinking": {
       "type": "string",
       "description": "Optional reasoning about the pipeline design"

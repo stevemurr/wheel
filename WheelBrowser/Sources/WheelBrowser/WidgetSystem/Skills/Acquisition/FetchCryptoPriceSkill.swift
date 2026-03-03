@@ -8,7 +8,8 @@ struct FetchCryptoPriceSkill: WidgetSkill {
     {
       "coin_id": "string (required) — CoinGecko coin ID, e.g. 'bitcoin', 'ethereum'",
       "vs_currency": "string (optional, default 'usd') — target currency",
-      "days": "integer (optional, default 1) — price history days (1, 7, 30, 90, 365)"
+      "days": "integer (optional, default 1) — price history days (1, 7, 30, 90, 365)",
+      "_output_fields": "timestamp_ms (int), price (double), coin_id (string), vs_currency (string), volume (double, optional)"
     }
     """
 
@@ -18,7 +19,14 @@ struct FetchCryptoPriceSkill: WidgetSkill {
         }
 
         let vsCurrency = (params["vs_currency"] as? String) ?? "usd"
-        let days = (params["days"] as? Int) ?? 1
+        let days: Int
+        if let d = params["days"] as? Int {
+            days = d
+        } else if let d = params["days"] as? Double {
+            days = Int(d)
+        } else {
+            days = 1
+        }
 
         let urlString = "https://api.coingecko.com/api/v3/coins/\(coinId)/market_chart?vs_currency=\(vsCurrency)&days=\(days)"
         guard let url = URL(string: urlString) else {
@@ -41,7 +49,7 @@ struct FetchCryptoPriceSkill: WidgetSkill {
         }
 
         let totalVolumes = json["total_volumes"] as? [[Double]] ?? []
-        let volumeMap = Dictionary(uniqueKeysWithValues: totalVolumes.map { (Int($0[0]), $0[1]) })
+        let volumeMap = Dictionary(totalVolumes.map { (Int($0[0]), $0[1]) }, uniquingKeysWith: { _, latest in latest })
 
         return prices.map { point -> [String: Any] in
             let timestampMs = Int(point[0])

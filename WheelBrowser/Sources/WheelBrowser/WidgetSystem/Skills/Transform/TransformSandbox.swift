@@ -3,9 +3,12 @@ import JavaScriptCore
 
 /// Sandboxed JavaScriptCore environment for executing transform skills.
 /// Strips dangerous globals and loads the pure-JS transform runtime.
-final class TransformSandbox: @unchecked Sendable {
+///
+/// Uses an actor instead of NSLock to avoid blocking Swift Concurrency cooperative threads.
+/// An NSLock.lock() call in an async context holds a cooperative thread hostage, which can
+/// starve the thread pool when multiple widget pipelines run transforms concurrently.
+actor TransformSandbox {
     private let context: JSContext
-    private let lock = NSLock()
 
     init() {
         let ctx = JSContext()!
@@ -19,11 +22,25 @@ final class TransformSandbox: @unchecked Sendable {
             ctx.setObject(nil, forKeyedSubscript: name as NSString)
         }
 
-        // Load the transform runtime
-        if let runtimeURL = Bundle.module.url(forResource: "transform_runtime", withExtension: "js", subdirectory: "WidgetSystem"),
-           let runtimeJS = try? String(contentsOf: runtimeURL) {
-            ctx.evaluateScript(runtimeJS)
+        // Prevent recovering Function constructor via (function(){}).constructor
+        // This is a well-known sandbox escape in JavaScriptCore.
+        ctx.evaluateScript("""
+            (function() {
+                var fp = Object.getPrototypeOf(function(){});
+                Object.defineProperty(fp, 'constructor', {
+                    value: undefined,
+                    writable: false,
+                    configurable: false
+                });
+            })();
+        """)
+
+        // Load the transform runtime — fatal if missing, as all transforms depend on it
+        guard let runtimeURL = Bundle.module.url(forResource: "transform_runtime", withExtension: "js", subdirectory: "WidgetSystem"),
+              let runtimeJS = try? String(contentsOf: runtimeURL) else {
+            fatalError("TransformSandbox: failed to load transform_runtime.js from bundle — transform skills will not work")
         }
+        ctx.evaluateScript(runtimeJS)
 
         // Set up error handler
         ctx.exceptionHandler = { _, exception in
@@ -42,10 +59,13 @@ final class TransformSandbox: @unchecked Sendable {
     ///   - input: Input data array from a previous pipeline step
     /// - Returns: Transformed data array
     func execute(skill: SkillName, params: [String: Any], input: Any) throws -> Any {
-        lock.lock()
-        defer { lock.unlock() }
-
-        let fn = context.objectForKeyedSubscript("widgetTransform")!
+        guard let fn = context.objectForKeyedSubscript("widgetTransform"),
+              !fn.isUndefined else {
+            throw WidgetError.executionFailed(
+                stepId: "",
+                underlying: TransformError.jsError("widgetTransform function is not defined — transform runtime failed to load")
+            )
+        }
         let result = fn.call(withArguments: [skill.rawValue, params, input])
 
         if let exception = context.exception {

@@ -8,7 +8,8 @@ struct FetchRedditSkill: WidgetSkill {
     {
       "subreddit": "string (required) — e.g. 'swift', 'programming'",
       "sort": "string (optional, default 'hot') — one of: hot, new, top, rising",
-      "limit": "integer (optional, default 10, max 25) — number of posts to fetch"
+      "limit": "integer (optional, default 10, max 25) — number of posts to fetch",
+      "_output_fields": "title (string), author (string), score (int), num_comments (int), url (string), permalink (string), created_utc (double), subreddit (string), is_self (bool)"
     }
     """
 
@@ -18,7 +19,14 @@ struct FetchRedditSkill: WidgetSkill {
         }
 
         let sort = (params["sort"] as? String) ?? "hot"
-        let limit = min((params["limit"] as? Int) ?? 10, 25)
+        let limit: Int
+        if let l = params["limit"] as? Int {
+            limit = min(l, 25)
+        } else if let l = params["limit"] as? Double {
+            limit = min(Int(l), 25)
+        } else {
+            limit = 10
+        }
 
         let urlString = "https://www.reddit.com/r/\(subreddit)/\(sort).json?limit=\(limit)&raw_json=1"
         guard let url = URL(string: urlString) else {

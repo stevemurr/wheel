@@ -32,6 +32,8 @@ struct StatCardView: View {
                     }
                 }
                 .foregroundStyle(delta.value >= 0 ? .green : .red)
+                .accessibilityElement(children: .combine)
+                .accessibilityLabel("\(delta.value >= 0 ? "Up" : "Down") \(formatDelta(delta.value))\(delta.label.map { " \($0)" } ?? "")")
             }
         }
         .padding(12)

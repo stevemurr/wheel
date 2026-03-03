@@ -65,6 +65,7 @@ struct PipelineNewTabPageView: View {
             Image(systemName: "square.grid.2x2")
                 .font(.system(size: 40))
                 .foregroundStyle(.secondary)
+                .accessibilityHidden(true)
 
             Text("No Widgets Yet")
                 .font(.headline)

@@ -43,7 +43,19 @@ struct WidgetPipelineSpec: Codable {
     init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         title = try container.decode(String.self, forKey: .title)
-        refreshIntervalSeconds = try container.decode(Int.self, forKey: .refreshIntervalSeconds)
+        if let intVal = try? container.decode(Int.self, forKey: .refreshIntervalSeconds) {
+            refreshIntervalSeconds = intVal
+        } else if let doubleVal = try? container.decode(Double.self, forKey: .refreshIntervalSeconds) {
+            refreshIntervalSeconds = Int(doubleVal)
+        } else {
+            throw DecodingError.typeMismatch(
+                Int.self,
+                DecodingError.Context(
+                    codingPath: container.codingPath + [CodingKeys.refreshIntervalSeconds],
+                    debugDescription: "refresh_interval_seconds must be an integer"
+                )
+            )
+        }
         pipeline = try container.decode([PipelineStep].self, forKey: .pipeline)
         widgetId = try container.decodeIfPresent(UUID.self, forKey: .widgetId) ?? UUID()
         thinking = try container.decodeIfPresent(String.self, forKey: .thinking)

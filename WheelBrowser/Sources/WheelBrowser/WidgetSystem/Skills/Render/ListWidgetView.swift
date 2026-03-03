@@ -16,10 +16,12 @@ struct ListWidgetView: View {
             }
 
             LazyVStack(alignment: .leading, spacing: 0) {
-                ForEach(Array(items.enumerated()), id: \.offset) { _, item in
+                ForEach(Array(items.enumerated()), id: \.element.id) { index, item in
                     ListItemRow(item: item)
-                    Divider()
-                        .padding(.leading, 12)
+                    if index < items.count - 1 {
+                        Divider()
+                            .padding(.leading, 12)
+                    }
                 }
             }
         }

@@ -32,25 +32,25 @@ enum SystemPromptBuilder {
     Given a user's description of a widget they want, you generate a JSON pipeline specification \
     that fetches data, transforms it, and renders it as a dashboard widget.
 
-    Your output must be valid JSON conforming to the WidgetPipelineSpec schema. \
-    Do NOT include any text outside the JSON object. No markdown code fences.
+    Your output must be ONLY the raw JSON object conforming to the WidgetPipelineSpec schema. \
+    Do NOT include any text before or after the JSON. Do NOT wrap it in markdown code fences (```). \
+    The first character of your response must be '{' and the last must be '}'.
     """
 
-    private static var schemaSection: String {
+    private static let schemaSection: String = {
         if let url = Bundle.module.url(forResource: "SpecSchema", withExtension: "json", subdirectory: "WidgetSystem"),
            let data = try? Data(contentsOf: url),
            let schema = String(data: data, encoding: .utf8) {
             return "```json\n\(schema)\n```"
         }
         return "(Schema not available)"
-    }
+    }()
 
     private static let examples = """
-    ### Example 1: Reddit Top Posts
+    ### Example 1: Reddit Top Posts (render_list)
 
     User: "Show me the top posts from r/swift"
 
-    ```json
     {
       "title": "Top r/swift Posts",
       "refresh_interval_seconds": 600,
@@ -80,13 +80,11 @@ enum SystemPromptBuilder {
         }
       ]
     }
-    ```
 
-    ### Example 2: Bitcoin Price Chart
+    ### Example 2: Bitcoin Price Chart (render_chart)
 
     User: "Show me a Bitcoin price chart for the last week"
 
-    ```json
     {
       "title": "Bitcoin 7-Day Price",
       "refresh_interval_seconds": 900,
@@ -109,7 +107,63 @@ enum SystemPromptBuilder {
         }
       ]
     }
-    ```
+
+    ### Example 3: Weather Stat Card (render_stat_card)
+
+    User: "Show me the current temperature in Tokyo"
+
+    {
+      "title": "Tokyo Weather",
+      "refresh_interval_seconds": 600,
+      "pipeline": [
+        {
+          "id": "weather",
+          "skill": "fetch_weather",
+          "params": { "city": "Tokyo", "units": "metric" }
+        },
+        {
+          "id": "render",
+          "skill": "render_stat_card",
+          "params": {
+            "input": "{{weather.output}}",
+            "label": "Tokyo Temperature",
+            "value_field": "temp",
+            "format": "temperature",
+            "delta_field": "humidity",
+            "delta_label": "humidity %"
+          }
+        }
+      ]
+    }
+
+    ### Example 4: Data Table (render_table)
+
+    User: "Show me a table of the top posts from r/programming"
+
+    {
+      "title": "r/programming Top Posts",
+      "refresh_interval_seconds": 600,
+      "pipeline": [
+        {
+          "id": "fetch",
+          "skill": "fetch_reddit_posts",
+          "params": { "subreddit": "programming", "sort": "top", "limit": 15 }
+        },
+        {
+          "id": "render",
+          "skill": "render_table",
+          "params": {
+            "input": "{{fetch.output}}",
+            "columns": [
+              { "key": "title", "label": "Title" },
+              { "key": "author", "label": "Author" },
+              { "key": "score", "label": "Score", "format": "number" },
+              { "key": "num_comments", "label": "Comments", "format": "number" }
+            ]
+          }
+        }
+      ]
+    }
     """
 
     private static let rules = """

@@ -15,6 +15,6 @@ struct SortSkill: WidgetSkill {
 
     func execute(params: [String: Any]) async throws -> Any {
         let input = params["input"] ?? []
-        return try sandbox.execute(skill: .sort, params: params, input: input)
+        return try await sandbox.execute(skill: .sort, params: params, input: input)
     }
 }

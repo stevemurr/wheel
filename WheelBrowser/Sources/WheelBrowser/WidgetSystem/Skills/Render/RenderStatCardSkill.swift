@@ -16,7 +16,19 @@ struct RenderStatCardSkill: WidgetSkill {
     """
 
     func execute(params: [String: Any]) async throws -> Any {
-        let input = (params["input"] as? [[String: Any]]) ?? []
+        // Handle both [[String: Any]] (standard) and [String: Any] (single object) inputs,
+        // as well as [Any] containing scalar values from json_path extraction.
+        let input: [[String: Any]]
+        if let arrayOfDicts = params["input"] as? [[String: Any]] {
+            input = arrayOfDicts
+        } else if let singleDict = params["input"] as? [String: Any] {
+            input = [singleDict]
+        } else if let arrayOfAny = params["input"] as? [Any], let firstScalar = arrayOfAny.first {
+            // Wrap scalar values in a dict with "value" key so value_field="value" works
+            input = [["value": firstScalar]]
+        } else {
+            input = []
+        }
         let label = (params["label"] as? String) ?? "Value"
         let valueField = (params["value_field"] as? String) ?? "value"
         let formatRaw = (params["format"] as? String) ?? "plain"

@@ -21,6 +21,9 @@ final class WidgetStore {
         return dir.appendingPathComponent("pipeline_widgets.json")
     }()
 
+    private static let encoder = JSONEncoder()
+    private static let decoder = JSONDecoder()
+
     init(registry: SkillRegistry? = nil) {
         let reg = registry ?? SkillRegistry.createDefault()
         self.registry = reg
@@ -43,7 +46,7 @@ final class WidgetStore {
         let instance = WidgetInstance(spec: spec, executor: executor)
         widgets.append(instance)
         save()
-        Task { await instance.refresh() }
+        Task { @MainActor in await instance.refresh() }
     }
 
     func removeWidget(id: UUID) {
@@ -57,23 +60,36 @@ final class WidgetStore {
     }
 
     func refreshAll() {
-        for widget in widgets where widget.isStale {
-            Task { await widget.refresh() }
+        let staleWidgets = widgets.filter(\.isStale)
+        guard !staleWidgets.isEmpty else { return }
+
+        Task { @MainActor in
+            // Use TaskGroup to bound concurrency and ensure cancellation propagation
+            await withTaskGroup(of: Void.self) { group in
+                for widget in staleWidgets {
+                    group.addTask { @MainActor in
+                        await widget.refresh()
+                    }
+                }
+            }
         }
     }
 
     // MARK: - Persistence
 
     private func save() {
+        // Snapshot the data on MainActor, then write to disk off the main thread
         let persisted = widgets.enumerated().map { idx, instance in
             PersistedWidget(spec: instance.spec, position: idx)
         }
 
-        do {
-            let data = try JSONEncoder().encode(persisted)
-            try data.write(to: Self.storePath, options: .atomic)
-        } catch {
-            Log.Widgets.error("Failed to save widgets", error: error)
+        Task.detached(priority: .utility) {
+            do {
+                let data = try Self.encoder.encode(persisted)
+                try data.write(to: Self.storePath, options: .atomic)
+            } catch {
+                Log.Widgets.error("Failed to save widgets", error: error)
+            }
         }
     }
 
@@ -82,7 +98,7 @@ final class WidgetStore {
 
         do {
             let data = try Data(contentsOf: Self.storePath)
-            let persisted = try JSONDecoder().decode([PersistedWidget].self, from: data)
+            let persisted = try Self.decoder.decode([PersistedWidget].self, from: data)
 
             widgets = persisted
                 .sorted { $0.position < $1.position }
@@ -97,13 +113,25 @@ final class WidgetStore {
     private func startRefreshLoop() {
         refreshTask = Task { [weak self] in
             while !Task.isCancelled {
-                try? await Task.sleep(nanoseconds: 60_000_000_000) // 60s polling
+                do {
+                    try await Task.sleep(nanoseconds: 60_000_000_000) // 60s polling
+                } catch {
+                    break // Task was cancelled during sleep
+                }
 
                 guard let self else { return }
+                // Snapshot stale widgets on MainActor before iterating
+                let staleWidgets = await MainActor.run { self.widgets.filter(\.isStale) }
+
                 // Stagger refreshes
-                for widget in self.widgets where widget.isStale {
+                for widget in staleWidgets {
+                    guard !Task.isCancelled else { break }
                     await widget.refresh()
-                    try? await Task.sleep(nanoseconds: 500_000_000) // 0.5s stagger
+                    do {
+                        try await Task.sleep(nanoseconds: 500_000_000) // 0.5s stagger
+                    } catch {
+                        break // Task was cancelled during stagger sleep
+                    }
                 }
             }
         }

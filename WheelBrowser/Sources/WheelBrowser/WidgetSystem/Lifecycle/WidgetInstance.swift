@@ -30,18 +30,22 @@ final class WidgetInstance: Identifiable {
         guard !isLoading else { return }
         isLoading = true
         error = nil
+        defer { isLoading = false }
 
         do {
+            try Task.checkCancellation()
             let validated = ValidatedSpec(trusted: spec)
             let result = try await executor.execute(validated)
+            // Check cancellation after long async work before committing state
+            try Task.checkCancellation()
             lastData = result
             lastFetched = Date()
+        } catch is CancellationError {
+            // Silently stop on cancellation -- don't set error state
         } catch {
             self.error = error.localizedDescription
             Log.Widgets.error("Widget '\(spec.title)' refresh failed", error: error)
         }
-
-        isLoading = false
     }
 }
 

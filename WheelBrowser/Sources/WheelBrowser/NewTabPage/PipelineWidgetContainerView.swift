@@ -34,6 +34,7 @@ struct PipelineWidgetContainerView: View {
                         }
                         .buttonStyle(.plain)
                         .transition(.opacity)
+                        .accessibilityLabel("Refresh widget")
                     }
 
                     if widget.isLoading {
@@ -58,7 +59,11 @@ struct PipelineWidgetContainerView: View {
                 editOverlay
             }
         }
-        .onHover { isHovered = $0 }
+        .onHover { hovering in
+            withAnimation(.easeInOut(duration: 0.15)) {
+                isHovered = hovering
+            }
+        }
     }
 
     // MARK: - Content Area
@@ -87,6 +92,7 @@ struct PipelineWidgetContainerView: View {
             Image(systemName: "exclamationmark.triangle")
                 .font(.system(size: 20))
                 .foregroundStyle(.orange)
+                .accessibilityHidden(true)
 
             Text(message)
                 .font(.system(size: 12))
@@ -116,6 +122,7 @@ struct PipelineWidgetContainerView: View {
             .buttonStyle(.plain)
             .disabled(!canMoveUp)
             .opacity(canMoveUp ? 1 : 0.4)
+            .accessibilityLabel("Move widget up")
 
             Button(action: onMoveDown) {
                 Image(systemName: "chevron.down")
@@ -125,6 +132,7 @@ struct PipelineWidgetContainerView: View {
             .buttonStyle(.plain)
             .disabled(!canMoveDown)
             .opacity(canMoveDown ? 1 : 0.4)
+            .accessibilityLabel("Move widget down")
 
             Button(action: onRemove) {
                 Image(systemName: "xmark.circle.fill")
@@ -133,6 +141,7 @@ struct PipelineWidgetContainerView: View {
                     .shadow(radius: 2)
             }
             .buttonStyle(.plain)
+            .accessibilityLabel("Remove widget")
         }
         .offset(x: 8, y: -8)
     }

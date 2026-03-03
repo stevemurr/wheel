@@ -30,6 +30,10 @@ struct ChartWebViewRepresentable: NSViewRepresentable {
         return try? String(contentsOf: url, encoding: .utf8)
     }()
 
+    func makeCoordinator() -> Coordinator {
+        Coordinator()
+    }
+
     func makeNSView(context: Context) -> WKWebView {
         let contentController = WKUserContentController()
         let configuration = WKWebViewConfiguration()
@@ -43,7 +47,13 @@ struct ChartWebViewRepresentable: NSViewRepresentable {
 
     func updateNSView(_ webView: WKWebView, context: Context) {
         let html = buildChartHTML()
+        guard html != context.coordinator.lastHTML else { return }
+        context.coordinator.lastHTML = html
         webView.loadHTMLString(html, baseURL: nil)
+    }
+
+    final class Coordinator {
+        var lastHTML: String?
     }
 
     private func buildChartHTML() -> String {
@@ -103,14 +113,14 @@ struct ChartWebViewRepresentable: NSViewRepresentable {
         (function() {
             const ctx = document.getElementById('chart').getContext('2d');
             new Chart(ctx, {
-                type: '\(chartType)',
+                type: '\(jsEscape(chartType))',
                 data: {
                     labels: \(labelsJSON),
                     datasets: [{
-                        label: '\(config.title ?? "")',
+                        label: '\(jsEscape(config.title ?? ""))',
                         data: \(valuesJSON),
-                        borderColor: '\(accentColor)',
-                        backgroundColor: '\(accentColor)33',
+                        borderColor: '\(jsEscape(accentColor))',
+                        backgroundColor: '\(jsEscape(accentColor))33',
                         fill: \(fillOption),
                         tension: 0.3,
                         borderWidth: 2,
@@ -143,5 +153,12 @@ struct ChartWebViewRepresentable: NSViewRepresentable {
         </body>
         </html>
         """
+    }
+
+    private func jsEscape(_ str: String) -> String {
+        str.replacingOccurrences(of: "\\", with: "\\\\")
+           .replacingOccurrences(of: "'", with: "\\'")
+           .replacingOccurrences(of: "\n", with: "\\n")
+           .replacingOccurrences(of: "\r", with: "\\r")
     }
 }

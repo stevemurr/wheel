@@ -16,16 +16,52 @@ enum SpecValidator {
 
     // MARK: - Pass 1: Schema Validation
 
+    /// Required parameters for each skill. Catches the most common LLM omission errors.
+    private static let requiredParams: [SkillName: [String]] = [
+        .fetchRedditPosts: ["subreddit"],
+        .fetchCryptoPrice: ["coin_id"],
+        .fetchWeather: ["city"],
+        .fetchRestApi: ["url"],
+        .sort: ["field", "input"],
+        .filter: ["field", "operator", "value", "input"],
+        .mapFields: ["mapping", "input"],
+        .aggregate: ["operation", "input"],
+        .renderList: ["headline_field", "input"],
+        .renderStatCard: ["label", "value_field", "input"],
+        .renderChart: ["chart_type", "x_field", "y_field", "input"],
+        .renderTable: ["columns", "input"],
+        .renderComposite: ["layout", "children", "input"],
+    ]
+
     /// Validates skill names are in the allowlist and required params are present.
     private static func pass1Schema(_ spec: WidgetPipelineSpec) throws {
+        // Validate title constraints to match SpecSchema.json
+        if spec.title.isEmpty {
+            throw SpecValidationError(
+                pass: 1,
+                stepIndex: nil,
+                message: "Title must not be empty.",
+                suggestion: "Provide a human-readable title for the widget."
+            )
+        }
+        if spec.title.count > 100 {
+            throw SpecValidationError(
+                pass: 1,
+                stepIndex: nil,
+                message: "Title is \(spec.title.count) characters, maximum is 100.",
+                suggestion: "Shorten the widget title."
+            )
+        }
+
         for (index, step) in spec.pipeline.enumerated() {
             // Skill name is already validated by Codable parsing (it's an enum).
             // Validate step IDs are non-empty and alphanumeric.
-            if step.id.isEmpty || !step.id.allSatisfy({ $0.isLetter || $0.isNumber || $0 == "_" }) {
+            let validIdPattern = /^[a-z_][a-z0-9_]*$/
+            if step.id.isEmpty || step.id.wholeMatch(of: validIdPattern) == nil {
                 throw SpecValidationError(
                     pass: 1,
                     stepIndex: index,
-                    message: "Step ID '\(step.id)' must be non-empty and contain only letters, numbers, and underscores.",
+                    message: "Step ID '\(step.id)' must be non-empty, start with a lowercase letter or underscore, and contain only lowercase letters, digits, and underscores.",
                     suggestion: "Use a simple snake_case identifier like 'fetch_data' or 'sort_posts'."
                 )
             }
@@ -39,6 +75,21 @@ enum SpecValidator {
                     message: "Duplicate step ID '\(step.id)'.",
                     suggestion: "Each step must have a unique ID."
                 )
+            }
+
+            // Check required parameters
+            if let required = requiredParams[step.skill] {
+                for param in required {
+                    let value = step.params[param]
+                    if value == nil || value?.isNull == true {
+                        throw SpecValidationError(
+                            pass: 1,
+                            stepIndex: index,
+                            message: "Step '\(step.id)' (skill '\(step.skill.rawValue)') is missing required parameter '\(param)'.",
+                            suggestion: "Add the '\(param)' parameter. Check the skill's parameter schema for details."
+                        )
+                    }
+                }
             }
         }
     }
@@ -67,7 +118,7 @@ enum SpecValidator {
 
     // MARK: - Pass 3: Last Step Is Render
 
-    /// Validates that the final step is a render skill.
+    /// Validates that the final step is a render skill and render skills only appear in terminal position.
     private static func pass3LastStepIsRender(_ spec: WidgetPipelineSpec) throws {
         guard let lastStep = spec.pipeline.last else {
             throw SpecValidationError(
@@ -85,6 +136,18 @@ enum SpecValidator {
                 message: "Last step '\(lastStep.id)' uses skill '\(lastStep.skill.rawValue)' which is not a render skill.",
                 suggestion: "The final step must use one of: render_list, render_stat_card, render_chart, render_table, render_composite."
             )
+        }
+
+        // Ensure render skills only appear in the last position
+        for (index, step) in spec.pipeline.dropLast().enumerated() {
+            if step.skill.isRenderSkill {
+                throw SpecValidationError(
+                    pass: 3,
+                    stepIndex: index,
+                    message: "Render skill '\(step.skill.rawValue)' at step \(index) is not allowed in non-terminal position.",
+                    suggestion: "Render skills must only appear as the final pipeline step. Move data transformations before the render step."
+                )
+            }
         }
     }
 
