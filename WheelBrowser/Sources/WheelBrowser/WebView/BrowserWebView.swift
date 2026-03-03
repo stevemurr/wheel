@@ -3,9 +3,9 @@ import AppKit
 
 /// WKWebView subclass that adds "Open Link in New Tab" to the native context menu.
 ///
-/// Uses multiple WebKit context menu item identifiers as reliable link indicators,
-/// with a JS fallback for edge cases. JS runs in the background purely for URL
-/// extraction, not for deciding whether to show the menu item.
+/// Defers `super.rightMouseDown` until JS link detection completes (typically 1–5ms),
+/// with a 50ms safety timeout. This ensures the JS-detected URL is available in
+/// `willOpenMenu`, making link detection reliable even in shadow DOM and web components.
 class BrowserWebView: WKWebView {
 
     /// The location (in view coordinates) of the last right-click.
@@ -39,6 +39,13 @@ class BrowserWebView: WKWebView {
     /// The preferred identifier to insert after (natural menu ordering).
     private static let preferredInsertAfter = "WKMenuItemIdentifierOpenLinkInNewWindow"
 
+    /// Calls `super.rightMouseDown` — extracted so closures can invoke it
+    /// without a direct `super` reference (which Swift disallows in closures
+    /// that capture `self` weakly).
+    private func showContextMenu(with event: NSEvent) {
+        super.rightMouseDown(with: event)
+    }
+
     // MARK: - Link detection JS
 
     private static func linkDetectionJS(cssX: CGFloat, cssY: CGFloat) -> String {
@@ -69,21 +76,29 @@ class BrowserWebView: WKWebView {
         lastRightClickLocation = convert(event.locationInWindow, from: nil)
         lastDetectedLinkURL = nil
         rightClickGeneration &+= 1
-        let expectedGeneration = rightClickGeneration
+        let gen = rightClickGeneration
 
-        // Fire JS in background for URL extraction (not for menu visibility).
         let cssX = lastRightClickLocation.x / pageZoom
         let cssY = (bounds.height - lastRightClickLocation.y) / pageZoom
 
+        // Both closures run on main thread; captured local var is safe.
+        var menuShown = false
+
+        // Safety cap: show menu even if JS hangs (50ms is imperceptible).
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) { [weak self] in
+            guard let self, !menuShown, self.rightClickGeneration == gen else { return }
+            menuShown = true
+            self.showContextMenu(with: event)
+        }
+
         evaluateJavaScript(Self.linkDetectionJS(cssX: cssX, cssY: cssY)) { [weak self] result, _ in
-            guard let self, self.rightClickGeneration == expectedGeneration else { return }
+            guard let self, !menuShown, self.rightClickGeneration == gen else { return }
             if let href = result as? String, !href.isEmpty {
                 self.lastDetectedLinkURL = URL(string: href)
             }
+            menuShown = true
+            self.showContextMenu(with: event)
         }
-
-        // Show menu immediately — no timeout needed.
-        super.rightMouseDown(with: event)
     }
 
     // MARK: - Context menu
