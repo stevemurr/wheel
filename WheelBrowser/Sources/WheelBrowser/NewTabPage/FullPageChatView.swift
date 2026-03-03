@@ -30,11 +30,21 @@ struct FullPageChatView: View {
             // Artifact panel (slides in from right)
             if let artifact = selectedArtifact {
                 Divider()
-
-                ArtifactPanelView(artifact: artifact) {
-                    withAnimation(AppAnimation.standard) {
-                        selectedArtifact = nil
+                VStack(spacing: 0) {
+                    ArtifactPanelView(artifact: artifact) {
+                        withAnimation(AppAnimation.standard) {
+                            selectedArtifact = nil
+                        }
                     }
+                    .frame(maxHeight: WindowConstants.maxPanelHeight)
+                    .clipShape(RoundedRectangle(cornerRadius: WindowConstants.cardCornerRadius, style: .continuous))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: WindowConstants.cardCornerRadius, style: .continuous)
+                            .stroke(Color(nsColor: .separatorColor).opacity(0.2), lineWidth: 1)
+                    )
+                    .padding(.top, 12)
+                    .padding(.horizontal, 8)
+                    Spacer()
                 }
                 .frame(minWidth: 350, maxWidth: 600)
                 .transition(.move(edge: .trailing).combined(with: .opacity))

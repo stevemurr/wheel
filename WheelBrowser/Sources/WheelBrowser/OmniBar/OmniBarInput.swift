@@ -97,19 +97,11 @@ extension OmniBar {
     // MARK: - Mode Indicator
 
     var modeIndicator: some View {
-        HStack(spacing: 4) {
-            ModeIndicatorView(
-                agentManager: agentManager,
-                omniState: omniState,
-                isInputFocused: isInputFocused
-            )
-
-            // Model selector badge (only in chat mode when focused)
-            if omniState.mode == .chat && isInputFocused {
-                ModelSelectorBadge()
-                    .transition(.opacity.combined(with: .scale(scale: 0.8)))
-            }
-        }
+        ModeIndicatorView(
+            agentManager: agentManager,
+            omniState: omniState,
+            isInputFocused: isInputFocused
+        )
     }
 
     // MARK: - Action Button
