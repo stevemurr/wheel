@@ -5,6 +5,12 @@ struct PipelineWidgetContainerView: View {
     let widget: WidgetInstance
     let isEditMode: Bool
     let onRemove: () -> Void
+    var canMoveUp: Bool = false
+    var canMoveDown: Bool = false
+    var onMoveUp: () -> Void = {}
+    var onMoveDown: () -> Void = {}
+
+    @State private var isHovered = false
 
     var body: some View {
         ZStack(alignment: .topTrailing) {
@@ -17,6 +23,18 @@ struct PipelineWidgetContainerView: View {
                         .lineLimit(1)
 
                     Spacer()
+
+                    if isHovered && !widget.isLoading && !isEditMode {
+                        Button {
+                            Task { await widget.refresh() }
+                        } label: {
+                            Image(systemName: "arrow.clockwise")
+                                .font(.system(size: 11, weight: .medium))
+                                .foregroundStyle(.secondary)
+                        }
+                        .buttonStyle(.plain)
+                        .transition(.opacity)
+                    }
 
                     if widget.isLoading {
                         ProgressView()
@@ -40,6 +58,7 @@ struct PipelineWidgetContainerView: View {
                 editOverlay
             }
         }
+        .onHover { isHovered = $0 }
     }
 
     // MARK: - Content Area
@@ -88,13 +107,33 @@ struct PipelineWidgetContainerView: View {
     // MARK: - Edit Overlay
 
     private var editOverlay: some View {
-        Button(action: onRemove) {
-            Image(systemName: "xmark.circle.fill")
-                .font(.system(size: 20))
-                .foregroundStyle(.white, .red)
-                .shadow(radius: 2)
+        HStack(spacing: 6) {
+            Button(action: onMoveUp) {
+                Image(systemName: "chevron.up")
+                    .font(.system(size: 14))
+                    .foregroundStyle(.white, .blue)
+            }
+            .buttonStyle(.plain)
+            .disabled(!canMoveUp)
+            .opacity(canMoveUp ? 1 : 0.4)
+
+            Button(action: onMoveDown) {
+                Image(systemName: "chevron.down")
+                    .font(.system(size: 14))
+                    .foregroundStyle(.white, .blue)
+            }
+            .buttonStyle(.plain)
+            .disabled(!canMoveDown)
+            .opacity(canMoveDown ? 1 : 0.4)
+
+            Button(action: onRemove) {
+                Image(systemName: "xmark.circle.fill")
+                    .font(.system(size: 20))
+                    .foregroundStyle(.white, .red)
+                    .shadow(radius: 2)
+            }
+            .buttonStyle(.plain)
         }
-        .buttonStyle(.plain)
         .offset(x: 8, y: -8)
     }
 }

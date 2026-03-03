@@ -94,4 +94,44 @@ struct AnyCodableTests {
         #expect(value.dictionaryValue == nil)
         #expect(!value.isNull)
     }
+
+    // MARK: - Additional Round-Trip Tests
+
+    @Test("Empty string round-trip")
+    func emptyStringRoundTrip() throws {
+        let value = AnyCodable("")
+        let data = try JSONEncoder().encode(value)
+        let decoded = try JSONDecoder().decode(AnyCodable.self, from: data)
+        #expect(decoded.stringValue == "")
+    }
+
+    @Test("Empty array round-trip")
+    func emptyArrayRoundTrip() throws {
+        let value = AnyCodable([] as [Any])
+        let data = try JSONEncoder().encode(value)
+        let decoded = try JSONDecoder().decode(AnyCodable.self, from: data)
+        let array = decoded.arrayValue
+        #expect(array != nil)
+        #expect(array?.isEmpty == true)
+    }
+
+    @Test("Empty dict round-trip")
+    func emptyDictRoundTrip() throws {
+        let value = AnyCodable([:] as [String: Any])
+        let data = try JSONEncoder().encode(value)
+        let decoded = try JSONDecoder().decode(AnyCodable.self, from: data)
+        let dict = decoded.dictionaryValue
+        #expect(dict != nil)
+        #expect(dict?.isEmpty == true)
+    }
+
+    @Test("Date value handling as string")
+    func dateValueHandling() throws {
+        // Dates are not natively supported by AnyCodable, so they encode as strings
+        let dateString = "2026-03-03T12:00:00Z"
+        let value = AnyCodable(dateString)
+        let data = try JSONEncoder().encode(value)
+        let decoded = try JSONDecoder().decode(AnyCodable.self, from: data)
+        #expect(decoded.stringValue == dateString)
+    }
 }

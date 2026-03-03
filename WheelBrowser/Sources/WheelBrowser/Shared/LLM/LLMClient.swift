@@ -43,7 +43,7 @@ public struct LLMRequestOptions: Sendable {
     public var timeoutSeconds: TimeInterval
 
     public init(
-        model: String = "gpt-4",
+        model: String,
         temperature: Double = 0.7,
         maxTokens: Int = 2048,
         timeoutSeconds: TimeInterval = 120
@@ -55,19 +55,29 @@ public struct LLMRequestOptions: Sendable {
     }
 
     /// Default options for chat conversations
-    public static let chat = LLMRequestOptions(temperature: 0.7, maxTokens: 2048)
+    public static func chat(model: String) -> LLMRequestOptions {
+        LLMRequestOptions(model: model, temperature: 0.7, maxTokens: 2048)
+    }
 
     /// Options optimized for deterministic/factual responses
-    public static let deterministic = LLMRequestOptions(temperature: 0.3, maxTokens: 2048)
+    public static func deterministic(model: String) -> LLMRequestOptions {
+        LLMRequestOptions(model: model, temperature: 0.3, maxTokens: 2048)
+    }
 
     /// Options for agent/automation use cases
-    public static let agent = LLMRequestOptions(temperature: 0.3, maxTokens: 16384)
+    public static func agent(model: String) -> LLMRequestOptions {
+        LLMRequestOptions(model: model, temperature: 0.3, maxTokens: 16384)
+    }
 
     /// Options for creative/generation tasks
-    public static let creative = LLMRequestOptions(temperature: 0.9, maxTokens: 4096)
+    public static func creative(model: String) -> LLMRequestOptions {
+        LLMRequestOptions(model: model, temperature: 0.9, maxTokens: 4096)
+    }
 
     /// Options for widget spec generation (deterministic, focused)
-    public static let widgetGeneration = LLMRequestOptions(temperature: 0.0, maxTokens: 2048)
+    public static func widgetGeneration(model: String) -> LLMRequestOptions {
+        LLMRequestOptions(model: model, temperature: 0.0, maxTokens: 2048)
+    }
 }
 
 /// Errors that can occur during LLM operations

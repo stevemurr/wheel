@@ -172,4 +172,216 @@ struct TransformSandboxTests {
         let result = try sandbox.execute(skill: .sort, params: params, input: input)
         #expect(result is [Any])
     }
+
+    // MARK: - Filter: Additional Operators
+
+    @Test("Filter neq operator")
+    func filterNeq() throws {
+        let input: [[String: Any]] = [
+            ["status": "active"],
+            ["status": "inactive"],
+            ["status": "active"],
+        ]
+        let params: [String: Any] = ["field": "status", "operator": "neq", "value": "active"]
+        let result = try sandbox.execute(skill: .filter, params: params, input: input) as! [[String: Any]]
+        #expect(result.count == 1)
+        #expect(result[0]["status"] as? String == "inactive")
+    }
+
+    @Test("Filter gte operator")
+    func filterGte() throws {
+        let input: [[String: Any]] = [
+            ["score": 10],
+            ["score": 5],
+            ["score": 8],
+        ]
+        let params: [String: Any] = ["field": "score", "operator": "gte", "value": 8]
+        let result = try sandbox.execute(skill: .filter, params: params, input: input) as! [[String: Any]]
+        #expect(result.count == 2)
+    }
+
+    @Test("Filter lte operator")
+    func filterLte() throws {
+        let input: [[String: Any]] = [
+            ["score": 10],
+            ["score": 5],
+            ["score": 8],
+        ]
+        let params: [String: Any] = ["field": "score", "operator": "lte", "value": 8]
+        let result = try sandbox.execute(skill: .filter, params: params, input: input) as! [[String: Any]]
+        #expect(result.count == 2)
+    }
+
+    @Test("Filter lt operator")
+    func filterLt() throws {
+        let input: [[String: Any]] = [
+            ["score": 10],
+            ["score": 5],
+            ["score": 8],
+        ]
+        let params: [String: Any] = ["field": "score", "operator": "lt", "value": 8]
+        let result = try sandbox.execute(skill: .filter, params: params, input: input) as! [[String: Any]]
+        #expect(result.count == 1)
+        #expect(result[0]["score"] as? Int == 5)
+    }
+
+    @Test("Filter with numeric comparison")
+    func filterNumericComparison() throws {
+        let input: [[String: Any]] = [
+            ["price": 9.99],
+            ["price": 19.99],
+            ["price": 4.99],
+        ]
+        let params: [String: Any] = ["field": "price", "operator": "gt", "value": 10.0]
+        let result = try sandbox.execute(skill: .filter, params: params, input: input) as! [[String: Any]]
+        #expect(result.count == 1)
+    }
+
+    // MARK: - Sort: Additional Cases
+
+    @Test("Sort by string values")
+    func sortByString() throws {
+        let input: [[String: Any]] = [
+            ["name": "Charlie"],
+            ["name": "Alice"],
+            ["name": "Bob"],
+        ]
+        let params: [String: Any] = ["field": "name", "order": "asc"]
+        let result = try sandbox.execute(skill: .sort, params: params, input: input) as! [[String: Any]]
+        #expect(result[0]["name"] as? String == "Alice")
+        #expect(result[1]["name"] as? String == "Bob")
+        #expect(result[2]["name"] as? String == "Charlie")
+    }
+
+    @Test("Sort with null values handles gracefully")
+    func sortWithNulls() throws {
+        let input: [[String: Any]] = [
+            ["name": "B", "score": 2],
+            ["name": "A"],
+            ["name": "C", "score": 3],
+        ]
+        let params: [String: Any] = ["field": "score", "order": "asc"]
+        let result = try sandbox.execute(skill: .sort, params: params, input: input)
+        #expect(result is [Any])
+    }
+
+    @Test("Sort by missing field")
+    func sortByMissingField() throws {
+        let input: [[String: Any]] = [
+            ["name": "B"],
+            ["name": "A"],
+        ]
+        let params: [String: Any] = ["field": "nonexistent", "order": "asc"]
+        let result = try sandbox.execute(skill: .sort, params: params, input: input)
+        let arr = result as? [Any]
+        #expect(arr?.count == 2)
+    }
+
+    // MARK: - Aggregate: Additional Operations
+
+    @Test("Aggregate min operation")
+    func aggregateMin() throws {
+        let input: [[String: Any]] = [["val": 10], ["val": 5], ["val": 20]]
+        let params: [String: Any] = ["operation": "min", "field": "val"]
+        let result = try sandbox.execute(skill: .aggregate, params: params, input: input) as! [[String: Any]]
+        #expect(result[0]["value"] as? Int == 5)
+    }
+
+    @Test("Aggregate max operation")
+    func aggregateMax() throws {
+        let input: [[String: Any]] = [["val": 10], ["val": 5], ["val": 20]]
+        let params: [String: Any] = ["operation": "max", "field": "val"]
+        let result = try sandbox.execute(skill: .aggregate, params: params, input: input) as! [[String: Any]]
+        #expect(result[0]["value"] as? Int == 20)
+    }
+
+    @Test("Aggregate first operation")
+    func aggregateFirst() throws {
+        let input: [[String: Any]] = [["val": 10], ["val": 20], ["val": 30]]
+        let params: [String: Any] = ["operation": "first", "field": "val"]
+        let result = try sandbox.execute(skill: .aggregate, params: params, input: input) as! [[String: Any]]
+        #expect(result[0]["value"] as? Int == 10)
+    }
+
+    @Test("Aggregate last operation")
+    func aggregateLast() throws {
+        let input: [[String: Any]] = [["val": 10], ["val": 20], ["val": 30]]
+        let params: [String: Any] = ["operation": "last", "field": "val"]
+        let result = try sandbox.execute(skill: .aggregate, params: params, input: input) as! [[String: Any]]
+        #expect(result[0]["value"] as? Int == 30)
+    }
+
+    @Test("Aggregate group_by with multiple groups")
+    func aggregateGroupByMultiple() throws {
+        let input: [[String: Any]] = [
+            ["cat": "A", "val": 10],
+            ["cat": "B", "val": 5],
+            ["cat": "A", "val": 20],
+            ["cat": "C", "val": 15],
+            ["cat": "B", "val": 25],
+        ]
+        let params: [String: Any] = ["operation": "sum", "field": "val", "group_by": "cat"]
+        let result = try sandbox.execute(skill: .aggregate, params: params, input: input) as! [[String: Any]]
+        #expect(result.count == 3)
+    }
+
+    // MARK: - MapFields: Additional Cases
+
+    @Test("MapFields with missing source field produces null or omits")
+    func mapFieldsMissingSource() throws {
+        let input: [[String: Any]] = [
+            ["name": "John"],
+        ]
+        let params: [String: Any] = [
+            "mapping": ["output": "nonexistent_field"] as [String: Any]
+        ]
+        let result = try sandbox.execute(skill: .mapFields, params: params, input: input) as! [[String: Any]]
+        // Missing source field should produce null or be omitted
+        #expect(result.count == 1)
+    }
+
+    @Test("MapFields template with multiple references")
+    func mapFieldsMultipleRefs() throws {
+        let input: [[String: Any]] = [
+            ["first": "John", "last": "Doe", "age": 30],
+        ]
+        let params: [String: Any] = [
+            "mapping": ["display": "{{first}} {{last}} ({{age}})"] as [String: Any]
+        ]
+        let result = try sandbox.execute(skill: .mapFields, params: params, input: input) as! [[String: Any]]
+        #expect(result[0]["display"] as? String == "John Doe (30)")
+    }
+
+    // MARK: - Empty Input
+
+    @Test("Empty input for sort")
+    func emptyInputSort() throws {
+        let result = try sandbox.execute(skill: .sort, params: ["field": "x", "order": "asc"], input: [] as [Any])
+        let arr = result as? [Any]
+        #expect(arr?.isEmpty == true)
+    }
+
+    @Test("Empty input for filter")
+    func emptyInputFilter() throws {
+        let result = try sandbox.execute(skill: .filter, params: ["field": "x", "operator": "eq", "value": "y"], input: [] as [Any])
+        let arr = result as? [Any]
+        #expect(arr?.isEmpty == true)
+    }
+
+    @Test("Empty input for aggregate")
+    func emptyInputAggregate() throws {
+        let result = try sandbox.execute(skill: .aggregate, params: ["operation": "count"], input: [] as [Any])
+        let arr = result as? [[String: Any]]
+        // count of empty array should be 0
+        if let arr, let first = arr.first {
+            #expect(first["value"] as? Int == 0)
+        }
+    }
+
+    @Test("Empty input for mapFields")
+    func emptyInputMapFields() throws {
+        let result = try sandbox.execute(skill: .mapFields, params: ["mapping": ["out": "in"] as [String: Any]], input: [] as [Any])
+        let arr = result as? [Any]
+        #expect(arr?.isEmpty == true)
+    }
 }

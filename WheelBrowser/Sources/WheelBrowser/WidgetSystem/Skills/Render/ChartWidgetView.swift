@@ -25,6 +25,11 @@ struct ChartWidgetView: View {
 struct ChartWebViewRepresentable: NSViewRepresentable {
     let config: ChartConfig
 
+    private static let bundledChartJS: String? = {
+        guard let url = Bundle.module.url(forResource: "chart.umd.min", withExtension: "js", subdirectory: "WidgetSystem") else { return nil }
+        return try? String(contentsOf: url, encoding: .utf8)
+    }()
+
     func makeNSView(context: Context) -> WKWebView {
         let contentController = WKUserContentController()
         let configuration = WKWebViewConfiguration()
@@ -88,7 +93,7 @@ struct ChartWebViewRepresentable: NSViewRepresentable {
             #chart-container { width: 100%; height: 100vh; padding: 8px; }
             canvas { width: 100% !important; height: 100% !important; }
         </style>
-        <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+        \(Self.bundledChartJS.map { "<script>\($0)</script>" } ?? "<script src=\"https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js\"></script>")
         </head>
         <body>
         <div id="chart-container">

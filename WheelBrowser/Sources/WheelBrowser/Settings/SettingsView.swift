@@ -9,6 +9,7 @@ struct SettingsView: View {
             LLMSettingsSection()
             DIndexSettingsSection()
             AgentSection()
+            WidgetSettingsSection()
 
             Section("MCP Server") {
                 MCPSettingsView()

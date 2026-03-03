@@ -13,14 +13,14 @@ final class WidgetSpecGenerator {
     }
 
     /// Generate a validated pipeline spec from a user description.
-    func generate(prompt: String) async throws -> ValidatedSpec {
+    func generate(prompt: String, model: String) async throws -> ValidatedSpec {
         let systemPrompt = SystemPromptBuilder.build(registry: registry)
 
         var messages = [ChatMessage.user(prompt)]
         var lastError: Error?
 
         for attempt in 0...maxRepairAttempts {
-            let options = LLMRequestOptions(temperature: 0.0, maxTokens: 2048)
+            let options = LLMRequestOptions.widgetGeneration(model: model)
 
             let response: String
             do {

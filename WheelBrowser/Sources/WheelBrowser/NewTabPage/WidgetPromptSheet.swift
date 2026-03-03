@@ -151,7 +151,7 @@ struct WidgetPromptSheet: View {
                 let registry = SkillRegistry.createDefault()
                 let generator = WidgetSpecGenerator(llmClient: retrying, registry: registry)
 
-                let validatedSpec = try await generator.generate(prompt: prompt)
+                let validatedSpec = try await generator.generate(prompt: prompt, model: settings.selectedModel)
 
                 // Execute pipeline to get preview
                 let executor = PipelineExecutor(registry: registry)

@@ -4,12 +4,17 @@ import SwiftUI
 struct PipelineNewTabPageView: View {
     @State private var widgetStore = WidgetStore()
     @State private var showingPromptSheet = false
+    @State private var isEditing = false
 
     var body: some View {
         ScrollView {
             VStack(spacing: 24) {
                 greeting
-                widgetGrid
+                if widgetStore.widgets.isEmpty {
+                    emptyState
+                } else {
+                    widgetGrid
+                }
             }
             .padding(.horizontal, 24)
             .padding(.top, 40)
@@ -18,7 +23,13 @@ struct PipelineNewTabPageView: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(Color(nsColor: .windowBackgroundColor))
         .overlay(alignment: .bottomTrailing) {
-            addWidgetButton
+            HStack(spacing: 12) {
+                if !widgetStore.widgets.isEmpty {
+                    editButton
+                }
+                addWidgetButton
+            }
+            .padding(24)
         }
         .sheet(isPresented: $showingPromptSheet) {
             WidgetPromptSheet(store: widgetStore) {
@@ -30,19 +41,11 @@ struct PipelineNewTabPageView: View {
     // MARK: - Greeting
 
     private var greeting: some View {
-        VStack(spacing: 4) {
-            Text(greetingText)
-                .font(.system(size: 28, weight: .bold, design: .rounded))
-                .foregroundStyle(.primary)
-
-            if widgetStore.widgets.isEmpty {
-                Text("Add widgets to customize your new tab page")
-                    .font(.system(size: 14))
-                    .foregroundStyle(.secondary)
-            }
-        }
-        .frame(maxWidth: .infinity)
-        .padding(.bottom, 8)
+        Text(greetingText)
+            .font(.system(size: 28, weight: .bold, design: .rounded))
+            .foregroundStyle(.primary)
+            .frame(maxWidth: .infinity)
+            .padding(.bottom, 8)
     }
 
     private var greetingText: String {
@@ -55,20 +58,76 @@ struct PipelineNewTabPageView: View {
         }
     }
 
+    // MARK: - Empty State
+
+    private var emptyState: some View {
+        VStack(spacing: 16) {
+            Image(systemName: "square.grid.2x2")
+                .font(.system(size: 40))
+                .foregroundStyle(.secondary)
+
+            Text("No Widgets Yet")
+                .font(.headline)
+
+            Text("Create custom widgets powered by AI to display live data")
+                .font(.subheadline)
+                .foregroundStyle(.secondary)
+                .multilineTextAlignment(.center)
+
+            Button("Create Your First Widget") {
+                showingPromptSheet = true
+            }
+            .buttonStyle(.bordered)
+            .controlSize(.large)
+        }
+        .padding(.top, 40)
+    }
+
     // MARK: - Widget Grid
 
     private var widgetGrid: some View {
         LazyVGrid(columns: [
             GridItem(.adaptive(minimum: 300, maximum: 500), spacing: 16)
         ], spacing: 16) {
-            ForEach(widgetStore.widgets) { widget in
+            ForEach(Array(widgetStore.widgets.enumerated()), id: \.element.id) { index, widget in
                 PipelineWidgetContainerView(
                     widget: widget,
-                    isEditMode: widgetStore.isEditMode,
-                    onRemove: { widgetStore.removeWidget(id: widget.id) }
+                    isEditMode: isEditing,
+                    onRemove: { widgetStore.removeWidget(id: widget.id) },
+                    canMoveUp: index > 0,
+                    canMoveDown: index < widgetStore.widgets.count - 1,
+                    onMoveUp: {
+                        widgetStore.moveWidget(from: IndexSet(integer: index), to: index - 1)
+                    },
+                    onMoveDown: {
+                        widgetStore.moveWidget(from: IndexSet(integer: index), to: index + 2)
+                    }
                 )
             }
         }
+    }
+
+    // MARK: - Edit Button
+
+    private var editButton: some View {
+        Button(action: {
+            withAnimation(.easeInOut(duration: 0.2)) {
+                isEditing.toggle()
+            }
+        }) {
+            HStack(spacing: 6) {
+                Image(systemName: isEditing ? "checkmark" : "pencil")
+                    .font(.system(size: 13, weight: .semibold))
+                Text(isEditing ? "Done" : "Edit")
+                    .font(.system(size: 13, weight: .medium))
+            }
+            .padding(.horizontal, 16)
+            .padding(.vertical, 10)
+            .background(.ultraThinMaterial)
+            .clipShape(RoundedRectangle(cornerRadius: 10))
+            .shadow(color: .black.opacity(0.1), radius: 4, y: 2)
+        }
+        .buttonStyle(.plain)
     }
 
     // MARK: - Add Widget Button
@@ -88,6 +147,5 @@ struct PipelineNewTabPageView: View {
             .shadow(color: .black.opacity(0.1), radius: 4, y: 2)
         }
         .buttonStyle(.plain)
-        .padding(24)
     }
 }
