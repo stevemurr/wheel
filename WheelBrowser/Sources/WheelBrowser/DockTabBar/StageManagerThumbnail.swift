@@ -89,9 +89,21 @@ struct StageManagerThumbnail: View {
     @ViewBuilder
     private var placeholderView: some View {
         ZStack {
-            DomainGradient.placeholderGradient(for: tab.url?.host)
+            if tab.isChatTab {
+                LinearGradient(
+                    colors: [.purple.opacity(0.4), .purple.opacity(0.25)],
+                    startPoint: .topLeading,
+                    endPoint: .bottomTrailing
+                )
+            } else {
+                DomainGradient.placeholderGradient(for: tab.url?.host)
+            }
 
-            if let host = tab.url?.host {
+            if tab.isChatTab {
+                Image(systemName: "sparkles")
+                    .font(.system(size: 20, weight: .medium))
+                    .foregroundColor(.purple.opacity(0.8))
+            } else if let host = tab.url?.host {
                 Text(DomainGradient.initial(for: host))
                     .font(.system(size: 20, weight: .semibold))
                     .foregroundColor(.white.opacity(0.8))

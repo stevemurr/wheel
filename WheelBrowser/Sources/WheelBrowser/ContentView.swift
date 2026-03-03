@@ -23,6 +23,7 @@ private struct BrowserContentArea: View {
                         ForEach(browserState.tabs) { tab in
                             TabWebViewContainer(
                                 tab: tab,
+                                agentManager: agentManager,
                                 isActive: tab.id == browserState.activeTabId
                             )
                         }
@@ -80,12 +81,15 @@ private struct BrowserContentArea: View {
 /// Container for a single tab's web view - keeps it in hierarchy even when not active
 private struct TabWebViewContainer: View {
     @ObservedObject var tab: Tab
+    @ObservedObject var agentManager: AgentManager
     let isActive: Bool
 
     var body: some View {
         ZStack {
             Group {
-                if tab.url == nil {
+                if tab.url == nil && tab.isChatTab {
+                    FullPageChatView(agentManager: agentManager)
+                } else if tab.url == nil {
                     NewTabPageView()
                 } else {
                     WebViewRepresentable(tab: tab)
@@ -227,7 +231,8 @@ private struct NavigationNotificationModifier: ViewModifier {
                 state.activeTab?.stopLoading()
             }
             .onReceive(NotificationCenter.default.publisher(for: .openURL)) { notification in
-                if let url = notification.object as? URL {
+                if let url = notification.object as? URL,
+                   state.activeTab?.isChatTab != true {
                     state.activeTab?.load(url.absoluteString)
                 }
             }
@@ -416,7 +421,9 @@ struct ContentView: View {
             PersistedTab(
                 id: tab.id,
                 url: tab.url?.absoluteString,
-                title: tab.title
+                title: tab.title,
+                isChatTab: tab.isChatTab,
+                conversationId: tab.conversationId
             )
         }
 

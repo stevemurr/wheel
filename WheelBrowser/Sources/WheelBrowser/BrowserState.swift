@@ -5,6 +5,8 @@ import Combine
 struct ClosedTabInfo {
     let url: URL?
     let title: String
+    let isChatTab: Bool
+    let conversationId: UUID
     let closedAt: Date
 }
 
@@ -13,6 +15,25 @@ struct PersistedTab: Codable {
     let id: UUID
     let url: String?
     let title: String
+    let isChatTab: Bool
+    let conversationId: UUID
+
+    init(id: UUID, url: String?, title: String, isChatTab: Bool, conversationId: UUID) {
+        self.id = id
+        self.url = url
+        self.title = title
+        self.isChatTab = isChatTab
+        self.conversationId = conversationId
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        id = try container.decode(UUID.self, forKey: .id)
+        url = try container.decodeIfPresent(String.self, forKey: .url)
+        title = try container.decode(String.self, forKey: .title)
+        isChatTab = try container.decodeIfPresent(Bool.self, forKey: .isChatTab) ?? false
+        conversationId = try container.decodeIfPresent(UUID.self, forKey: .conversationId) ?? UUID()
+    }
 }
 
 /// Persisted workspace tab state
@@ -88,8 +109,9 @@ class BrowserState: ObservableObject, BrowserBridgeProvider {
         tabsByID[tabId]
     }
 
-    /// Navigate the active tab to a URL
+    /// Navigate the active tab to a URL (no-op on chat tabs)
     func navigate(to url: URL) {
+        guard activeTab?.isChatTab != true else { return }
         activeTab?.load(url.absoluteString)
     }
 
@@ -105,7 +127,9 @@ class BrowserState: ObservableObject, BrowserBridgeProvider {
             PersistedTab(
                 id: tab.id,
                 url: tab.url?.absoluteString,
-                title: tab.title
+                title: tab.title,
+                isChatTab: tab.isChatTab,
+                conversationId: tab.conversationId
             )
         }
 
@@ -137,6 +161,8 @@ class BrowserState: ObservableObject, BrowserBridgeProvider {
 
             for persistedTab in state.tabData {
                 let tab = Tab()
+                tab.isChatTab = persistedTab.isChatTab
+                tab.conversationId = persistedTab.conversationId
                 tabs.append(tab)
                 tabsByID[tab.id] = tab
 
@@ -200,6 +226,8 @@ class BrowserState: ObservableObject, BrowserBridgeProvider {
             let closedInfo = ClosedTabInfo(
                 url: tab.url,
                 title: tab.title,
+                isChatTab: tab.isChatTab,
+                conversationId: tab.conversationId,
                 closedAt: Date()
             )
             closedTabsHistory.insert(closedInfo, at: 0)
@@ -284,6 +312,8 @@ class BrowserState: ObservableObject, BrowserBridgeProvider {
         closedTabsHistory.removeFirst()
 
         let tab = Tab()
+        tab.isChatTab = closedInfo.isChatTab
+        tab.conversationId = closedInfo.conversationId
         tabs.append(tab)
         tabsByID[tab.id] = tab
         activeTabId = tab.id

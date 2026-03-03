@@ -21,6 +21,7 @@ extension OmniBar {
     }
 
     func submitAddress() {
+        guard !tab.isChatTab else { return }
         if let selected = suggestionsVM.selectedSuggestion {
             handleSuggestionSelection(selected)
             return
@@ -41,6 +42,7 @@ extension OmniBar {
             omniState.inputText = tab.url?.absoluteString ?? ""
 
         case .history(let entry, _, _, _):
+            guard !tab.isChatTab else { return }
             omniState.inputText = entry.url
             self.tab.load(entry.url)
             isInputFocused = false
@@ -79,6 +81,7 @@ extension OmniBar {
     }
 
     func handleSemanticSelection(_ result: SemanticSearchResult) {
+        guard !tab.isChatTab else { return }
         tab.load(result.page.url)
         isInputFocused = false
         omniState.dismissVisiblePanel()
@@ -87,6 +90,7 @@ extension OmniBar {
     }
 
     func handleReadingListSelection(_ item: SavedPageRecord) {
+        guard !tab.isChatTab else { return }
         tab.load(item.url.absoluteString)
         isInputFocused = false
         omniState.dismissVisiblePanel()

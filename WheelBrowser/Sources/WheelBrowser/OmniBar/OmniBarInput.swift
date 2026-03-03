@@ -77,14 +77,11 @@ extension OmniBar {
     // MARK: - Mode Indicator
 
     var modeIndicator: some View {
-        Button(action: { omniState.nextMode() }) {
-            Image(systemName: omniState.modeIcon)
-                .foregroundColor(isInputFocused ? omniState.modeColor : .secondary)
-                .font(.system(size: 12, weight: .medium))
-                .contentTransition(.symbolEffect(.replace))
-        }
-        .buttonStyle(.plain)
-        .help("Press Tab to switch modes (Address / Chat / Semantic)")
+        ModeIndicatorView(
+            agentManager: agentManager,
+            omniState: omniState,
+            isInputFocused: isInputFocused
+        )
     }
 
     // MARK: - Action Button
@@ -248,6 +245,30 @@ private struct AgentInlineStatusView: View {
 }
 
 // MARK: - Agent Action Button (isolated sub-view for per-property observation)
+
+/// Extracted from OmniBar to isolate `agentManager.isFullPageChatActive` reads from OmniBar.body.
+/// Only this sub-view re-evaluates when the full-page chat state changes.
+private struct ModeIndicatorView: View {
+    @ObservedObject var agentManager: AgentManager
+    @ObservedObject var omniState: OmniBarState
+    var isInputFocused: Bool
+
+    var body: some View {
+        Button(action: {
+            if !agentManager.isFullPageChatActive {
+                omniState.nextMode()
+            }
+        }) {
+            Image(systemName: omniState.modeIcon)
+                .foregroundColor(isInputFocused ? omniState.modeColor : .secondary)
+                .font(.system(size: 12, weight: .medium))
+                .contentTransition(.symbolEffect(.replace))
+        }
+        .buttonStyle(.plain)
+        .disabled(agentManager.isFullPageChatActive)
+        .help(agentManager.isFullPageChatActive ? "Chat mode" : "Press Tab to switch modes (Address / Chat / Semantic)")
+    }
+}
 
 /// Extracted from OmniBar to isolate `agentEngine.isRunning` reads from OmniBar.body.
 private struct AgentActionButton: View {

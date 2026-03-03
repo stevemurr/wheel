@@ -3,9 +3,30 @@ import SwiftUI
 // MARK: - onChange / onReceive Event Handler Methods
 
 extension OmniBar {
+    // MARK: - Full Page Chat State
+
+    /// Updates `agentManager.isFullPageChatActive` based on current tab URL and mode.
+    /// Called BEFORE `setVisiblePanel` to ensure non-animated state changes precede
+    /// animated panel transitions (Rule 8). Does NOT use `withAnimation`.
+    ///
+    /// Once an empty tab enters chat mode, `tab.isChatTab` latches to `true`
+    /// and the tab permanently shows `FullPageChatView`. Mode cycling and
+    /// escape-to-address are blocked elsewhere when this flag is set.
+    func updateFullPageChatState() {
+        // One-way latch: once a tab becomes a chat tab, it stays that way
+        if tab.url == nil && omniState.mode == .chat && !tab.isChatTab {
+            tab.isChatTab = true
+        }
+        let shouldBeActive = tab.url == nil && tab.isChatTab
+        if agentManager.isFullPageChatActive != shouldBeActive {
+            agentManager.isFullPageChatActive = shouldBeActive
+        }
+    }
+
     // MARK: - URL Change
 
     func handleURLChange(_ newURL: URL?) {
+        updateFullPageChatState()
         if !isInputFocused && omniState.mode == .address {
             omniState.inputText = newURL?.absoluteString ?? ""
         }
@@ -61,6 +82,7 @@ extension OmniBar {
     }
 
     private func handleFocusGained() {
+        updateFullPageChatState()
         activateMode(omniState.mode, isFocusGain: true)
     }
 
@@ -69,6 +91,9 @@ extension OmniBar {
     func handleModeChange(_ newMode: OmniBarMode) {
         // Clear search state for VMs not owned by the new mode
         clearSearchState(except: newMode)
+
+        // Update full-page chat flag before any panel changes (Rule 8)
+        updateFullPageChatState()
 
         // Skip panel activation when input is unfocused (e.g. during Escape dismissal).
         // Just dismiss any visible panel and return.
@@ -164,6 +189,7 @@ extension OmniBar {
         let panel = omniState.visiblePanel
         omniState.dismissVisiblePanel()
         isInputFocused = false
+        updateFullPageChatState()
 
         switch panel {
         case .history:
@@ -185,6 +211,8 @@ extension OmniBar {
     // MARK: - Focus Address Bar
 
     func handleFocusAddressBar() {
+        // Chat tabs are locked to chat mode
+        guard !agentManager.isFullPageChatActive else { return }
         // Set focus BEFORE mode so that handleModeChange sees isInputFocused=true
         // and activates the panel directly, instead of dismissing then re-showing (flash).
         // No withAnimation — pill expansion is driven by the implicit .animation() on
@@ -223,6 +251,7 @@ extension OmniBar {
     // MARK: - Focus Semantic Search
 
     func handleFocusSemanticSearch() {
+        guard !agentManager.isFullPageChatActive else { return }
         // No withAnimation — see handleFocusAddressBar for why.
         isInputFocused = true
         omniState.setMode(.semantic)
@@ -243,6 +272,7 @@ extension OmniBar {
     // MARK: - Focus Reading List
 
     func handleFocusReadingList() {
+        guard !agentManager.isFullPageChatActive else { return }
         // No withAnimation — see handleFocusAddressBar for why.
         isInputFocused = true
         omniState.setMode(.readingList)
@@ -366,6 +396,8 @@ extension OmniBar: OmniBarKeyboardHandler {
             return true
 
         case .tab:
+            // Block mode cycling on chat tabs
+            guard !agentManager.isFullPageChatActive else { return true }
             let wasChat = omniState.mode == .chat
             omniState.nextMode()
             if !wasChat && omniState.mode == .chat {
@@ -374,6 +406,7 @@ extension OmniBar: OmniBarKeyboardHandler {
             return true
 
         case .shiftTab:
+            guard !agentManager.isFullPageChatActive else { return true }
             let wasChat = omniState.mode == .chat
             omniState.previousMode()
             if !wasChat && omniState.mode == .chat {

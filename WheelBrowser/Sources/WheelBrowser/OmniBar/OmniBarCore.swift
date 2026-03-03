@@ -23,7 +23,7 @@ private struct OmniBarAnimationState: Equatable {
 /// The OmniBar - a unified input bar for URL navigation, AI chat, and semantic search
 struct OmniBar: View {
     @ObservedObject var tab: Tab
-    @ObservedObject var agentManager: AgentManager
+    var agentManager: AgentManager
     @ObservedObject var browserState: BrowserState
     var agentEngine: AgentEngine
     @StateObject var omniState = OmniBarState()
@@ -51,7 +51,6 @@ struct OmniBar: View {
 
     /// Panel visibility helpers using centralized state method
     var isHistoryPanelVisible: Bool { omniState.isPanelVisible(for: .address) }
-    var isChatPanelVisible: Bool { omniState.isPanelVisible(for: .chat) }
     var isSemanticPanelVisible: Bool { omniState.isPanelVisible(for: .semantic) }
     var isAgentPanelVisible: Bool { omniState.isPanelVisible(for: .agent) }
     var isReadingListPanelVisible: Bool { omniState.isPanelVisible(for: .readingList) }
@@ -91,6 +90,10 @@ struct OmniBar: View {
             isHovering = hovering
         }
         .onChange(of: tab.url) { _, newURL in handleURLChange(newURL) }
+        .onChange(of: tab.id) { _, _ in
+            agentManager.switchConversation(to: tab.conversationId)
+            updateFullPageChatState()
+        }
         .onChange(of: omniState.inputText) { _, newValue in handleInputTextChange(newValue) }
         .onChange(of: isInputFocused) { _, focused in handleFocusChange(focused) }
         .onChange(of: omniState.mode) { _, newMode in handleModeChange(newMode) }
@@ -98,22 +101,10 @@ struct OmniBar: View {
             omniState.inputText = tab.url?.absoluteString ?? ""
             suggestionsVM.browserState = browserState
             mentionSuggestionsVM.browserState = browserState
+            agentManager.switchConversation(to: tab.conversationId)
+            updateFullPageChatState()
         }
-        .onReceive(NotificationCenter.default.publisher(for: .focusAddressBar)) { _ in handleFocusAddressBar() }
-        .onReceive(NotificationCenter.default.publisher(for: .focusAISidebar)) { _ in handleFocusAISidebar() }
-        .onReceive(NotificationCenter.default.publisher(for: .focusChatInput)) { _ in handleFocusChatInput() }
-        .onReceive(NotificationCenter.default.publisher(for: .focusSemanticSearch)) { _ in handleFocusSemanticSearch() }
-        .onReceive(NotificationCenter.default.publisher(for: .escapePressed)) { _ in handleEscapePressed() }
-        .onReceive(NotificationCenter.default.publisher(for: .findInPage)) { _ in handleFindInPage() }
-        .onReceive(NotificationCenter.default.publisher(for: .toggleSavePage)) { _ in toggleSaveCurrentPage() }
-        .onReceive(NotificationCenter.default.publisher(for: .focusReadingList)) { _ in handleFocusReadingList() }
-        .onReceive(NotificationCenter.default.publisher(for: Notification.Name("pageSaveStateChanged"))) { notification in
-            handlePageSaveStateChanged(notification)
-        }
-        .onReceive(NotificationCenter.default.publisher(for: .showScrapePanel)) { _ in
-            omniState.setMode(.scraping)
-            // NOTE: Do NOT call setVisiblePanel here — handled by setMode → handleModeChange → activateMode.
-        }
+        .modifier(OmniBarNotificationModifier(omniBar: self))
         .task {
             await checkIfCurrentPageIsSaved()
         }
@@ -137,7 +128,7 @@ struct OmniBar: View {
                     .zIndex(100)
 
                 // Panel toggle buttons for modes with content
-                panelToggle(for: .chat, hasContent: !agentManager.messages.isEmpty)
+                ChatPanelToggle(agentManager: agentManager, omniState: omniState)
                 panelToggle(for: .semantic, hasContent: !semanticSearchVM.results.isEmpty)
                 AgentPanelToggle(agentEngine: agentEngine, omniState: omniState)
                 panelToggle(for: .readingList, hasContent: !readingListVM.items.isEmpty)
@@ -225,6 +216,29 @@ struct OmniBar: View {
     }
 }
 
+// MARK: - Chat Panel Toggle (isolated sub-view for per-property observation)
+
+/// Extracted from OmniBar to isolate `agentManager.messages` reads.
+/// With `@ObservedObject`, only this sub-view re-evaluates when messages change during streaming,
+/// not the entire OmniBar body.
+private struct ChatPanelToggle: View {
+    @ObservedObject var agentManager: AgentManager
+    @ObservedObject var omniState: OmniBarState
+
+    var body: some View {
+        if omniState.mode == .chat && !agentManager.messages.isEmpty {
+            let panel = OmniBarMode.chat.correspondingPanel
+            PanelToggleButton(isExpanded: omniState.visiblePanel == panel) {
+                if omniState.visiblePanel == panel {
+                    omniState.dismissVisiblePanel()
+                } else {
+                    omniState.setVisiblePanel(panel)
+                }
+            }
+        }
+    }
+}
+
 // MARK: - Agent Panel Toggle (isolated sub-view for per-property observation)
 
 /// Extracted from OmniBar to isolate `agentEngine.steps` and `agentEngine.isRunning` reads.
@@ -243,5 +257,32 @@ private struct AgentPanelToggle: View {
                 }
             }
         }
+    }
+}
+
+// MARK: - OmniBar Notification Modifier (extracted to reduce body type-check complexity)
+
+/// Groups all `.onReceive` notification handlers for the OmniBar into a single modifier
+/// so the compiler doesn't choke on the main body's expression complexity.
+private struct OmniBarNotificationModifier: ViewModifier {
+    let omniBar: OmniBar
+
+    func body(content: Content) -> some View {
+        content
+            .onReceive(NotificationCenter.default.publisher(for: .focusAddressBar)) { _ in omniBar.handleFocusAddressBar() }
+            .onReceive(NotificationCenter.default.publisher(for: .focusAISidebar)) { _ in omniBar.handleFocusAISidebar() }
+            .onReceive(NotificationCenter.default.publisher(for: .focusChatInput)) { _ in omniBar.handleFocusChatInput() }
+            .onReceive(NotificationCenter.default.publisher(for: .focusSemanticSearch)) { _ in omniBar.handleFocusSemanticSearch() }
+            .onReceive(NotificationCenter.default.publisher(for: .escapePressed)) { _ in omniBar.handleEscapePressed() }
+            .onReceive(NotificationCenter.default.publisher(for: .findInPage)) { _ in omniBar.handleFindInPage() }
+            .onReceive(NotificationCenter.default.publisher(for: .toggleSavePage)) { _ in omniBar.toggleSaveCurrentPage() }
+            .onReceive(NotificationCenter.default.publisher(for: .focusReadingList)) { _ in omniBar.handleFocusReadingList() }
+            .onReceive(NotificationCenter.default.publisher(for: Notification.Name("pageSaveStateChanged"))) { notification in
+                omniBar.handlePageSaveStateChanged(notification)
+            }
+            .onReceive(NotificationCenter.default.publisher(for: .showScrapePanel)) { _ in
+                guard !omniBar.agentManager.isFullPageChatActive else { return }
+                omniBar.omniState.setMode(.scraping)
+            }
     }
 }

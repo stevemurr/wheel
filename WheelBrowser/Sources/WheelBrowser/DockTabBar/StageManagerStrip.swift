@@ -165,6 +165,9 @@ private struct BinderTabPeek: View {
         if tab.hasActiveAgent {
             return .green.opacity(0.8)
         }
+        if tab.isChatTab {
+            return .purple.opacity(0.7)
+        }
         return DomainGradient.solidColor(for: tab.url?.host)
     }
 }

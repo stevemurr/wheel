@@ -15,8 +15,25 @@ class Tab: Identifiable, ObservableObject {
     @Published var findSearchText: String = ""
     @Published var hasActiveAgent: Bool = false
     @Published var agentProgress: String = ""
+    @Published var isChatTab: Bool = false
 
-    let webView: WKWebView
+    /// Each tab has its own conversation ID for per-tab chat isolation.
+    var conversationId: UUID = UUID()
+
+    /// Backing storage for the lazily-created WKWebView.
+    /// Chat tabs that never render web content avoid the ~30-50MB overhead.
+    private var _webView: WKWebView?
+
+    /// The WKWebView backing this tab. Created lazily on first access.
+    var webView: WKWebView {
+        if let wv = _webView { return wv }
+        let wv = Tab.createWebView()
+        _webView = wv
+        return wv
+    }
+
+    /// Whether a WKWebView has been allocated for this tab.
+    var hasWebView: Bool { _webView != nil }
 
     /// Lazy controllers backed by webView
     private lazy var findController = FindInPageController(webView: webView)
@@ -25,6 +42,9 @@ class Tab: Identifiable, ObservableObject {
     /// Computed display title that handles empty/default titles gracefully
     /// Returns the URL host (without www.) if title is empty or "New Tab"
     var displayTitle: String {
+        if isChatTab && (title.isEmpty || title == "New Tab") {
+            return "Chat"
+        }
         if title.isEmpty || title == "New Tab" {
             if let domain = url?.cleanDomain, !domain.isEmpty {
                 return domain
@@ -39,7 +59,10 @@ class Tab: Identifiable, ObservableObject {
     private let maxZoom: Double = 3.0
     private let zoomStep: Double = 0.1
 
-    init() {
+    init() {}
+
+    /// Creates a fully-configured WKWebView for browsing.
+    private static func createWebView() -> WKWebView {
         let config = WKWebViewConfiguration()
         config.preferences.isElementFullscreenEnabled = true
 
@@ -63,15 +86,17 @@ class Tab: Identifiable, ObservableObject {
             config.userContentController.addUserScript(CookieBannerScripts.createUserScript())
         }
 
-        self.webView = BrowserWebView(frame: .zero, configuration: config)
-        self.webView.allowsBackForwardNavigationGestures = true
+        let webView = BrowserWebView(frame: .zero, configuration: config)
+        webView.allowsBackForwardNavigationGestures = true
 
         // Apply ad blocking rules after webView is created
         if AppSettings.shared.adBlockingEnabled {
             Task { @MainActor in
-                await ContentBlockerManager.shared.applyRules(to: self.webView)
+                await ContentBlockerManager.shared.applyRules(to: webView)
             }
         }
+
+        return webView
     }
 
     func load(_ urlString: String) {
@@ -96,18 +121,22 @@ class Tab: Identifiable, ObservableObject {
     }
 
     func goBack() {
+        guard hasWebView else { return }
         webView.goBack()
     }
 
     func goForward() {
+        guard hasWebView else { return }
         webView.goForward()
     }
 
     func reload() {
+        guard hasWebView else { return }
         webView.reload()
     }
 
     func stopLoading() {
+        guard hasWebView else { return }
         webView.stopLoading()
     }
 
@@ -129,6 +158,7 @@ class Tab: Identifiable, ObservableObject {
 
     private func setZoom(_ level: Double) {
         zoomLevel = level
+        guard hasWebView else { return }
         webView.pageZoom = level
     }
 
@@ -141,19 +171,23 @@ class Tab: Identifiable, ObservableObject {
     func hideFindBar() {
         isFindBarVisible = false
         findSearchText = ""
+        guard hasWebView else { return }
         findController.clearHighlights()
     }
 
     func findInPage(_ searchText: String) {
+        guard hasWebView else { return }
         findSearchText = searchText
         findController.findInPage(searchText)
     }
 
     func findNext() {
+        guard hasWebView else { return }
         findController.findNext()
     }
 
     func findPrevious() {
+        guard hasWebView else { return }
         findController.findPrevious()
     }
 
@@ -167,13 +201,16 @@ class Tab: Identifiable, ObservableObject {
     // MARK: - Picture in Picture
 
     func togglePictureInPicture() {
+        guard hasWebView else { return }
         pipController.toggle()
     }
 
     // MARK: - Cleanup
 
-    /// Cleans up the tab by stopping any pending loads and pausing all media
+    /// Cleans up the tab by stopping any pending loads and pausing all media.
+    /// No-op if the WebView was never created (e.g. chat tabs).
     func cleanup() {
+        guard let webView = _webView else { return }
         webView.stopLoading()
 
         // Pause and clear all media sources to stop audio/video

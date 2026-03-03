@@ -3,7 +3,7 @@ import SwiftUI
 // MARK: - Panel Wrapper
 
 /// Applies shared styling to all OmniBar panels: horizontal padding, bottom spacing, transition, and z-index.
-private struct PanelWrapperModifier: ViewModifier {
+struct PanelWrapperModifier: ViewModifier {
     func body(content: Content) -> some View {
         content
             .padding(.horizontal, 16)
@@ -13,7 +13,7 @@ private struct PanelWrapperModifier: ViewModifier {
     }
 }
 
-private extension View {
+extension View {
     func panelWrapper() -> some View {
         modifier(PanelWrapperModifier())
     }
@@ -43,29 +43,12 @@ extension OmniBar {
             .panelWrapper()
         }
 
-        // Chat panel - appears above OmniBar when in chat mode
-        if isChatPanelVisible {
-            OmniPanel(
-                title: "Chat",
-                icon: "bubble.left.and.bubble.right.fill",
-                iconColor: .purple,
-                borderColor: .purple,
-                subtitle: agentManager.isLoading ? "Thinking..." : nil,
-                menuContent: {
-                    AnyView(Group {
-                        Button("Clear Chat") { agentManager.clearMessages() }
-                        Divider()
-                        Button("Reset Agent", role: .destructive) {
-                            Task { await agentManager.resetAgent() }
-                        }
-                    })
-                },
-                onDismiss: { omniState.dismissVisiblePanel() }
-            ) {
-                ChatPanelContent(agentManager: agentManager)
-            }
-            .panelWrapper()
-        }
+        // Chat panel - extracted to isolate agentManager observation (Rule 13)
+        ChatOmniPanel(
+            agentManager: agentManager,
+            omniState: omniState,
+            onDismiss: { omniState.dismissVisiblePanel() }
+        )
 
         // Semantic search panel - appears above OmniBar when in semantic mode
         if isSemanticPanelVisible {
@@ -173,6 +156,45 @@ extension OmniBar {
                 ScrapePanelContent(manager: scrapeManager)
             }
             .panelWrapper()
+        }
+    }
+}
+
+// MARK: - Chat OmniPanel (isolated sub-view for per-property observation)
+
+/// Extracted from OmniBar to isolate all `agentManager` property reads (messages, isLoading)
+/// from the OmniBar body. Only this sub-view re-evaluates when chat messages change during streaming.
+private struct ChatOmniPanel: View {
+    @ObservedObject var agentManager: AgentManager
+    @ObservedObject var omniState: OmniBarState
+    var onDismiss: () -> Void
+
+    private var isVisible: Bool {
+        omniState.isPanelVisible(for: .chat) && !agentManager.isFullPageChatActive
+    }
+
+    var body: some View {
+        if isVisible {
+            OmniPanel(
+                title: "Chat",
+                icon: "bubble.left.and.bubble.right.fill",
+                iconColor: .purple,
+                borderColor: .purple,
+                subtitle: agentManager.isLoading ? "Thinking..." : nil,
+                menuContent: {
+                    AnyView(Group {
+                        Button("Clear Chat") { agentManager.clearMessages() }
+                        Divider()
+                        Button("Reset Agent", role: .destructive) {
+                            Task { await agentManager.resetAgent() }
+                        }
+                    })
+                },
+                onDismiss: onDismiss
+            ) {
+                ChatPanelContent(agentManager: agentManager)
+            }
+            .modifier(PanelWrapperModifier())
         }
     }
 }

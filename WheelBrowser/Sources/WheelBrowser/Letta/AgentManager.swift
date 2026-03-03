@@ -9,6 +9,7 @@ class AgentManager: ObservableObject {
     @Published var isLoading = false
     @Published var error: String?
     @Published var messages: [ChatMessage] = []
+    @Published var isFullPageChatActive: Bool = false
 
     // MARK: - Dependencies
 
@@ -22,6 +23,22 @@ class AgentManager: ObservableObject {
 
     private let streamProcessor = StreamingResponseProcessor()
     private let bufferFlusher = MarkdownBufferFlusher()
+
+    // MARK: - Per-Tab Conversation State
+
+    /// Snapshot of a conversation's state, cached when switching tabs.
+    private struct ConversationSnapshot {
+        var messages: [ChatMessage]
+        var conversationHistory: [[String: String]]
+        var lastFailedContent: String?
+        var lastFailedPageContexts: [PageContext]
+    }
+
+    /// Cached conversation states keyed by tab conversationId.
+    private var snapshots: [UUID: ConversationSnapshot] = [:]
+
+    /// The conversationId of the currently active conversation.
+    private(set) var activeConversationId: UUID?
 
     // MARK: - Internal State
 
@@ -46,6 +63,41 @@ class AgentManager: ObservableObject {
             conversationManager.resumeConversation(recent)
             messages = conversationManager.messages
             conversationHistory = ConversationHistoryBuilder.rebuildHistory(from: messages)
+        }
+    }
+
+    /// Switch to a different tab's conversation.
+    /// Saves the current conversation state and loads the target one.
+    func switchConversation(to conversationId: UUID) {
+        guard conversationId != activeConversationId else { return }
+
+        // Save current state
+        if let currentId = activeConversationId {
+            snapshots[currentId] = ConversationSnapshot(
+                messages: messages,
+                conversationHistory: conversationHistory,
+                lastFailedContent: lastFailedContent,
+                lastFailedPageContexts: lastFailedPageContexts
+            )
+        }
+
+        activeConversationId = conversationId
+
+        // Load target state
+        if let snapshot = snapshots[conversationId] {
+            messages = snapshot.messages
+            conversationHistory = snapshot.conversationHistory
+            lastFailedContent = snapshot.lastFailedContent
+            lastFailedPageContexts = snapshot.lastFailedPageContexts
+        } else if activeConversationId == nil {
+            // First switch — keep whatever was loaded by loadLastConversation()
+            // and associate it with this conversationId
+        } else {
+            // New conversation — start fresh
+            messages = []
+            conversationHistory = []
+            lastFailedContent = nil
+            lastFailedPageContexts = []
         }
     }
 
@@ -309,6 +361,10 @@ class AgentManager: ObservableObject {
         conversationHistory.removeAll()
         lastFailedContent = nil
         lastFailedPageContexts = []
+        // Also clear the cached snapshot for this conversation
+        if let id = activeConversationId {
+            snapshots.removeValue(forKey: id)
+        }
     }
 
     func resetAgent() async {
