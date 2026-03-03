@@ -2,7 +2,7 @@ import SwiftUI
 import WebKit
 
 /// NSViewRepresentable that wraps WKWebView for use in overlay windows
-/// Features: ad blocking, dark mode, reader mode, in-overlay navigation (no history recording)
+/// Features: reader mode, in-overlay navigation (no history recording)
 struct OverlayWebView: NSViewRepresentable {
     let url: URL
     @ObservedObject var item: OverlayWindowItem
@@ -16,20 +16,10 @@ struct OverlayWebView: NSViewRepresentable {
         // Enable Picture-in-Picture using KVC (required on macOS, private API)
         config.preferences.setValue(true, forKey: "allowsPictureInPictureMediaPlayback")
 
-        // Inject dark mode script at document start to prevent flash of light content
-        config.userContentController.addUserScript(DarkModeScripts.createUserScript())
-
         let webView = WKWebView(frame: .zero, configuration: config)
         webView.allowsBackForwardNavigationGestures = true
         webView.navigationDelegate = context.coordinator
         webView.uiDelegate = context.coordinator
-
-        // Apply ad blocking rules if enabled
-        if AppSettings.shared.adBlockingEnabled {
-            Task { @MainActor in
-                await ContentBlockerManager.shared.applyRules(to: webView)
-            }
-        }
 
         // Load the initial URL
         webView.load(URLRequest(url: url))
@@ -76,13 +66,6 @@ struct OverlayWebView: NSViewRepresentable {
             }
         }
 
-        func webView(_ webView: WKWebView, didCommit navigation: WKNavigation!) {
-            // Apply dark mode as early as possible when navigation commits
-            Task { @MainActor in
-                self.applyDarkModeIfNeeded(to: webView)
-            }
-        }
-
         func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
             Task { @MainActor in
                 self.isLoading = false
@@ -92,14 +75,6 @@ struct OverlayWebView: NSViewRepresentable {
                     self.item.title = title
                 } else if let host = webView.url?.host {
                     self.item.title = host
-                }
-
-                // Re-apply dark mode state after navigation
-                self.applyDarkModeIfNeeded(to: webView)
-
-                // Record page load for blocking stats (but NOT to browsing history)
-                if AppSettings.shared.adBlockingEnabled {
-                    ContentBlockerManager.shared.recordPageLoad()
                 }
             }
         }
@@ -114,28 +89,6 @@ struct OverlayWebView: NSViewRepresentable {
             Task { @MainActor in
                 self.isLoading = false
             }
-        }
-
-        /// Apply dark mode to the webview based on current settings
-        private func applyDarkModeIfNeeded(to webView: WKWebView) {
-            let settings = AppSettings.shared
-            let shouldEnable: Bool
-
-            switch settings.darkModeMode {
-            case .on:
-                shouldEnable = true
-            case .off:
-                shouldEnable = false
-            case .auto:
-                if let appearance = NSApp.effectiveAppearance.bestMatch(from: [.darkAqua, .aqua]) {
-                    shouldEnable = appearance == .darkAqua
-                } else {
-                    shouldEnable = false
-                }
-            }
-
-            let script = shouldEnable ? DarkModeScripts.enableScript() : DarkModeScripts.disableScript()
-            webView.evaluateJavaScript(script) { _, _ in }
         }
 
         // MARK: - WKUIDelegate

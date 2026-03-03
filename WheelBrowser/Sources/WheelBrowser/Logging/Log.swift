@@ -201,11 +201,9 @@ public enum Log {
 
     public enum Category: String {
         case agent = "Agent"
-        case adBlock = "AdBlock"
         case browser = "Browser"
         case chat = "Chat"
         case core = "Core"
-        case darkMode = "DarkMode"
         case downloads = "Downloads"
         case history = "History"
         case linkPreview = "LinkPreview"
@@ -288,14 +286,6 @@ public enum Log {
         public static func error(_ message: String, error: Error) { Log.error(message, error: error, category: .agent) }
     }
 
-    public enum AdBlock {
-        public static func debug(_ message: String) { Log.debug(message, category: .adBlock) }
-        public static func info(_ message: String) { Log.info(message, category: .adBlock) }
-        public static func warning(_ message: String) { Log.warning(message, category: .adBlock) }
-        public static func error(_ message: String) { Log.error(message, category: .adBlock) }
-        public static func error(_ message: String, error: Error) { Log.error(message, error: error, category: .adBlock) }
-    }
-
     public enum Browser {
         public static func debug(_ message: String) { Log.debug(message, category: .browser) }
         public static func info(_ message: String) { Log.info(message, category: .browser) }
@@ -318,14 +308,6 @@ public enum Log {
         public static func warning(_ message: String) { Log.warning(message, category: .core) }
         public static func error(_ message: String) { Log.error(message, category: .core) }
         public static func error(_ message: String, error: Error) { Log.error(message, error: error, category: .core) }
-    }
-
-    public enum DarkMode {
-        public static func debug(_ message: String) { Log.debug(message, category: .darkMode) }
-        public static func info(_ message: String) { Log.info(message, category: .darkMode) }
-        public static func warning(_ message: String) { Log.warning(message, category: .darkMode) }
-        public static func error(_ message: String) { Log.error(message, category: .darkMode) }
-        public static func error(_ message: String, error: Error) { Log.error(message, error: error, category: .darkMode) }
     }
 
     public enum Downloads {

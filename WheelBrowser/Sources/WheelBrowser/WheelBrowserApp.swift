@@ -39,13 +39,6 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         // Normal (non-headless) startup
         NSApp.activate(ignoringOtherApps: true)
 
-        // Pre-compile ad blocking rules so they're ready before the first tab opens
-        if AppSettings.shared.adBlockingEnabled {
-            Task { @MainActor in
-                await ContentBlockerManager.shared.compileRules()
-            }
-        }
-
         // Log startup configuration
         let settings = AppSettings.shared
         Log.Services.info("LLM endpoint: \(settings.llmEndpoint)")
@@ -262,13 +255,6 @@ struct WheelBrowserApp: App {
                     NotificationCenter.default.post(name: .scrapePage, object: nil)
                 }
                 .keyboardShortcut("s", modifiers: [.command, .shift, .option])
-
-                Divider()
-
-                Button("Toggle Dark Mode") {
-                    NotificationCenter.default.post(name: .toggleDarkMode, object: nil)
-                }
-                .keyboardShortcut("d", modifiers: [.command, .shift])
 
                 Divider()
 

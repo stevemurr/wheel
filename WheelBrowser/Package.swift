@@ -22,8 +22,6 @@ let package = Package(
             path: "Sources/WheelBrowser",
             resources: [
                 .copy("Resources/AppIcon.icns"),
-                .copy("Resources/BlockingRules"),
-                .copy("Resources/Scripts"),
                 .copy("Resources/WidgetSystem")
             ]
         ),

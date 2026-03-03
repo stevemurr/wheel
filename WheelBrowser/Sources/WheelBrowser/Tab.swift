@@ -69,9 +69,6 @@ class Tab: Identifiable, ObservableObject {
         // Enable Picture-in-Picture using KVC (required on macOS, private API)
         config.preferences.setValue(true, forKey: "allowsPictureInPictureMediaPlayback")
 
-        // Inject dark mode script at document start to prevent flash of light content
-        config.userContentController.addUserScript(DarkModeScripts.createUserScript())
-
         // Inject link hover detection script for link previews
         config.userContentController.addUserScript(LinkHoverScripts.createUserScript())
 
@@ -80,21 +77,8 @@ class Tab: Identifiable, ObservableObject {
             config.userContentController.addUserScript(AntiDetectionScripts.createUserScript())
         }
 
-        // Inject cookie banner dismissal script when annoyances blocking is enabled
-        if AppSettings.shared.adBlockingEnabled,
-           ContentBlockerManager.isCategoryEnabled(.annoyances) {
-            config.userContentController.addUserScript(CookieBannerScripts.createUserScript())
-        }
-
         let webView = BrowserWebView(frame: .zero, configuration: config)
         webView.allowsBackForwardNavigationGestures = true
-
-        // Apply ad blocking rules after webView is created
-        if AppSettings.shared.adBlockingEnabled {
-            Task { @MainActor in
-                await ContentBlockerManager.shared.applyRules(to: webView)
-            }
-        }
 
         return webView
     }

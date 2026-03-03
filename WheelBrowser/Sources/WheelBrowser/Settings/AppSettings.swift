@@ -87,58 +87,6 @@ class AppSettings: ObservableObject {
     /// Whether to use API key authentication for remote LLM endpoints
     @AppStorage("useAPIKey") var useAPIKey: Bool = false
 
-    // MARK: - Dark Mode Settings (Web Content)
-
-    /// Dark mode for web content - mode setting (auto, on, off)
-    @AppStorage("darkModeMode") var darkModeModeRaw: String = DarkModeMode.off.rawValue {
-        didSet {
-            NotificationCenter.default.post(name: .darkModeChanged, object: nil)
-        }
-    }
-
-    var darkModeMode: DarkModeMode {
-        get { DarkModeMode(rawValue: darkModeModeRaw) ?? .off }
-        set { darkModeModeRaw = newValue.rawValue }
-    }
-
-    /// Dark mode brightness adjustment (0-200, 100 is default)
-    @AppStorage("darkModeBrightness") var darkModeBrightness: Double = 100 {
-        didSet {
-            NotificationCenter.default.post(name: .darkModeBrightnessChanged, object: nil)
-        }
-    }
-
-    /// Dark mode contrast adjustment (0-200, 100 is default)
-    @AppStorage("darkModeContrast") var darkModeContrast: Double = 100 {
-        didSet {
-            NotificationCenter.default.post(name: .darkModeBrightnessChanged, object: nil)
-        }
-    }
-
-    // MARK: - Content Blocking Settings
-
-    /// Master toggle for content blocking
-    @AppStorage("adBlockingEnabled") var adBlockingEnabled: Bool = true {
-        didSet {
-            // Sync with ContentBlockerManager
-            if adBlockingEnabled {
-                // Re-enable with previously saved categories (or all if none)
-                Task { @MainActor in
-                    let manager = ContentBlockerManager.shared
-                    if manager.enabledCategories.isEmpty {
-                        manager.enableAll()
-                    }
-                    await manager.compileRules()
-                }
-            } else {
-                // Disable all categories
-                Task { @MainActor in
-                    ContentBlockerManager.shared.disableAll()
-                }
-            }
-        }
-    }
-
     // MARK: - Widget System Settings
 
     /// BFF proxy endpoint for widget data fetching (empty = direct HTTP)

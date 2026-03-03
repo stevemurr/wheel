@@ -2,14 +2,10 @@ import AppKit
 import WebKit
 
 /// Manages page lifecycle events: provisional navigation start, commit,
-/// finish, failure, dark mode application, error categorization,
-/// and background task tracking.
+/// finish, failure, error categorization, and background task tracking.
 @MainActor
 final class PageLifecycleHandler {
     let tab: Tab
-
-    /// Track which navigation has had dark mode applied to avoid duplicate application.
-    var darkModeAppliedNavigation: WKNavigation?
 
     /// Background tasks (screenshot capture, indexing) that should be cancelled on new navigation.
     private var backgroundTasks: [Task<Void, Never>] = []
@@ -41,8 +37,6 @@ final class PageLifecycleHandler {
     }
 
     func didCommit(navigation: WKNavigation?, webView: WKWebView) {
-        darkModeAppliedNavigation = navigation
-        applyDarkModeIfNeeded(to: webView)
     }
 
     func didFinish(navigation: WKNavigation?, webView: WKWebView, indexPage: @escaping (WKWebView, URL, String, UUID?) -> Void) {
@@ -51,22 +45,6 @@ final class PageLifecycleHandler {
         tab.url = webView.url
         tab.canGoBack = webView.canGoBack
         tab.canGoForward = webView.canGoForward
-
-        // Only apply dark mode if it wasn't already applied in didCommit
-        if darkModeAppliedNavigation !== navigation {
-            applyDarkModeIfNeeded(to: webView)
-        }
-        darkModeAppliedNavigation = nil
-
-        // Record page load for blocking stats
-        if AppSettings.shared.adBlockingEnabled {
-            ContentBlockerManager.shared.recordPageLoad()
-
-            // Safety-net cookie banner dismissal after page fully loads
-            if ContentBlockerManager.shared.isEnabled(.annoyances) {
-                webView.evaluateJavaScript("if(window.__wheelCookieBanner){window.__wheelCookieBanner.dismiss()}") { _, _ in }
-            }
-        }
 
         // Record to browsing history with current workspace
         if let url = webView.url {
@@ -105,33 +83,6 @@ final class PageLifecycleHandler {
 
         tab.lastError = categorized
         tab.isLoading = false
-    }
-
-    // MARK: - Dark Mode
-
-    func applyDarkModeIfNeeded(to webView: WKWebView) {
-        let settings = AppSettings.shared
-        let shouldEnable: Bool
-
-        switch settings.darkModeMode {
-        case .on:
-            shouldEnable = true
-        case .off:
-            shouldEnable = false
-        case .auto:
-            if let appearance = NSApp.effectiveAppearance.bestMatch(from: [.darkAqua, .aqua]) {
-                shouldEnable = appearance == .darkAqua
-            } else {
-                shouldEnable = false
-            }
-        }
-
-        let script = shouldEnable ? DarkModeScripts.enableScript() : DarkModeScripts.disableScript()
-        webView.evaluateJavaScript(script) { _, error in
-            if let error = error {
-                Log.Browser.debug("Dark mode JS failed: \(error.localizedDescription)")
-            }
-        }
     }
 
     // MARK: - Error Categorization

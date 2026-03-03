@@ -4,8 +4,6 @@ struct SettingsView: View {
     var body: some View {
         Form {
             AppearanceSection()
-            DarkModeSection()
-            ContentBlockingSection()
             LLMSettingsSection()
             DIndexSettingsSection()
             AgentSection()
