@@ -71,6 +71,8 @@ class AgentManager: ObservableObject {
     func switchConversation(to conversationId: UUID) {
         guard conversationId != activeConversationId else { return }
 
+        let isFirstSwitch = activeConversationId == nil
+
         // Save current state
         if let currentId = activeConversationId {
             snapshots[currentId] = ConversationSnapshot(
@@ -89,9 +91,15 @@ class AgentManager: ObservableObject {
             conversationHistory = snapshot.conversationHistory
             lastFailedContent = snapshot.lastFailedContent
             lastFailedPageContexts = snapshot.lastFailedPageContexts
-        } else if activeConversationId == nil {
+        } else if isFirstSwitch {
             // First switch — keep whatever was loaded by loadLastConversation()
-            // and associate it with this conversationId
+            // and cache it so it persists when switching back
+            snapshots[conversationId] = ConversationSnapshot(
+                messages: messages,
+                conversationHistory: conversationHistory,
+                lastFailedContent: lastFailedContent,
+                lastFailedPageContexts: lastFailedPageContexts
+            )
         } else {
             // New conversation — start fresh
             messages = []

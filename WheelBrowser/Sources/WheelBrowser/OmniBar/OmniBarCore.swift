@@ -92,6 +92,13 @@ struct OmniBar: View {
         .onChange(of: tab.url) { _, newURL in handleURLChange(newURL) }
         .onChange(of: tab.id) { _, _ in
             agentManager.switchConversation(to: tab.conversationId)
+            if tab.isChatTab {
+                omniState.setMode(.chat)
+                omniState.inputText = ""
+            } else if omniState.mode == .chat {
+                omniState.setMode(.address)
+                omniState.inputText = tab.url?.absoluteString ?? ""
+            }
             updateFullPageChatState()
         }
         .onChange(of: omniState.inputText) { _, newValue in handleInputTextChange(newValue) }
