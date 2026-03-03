@@ -91,6 +91,13 @@ struct OmniBar: View {
         }
         .onChange(of: tab.url) { _, newURL in handleURLChange(newURL) }
         .onChange(of: tab.id) { _, _ in
+            // Reset omnibar visual state for the new tab. Defocusing ensures
+            // the subsequent setMode → handleModeChange hits the unfocused
+            // guard path (dismiss only, no activateMode), preventing stale
+            // panels from the previous tab from carrying over.
+            isInputFocused = false
+            omniState.dismissVisiblePanel()
+
             agentManager.switchConversation(to: tab.conversationId)
             if tab.isChatTab {
                 omniState.setMode(.chat)

@@ -141,6 +141,10 @@ extension OmniBar {
             // Show panel last (animated)
             if !agentManager.messages.isEmpty {
                 omniState.setVisiblePanel(.chat)
+            } else {
+                // Dismiss any stale panel from the previous mode (e.g. history
+                // panel left over when an empty tab converts to chat).
+                omniState.dismissVisiblePanel()
             }
         case .semantic:
             // Non-animated state changes first
