@@ -12,11 +12,13 @@ struct OmniBarTextEditor: NSViewRepresentable {
     var onSubmit: () -> Void
     var onAtTrigger: (String) -> Void
     var onAtDismiss: () -> Void
+    /// Called when the editor's ideal height changes (1–6 lines).
+    var onHeightChange: ((CGFloat) -> Void)?
 
     /// Maximum number of visible lines before scrolling internally
     private static let maxVisibleLines = 6
-    private static let lineHeight: CGFloat = 18
-    private static let verticalPadding: CGFloat = 8
+    static let lineHeight: CGFloat = 18
+    static let verticalPadding: CGFloat = 8
 
     func makeNSView(context: Context) -> NSScrollView {
         let scrollView = NSScrollView()
@@ -177,6 +179,11 @@ struct OmniBarTextEditor: NSViewRepresentable {
             }
 
             scrollView.hasVerticalScroller = contentHeight + OmniBarTextEditor.verticalPadding > maxHeight
+
+            // Notify SwiftUI so it can apply a matching .frame(height:)
+            DispatchQueue.main.async {
+                self.parent.onHeightChange?(targetHeight)
+            }
         }
 
         // MARK: - Placeholder

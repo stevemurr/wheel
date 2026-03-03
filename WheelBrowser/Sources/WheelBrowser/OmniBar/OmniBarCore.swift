@@ -44,6 +44,8 @@ struct OmniBar: View {
     @State var findText: String = ""
     /// Track if current page is saved to reading list
     @State var isCurrentPageSaved: Bool = false
+    /// Tracks the chat text editor's calculated height so SwiftUI can constrain it
+    @State var chatEditorHeight: CGFloat = OmniBarTextEditor.lineHeight + OmniBarTextEditor.verticalPadding
 
     var shouldExpand: Bool {
         isInputFocused || isHovering

@@ -42,8 +42,10 @@ extension OmniBar {
                             omniState.dismissMentionDropdown()
                             mentionSuggestionsVM.clear()
                         }
-                    }
+                    },
+                    onHeightChange: { chatEditorHeight = $0 }
                 )
+                .frame(height: chatEditorHeight)
             } else {
                 OmniBarTextField(
                     text: $omniState.inputText,
