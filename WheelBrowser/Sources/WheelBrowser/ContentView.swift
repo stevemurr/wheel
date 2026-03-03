@@ -7,7 +7,7 @@ private struct BrowserContentArea: View {
     @ObservedObject var agentManager: AgentManager
     @ObservedObject var browserState: BrowserState
     @ObservedObject var settings: AppSettings
-    @ObservedObject var agentEngine: AgentEngine
+    var agentEngine: AgentEngine
     @ObservedObject var wheelState: TabWheelState
     let contentExtractor: ContentExtractor
     let isConstellationVisible: Bool
@@ -267,7 +267,7 @@ private struct ZoomNotificationModifier: ViewModifier {
 
 struct ContentView: View {
     @StateObject private var state: BrowserState
-    @StateObject private var agentEngine: AgentEngine
+    @State private var agentEngine: AgentEngine
     @ObservedObject private var agentManager = AgentManager.shared
     @ObservedObject private var agentStudioManager = AgentStudioManager.shared
     @ObservedObject private var workspaceManager = WorkspaceManager.shared
@@ -286,7 +286,7 @@ struct ContentView: View {
         let engine = AgentEngine(browserState: browserState, settings: AppSettings.shared)
 
         _state = StateObject(wrappedValue: browserState)
-        _agentEngine = StateObject(wrappedValue: engine)
+        _agentEngine = State(wrappedValue: engine)
 
         // Configure the shared MCP server with browser dependencies
         // and auto-start if enabled in settings

@@ -45,20 +45,6 @@ extension OmniBar {
         downloadManager.panelSubtitle
     }
 
-    var agentPanelSubtitle: String {
-        if agentEngine.isRunning {
-            return agentEngine.progress
-        } else if !agentEngine.steps.isEmpty {
-            if let lastStep = agentEngine.steps.last, lastStep.type == .done {
-                return "Completed"
-            } else if agentEngine.error != nil {
-                return "Failed"
-            }
-            return "\(agentEngine.steps.count) steps"
-        }
-        return "Ready"
-    }
-
     var readingListPanelSubtitle: String {
         if readingListVM.isLoading {
             return "Loading..."

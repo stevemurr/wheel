@@ -2,7 +2,7 @@ import SwiftUI
 
 /// Content view for the Agent panel in OmniBar
 struct AgentPanelContent: View {
-    @ObservedObject var agentEngine: AgentEngine
+    var agentEngine: AgentEngine
     var browserState: BrowserState?
 
     var body: some View {
@@ -39,7 +39,7 @@ struct AgentPanelContent: View {
                         }
 
                         // Streaming thought (live LLM output)
-                        if let streamingText = agentEngine.state.streamingThought, !streamingText.isEmpty {
+                        if let streamingText = agentEngine.streamingThought, !streamingText.isEmpty {
                             AgentStreamingThoughtRow(text: streamingText)
                                 .id("streaming-thought")
                         }
@@ -58,16 +58,16 @@ struct AgentPanelContent: View {
             }
             .onChange(of: agentEngine.steps.count) { _, _ in
                 if let lastStep = agentEngine.steps.last {
-                    withAnimation {
+                    withAnimation(AppAnimation.quick) {
                         proxy.scrollTo(lastStep.id, anchor: .bottom)
                     }
                 }
             }
-            .onChange(of: agentEngine.state.streamingThought) { _, newValue in
+            .onChange(of: agentEngine.streamingThought) { _, newValue in
                 if newValue != nil {
-                    withAnimation {
-                        proxy.scrollTo("streaming-thought", anchor: .bottom)
-                    }
+                    // No withAnimation — fires ~15x/sec during streaming.
+                    // Animated scrolls at this frequency create overlapping transitions.
+                    proxy.scrollTo("streaming-thought", anchor: .bottom)
                 }
             }
         }
@@ -300,7 +300,6 @@ private struct AgentStreamingThoughtRow: View {
                 Image(systemName: "brain")
                     .font(.system(size: 12, weight: .medium))
                     .foregroundColor(.purple)
-                    .symbolEffect(.pulse)
             }
 
             Text(text)

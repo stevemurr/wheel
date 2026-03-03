@@ -96,25 +96,11 @@ extension OmniBar {
 
         // Agent panel - appears above OmniBar when in agent mode
         if isAgentPanelVisible {
-            OmniPanel(
-                title: "Agent",
-                icon: "wand.and.stars",
-                iconColor: .green,
-                borderColor: .green,
-                subtitle: agentPanelSubtitle,
-                menuContent: {
-                    AnyView(Group {
-                        Button("Cancel Task") { agentEngine.cancel() }
-                            .disabled(!agentEngine.isRunning)
-                        Divider()
-                        Button("Clear History") { agentEngine.steps = [] }
-                            .disabled(agentEngine.steps.isEmpty)
-                    })
-                },
+            AgentOmniPanel(
+                agentEngine: agentEngine,
+                browserState: browserState,
                 onDismiss: { omniState.dismissVisiblePanel() }
-            ) {
-                AgentPanelContent(agentEngine: agentEngine, browserState: browserState)
-            }
+            )
             .panelWrapper()
         }
 
@@ -187,6 +173,52 @@ extension OmniBar {
                 ScrapePanelContent(manager: scrapeManager)
             }
             .panelWrapper()
+        }
+    }
+}
+
+// MARK: - Agent OmniPanel (isolated sub-view for per-property observation)
+
+/// Extracted from OmniBar to isolate all `agentEngine` property reads (subtitle, menu state)
+/// from the OmniBar body. With `@Observable`, only this sub-view re-evaluates when agent state changes.
+private struct AgentOmniPanel: View {
+    var agentEngine: AgentEngine
+    var browserState: BrowserState
+    var onDismiss: () -> Void
+
+    private var subtitle: String {
+        if agentEngine.isRunning {
+            return agentEngine.progress
+        } else if !agentEngine.steps.isEmpty {
+            if let lastStep = agentEngine.steps.last, lastStep.type == .done {
+                return "Completed"
+            } else if agentEngine.error != nil {
+                return "Failed"
+            }
+            return "\(agentEngine.steps.count) steps"
+        }
+        return "Ready"
+    }
+
+    var body: some View {
+        OmniPanel(
+            title: "Agent",
+            icon: "wand.and.stars",
+            iconColor: .green,
+            borderColor: .green,
+            subtitle: subtitle,
+            menuContent: {
+                AnyView(Group {
+                    Button("Cancel Task") { agentEngine.cancel() }
+                        .disabled(!agentEngine.isRunning)
+                    Divider()
+                    Button("Clear History") { agentEngine.steps = [] }
+                        .disabled(agentEngine.steps.isEmpty)
+                })
+            },
+            onDismiss: onDismiss
+        ) {
+            AgentPanelContent(agentEngine: agentEngine, browserState: browserState)
         }
     }
 }

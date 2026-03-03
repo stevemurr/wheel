@@ -79,8 +79,8 @@ The `.animation()` modifier in `OmniBarCore.body` must ONLY be on `omniBarConten
 ### Rule 5: No `.contentTransition(.opacity)` on streaming content
 Views that update at high frequency (chat streaming, progress indicators) must NOT use `.contentTransition(.opacity)` or per-update `.animation()` modifiers. These create overlapping opacity fades that produce a flash effect.
 
-### Rule 6: Avoid adding `@ObservedObject` to OmniBar
-OmniBar already has 8+ observable objects. Each additional `@ObservedObject` increases the frequency of full body re-evaluations, which re-evaluate all panel visibility conditionals and can trigger spurious transitions. Extract sub-views that observe only what they need.
+### Rule 6: Prefer `@Observable` classes passed as plain `var`
+High-frequency data sources (e.g., `AgentEngine`) must use `@Observable` and be passed to sub-views as plain `var` — never `@ObservedObject`. Extract sub-views for each data source so that OmniBar.body has zero direct property reads on it. With `@Observable`, SwiftUI tracks per-property access, so only the sub-view that reads `streamingThought` re-evaluates during streaming — not the entire OmniBar.
 
 ### Rule 7: No redundant `setVisiblePanel` calls
 Handler methods (e.g., `handleFocusAISidebar`, `handleFocusSemanticSearch`) must NOT call `setVisiblePanel()` directly. `setMode()` triggers `onChange(of: mode)` → `handleModeChange()` → `activateMode()` → `setVisiblePanel()`. Calling it again creates redundant `withAnimation` transactions. `setVisiblePanel` has a guard (`guard visiblePanel != panel`) but calling it redundantly still creates unnecessary code paths.
@@ -92,13 +92,16 @@ In `activateMode()`, load suggestions / search results / reading list BEFORE cal
 Methods like `handleFocusAddressBar()` must set `isInputFocused = true` BEFORE `setMode()`. If mode is set first, `handleModeChange` fires and sees `isInputFocused == false`, causing it to dismiss the panel. Then the subsequent focus gain re-opens it → dismiss-then-show flash.
 
 ### Rule 10: No dead `@Published` properties on OmniBarState
-Do not add `@Published` properties to `OmniBarState` that are not read by any view. Every `@Published` mutation fires `objectWillChange`, triggering a full body re-eval of OmniBar. (The removed `isFocused` property was doing this — never read, always triggering spurious updates.)
+Do not add `@Published` properties to `OmniBarState` that are not read by any view. Every `@Published` mutation fires `objectWillChange`, triggering a full body re-eval of OmniBar. With `@Observable` classes this is less critical (unused properties don't trigger updates), but `OmniBarState` still uses `ObservableObject`, so the rule applies there. Prefer migrating to `@Observable` where possible.
 
 ### Rule 11: No `withAnimation` wrapping `isInputFocused = true`
 Setting `isInputFocused` must NOT be wrapped in `withAnimation`. The pill expansion is already animated by the implicit `.animation()` on `omniBarContent` (which tracks `shouldExpand` via `OmniBarAnimationState`), and panel transitions are animated by `setVisiblePanel()`'s own `withAnimation`. Adding a `withAnimation` around the focus change creates overlapping animation contexts that produce a flash on first focus.
 
 ### Rule 12: Only track `shouldExpand` in `OmniBarAnimationState`
 `OmniBarAnimationState` must only contain `shouldExpand`, NOT `isInputFocused`. Including `isInputFocused` causes the `.animation()` modifier to fire on every focus change — even when `shouldExpand` is already `true` (e.g. cursor is hovering). This creates a second animation context competing with `setVisiblePanel()`'s `withAnimation`, producing a flash when the history panel opens. The pill's focus-dependent visuals (shadow, border, icon tint) are subtle enough to change instantly.
+
+### Rule 13: Extract sub-views for `@Observable` data sources in OmniBar
+When adding a new `@Observable` data source to OmniBar, **always** pass it to an extracted sub-view — never read its properties directly in `OmniBar.body`. This ensures OmniBar's body re-evaluation frequency stays independent of the data source's update frequency. See `AgentInlineStatusView`, `AgentActionButton`, `AgentPanelToggle`, and `AgentOmniPanel` as examples.
 
 ## Common Tasks
 

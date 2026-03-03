@@ -25,7 +25,7 @@ struct OmniBar: View {
     @ObservedObject var tab: Tab
     @ObservedObject var agentManager: AgentManager
     @ObservedObject var browserState: BrowserState
-    @ObservedObject var agentEngine: AgentEngine
+    var agentEngine: AgentEngine
     @StateObject var omniState = OmniBarState()
     @StateObject var suggestionsVM = SuggestionsViewModel()
     @StateObject var semanticSearchVM = SemanticSearchViewModel()
@@ -139,7 +139,7 @@ struct OmniBar: View {
                 // Panel toggle buttons for modes with content
                 panelToggle(for: .chat, hasContent: !agentManager.messages.isEmpty)
                 panelToggle(for: .semantic, hasContent: !semanticSearchVM.results.isEmpty)
-                panelToggle(for: .agent, hasContent: !agentEngine.steps.isEmpty || agentEngine.isRunning)
+                AgentPanelToggle(agentEngine: agentEngine, omniState: omniState)
                 panelToggle(for: .readingList, hasContent: !readingListVM.items.isEmpty)
 
                 // Saved indicator
@@ -222,5 +222,26 @@ struct OmniBar: View {
 
     var inputAreaWithSuggestions: some View {
         inputPill
+    }
+}
+
+// MARK: - Agent Panel Toggle (isolated sub-view for per-property observation)
+
+/// Extracted from OmniBar to isolate `agentEngine.steps` and `agentEngine.isRunning` reads.
+private struct AgentPanelToggle: View {
+    var agentEngine: AgentEngine
+    @ObservedObject var omniState: OmniBarState
+
+    var body: some View {
+        if omniState.mode == .agent && (!agentEngine.steps.isEmpty || agentEngine.isRunning) {
+            let panel = OmniBarMode.agent.correspondingPanel
+            PanelToggleButton(isExpanded: omniState.visiblePanel == panel) {
+                if omniState.visiblePanel == panel {
+                    omniState.dismissVisiblePanel()
+                } else {
+                    omniState.setVisiblePanel(panel)
+                }
+            }
+        }
     }
 }

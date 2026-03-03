@@ -142,25 +142,11 @@ extension OmniBar {
             }
 
         case .agent:
-            Button(action: handleSubmit) {
-                ZStack {
-                    if agentEngine.isRunning {
-                        ProgressView()
-                            .scaleEffect(0.5)
-                    } else {
-                        Image(systemName: "play.fill")
-                            .font(.system(size: 10, weight: .bold))
-                            .foregroundColor(omniState.inputText.isEmpty ? .secondary : .white)
-                    }
-                }
-                .frame(width: 22, height: 22)
-                .background(
-                    Circle()
-                        .fill(omniState.inputText.isEmpty ? Color.secondary.opacity(0.2) : Color.green)
-                )
-            }
-            .buttonStyle(.plain)
-            .disabled(omniState.inputText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || agentEngine.isRunning)
+            AgentActionButton(
+                agentEngine: agentEngine,
+                inputText: omniState.inputText,
+                onSubmit: handleSubmit
+            )
 
         case .readingList:
             if isInputFocused && !omniState.inputText.isEmpty {
@@ -192,29 +178,41 @@ extension OmniBar {
     }
 
     /// Compact single-line view of the latest agent step, tappable to open panel.
-    /// Prefers live streaming thought when available.
     private var agentInlineStatus: some View {
-        Button {
+        AgentInlineStatusView(agentEngine: agentEngine) {
             omniState.setVisiblePanel(.agent)
-        } label: {
+        }
+    }
+}
+
+// MARK: - Agent Inline Status (isolated sub-view for per-property observation)
+
+/// Extracted from OmniBar to isolate `streamingThought` and `steps` reads.
+/// With `@Observable`, only this sub-view re-evaluates when streaming updates arrive (~15x/sec),
+/// not the entire OmniBar body.
+private struct AgentInlineStatusView: View {
+    var agentEngine: AgentEngine
+    var onTap: () -> Void
+
+    var body: some View {
+        Button(action: onTap) {
             HStack(spacing: 6) {
-                if let streamingText = agentEngine.state.streamingThought, !streamingText.isEmpty {
+                if let streamingText = agentEngine.streamingThought, !streamingText.isEmpty {
                     Image(systemName: "brain")
                         .foregroundColor(.purple)
                         .font(.system(size: 11, weight: .medium))
-                        .symbolEffect(.pulse)
 
                     Text(streamingText.components(separatedBy: .newlines).last ?? "")
                         .font(.system(size: 12))
                         .foregroundColor(.secondary)
                         .lineLimit(1)
                         .truncationMode(.tail)
-                } else {
-                    Image(systemName: agentStepIcon(for: agentEngine.steps.last!.type))
-                        .foregroundColor(agentStepColor(for: agentEngine.steps.last!.type))
+                } else if let lastStep = agentEngine.steps.last {
+                    Image(systemName: agentStepIcon(for: lastStep.type))
+                        .foregroundColor(agentStepColor(for: lastStep.type))
                         .font(.system(size: 11, weight: .medium))
 
-                    Text(agentEngine.steps.last!.content.components(separatedBy: .newlines).first ?? "")
+                    Text(lastStep.content.components(separatedBy: .newlines).first ?? "")
                         .font(.system(size: 12))
                         .foregroundColor(.primary)
                         .lineLimit(1)
@@ -246,5 +244,36 @@ extension OmniBar {
         case .error: return .red
         case .done: return .green
         }
+    }
+}
+
+// MARK: - Agent Action Button (isolated sub-view for per-property observation)
+
+/// Extracted from OmniBar to isolate `agentEngine.isRunning` reads from OmniBar.body.
+private struct AgentActionButton: View {
+    var agentEngine: AgentEngine
+    var inputText: String
+    var onSubmit: () -> Void
+
+    var body: some View {
+        Button(action: onSubmit) {
+            ZStack {
+                if agentEngine.isRunning {
+                    ProgressView()
+                        .scaleEffect(0.5)
+                } else {
+                    Image(systemName: "play.fill")
+                        .font(.system(size: 10, weight: .bold))
+                        .foregroundColor(inputText.isEmpty ? .secondary : .white)
+                }
+            }
+            .frame(width: 22, height: 22)
+            .background(
+                Circle()
+                    .fill(inputText.isEmpty ? Color.secondary.opacity(0.2) : Color.green)
+            )
+        }
+        .buttonStyle(.plain)
+        .disabled(inputText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || agentEngine.isRunning)
     }
 }

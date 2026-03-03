@@ -109,87 +109,45 @@ struct AgentState: Equatable {
 
 /// The ReAct agent engine for browser automation
 @MainActor
-class AgentEngine: ObservableObject {
-    // MARK: - Published State (batched for performance)
+@Observable
+class AgentEngine {
+    // MARK: - Observable State (per-property tracking via @Observable)
 
-    @Published private(set) var state = AgentState()
+    private(set) var isRunning: Bool = false
+    private(set) var currentTask: String = ""
+    var steps: [AgentStep] = []
+    private(set) var progress: String = ""
+    private(set) var error: String?
+    private(set) var boundTabId: UUID?
+    private(set) var isWaitingForUser: Bool = false
+    private(set) var waitingReason: String = ""
+    private(set) var guardrailWarning: String?
+    private(set) var streamingThought: String?
 
-    // MARK: - Computed Properties for Backwards Compatibility
+    // MARK: - Dependencies (excluded from observation)
 
-    var isRunning: Bool {
-        get { state.isRunning }
-        set { state.isRunning = newValue }
-    }
+    @ObservationIgnored private let browserState: BrowserState
+    @ObservationIgnored private let settings: AppSettings
+    @ObservationIgnored private let llmClient: any AgentLLMClient
+    @ObservationIgnored private let bridgeProvider: any BrowserBridgeProvider
+    @ObservationIgnored private let loopDetector = AgentLoopDetector()
+    @ObservationIgnored private var currentTaskHandle: Task<AgentResult, Never>?
+    @ObservationIgnored private weak var boundTab: Tab?
+    @ObservationIgnored private var tabClosureObserver: AnyCancellable?
 
-    var currentTask: String {
-        get { state.currentTask }
-        set { state.currentTask = newValue }
-    }
-
-    var steps: [AgentStep] {
-        get { state.steps }
-        set { state.steps = newValue }
-    }
-
-    var progress: String {
-        get { state.progress }
-        set { state.progress = newValue }
-    }
-
-    var error: String? {
-        get { state.error }
-        set { state.error = newValue }
-    }
-
-    var boundTabId: UUID? {
-        get { state.boundTabId }
-        set { state.boundTabId = newValue }
-    }
-
-    var isWaitingForUser: Bool {
-        get { state.isWaitingForUser }
-        set { state.isWaitingForUser = newValue }
-    }
-
-    var waitingReason: String {
-        get { state.waitingReason }
-        set { state.waitingReason = newValue }
-    }
-
-    var guardrailWarning: String? {
-        get { state.guardrailWarning }
-        set { state.guardrailWarning = newValue }
-    }
-
-    var streamingThought: String? {
-        get { state.streamingThought }
-        set { state.streamingThought = newValue }
-    }
-
-    // MARK: - Dependencies
-
-    private let browserState: BrowserState
-    private let settings: AppSettings
-    private let llmClient: any AgentLLMClient
-    private let bridgeProvider: any BrowserBridgeProvider
-    private let loopDetector = AgentLoopDetector()
-    private var currentTaskHandle: Task<AgentResult, Never>?
-    private weak var boundTab: Tab?
-    private var tabClosureObserver: AnyCancellable?
-
-    // MARK: - Configuration
+    // MARK: - Configuration (excluded from observation)
 
     /// Maximum number of steps the agent can take before stopping
-    var maxSteps: Int = 50
+    @ObservationIgnored var maxSteps: Int = 50
 
     /// Maximum wall-clock time (in seconds) for a task before stopping
-    var taskTimeout: TimeInterval = 300
+    @ObservationIgnored var taskTimeout: TimeInterval = 300
 
     /// Maximum number of times done() verification can reject and continue
-    private let maxDoneRejections = 2
+    @ObservationIgnored private let maxDoneRejections = 2
 
     /// The threshold (0.0-1.0) at which to show warnings (default 80%)
-    private let warningThreshold: Double = 0.8
+    @ObservationIgnored private let warningThreshold: Double = 0.8
 
     /// Number of steps remaining before the limit is reached
     var stepsRemaining: Int {
@@ -197,7 +155,7 @@ class AgentEngine: ObservableObject {
     }
 
     /// Current step count (tracked during execution)
-    private(set) var currentStepCount: Int = 0
+    @ObservationIgnored private(set) var currentStepCount: Int = 0
 
     // MARK: - Initialization
 
