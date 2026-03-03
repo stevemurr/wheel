@@ -13,6 +13,6 @@ struct MarkdownBufferFlusher {
     /// - Parameter buffer: The accumulated text that has not yet been flushed.
     /// - Returns: `true` if the buffer ends at a natural markdown boundary.
     func shouldFlush(_ buffer: String) -> Bool {
-        StreamingResponseHandler.isMarkdownFlushPoint(buffer, maxBufferSize: 120)
+        StreamingResponseHandler.isMarkdownFlushPoint(buffer, maxBufferSize: 200)
     }
 }

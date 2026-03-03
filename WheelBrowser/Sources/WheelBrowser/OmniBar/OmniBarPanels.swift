@@ -47,7 +47,10 @@ extension OmniBar {
         ChatOmniPanel(
             agentManager: agentManager,
             omniState: omniState,
-            onDismiss: { omniState.dismissVisiblePanel() }
+            onDismiss: { omniState.dismissVisiblePanel() },
+            onPopulateInput: { text in
+                omniState.inputText = text
+            }
         )
 
         // Semantic search panel - appears above OmniBar when in semantic mode
@@ -165,9 +168,10 @@ extension OmniBar {
 /// Extracted from OmniBar to isolate all `agentManager` property reads (messages, isLoading)
 /// from the OmniBar body. Only this sub-view re-evaluates when chat messages change during streaming.
 private struct ChatOmniPanel: View {
-    @ObservedObject var agentManager: AgentManager
+    var agentManager: AgentManager
     @ObservedObject var omniState: OmniBarState
     var onDismiss: () -> Void
+    var onPopulateInput: ((String) -> Void)?
 
     private var isVisible: Bool {
         omniState.isPanelVisible(for: .chat) && !agentManager.isFullPageChatActive
@@ -192,7 +196,7 @@ private struct ChatOmniPanel: View {
                 },
                 onDismiss: onDismiss
             ) {
-                ChatPanelContent(agentManager: agentManager)
+                ChatPanelContent(agentManager: agentManager, onSubmitPrompt: onPopulateInput)
             }
             .modifier(PanelWrapperModifier())
         }

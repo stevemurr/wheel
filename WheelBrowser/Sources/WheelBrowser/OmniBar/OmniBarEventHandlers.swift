@@ -298,9 +298,9 @@ extension OmniBar {
     }
 
     func handleRegenerateResponse() {
-        guard let lastIdx = agentManager.messages.lastIndex(where: { $0.role == .assistant }) else { return }
+        guard let lastAssistantID = agentManager.messages.last(where: { $0.role == .assistant })?.id else { return }
         Task {
-            await agentManager.regenerateResponse(at: lastIdx)
+            await agentManager.regenerateResponse(messageID: lastAssistantID)
         }
     }
 

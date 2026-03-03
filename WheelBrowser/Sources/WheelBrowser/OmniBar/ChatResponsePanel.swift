@@ -100,21 +100,12 @@ struct ThinkingBubble: View {
                 }
             }
 
-            // Expandable content
+            // Expandable content — extracted so header doesn't force content re-render
             if isExpanded {
                 Divider()
                     .opacity(0.3)
 
-                ScrollView {
-                    Text(message.content)
-                        .font(.system(size: 11.5, design: .monospaced))
-                        .foregroundColor(.primary.opacity(0.75))
-                        .textSelection(.enabled)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .padding(.horizontal, 10)
-                        .padding(.vertical, 8)
-                }
-                .frame(maxHeight: 200)
+                ThinkingContentView(content: message.content)
             }
         }
         .background(
@@ -126,6 +117,24 @@ struct ThinkingBubble: View {
                 .stroke(Color.purple.opacity(0.15), lineWidth: 1)
         )
         .frame(maxWidth: .infinity, alignment: .leading)
+    }
+}
+
+/// Extracted content view for ThinkingBubble — isolates text rendering from header (timer, progress bar)
+private struct ThinkingContentView: View {
+    let content: String
+
+    var body: some View {
+        ScrollView {
+            Text(content)
+                .font(.system(size: 11.5, design: .monospaced))
+                .foregroundColor(.primary.opacity(0.75))
+                .textSelection(.enabled)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.horizontal, 10)
+                .padding(.vertical, 8)
+        }
+        .frame(maxHeight: 200)
     }
 }
 
@@ -160,6 +169,49 @@ private struct ThinkingProgressBar: View {
             withAnimation(.easeInOut(duration: 1.2).repeatForever(autoreverses: true)) {
                 offset = 1
             }
+        }
+    }
+}
+
+// MARK: - Isolated Sub-Views for Streaming Performance
+
+/// Renders only the Markdown content + streaming cursor.
+/// Isolated so that content changes during streaming don't re-evaluate siblings (artifacts, action bar).
+private struct MessageContentView: View {
+    let content: String
+    let role: ChatMessage.MessageRole
+    let isStreaming: Bool
+
+    var body: some View {
+        Markdown(content)
+            .markdownTheme(ChatMarkdownTheme.theme(for: role))
+            .textSelection(.enabled)
+            .frame(maxWidth: .infinity, alignment: .leading)
+
+        if isStreaming && !content.isEmpty {
+            StreamingCursor()
+        }
+    }
+}
+
+/// Renders artifact chips. Artifacts don't change during streaming, so this sub-view
+/// won't re-evaluate while content is being appended.
+private struct ArtifactChipsView: View {
+    let artifacts: [ChatArtifact]
+    var onSelectArtifact: ((ChatArtifact) -> Void)?
+
+    var body: some View {
+        if !artifacts.isEmpty {
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 6) {
+                    ForEach(artifacts) { artifact in
+                        ArtifactChip(artifact: artifact) {
+                            onSelectArtifact?(artifact)
+                        }
+                    }
+                }
+            }
+            .padding(.top, 6)
         }
     }
 }
@@ -213,7 +265,7 @@ struct ChatPanelMessageBubble: View {
                         onCancel: { isEditing = false }
                     )
                 } else {
-                    // Message content
+                    // Message content — sub-views isolate Markdown from artifacts
                     Group {
                         if message.content.isEmpty && message.isStreaming {
                             ChatPanelTypingIndicator()
@@ -221,29 +273,18 @@ struct ChatPanelMessageBubble: View {
                                 .padding(.vertical, 10)
                         } else {
                             VStack(alignment: .leading, spacing: 0) {
-                                // Render full markdown with shared theme
-                                Markdown(message.content)
-                                    .markdownTheme(ChatMarkdownTheme.theme(for: message.role))
-                                    .textSelection(.enabled)
-                                    .frame(maxWidth: .infinity, alignment: .leading)
+                                MessageContentView(
+                                    content: message.content,
+                                    role: message.role,
+                                    isStreaming: message.isStreaming
+                                )
 
-                                // Streaming cursor (blinking bar at end of content)
-                                if message.isStreaming && !message.content.isEmpty {
-                                    StreamingCursor()
-                                }
-
-                                // Artifact chips for assistant messages
-                                if message.role == .assistant && !message.artifacts.isEmpty {
-                                    ScrollView(.horizontal, showsIndicators: false) {
-                                        HStack(spacing: 6) {
-                                            ForEach(message.artifacts) { artifact in
-                                                ArtifactChip(artifact: artifact) {
-                                                    onSelectArtifact?(artifact)
-                                                }
-                                            }
-                                        }
-                                    }
-                                    .padding(.top, 6)
+                                // Artifact chips (isolated — won't re-eval during streaming)
+                                if message.role == .assistant {
+                                    ArtifactChipsView(
+                                        artifacts: message.artifacts,
+                                        onSelectArtifact: onSelectArtifact
+                                    )
                                 }
                             }
                             .padding(.horizontal, 12)
@@ -259,7 +300,7 @@ struct ChatPanelMessageBubble: View {
                     )
                 }
 
-                // Hover action bar (replaces old copy-only toolbar)
+                // Hover action bar — guarded behind !isStreaming so it won't re-eval during streaming
                 if !message.isStreaming && !message.content.isEmpty && !isEditing {
                     MessageActionBar(
                         message: message,

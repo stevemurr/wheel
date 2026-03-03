@@ -4,7 +4,7 @@ import SwiftUI
 
 private struct BrowserContentArea: View {
     @ObservedObject var activeTab: Tab
-    @ObservedObject var agentManager: AgentManager
+    var agentManager: AgentManager
     @ObservedObject var browserState: BrowserState
     @ObservedObject var settings: AppSettings
     var agentEngine: AgentEngine
@@ -81,7 +81,7 @@ private struct BrowserContentArea: View {
 /// Container for a single tab's web view - keeps it in hierarchy even when not active
 private struct TabWebViewContainer: View {
     @ObservedObject var tab: Tab
-    @ObservedObject var agentManager: AgentManager
+    var agentManager: AgentManager
     let isActive: Bool
 
     var body: some View {
@@ -273,7 +273,7 @@ private struct ZoomNotificationModifier: ViewModifier {
 struct ContentView: View {
     @StateObject private var state: BrowserState
     @State private var agentEngine: AgentEngine
-    @ObservedObject private var agentManager = AgentManager.shared
+    private var agentManager = AgentManager.shared
     @ObservedObject private var agentStudioManager = AgentStudioManager.shared
     @ObservedObject private var workspaceManager = WorkspaceManager.shared
     @ObservedObject private var settings = AppSettings.shared

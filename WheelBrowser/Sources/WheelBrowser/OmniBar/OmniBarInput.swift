@@ -256,7 +256,7 @@ private struct AgentInlineStatusView: View {
 /// Extracted from OmniBar to isolate `agentManager.isFullPageChatActive` reads from OmniBar.body.
 /// Only this sub-view re-evaluates when the full-page chat state changes.
 private struct ModeIndicatorView: View {
-    @ObservedObject var agentManager: AgentManager
+    var agentManager: AgentManager
     @ObservedObject var omniState: OmniBarState
     var isInputFocused: Bool
 
@@ -309,7 +309,7 @@ private struct AgentActionButton: View {
 /// Extracted sub-view for chat mode send/stop button (Rule 13).
 /// Isolates `agentManager.isStreamingActive` reads from OmniBar.body.
 private struct ChatModeActionButton: View {
-    @ObservedObject var agentManager: AgentManager
+    var agentManager: AgentManager
     var inputText: String
     var isSending: Bool
     var onSubmit: () -> Void

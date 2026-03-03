@@ -1,17 +1,27 @@
 import Foundation
-import Combine
+import Observation
 
 @MainActor
-class AgentManager: ObservableObject {
+@Observable
+class AgentManager {
     static let shared = AgentManager()
 
-    @Published var isReady = true
-    @Published var isLoading = false
-    @Published var error: String?
-    @Published var messages: [ChatMessage] = []
-    @Published var isFullPageChatActive: Bool = false
-    @Published var isStreamingActive: Bool = false
-    @Published var selectedArtifact: ChatArtifact?
+    var isReady = true
+    var isLoading = false
+    var error: String?
+    var messages: [ChatMessage] = []
+    var isFullPageChatActive: Bool = false
+    var isStreamingActive: Bool = false
+    var selectedArtifact: ChatArtifact?
+
+    /// Text to prefill in the chat input (e.g. from follow-up suggestions).
+    /// The OmniBar observes this and moves the value into `omniState.inputText`.
+    var pendingInputText: String?
+
+    /// Lightweight counter incremented on each streaming flush.
+    /// Scroll observers watch this instead of `messages.last?.content` to avoid
+    /// reading into the messages array (which would make them depend on all message mutations).
+    var streamingScrollToken: UInt = 0
 
     /// The active streaming task, cancellable for stop generation
     private var activeStreamTask: Task<Void, Never>?
@@ -166,8 +176,10 @@ class AgentManager: ObservableObject {
         isLoading = false
     }
 
-    /// Edit a user message and resend from that point
-    func editAndResend(messageIndex: Int, newContent: String, pageContexts: [PageContext]) async {
+    /// Edit a user message and resend from that point (ID-based)
+    func editAndResend(messageID: UUID, newContent: String, pageContexts: [PageContext]) async {
+        guard let messageIndex = messages.firstIndex(where: { $0.id == messageID }) else { return }
+
         // Fork conversation at the edit point
         messages = ConversationBranchManager.editMessage(
             at: messageIndex,
@@ -194,9 +206,14 @@ class AgentManager: ObservableObject {
         await sendMessageInternal(content: newContent, fullMessage: fullMessage)
     }
 
-    /// Regenerate the last assistant response
-    func regenerateResponse(at index: Int? = nil) async {
-        let targetIndex = index ?? messages.lastIndex(where: { $0.role == .assistant })
+    /// Regenerate an assistant response (ID-based, falls back to last assistant message)
+    func regenerateResponse(messageID: UUID? = nil) async {
+        let targetIndex: Int?
+        if let id = messageID {
+            targetIndex = messages.firstIndex(where: { $0.id == id })
+        } else {
+            targetIndex = messages.lastIndex(where: { $0.role == .assistant })
+        }
         guard let idx = targetIndex else { return }
 
         // Find the user message that preceded this response
@@ -351,6 +368,7 @@ class AgentManager: ObservableObject {
                             if let id = thinkingMessageId {
                                 safeUpdateMessage(id: id) { $0.content = thinkingBuffer }
                             }
+                            streamingScrollToken &+= 1
                             lastUpdateTime = now
                         }
 
@@ -372,6 +390,7 @@ class AgentManager: ObservableObject {
                             buffer += pendingChunk
                             pendingChunk = ""
                             safeUpdateMessage(id: assistantMessageId) { $0.content = buffer }
+                            streamingScrollToken &+= 1
                             lastUpdateTime = now
                         }
 

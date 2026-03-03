@@ -113,6 +113,16 @@ struct OmniBar: View {
         .onChange(of: omniState.inputText) { _, newValue in handleInputTextChange(newValue) }
         .onChange(of: isInputFocused) { _, focused in handleFocusChange(focused) }
         .onChange(of: omniState.mode) { _, newMode in handleModeChange(newMode) }
+        .onChange(of: agentManager.pendingInputText) { _, newValue in
+            if let text = newValue {
+                agentManager.pendingInputText = nil
+                omniState.inputText = text
+                if omniState.mode != .chat {
+                    omniState.setMode(.chat)
+                }
+                isInputFocused = true
+            }
+        }
         .onAppear {
             omniState.inputText = tab.url?.absoluteString ?? ""
             suggestionsVM.browserState = browserState
@@ -238,7 +248,7 @@ struct OmniBar: View {
 /// With `@ObservedObject`, only this sub-view re-evaluates when messages change during streaming,
 /// not the entire OmniBar body.
 private struct ChatPanelToggle: View {
-    @ObservedObject var agentManager: AgentManager
+    var agentManager: AgentManager
     @ObservedObject var omniState: OmniBarState
 
     var body: some View {
