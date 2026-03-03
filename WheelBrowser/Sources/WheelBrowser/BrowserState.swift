@@ -237,6 +237,12 @@ class BrowserState: ObservableObject, BrowserBridgeProvider {
                 closedTabsHistory.removeLast()
             }
 
+            // Flush pending conversation save and clean up snapshot before removing
+            if tab.isChatTab {
+                ConversationManager.shared.saveCurrentConversation()
+                AgentManager.shared.clearSnapshot(for: tab.conversationId)
+            }
+
             // Clean up WebView resources before removing
             tab.cleanup()
 

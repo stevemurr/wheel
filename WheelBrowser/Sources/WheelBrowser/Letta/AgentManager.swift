@@ -54,24 +54,14 @@ class AgentManager: ObservableObject {
     private var lastFailedPageContexts: [PageContext] = []
 
     private init() {
-        // Resume the most recent conversation if available
-        loadLastConversation()
-    }
-
-    private func loadLastConversation() {
-        if let recent = conversationManager.savedConversations.first {
-            conversationManager.resumeConversation(recent)
-            messages = conversationManager.messages
-            conversationHistory = ConversationHistoryBuilder.rebuildHistory(from: messages)
-        }
+        // Tabs start fresh. Conversations are restored via switchConversation()
+        // + snapshots, or via reopenLastClosedTab() which preserves conversationId.
     }
 
     /// Switch to a different tab's conversation.
     /// Saves the current conversation state and loads the target one.
     func switchConversation(to conversationId: UUID) {
         guard conversationId != activeConversationId else { return }
-
-        let isFirstSwitch = activeConversationId == nil
 
         // Save current state
         if let currentId = activeConversationId {
@@ -91,15 +81,6 @@ class AgentManager: ObservableObject {
             conversationHistory = snapshot.conversationHistory
             lastFailedContent = snapshot.lastFailedContent
             lastFailedPageContexts = snapshot.lastFailedPageContexts
-        } else if isFirstSwitch {
-            // First switch — keep whatever was loaded by loadLastConversation()
-            // and cache it so it persists when switching back
-            snapshots[conversationId] = ConversationSnapshot(
-                messages: messages,
-                conversationHistory: conversationHistory,
-                lastFailedContent: lastFailedContent,
-                lastFailedPageContexts: lastFailedPageContexts
-            )
         } else {
             // New conversation — start fresh
             messages = []
@@ -107,6 +88,11 @@ class AgentManager: ObservableObject {
             lastFailedContent = nil
             lastFailedPageContexts = []
         }
+    }
+
+    /// Remove a cached conversation snapshot (e.g. when a tab is closed).
+    func clearSnapshot(for conversationId: UUID) {
+        snapshots.removeValue(forKey: conversationId)
     }
 
     /// Safely update a message by its ID, no-op if the message is not found.
