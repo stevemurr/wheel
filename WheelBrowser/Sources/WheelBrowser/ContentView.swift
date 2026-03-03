@@ -351,6 +351,11 @@ struct ContentView: View {
                     state.addTab(withURL: url)
                 }
             }
+            .onReceive(NotificationCenter.default.publisher(for: .openLinkInNewTab)) { notification in
+                if let url = notification.object as? URL {
+                    state.addTab(withURL: url, activate: false)
+                }
+            }
             .onReceive(NotificationCenter.default.publisher(for: .showTabWheel)) { _ in
                 // Show tab wheel at center of window
                 let initialIndex = state.activeTabIndex ?? 0

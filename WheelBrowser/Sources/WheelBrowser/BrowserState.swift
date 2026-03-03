@@ -179,11 +179,13 @@ class BrowserState: ObservableObject, BrowserBridgeProvider {
     }
 
     /// Add a new tab with a specific URL
-    func addTab(withURL url: URL) {
+    func addTab(withURL url: URL, activate: Bool = true) {
         let tab = Tab()
         tabs.append(tab)
         tabsByID[tab.id] = tab
-        activeTabId = tab.id
+        if activate {
+            activeTabId = tab.id
+        }
         tab.load(url.absoluteString)
         assertTabIntegrity()
     }

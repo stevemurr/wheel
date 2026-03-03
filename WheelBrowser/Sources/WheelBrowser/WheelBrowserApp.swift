@@ -342,4 +342,7 @@ extension Notification.Name {
 
     // Constellation tab canvas
     static let showConstellation = Notification.Name("showConstellation")
+
+    // Open link in new tab (from context menu)
+    static let openLinkInNewTab = Notification.Name("openLinkInNewTab")
 }

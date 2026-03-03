@@ -63,7 +63,7 @@ class Tab: Identifiable, ObservableObject {
             config.userContentController.addUserScript(CookieBannerScripts.createUserScript())
         }
 
-        self.webView = WKWebView(frame: .zero, configuration: config)
+        self.webView = BrowserWebView(frame: .zero, configuration: config)
         self.webView.allowsBackForwardNavigationGestures = true
 
         // Apply ad blocking rules after webView is created
