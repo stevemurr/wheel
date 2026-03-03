@@ -302,21 +302,28 @@ struct ContentView: View {
 
     @ViewBuilder
     private var mainContent: some View {
-        VStack(spacing: 0) {
-            if let activeTab = state.activeTab {
-                BrowserContentArea(
-                    activeTab: activeTab,
-                    agentManager: agentManager,
-                    browserState: state,
-                    settings: settings,
-                    agentEngine: agentEngine,
-                    wheelState: wheelState,
-                    contentExtractor: contentExtractor,
-                    isConstellationVisible: constellationState.isVisible
-                )
+        ZStack(alignment: .leading) {
+            VStack(spacing: 0) {
+                if let activeTab = state.activeTab {
+                    BrowserContentArea(
+                        activeTab: activeTab,
+                        agentManager: agentManager,
+                        browserState: state,
+                        settings: settings,
+                        agentEngine: agentEngine,
+                        wheelState: wheelState,
+                        contentExtractor: contentExtractor,
+                        isConstellationVisible: constellationState.isVisible
+                    )
+                }
             }
+            .frame(minWidth: 400)
+
+            StageManagerStrip(
+                browserState: state,
+                screenshotManager: TabScreenshotManager.shared
+            )
         }
-        .frame(minWidth: 400)
         .background(WindowAccessor())
     }
 

@@ -210,6 +210,11 @@ class BrowserState: ObservableObject, BrowserBridgeProvider {
             // Clean up WebView resources before removing
             tab.cleanup()
 
+            // Clean up cached screenshot
+            Task { @MainActor in
+                TabScreenshotManager.shared.removeScreenshot(for: id)
+            }
+
             tabs.remove(at: index)
             tabsByID.removeValue(forKey: id)
 
@@ -230,6 +235,7 @@ class BrowserState: ObservableObject, BrowserBridgeProvider {
     }
 
     func selectTab(_ id: UUID) {
+        captureScreenshotOfActiveTab()
         activeTabId = id
     }
 
@@ -248,12 +254,14 @@ class BrowserState: ObservableObject, BrowserBridgeProvider {
         }
 
         guard targetIndex >= 0 && targetIndex < tabs.count else { return }
+        captureScreenshotOfActiveTab()
         activeTabId = tabs[targetIndex].id
     }
 
     /// Select the previous tab (wraps around)
     func selectPreviousTab() {
         guard let currentIndex = activeTabIndex, !tabs.isEmpty else { return }
+        captureScreenshotOfActiveTab()
         let newIndex = currentIndex > 0 ? currentIndex - 1 : tabs.count - 1
         activeTabId = tabs[newIndex].id
     }
@@ -261,6 +269,7 @@ class BrowserState: ObservableObject, BrowserBridgeProvider {
     /// Select the next tab (wraps around)
     func selectNextTab() {
         guard let currentIndex = activeTabIndex, !tabs.isEmpty else { return }
+        captureScreenshotOfActiveTab()
         let newIndex = currentIndex < tabs.count - 1 ? currentIndex + 1 : 0
         activeTabId = tabs[newIndex].id
     }
@@ -288,5 +297,14 @@ class BrowserState: ObservableObject, BrowserBridgeProvider {
     /// Check if there are any closed tabs that can be reopened
     var canReopenClosedTab: Bool {
         !closedTabsHistory.isEmpty
+    }
+
+    /// Captures a screenshot of the currently active tab before switching away
+    private func captureScreenshotOfActiveTab() {
+        guard let tab = activeTab else { return }
+        let captureTab = tab
+        Task { @MainActor in
+            await TabScreenshotManager.shared.captureScreenshot(for: captureTab)
+        }
     }
 }

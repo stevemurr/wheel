@@ -15,7 +15,7 @@ class TabScreenshotManager: ObservableObject {
     /// Tracks last access time for LRU eviction - O(1) update vs O(n) array operations
     private var accessTimestamps: [UUID: Date] = [:]
 
-    private let thumbnailSize = CGSize(width: 160, height: 100)
+    private let thumbnailSize = CGSize(width: 240, height: 150)
 
     private init() {}
 
