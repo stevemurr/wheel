@@ -1,80 +1,34 @@
 import WebKit
 import AppKit
 
-/// WKWebView subclass that adds "Open Link in New Tab" to the native context menu.
+/// WKWebView subclass that replaces WebKit's native context menu with a custom
+/// `NSMenu` built from a JS hit-test.
 ///
-/// Defers `super.rightMouseDown` until JS link detection completes (typically 1–5ms),
-/// with a 50ms safety timeout. This ensures the JS-detected URL is available in
-/// `willOpenMenu`, making link detection reliable even in shadow DOM and web components.
+/// The native context menu is unreliable for "Open Link in New Tab" because
+/// `willOpenMenu` is synchronous but JS link detection is async. This subclass
+/// suppresses the native menu entirely, runs a JS hit-test on right-click, waits
+/// for the result (with a 200ms safety timeout), then shows a custom menu via
+/// `popUp(positioning:at:in:)`.
 class BrowserWebView: WKWebView {
 
     /// The location (in view coordinates) of the last right-click.
     private var lastRightClickLocation: NSPoint = .zero
 
-    /// The link URL detected at the last right-click location, if any.
-    private var lastDetectedLinkURL: URL?
-
     /// Generation counter to discard stale JS callbacks from previous right-clicks.
     private var rightClickGeneration: UInt64 = 0
 
-    /// Cached icon for the "Open Link in New Tab" menu item.
-    private static let newTabIcon: NSImage? = {
-        let img = NSImage(systemSymbolName: "plus.rectangle.on.rectangle",
-                          accessibilityDescription: "Open in new tab")
-        img?.size = NSSize(width: 16, height: 16)
-        img?.isTemplate = true
-        return img
-    }()
+    /// The most recent hit-test result, used by action methods.
+    private var lastHitTest: ContextMenuHitTest?
 
-    /// WebKit menu item identifiers that indicate a link context.
-    /// Checking multiple identifiers makes detection robust — if WebKit omits one
-    /// (e.g., on certain page configurations), others may still be present.
-    private static let linkIdentifiers: Set<String> = [
-        "WKMenuItemIdentifierOpenLinkInNewWindow",
-        "WKMenuItemIdentifierCopyLink",
-        "WKMenuItemIdentifierDownloadLinkedFile",
-        "WKMenuItemIdentifierOpenLink",
-    ]
+    // MARK: - Suppress native context menu
 
-    /// The preferred identifier to insert after (natural menu ordering).
-    private static let preferredInsertAfter = "WKMenuItemIdentifierOpenLinkInNewWindow"
+    override func menu(for event: NSEvent) -> NSMenu? { nil }
 
-    /// Calls `super.rightMouseDown` — extracted so closures can invoke it
-    /// without a direct `super` reference (which Swift disallows in closures
-    /// that capture `self` weakly).
-    private func showContextMenu(with event: NSEvent) {
-        super.rightMouseDown(with: event)
-    }
-
-    // MARK: - Link detection JS
-
-    private static func linkDetectionJS(cssX: CGFloat, cssY: CGFloat) -> String {
-        """
-        (function() {
-            var el = document.elementFromPoint(\(cssX), \(cssY));
-            while (el) {
-                if (el.tagName === 'A' && el.href) return el.href;
-                if (el.parentElement) {
-                    el = el.parentElement;
-                } else {
-                    var root = el.getRootNode();
-                    if (root && root !== document && root.host) {
-                        el = root.host;
-                    } else {
-                        break;
-                    }
-                }
-            }
-            return '';
-        })()
-        """
-    }
-
-    // MARK: - Right-click link detection
+    // MARK: - Right-click → JS hit-test → custom menu
 
     override func rightMouseDown(with event: NSEvent) {
         lastRightClickLocation = convert(event.locationInWindow, from: nil)
-        lastDetectedLinkURL = nil
+        lastHitTest = nil
         rightClickGeneration &+= 1
         let gen = rightClickGeneration
 
@@ -84,93 +38,154 @@ class BrowserWebView: WKWebView {
         // Both closures run on main thread; captured local var is safe.
         var menuShown = false
 
-        // Safety cap: show menu even if JS hangs (50ms is imperceptible).
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) { [weak self] in
+        // Safety timeout: if JS hangs, show a minimal navigation-only menu.
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) { [weak self] in
             guard let self, !menuShown, self.rightClickGeneration == gen else { return }
             menuShown = true
-            self.showContextMenu(with: event)
+            self.lastHitTest = .empty
+            self.showCustomMenu(for: .empty, at: self.lastRightClickLocation)
         }
 
-        evaluateJavaScript(Self.linkDetectionJS(cssX: cssX, cssY: cssY)) { [weak self] result, _ in
-            guard let self, !menuShown, self.rightClickGeneration == gen else { return }
-            if let href = result as? String, !href.isEmpty {
-                self.lastDetectedLinkURL = URL(string: href)
+        evaluateJavaScript(ContextMenuScripts.hitTest(cssX: cssX, cssY: cssY)) { [weak self] result, _ in
+            guard let self, self.rightClickGeneration == gen else { return }
+
+            let hitTest: ContextMenuHitTest
+            if let jsonString = result as? String,
+               let data = jsonString.data(using: .utf8),
+               let decoded = try? JSONDecoder().decode(ContextMenuHitTest.self, from: data) {
+                hitTest = decoded
+            } else {
+                hitTest = .empty
             }
+
+            self.lastHitTest = hitTest
+
+            guard !menuShown else { return }
             menuShown = true
-            self.showContextMenu(with: event)
+            self.showCustomMenu(for: hitTest, at: self.lastRightClickLocation)
         }
     }
 
-    // MARK: - Context menu
+    /// Build and display the custom context menu at the given view location.
+    private func showCustomMenu(for hitTest: ContextMenuHitTest, at location: NSPoint) {
+        let menu = ContextMenuBuilder.buildMenu(for: hitTest, target: self)
 
-    override func willOpenMenu(_ menu: NSMenu, with event: NSEvent) {
-        // Scan for any WebKit link-related menu item. Track the best insertion
-        // position and opportunistically extract the URL.
-        var insertAfterIndex: Int?
-        var fallbackIndex: Int?
-        var webKitLinkURL: URL?
-
-        for (index, item) in menu.items.enumerated() {
-            guard let rawId = item.identifier?.rawValue,
-                  Self.linkIdentifiers.contains(rawId) else { continue }
-
-            // Extract URL from the first link-related item that has one.
-            if webKitLinkURL == nil, let url = item.representedObject as? URL {
-                webKitLinkURL = url
-            }
-
-            if rawId == Self.preferredInsertAfter {
-                // Best position: right after "Open Link in New Window".
-                insertAfterIndex = index + 1
-                break
-            }
-            // Record first link-related item as fallback insertion point.
-            if fallbackIndex == nil {
-                fallbackIndex = index + 1
+        // Disable Back/Forward based on navigation state.
+        for item in menu.items {
+            if item.action == #selector(contextAction_goBack(_:)) {
+                item.isEnabled = canGoBack
+            } else if item.action == #selector(contextAction_goForward(_:)) {
+                item.isEnabled = canGoForward
             }
         }
 
-        let webKitDetectedLink = insertAfterIndex != nil || fallbackIndex != nil
-        // Use JS result as secondary signal when WebKit didn't add link items
-        // (e.g., pages that modify the context menu). Only used when JS has
-        // already completed — no timing dependency.
-        let jsDetectedLink = !webKitDetectedLink && lastDetectedLinkURL != nil
-
-        if webKitDetectedLink || jsDetectedLink {
-            // Populate lastDetectedLinkURL from WebKit if JS hasn't finished.
-            if lastDetectedLinkURL == nil {
-                lastDetectedLinkURL = webKitLinkURL
-            }
-
-            let newTabItem = NSMenuItem(
-                title: "Open Link in New Tab",
-                action: #selector(openLinkInNewTab(_:)),
-                keyEquivalent: ""
-            )
-            newTabItem.target = self
-            newTabItem.image = Self.newTabIcon
-
-            // Insert after WebKit's link item, or at top for JS-only detection.
-            let targetIndex = insertAfterIndex ?? fallbackIndex ?? 0
-            menu.insertItem(newTabItem, at: min(targetIndex, menu.items.count))
-        }
-
-        super.willOpenMenu(menu, with: event)
+        menu.popUp(positioning: nil, at: location, in: self)
     }
 
-    @objc private func openLinkInNewTab(_ sender: NSMenuItem) {
-        if let url = lastDetectedLinkURL {
-            NotificationCenter.default.post(name: .openLinkInNewTab, object: url)
-            return
-        }
+    // MARK: - Action handlers
 
-        // Fallback: re-run JS with saved coordinates (extremely unlikely path).
-        let cssX = lastRightClickLocation.x / pageZoom
-        let cssY = (bounds.height - lastRightClickLocation.y) / pageZoom
-        evaluateJavaScript(Self.linkDetectionJS(cssX: cssX, cssY: cssY)) { result, _ in
-            if let href = result as? String, !href.isEmpty, let url = URL(string: href) {
-                NotificationCenter.default.post(name: .openLinkInNewTab, object: url)
+    @objc func contextAction_openLinkInNewTab(_ sender: NSMenuItem) {
+        guard let urlString = sender.representedObject as? String,
+              let url = URL(string: urlString) else { return }
+        NotificationCenter.default.post(name: .openLinkInNewTab, object: url)
+    }
+
+    @objc func contextAction_copyLinkAddress(_ sender: NSMenuItem) {
+        guard let urlString = sender.representedObject as? String else { return }
+        PasteboardHelper.copy(urlString)
+    }
+
+    @objc func contextAction_openImageInNewTab(_ sender: NSMenuItem) {
+        guard let urlString = sender.representedObject as? String,
+              let url = URL(string: urlString) else { return }
+        NotificationCenter.default.post(name: .openLinkInNewTab, object: url)
+    }
+
+    @objc func contextAction_saveImageAs(_ sender: NSMenuItem) {
+        guard let urlString = sender.representedObject as? String,
+              let url = URL(string: urlString) else { return }
+
+        let panel = NSSavePanel()
+        panel.nameFieldStringValue = url.lastPathComponent.isEmpty ? "image" : url.lastPathComponent
+        panel.canCreateDirectories = true
+
+        panel.begin { [weak self] response in
+            guard response == .OK, let dest = panel.url else { return }
+            let task = URLSession.shared.downloadTask(with: url) { tempURL, _, error in
+                guard let tempURL, error == nil else { return }
+                try? FileManager.default.moveItem(at: tempURL, to: dest)
             }
+            task.resume()
+            _ = self // prevent unused warning; weak capture is intentional
         }
+    }
+
+    @objc func contextAction_copyImage(_ sender: NSMenuItem) {
+        guard let urlString = sender.representedObject as? String,
+              let url = URL(string: urlString) else { return }
+
+        URLSession.shared.dataTask(with: url) { data, _, error in
+            guard let data, error == nil, let image = NSImage(data: data) else { return }
+            DispatchQueue.main.async {
+                NSPasteboard.general.clearContents()
+                NSPasteboard.general.writeObjects([image])
+            }
+        }.resume()
+    }
+
+    @objc func contextAction_copyImageAddress(_ sender: NSMenuItem) {
+        guard let urlString = sender.representedObject as? String else { return }
+        PasteboardHelper.copy(urlString)
+    }
+
+    @objc func contextAction_openMediaInNewTab(_ sender: NSMenuItem) {
+        guard let urlString = sender.representedObject as? String,
+              let url = URL(string: urlString) else { return }
+        NotificationCenter.default.post(name: .openLinkInNewTab, object: url)
+    }
+
+    @objc func contextAction_copyMediaAddress(_ sender: NSMenuItem) {
+        guard let urlString = sender.representedObject as? String else { return }
+        PasteboardHelper.copy(urlString)
+    }
+
+    @objc func contextAction_cut(_ sender: NSMenuItem) {
+        NSApp.sendAction(#selector(NSText.cut(_:)), to: nil, from: self)
+    }
+
+    @objc func contextAction_copy(_ sender: NSMenuItem) {
+        NSApp.sendAction(#selector(NSText.copy(_:)), to: nil, from: self)
+    }
+
+    @objc func contextAction_paste(_ sender: NSMenuItem) {
+        NSApp.sendAction(#selector(NSText.paste(_:)), to: nil, from: self)
+    }
+
+    @objc func contextAction_selectAll(_ sender: NSMenuItem) {
+        NSApp.sendAction(#selector(NSText.selectAll(_:)), to: nil, from: self)
+    }
+
+    @objc func contextAction_copySelection(_ sender: NSMenuItem) {
+        guard let text = sender.representedObject as? String else { return }
+        PasteboardHelper.copy(text)
+    }
+
+    @objc func contextAction_searchWebFor(_ sender: NSMenuItem) {
+        guard let text = sender.representedObject as? String,
+              let encoded = text.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed),
+              let url = URL(string: "https://www.google.com/search?q=\(encoded)") else { return }
+        NotificationCenter.default.post(name: .openLinkInNewTab, object: url)
+    }
+
+    @objc func contextAction_goBack(_ sender: NSMenuItem) {
+        goBack()
+    }
+
+    @objc func contextAction_goForward(_ sender: NSMenuItem) {
+        goForward()
+    }
+
+    @objc func contextAction_reload(_ sender: NSMenuItem) {
+        reload()
     }
 }
