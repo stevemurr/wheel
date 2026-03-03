@@ -8,8 +8,24 @@ enum ABPRule {
     case urlException(URLBlockRule)
     case cssHide(CSSHideRule)
     case cssException(CSSHideRule)
+    case scriptletInject(ScriptletRule)
     case comment(String)
     case unsupported(String)
+}
+
+/// Scriptlet injection rule parsed from ##+js(...) syntax
+struct ScriptletRule: Codable {
+    /// Name of the scriptlet to invoke (e.g., "abort-on-property-read")
+    let scriptletName: String
+
+    /// Arguments to pass to the scriptlet
+    let args: [String]
+
+    /// Domains where this rule should apply (empty = all domains)
+    let includeDomains: [String]
+
+    /// Domains where this rule should NOT apply
+    let excludeDomains: [String]
 }
 
 /// URL-based blocking rule
@@ -135,6 +151,14 @@ actor ABPParser {
         // Comments
         if line.hasPrefix("!") || line.hasPrefix("[Adblock") {
             return .comment(line)
+        }
+
+        // Scriptlet injection rules: domain##+js(scriptlet-name, args...)
+        if let range = line.range(of: "##+js(") {
+            if let scriptlet = parseScriptletRule(line, separatorRange: range) {
+                return .scriptletInject(scriptlet)
+            }
+            return .unsupported(line)
         }
 
         // CSS exception rules (#@#)
@@ -349,6 +373,50 @@ actor ABPParser {
         }
     }
 
+    // MARK: - Scriptlet Rule Parsing
+
+    private func parseScriptletRule(_ line: String, separatorRange: Range<String.Index>) -> ScriptletRule? {
+        // Extract domains part (before ##+js()
+        let domainsPart = String(line[..<separatorRange.lowerBound])
+
+        // Extract the content inside +js(...)
+        // The separator range ends after "##+js(", so we need the content up to the closing ")"
+        let afterPrefix = String(line[separatorRange.upperBound...])
+        guard afterPrefix.hasSuffix(")") else { return nil }
+        let argsString = String(afterPrefix.dropLast())
+
+        // Parse scriptlet name and arguments (comma-separated)
+        let parts = argsString.components(separatedBy: ",").map {
+            $0.trimmingCharacters(in: .whitespaces)
+        }
+        guard let scriptletName = parts.first, !scriptletName.isEmpty else { return nil }
+
+        let args = Array(parts.dropFirst())
+
+        // Parse domains
+        var includeDomains: [String] = []
+        var excludeDomains: [String] = []
+
+        if !domainsPart.isEmpty {
+            let domains = domainsPart.components(separatedBy: ",")
+            for domain in domains {
+                let trimmed = domain.trimmingCharacters(in: .whitespaces)
+                if trimmed.hasPrefix("~") {
+                    excludeDomains.append(String(trimmed.dropFirst()))
+                } else {
+                    includeDomains.append(trimmed)
+                }
+            }
+        }
+
+        return ScriptletRule(
+            scriptletName: scriptletName,
+            args: args,
+            includeDomains: includeDomains,
+            excludeDomains: excludeDomains
+        )
+    }
+
     // MARK: - CSS Rule Parsing
 
     private func parseCSSHide(_ line: String, separatorRange: Range<String.Index>) -> ABPRule {
@@ -431,6 +499,8 @@ extension ABPParser {
                 stats.cssHideRules += 1
             case .cssException:
                 stats.cssExceptionRules += 1
+            case .scriptletInject:
+                stats.scriptletRules += 1
             case .comment:
                 stats.comments += 1
             case .unsupported:
@@ -446,11 +516,12 @@ extension ABPParser {
         var urlExceptionRules: Int = 0
         var cssHideRules: Int = 0
         var cssExceptionRules: Int = 0
+        var scriptletRules: Int = 0
         var comments: Int = 0
         var unsupported: Int = 0
 
         var totalRules: Int {
-            urlBlockRules + urlExceptionRules + cssHideRules + cssExceptionRules
+            urlBlockRules + urlExceptionRules + cssHideRules + cssExceptionRules + scriptletRules
         }
     }
 }

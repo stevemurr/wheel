@@ -71,4 +71,36 @@ final class RuleCompilationPipeline {
         Log.AdBlock.warning("External rules caused compilation failure, falling back to built-in only")
         return try await compile(builtInRules)
     }
+
+    /// Compile a large rule set by splitting into chunks if it exceeds the WebKit limit.
+    /// Each chunk gets its own WKContentRuleList with a suffixed identifier.
+    /// - Parameters:
+    ///   - rules: The full array of rule dictionaries.
+    ///   - identifier: Base identifier; chunks will be suffixed as `-0`, `-1`, etc.
+    /// - Returns: Array of compiled rule lists.
+    func compileLargeList(_ rules: [[String: Any]], identifier: String) async throws -> [WKContentRuleList] {
+        guard rules.count > Self.maxRuleCount else {
+            return [try await compile(rules, identifier: identifier)]
+        }
+
+        var results: [WKContentRuleList] = []
+        let chunkSize = Self.maxRuleCount
+        var offset = 0
+        var chunkIndex = 0
+
+        while offset < rules.count {
+            let end = min(offset + chunkSize, rules.count)
+            let chunk = Array(rules[offset..<end])
+            let chunkId = "\(identifier)-\(chunkIndex)"
+
+            let compiled = try await compile(chunk, identifier: chunkId)
+            results.append(compiled)
+
+            offset = end
+            chunkIndex += 1
+        }
+
+        Log.AdBlock.info("Split \(rules.count) rules into \(results.count) chunks for \(identifier)")
+        return results
+    }
 }

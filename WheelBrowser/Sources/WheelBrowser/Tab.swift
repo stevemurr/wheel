@@ -86,13 +86,28 @@ class Tab: Identifiable, ObservableObject {
             config.userContentController.addUserScript(CookieBannerScripts.createUserScript())
         }
 
+        // Inject blocking stats collection script
+        if AppSettings.shared.adBlockingEnabled {
+            config.userContentController.addUserScript(BlockingStatsCollector.createUserScript())
+        }
+
         let webView = BrowserWebView(frame: .zero, configuration: config)
         webView.allowsBackForwardNavigationGestures = true
 
-        // Apply ad blocking rules after webView is created
+        // Apply ad blocking rules and cosmetic/scriptlet scripts after webView is created
         if AppSettings.shared.adBlockingEnabled {
             Task { @MainActor in
                 await ContentBlockerManager.shared.applyRules(to: webView)
+
+                // Inject cosmetic filter script
+                if let cosmeticScript = await ContentBlockerManager.shared.getCosmeticFilterScript() {
+                    webView.configuration.userContentController.addUserScript(cosmeticScript)
+                }
+
+                // Inject scriptlet injection script
+                if let scriptletScript = ScriptletInjector.shared.createUserScript() {
+                    webView.configuration.userContentController.addUserScript(scriptletScript)
+                }
             }
         }
 

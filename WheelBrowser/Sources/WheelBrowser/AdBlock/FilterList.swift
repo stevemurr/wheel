@@ -189,7 +189,7 @@ extension FilterList {
                 id: UUID(uuidString: "00000000-0000-0000-0000-000000000002")!,
                 name: "EasyPrivacy",
                 url: URL(string: "https://easylist.to/easylist/easyprivacy.txt")!,
-                isEnabled: false,
+                isEnabled: true,
                 isBuiltIn: true
             ),
             FilterList(
@@ -197,6 +197,13 @@ extension FilterList {
                 name: "Fanboy's Annoyance List",
                 url: URL(string: "https://easylist.to/easylist/fanboy-annoyance.txt")!,
                 isEnabled: false,
+                isBuiltIn: true
+            ),
+            FilterList(
+                id: UUID(uuidString: "00000000-0000-0000-0000-000000000004")!,
+                name: "Peter Lowe's Ad Server List",
+                url: URL(string: "https://pgl.yoyo.org/adservers/serverlist.php?hostformat=adblockplus&mimetype=plaintext")!,
+                isEnabled: true,
                 isBuiltIn: true
             )
         ]

@@ -216,18 +216,19 @@ class ContentBlockerManager: ObservableObject {
             }
         }
 
-        // Compile external filter list rules
+        // Compile external filter list rules (splitting large lists into chunks)
         let externalRules = rulesMerger.gatherExternalRulesGrouped()
         for (listID, rules) in externalRules {
             let identifier = Self.identifier(forExternal: listID)
             if compiledRuleLists[identifier] == nil && !rules.isEmpty {
-                let truncated = rules.count > RuleCompilationPipeline.maxRuleCount
-                    ? Array(rules.prefix(RuleCompilationPipeline.maxRuleCount))
-                    : rules
-                if let compiled = try? await compilationPipeline.compile(truncated, identifier: identifier) {
-                    compiledRuleLists[identifier] = compiled
-                } else {
-                    Log.AdBlock.warning("External list \(listID) failed to compile, skipping")
+                do {
+                    let compiledLists = try await compilationPipeline.compileLargeList(rules, identifier: identifier)
+                    for (index, compiled) in compiledLists.enumerated() {
+                        let key = compiledLists.count == 1 ? identifier : "\(identifier)-\(index)"
+                        compiledRuleLists[key] = compiled
+                    }
+                } catch {
+                    Log.AdBlock.warning("External list \(listID) failed to compile, skipping: \(error.localizedDescription)")
                 }
             }
         }
@@ -272,6 +273,9 @@ class ContentBlockerManager: ObservableObject {
         for ruleList in compiledRuleLists.values {
             configuration.userContentController.add(ruleList)
         }
+
+        // Apply site allowlist LAST so ignore-previous-rules overrides blocking rules
+        SiteAllowlistManager.shared.applyAllowlist(to: configuration)
     }
 
     /// Applies content blocking rules to an existing WKWebView
@@ -292,6 +296,9 @@ class ContentBlockerManager: ObservableObject {
         for ruleList in compiledRuleLists.values {
             webView.configuration.userContentController.add(ruleList)
         }
+
+        // Apply site allowlist LAST so ignore-previous-rules overrides blocking rules
+        SiteAllowlistManager.shared.applyAllowlist(to: webView)
     }
 
     /// Removes content blocking rules from a WKWebView
@@ -299,6 +306,7 @@ class ContentBlockerManager: ObservableObject {
         for ruleList in compiledRuleLists.values {
             webView.configuration.userContentController.remove(ruleList)
         }
+        SiteAllowlistManager.shared.removeAllowlist(from: webView)
     }
 
     /// Refresh only external filter list rules (called when filter lists change)
@@ -322,6 +330,10 @@ class ContentBlockerManager: ObservableObject {
                 compiledRuleLists[identifier] = compiled
             }
         }
+
+        // Invalidate cosmetic filter and scriptlet caches
+        invalidateCosmeticCache()
+        ScriptletInjector.shared.invalidateCache()
     }
 
     /// Removes all cached rules and recompiles everything
@@ -345,6 +357,25 @@ class ContentBlockerManager: ObservableObject {
     func recordPageLoad() {
         guard !enabledCategories.isEmpty else { return }
         stats.recordPageLoad(enabledCategories: enabledCategories)
+    }
+
+    // MARK: - Cosmetic Filtering
+
+    /// Cached cosmetic filter script
+    private var cachedCosmeticScript: WKUserScript?
+
+    /// Get a WKUserScript for cosmetic (element hiding) filters from all enabled filter lists
+    func getCosmeticFilterScript() async -> WKUserScript? {
+        if let cached = cachedCosmeticScript { return cached }
+        let merged = await FilterListManager.shared.getMergedCosmeticFilters()
+        let script = CosmeticFilterEngine.createUserScript(from: merged)
+        cachedCosmeticScript = script
+        return script
+    }
+
+    /// Invalidate cached cosmetic filter script (called when filter lists change)
+    func invalidateCosmeticCache() {
+        cachedCosmeticScript = nil
     }
 }
 

@@ -6,10 +6,22 @@ import WebKit
 /// Currently handles:
 /// - `overlayWindow` messages (Cmd+Click overlay opening)
 /// - `linkHover` messages (reserved for link preview)
+/// - `blockingStats` messages (real ad blocking statistics)
 enum ScriptMessageHandler {
 
     /// Process an incoming script message and dispatch to the appropriate handler.
     static func handle(_ message: WKScriptMessage) {
+        // blockingStats messages have a simpler format (no "type" field)
+        if message.name == "blockingStats" {
+            if let body = message.body as? [String: Any] {
+                let domain = message.frameInfo.request.url?.host ?? ""
+                Task { @MainActor in
+                    BlockingStatsCollector.shared.handleMessage(body, for: domain)
+                }
+            }
+            return
+        }
+
         guard let body = message.body as? [String: Any],
               let type = body["type"] as? String else {
             Log.LinkPreview.warning("Invalid message format")

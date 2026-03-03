@@ -41,8 +41,8 @@ struct WebKitRuleConverter {
                     webkitRules.append(converted)
                 }
 
-            case .comment, .unsupported:
-                // Skip comments and unsupported rules
+            case .scriptletInject, .comment, .unsupported:
+                // Skip scriptlets (handled by ScriptletInjector), comments, and unsupported rules
                 continue
             }
         }
@@ -387,6 +387,9 @@ extension WebKitRuleConverter {
                     stats.cssExceptionFailed += 1
                 }
 
+            case .scriptletInject:
+                stats.scriptletRules += 1
+
             case .comment:
                 stats.comments += 1
 
@@ -407,6 +410,7 @@ extension WebKitRuleConverter {
         var cssHideFailed: Int = 0
         var cssExceptionConverted: Int = 0
         var cssExceptionFailed: Int = 0
+        var scriptletRules: Int = 0
         var comments: Int = 0
         var unsupported: Int = 0
         var truncated: Bool = false

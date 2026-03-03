@@ -118,6 +118,30 @@ class BlockingStats: ObservableObject, BlockingStatsRecording {
         sessionBlocked += pageBlocks
     }
 
+    /// Record real blocking stats from JavaScript-based collection.
+    /// This provides actual counts instead of estimates.
+    func recordRealPageStats(_ stats: PageBlockingStats) {
+        if trackingSince == nil {
+            trackingSince = Date()
+        }
+
+        let total = stats.totalBlocked
+        totalBlocked += total
+        sessionBlocked += total
+
+        // Attribute to categories heuristically
+        if stats.blockedRequests > 0 {
+            blockedByCategory[.ads, default: 0] += stats.blockedRequests / 2
+            blockedByCategory[.trackers, default: 0] += stats.blockedRequests - stats.blockedRequests / 2
+        }
+        if stats.hiddenElements > 0 {
+            blockedByCategory[.ads, default: 0] += stats.hiddenElements
+        }
+        if stats.defusedScripts > 0 {
+            blockedByCategory[.annoyances, default: 0] += stats.defusedScripts
+        }
+    }
+
     /// Reset session statistics
     func resetSession() {
         sessionBlocked = 0

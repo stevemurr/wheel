@@ -69,15 +69,23 @@ actor FilterListFetcher {
         return (content, responseEtag, responseLastModified)
     }
 
+    /// Result of fetching and processing a filter list
+    struct FetchResult {
+        let filterList: FilterList
+        let rules: [[String: Any]]
+        let cosmeticFilters: ProcessedCosmeticFilters
+        let scriptletRules: [ScriptletRule]
+    }
+
     /// Fetch and process a filter list
     /// - Parameters:
     ///   - filterList: The filter list to update
     ///   - forceUpdate: Whether to update even if checksum hasn't changed
-    /// - Returns: Updated filter list and converted rules, or nil if unchanged
+    /// - Returns: Updated filter list, converted rules, cosmetic filters, and scriptlet rules, or nil if unchanged
     func fetchAndProcess(
         _ filterList: FilterList,
         forceUpdate: Bool = false
-    ) async throws -> (filterList: FilterList, rules: [[String: Any]])? {
+    ) async throws -> FetchResult? {
 
         // Use conditional request headers unless forcing
         let etag = forceUpdate ? nil : filterList.etag
@@ -99,10 +107,6 @@ actor FilterListFetcher {
 
         // Skip if unchanged (unless forced)
         if !forceUpdate && checksum == filterList.checksum {
-            // Content same but update stored headers for future conditional requests
-            var updatedList = filterList
-            updatedList.etag = fetchResult.etag ?? filterList.etag
-            updatedList.lastModifiedHeader = fetchResult.lastModified ?? filterList.lastModifiedHeader
             return nil
         }
 
@@ -116,6 +120,18 @@ actor FilterListFetcher {
         // Convert to WebKit format
         let converter = WebKitRuleConverter()
         let (webkitRules, stats) = converter.convertWithStats(parsedRules)
+
+        // Extract cosmetic filters for JS-based hiding
+        let cosmeticProcessor = CosmeticFilterListProcessor()
+        let cosmeticFilters = await cosmeticProcessor.process(parsedRules)
+
+        // Extract scriptlet injection rules
+        let scriptletRules = parsedRules.compactMap { rule -> ScriptletRule? in
+            if case .scriptletInject(let scriptlet) = rule {
+                return scriptlet
+            }
+            return nil
+        }
 
         // Update filter list
         var updatedList = filterList
@@ -132,7 +148,12 @@ actor FilterListFetcher {
             Log.AdBlock.warning("\(filterList.name) truncated to \(WebKitRuleConverter.maxRulesPerList) rules")
         }
 
-        return (updatedList, webkitRules)
+        return FetchResult(
+            filterList: updatedList,
+            rules: webkitRules,
+            cosmeticFilters: cosmeticFilters,
+            scriptletRules: scriptletRules
+        )
     }
 
     // MARK: - Checksum

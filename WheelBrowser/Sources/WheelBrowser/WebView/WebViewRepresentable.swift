@@ -8,10 +8,11 @@ struct WebViewRepresentable: NSViewRepresentable {
         tab.webView.navigationDelegate = context.coordinator
         tab.webView.uiDelegate = context.coordinator
 
-        // Register link hover message handler
+        // Register message handlers
         let contentController = tab.webView.configuration.userContentController
         contentController.add(context.coordinator, name: "linkHover")
         contentController.add(context.coordinator, name: "overlayWindow")
+        contentController.add(context.coordinator, name: "blockingStats")
 
         return tab.webView
     }
@@ -25,6 +26,7 @@ struct WebViewRepresentable: NSViewRepresentable {
         let contentController = nsView.configuration.userContentController
         contentController.removeScriptMessageHandler(forName: "linkHover")
         contentController.removeScriptMessageHandler(forName: "overlayWindow")
+        contentController.removeScriptMessageHandler(forName: "blockingStats")
 
         // Clear delegates to break retain cycles
         nsView.navigationDelegate = nil

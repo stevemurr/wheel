@@ -21,13 +21,19 @@ class FilterListManager: ObservableObject {
     /// Progress of current update (0.0 - 1.0)
     @Published private(set) var updateProgress: Double = 0
 
+    /// Cached cosmetic filters per filter list ID
+    private(set) var cosmeticFilters: [UUID: ProcessedCosmeticFilters] = [:]
+
+    /// Cached scriptlet rules per filter list ID
+    private(set) var scriptletRules: [UUID: [ScriptletRule]] = [:]
+
     /// Storage keys
     private let filterListsKey = "FilterListSubscriptions"
     private let rulesDirectoryName = "FilterLists"
     private let converterVersionKey = "FilterListConverterVersion"
 
     /// Current converter version - increment when converter logic changes
-    private let currentConverterVersion = 3
+    private let currentConverterVersion = 4
 
     /// Directory for storing converted rules
     private var rulesDirectory: URL {
@@ -38,6 +44,13 @@ class FilterListManager: ObservableObject {
         loadFilterLists()
         ensureDirectoryExists()
         checkConverterVersion()
+
+        // Auto-download enabled filter lists that haven't been fetched yet
+        if needsUpdate {
+            Task { @MainActor in
+                await updateAll()
+            }
+        }
     }
 
     /// Check if converter version changed and clear rules if needed
@@ -178,6 +191,14 @@ class FilterListManager: ObservableObject {
         // Store the converted rules
         try storeRules(result.rules, for: result.filterList)
 
+        // Cache cosmetic filters and scriptlet rules in memory
+        cosmeticFilters[filterList.id] = result.cosmeticFilters
+        scriptletRules[filterList.id] = result.scriptletRules
+
+        // Store cosmetic filters to disk for persistence
+        storeCosmeticFilters(result.cosmeticFilters, for: filterList)
+        storeScriptletRules(result.scriptletRules, for: filterList)
+
         return true
     }
 
@@ -262,6 +283,73 @@ class FilterListManager: ObservableObject {
         }
 
         return rules
+    }
+
+    // MARK: - Cosmetic & Scriptlet Storage
+
+    private func storeCosmeticFilters(_ filters: ProcessedCosmeticFilters, for filterList: FilterList) {
+        let file = rulesDirectory.appendingPathComponent("\(filterList.id.uuidString)-cosmetic.json")
+        if let data = try? JSONEncoder().encode(filters) {
+            try? data.write(to: file)
+        }
+    }
+
+    private func storeScriptletRules(_ rules: [ScriptletRule], for filterList: FilterList) {
+        let file = rulesDirectory.appendingPathComponent("\(filterList.id.uuidString)-scriptlets.json")
+        if let data = try? JSONEncoder().encode(rules) {
+            try? data.write(to: file)
+        }
+    }
+
+    func loadCosmeticFilters(for filterList: FilterList) -> ProcessedCosmeticFilters? {
+        // Check in-memory cache first
+        if let cached = cosmeticFilters[filterList.id] { return cached }
+
+        // Fall back to disk
+        let file = rulesDirectory.appendingPathComponent("\(filterList.id.uuidString)-cosmetic.json")
+        guard let data = try? Data(contentsOf: file),
+              let filters = try? JSONDecoder().decode(ProcessedCosmeticFilters.self, from: data) else {
+            return nil
+        }
+        cosmeticFilters[filterList.id] = filters
+        return filters
+    }
+
+    func loadScriptletRules(for filterList: FilterList) -> [ScriptletRule]? {
+        // Check in-memory cache first
+        if let cached = scriptletRules[filterList.id] { return cached }
+
+        // Fall back to disk
+        let file = rulesDirectory.appendingPathComponent("\(filterList.id.uuidString)-scriptlets.json")
+        guard let data = try? Data(contentsOf: file),
+              let rules = try? JSONDecoder().decode([ScriptletRule].self, from: data) else {
+            return nil
+        }
+        scriptletRules[filterList.id] = rules
+        return rules
+    }
+
+    /// Get merged cosmetic filters from all enabled filter lists
+    func getMergedCosmeticFilters() async -> ProcessedCosmeticFilters {
+        var allFilters: [ProcessedCosmeticFilters] = []
+        for filterList in filterLists where filterList.isEnabled {
+            if let filters = loadCosmeticFilters(for: filterList) {
+                allFilters.append(filters)
+            }
+        }
+        let processor = CosmeticFilterListProcessor()
+        return await processor.merge(allFilters)
+    }
+
+    /// Get all scriptlet rules from enabled filter lists
+    func getAllScriptletRules() -> [ScriptletRule] {
+        var allRules: [ScriptletRule] = []
+        for filterList in filterLists where filterList.isEnabled {
+            if let rules = loadScriptletRules(for: filterList) {
+                allRules.append(contentsOf: rules)
+            }
+        }
+        return allRules
     }
 
     // MARK: - Notifications

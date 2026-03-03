@@ -58,14 +58,31 @@ final class PageLifecycleHandler {
         }
         darkModeAppliedNavigation = nil
 
-        // Record page load for blocking stats
-        if AppSettings.shared.adBlockingEnabled {
+        // Record page load for blocking stats (skip allowlisted sites)
+        if AppSettings.shared.adBlockingEnabled,
+           !SiteAllowlistManager.shared.isDomainAllowlisted(webView.url?.host) {
             ContentBlockerManager.shared.recordPageLoad()
 
             // Safety-net cookie banner dismissal after page fully loads
             if ContentBlockerManager.shared.isEnabled(.annoyances) {
                 webView.evaluateJavaScript("if(window.__wheelCookieBanner){window.__wheelCookieBanner.dismiss()}") { _, _ in }
             }
+
+            // Collect real blocking stats after a short delay
+            let statsWebView = webView
+            let statsDomain = webView.url?.host ?? ""
+            let statsTask = Task { @MainActor in
+                try? await Task.sleep(for: .seconds(2))
+                guard !Task.isCancelled else { return }
+                statsWebView.evaluateJavaScript("window.__wheelBlockingStats?.getStats()") { result, _ in
+                    if let stats = result as? [String: Any] {
+                        Task { @MainActor in
+                            BlockingStatsCollector.shared.handleMessage(stats, for: statsDomain)
+                        }
+                    }
+                }
+            }
+            trackBackgroundTask(statsTask)
         }
 
         // Record to browsing history with current workspace
