@@ -9,7 +9,9 @@ private struct BrowserContentArea: View {
     @ObservedObject var settings: AppSettings
     var agentEngine: AgentEngine
     @ObservedObject var wheelState: TabWheelState
+    @ObservedObject var contextMenuState = ContextMenuState.shared
     let contentExtractor: ContentExtractor
+    var moduleStore: ModuleStore?
 
     var body: some View {
         GeometryReader { geometry in
@@ -23,6 +25,7 @@ private struct BrowserContentArea: View {
                             TabWebViewContainer(
                                 tab: tab,
                                 agentManager: agentManager,
+                                moduleStore: moduleStore,
                                 isActive: tab.id == browserState.activeTabId
                             )
                         }
@@ -52,6 +55,12 @@ private struct BrowserContentArea: View {
                     containerSize: geometry.size
                 )
 
+                // Custom context menu overlay
+                ContextMenuOverlay(
+                    state: contextMenuState,
+                    containerSize: geometry.size
+                )
+
                 // Link preview overlay (Shift+Click links)
                 LinkPreviewOverlay(containerSize: geometry.size) { url in
                     browserState.addTab(withURL: url)
@@ -71,6 +80,9 @@ private struct BrowserContentArea: View {
                     }
                 }
             }
+            .onChange(of: browserState.activeTabId) {
+                contextMenuState.dismiss()
+            }
         }
     }
 }
@@ -79,6 +91,7 @@ private struct BrowserContentArea: View {
 private struct TabWebViewContainer: View {
     @ObservedObject var tab: Tab
     var agentManager: AgentManager
+    var moduleStore: ModuleStore?
     let isActive: Bool
 
     var body: some View {
@@ -87,9 +100,9 @@ private struct TabWebViewContainer: View {
                 if tab.url == nil && tab.isChatTab {
                     FullPageChatView(agentManager: agentManager)
                 } else if tab.url == nil {
-                    PipelineNewTabPageView()
+                    PipelineNewTabPageView(moduleStore: moduleStore)
                 } else {
-                    WebViewRepresentable(tab: tab)
+                    WebViewRepresentable(tab: tab, isActive: isActive)
                 }
             }
 
@@ -268,6 +281,9 @@ struct ContentView: View {
     @ObservedObject private var scrapeManager = ScrapeManager.shared
     private let contentExtractor = ContentExtractor()
 
+    /// Module system store — manages all installed modules.
+    @State private var moduleStore = ModuleStore()
+
     /// URL to show scrape config sheet for
     @State private var scrapeConfigURL: URL?
 
@@ -302,7 +318,8 @@ struct ContentView: View {
                         settings: settings,
                         agentEngine: agentEngine,
                         wheelState: wheelState,
-                        contentExtractor: contentExtractor
+                        contentExtractor: contentExtractor,
+                        moduleStore: moduleStore
                     )
                 }
             }
@@ -386,6 +403,9 @@ struct ContentView: View {
         if let currentWorkspaceId = workspaceManager.currentWorkspaceID {
             state.bindToWorkspace(currentWorkspaceId)
         }
+
+        // Initialize the module system
+        ModuleInjectionHandler.shared.configure(store: moduleStore)
     }
 
     private func saveCurrentTabState(to workspaceId: UUID) {
@@ -395,6 +415,7 @@ struct ContentView: View {
                 url: tab.url?.absoluteString,
                 title: tab.title,
                 isChatTab: tab.isChatTab,
+                hasConversationStarted: tab.hasConversationStarted,
                 conversationId: tab.conversationId
             )
         }

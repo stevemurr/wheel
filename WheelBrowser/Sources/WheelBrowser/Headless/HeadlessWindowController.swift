@@ -66,7 +66,7 @@ private struct HeadlessContentView: View {
     var body: some View {
         ZStack {
             ForEach(browserState.tabs) { tab in
-                WebViewRepresentable(tab: tab)
+                WebViewRepresentable(tab: tab, isActive: tab.id == browserState.activeTabId)
                     .opacity(tab.id == browserState.activeTabId ? 1 : 0)
                     .allowsHitTesting(tab.id == browserState.activeTabId)
             }

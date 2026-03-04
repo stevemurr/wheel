@@ -3,6 +3,7 @@ import WebKit
 
 struct WebViewRepresentable: NSViewRepresentable {
     let tab: Tab
+    let isActive: Bool
 
     func makeNSView(context: Context) -> WKWebView {
         tab.webView.navigationDelegate = context.coordinator
@@ -13,11 +14,22 @@ struct WebViewRepresentable: NSViewRepresentable {
         contentController.add(context.coordinator, name: "linkHover")
         contentController.add(context.coordinator, name: "overlayWindow")
 
+        // Register module system message handlers
+        ModuleInjectionHandler.shared.registerMessageHandlers(
+            on: contentController,
+            coordinator: context.coordinator
+        )
+
+        // Apply content rules (ad blockers) from installed modules
+        Task { @MainActor in
+            await ModuleInjectionHandler.shared.applyContentRules(to: tab.webView)
+        }
+
         return tab.webView
     }
 
     func updateNSView(_ nsView: WKWebView, context: Context) {
-        // WebView updates handled by Tab
+        nsView.isHidden = !isActive
     }
 
     static func dismantleNSView(_ nsView: WKWebView, coordinator: Coordinator) {
@@ -25,6 +37,9 @@ struct WebViewRepresentable: NSViewRepresentable {
         let contentController = nsView.configuration.userContentController
         contentController.removeScriptMessageHandler(forName: "linkHover")
         contentController.removeScriptMessageHandler(forName: "overlayWindow")
+
+        // Unregister module system message handlers
+        ModuleInjectionHandler.shared.unregisterMessageHandlers(from: contentController)
 
         // Clear delegates to break retain cycles
         nsView.navigationDelegate = nil
