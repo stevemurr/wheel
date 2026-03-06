@@ -298,11 +298,27 @@ struct ChatPanelMessageBubble: View {
                     // Message content — sub-views isolate Markdown from artifacts
                     Group {
                         if message.content.isEmpty && message.isStreaming {
-                            ChatPanelTypingIndicator()
-                                .padding(.horizontal, 12)
-                                .padding(.vertical, 10)
+                            VStack(alignment: .leading, spacing: compact ? 8 : 10) {
+                                if message.role == .assistant, let contextBadges = message.contextBadges {
+                                    ChatContextBadgeRow(
+                                        badges: contextBadges,
+                                        compact: compact
+                                    )
+                                }
+
+                                ChatPanelTypingIndicator()
+                            }
+                            .padding(.horizontal, 12)
+                            .padding(.vertical, 10)
                         } else {
-                            VStack(alignment: .leading, spacing: 0) {
+                            VStack(alignment: .leading, spacing: compact ? 8 : 10) {
+                                if message.role == .assistant, let contextBadges = message.contextBadges {
+                                    ChatContextBadgeRow(
+                                        badges: contextBadges,
+                                        compact: compact
+                                    )
+                                }
+
                                 MessageContentView(
                                     content: message.content,
                                     role: message.role,

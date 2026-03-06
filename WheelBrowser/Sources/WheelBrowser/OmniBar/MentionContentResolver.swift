@@ -19,22 +19,26 @@ struct MentionContentResolver {
 
         if hasHistory {
             let results = BrowsingHistory.shared.search(query: query, limit: 5)
+            let badge = ChatContextBadge.history(detail: results.count == 0 ? nil : "\(results.count) results")
             for entry in results {
                 contexts.append(PageContext(
                     url: entry.url,
                     title: entry.title,
-                    textContent: "[From History]\nURL: \(entry.url)\nTitle: \(entry.title)"
+                    textContent: "[From History]\nURL: \(entry.url)\nTitle: \(entry.title)",
+                    contextBadge: badge
                 ))
             }
         }
 
         if hasWeb {
             let results = await SemanticSearchManagerV2.shared.search(query: query, limit: 5)
+            let badge = ChatContextBadge.webSearch(resultsCount: results.count)
             for result in results {
                 contexts.append(PageContext(
                     url: result.page.url,
                     title: result.page.title,
-                    textContent: "[From Web]\nURL: \(result.page.url)\n\(result.page.snippet)"
+                    textContent: "[From Web]\nURL: \(result.page.url)\n\(result.page.snippet)",
+                    contextBadge: badge
                 ))
             }
         }
@@ -43,11 +47,13 @@ struct MentionContentResolver {
             let results = await SemanticSearchManagerV2.shared.searchWithCategories(
                 query: query, categories: [.readingList], limit: 5
             )
+            let badge = ChatContextBadge.readingList(detail: results.count == 0 ? nil : "\(results.count) results")
             for result in results {
                 contexts.append(PageContext(
                     url: result.page.url,
                     title: result.page.title,
-                    textContent: "[From Reading List]\nURL: \(result.page.url)\n\(result.page.snippet)"
+                    textContent: "[From Reading List]\nURL: \(result.page.url)\n\(result.page.snippet)",
+                    contextBadge: badge
                 ))
             }
         }
@@ -71,14 +77,16 @@ struct MentionContentResolver {
                 contexts.append(PageContext(
                     url: url,
                     title: title,
-                    textContent: "[Content from mini window - URL: \(url)]"
+                    textContent: "[Content from mini window - URL: \(url)]",
+                    contextBadge: .miniWindow(title: title, url: url)
                 ))
 
-            case .semanticResult(_, _, let url):
+            case .semanticResult(_, let title, let url):
                 contexts.append(PageContext(
                     url: url,
-                    title: mention.displayTitle,
-                    textContent: "[Content from browsing history - URL: \(url)]"
+                    title: title,
+                    textContent: "[Content from browsing history - URL: \(url)]",
+                    contextBadge: .history(title: title, url: url)
                 ))
 
             case .history, .web, .readingList, .domain:

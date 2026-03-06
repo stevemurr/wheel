@@ -27,6 +27,11 @@ public struct ChatMessage: Identifiable, Equatable, Hashable, Codable {
     /// AI-suggested follow-up prompts parsed from model output
     public var suggestedFollowUps: [String]
 
+    // MARK: - Context badges
+
+    /// Structured context sources shown alongside the message in the chat UI.
+    public var contextBadges: [ChatContextBadge]?
+
     // MARK: - Stop generation
 
     /// Whether the user stopped generation mid-stream
@@ -67,6 +72,7 @@ public struct ChatMessage: Identifiable, Equatable, Hashable, Codable {
         thinkingDurationSeconds: TimeInterval? = nil,
         thinkingStartTime: Date? = nil,
         suggestedFollowUps: [String] = [],
+        contextBadges: [ChatContextBadge]? = nil,
         wasStoppedByUser: Bool = false,
         artifacts: [ChatArtifact] = [],
         parentId: UUID? = nil,
@@ -85,6 +91,7 @@ public struct ChatMessage: Identifiable, Equatable, Hashable, Codable {
         self.thinkingDurationSeconds = thinkingDurationSeconds
         self.thinkingStartTime = thinkingStartTime
         self.suggestedFollowUps = suggestedFollowUps
+        self.contextBadges = contextBadges
         self.wasStoppedByUser = wasStoppedByUser
         self.artifacts = artifacts
         self.parentId = parentId
@@ -120,7 +127,8 @@ public struct ChatMessage: Identifiable, Equatable, Hashable, Codable {
         lhs.id == rhs.id &&
         lhs.content == rhs.content &&
         lhs.isStreaming == rhs.isStreaming &&
-        lhs.isFailed == rhs.isFailed
+        lhs.isFailed == rhs.isFailed &&
+        lhs.contextBadges == rhs.contextBadges
     }
 
     // MARK: - Hashable
@@ -130,6 +138,7 @@ public struct ChatMessage: Identifiable, Equatable, Hashable, Codable {
         hasher.combine(content)
         hasher.combine(isStreaming)
         hasher.combine(isFailed)
+        hasher.combine(contextBadges)
     }
 }
 

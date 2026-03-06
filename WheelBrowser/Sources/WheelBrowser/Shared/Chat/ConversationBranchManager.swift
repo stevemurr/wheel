@@ -22,6 +22,7 @@ enum ConversationBranchManager {
             role: original.role,
             content: newContent,
             timestamp: Date(),
+            contextBadges: original.contextBadges,
             parentId: original.parentId ?? original.id,
             branchIndex: original.branchIndex + 1,
             totalBranches: original.totalBranches + 1

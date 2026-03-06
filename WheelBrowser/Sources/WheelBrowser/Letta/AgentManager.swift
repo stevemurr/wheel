@@ -45,6 +45,7 @@ class AgentManager {
         var conversationHistory: [[String: String]]
         var lastFailedContent: String?
         var lastFailedPageContexts: [PageContext]
+        var pageContextsByUserMessageId: [UUID: [PageContext]]
     }
 
     /// Cached conversation states keyed by tab conversationId.
@@ -56,6 +57,7 @@ class AgentManager {
     // MARK: - Internal State
 
     private var conversationHistory: [[String: String]] = []
+    private var pageContextsByUserMessageId: [UUID: [PageContext]] = [:]
 
     /// Uses the unified system prompt, respecting user customization
     private var systemPrompt: String {
@@ -85,7 +87,8 @@ class AgentManager {
                 messages: messages,
                 conversationHistory: conversationHistory,
                 lastFailedContent: lastFailedContent,
-                lastFailedPageContexts: lastFailedPageContexts
+                lastFailedPageContexts: lastFailedPageContexts,
+                pageContextsByUserMessageId: pageContextsByUserMessageId
             )
         }
 
@@ -97,12 +100,14 @@ class AgentManager {
             conversationHistory = snapshot.conversationHistory
             lastFailedContent = snapshot.lastFailedContent
             lastFailedPageContexts = snapshot.lastFailedPageContexts
+            pageContextsByUserMessageId = snapshot.pageContextsByUserMessageId
         } else {
             // New conversation — start fresh
             messages = []
             conversationHistory = []
             lastFailedContent = nil
             lastFailedPageContexts = []
+            pageContextsByUserMessageId = [:]
         }
     }
 
@@ -131,7 +136,14 @@ class AgentManager {
             pageContexts: pageContexts
         )
 
-        await sendMessageInternal(content: content, fullMessage: fullMessage)
+        let contextBadges = ChatContextBadge.deduplicated(pageContexts.map(\.contextBadge))
+
+        await sendMessageInternal(
+            content: content,
+            fullMessage: fullMessage,
+            pageContexts: pageContexts,
+            contextBadges: contextBadges
+        )
     }
 
     /// Backward-compatible single context method
@@ -180,6 +192,12 @@ class AgentManager {
     /// Edit a user message and resend from that point (ID-based)
     func editAndResend(messageID: UUID, newContent: String, pageContexts: [PageContext]) async {
         guard let messageIndex = messages.firstIndex(where: { $0.id == messageID }) else { return }
+        let originalMessage = messages[messageIndex]
+        let effectivePageContexts = pageContexts.isEmpty
+            ? (pageContextsByUserMessageId[messageID] ?? [])
+            : pageContexts
+        let contextBadges = originalMessage.contextBadges
+            ?? ChatContextBadge.deduplicated(effectivePageContexts.map(\.contextBadge))
 
         // Fork conversation at the edit point
         messages = ConversationBranchManager.editMessage(
@@ -187,15 +205,22 @@ class AgentManager {
             newContent: newContent,
             in: messages
         )
+        if let editedMessageId = messages.last?.id {
+            safeUpdateMessage(id: editedMessageId) { $0.contextBadges = contextBadges }
+            if effectivePageContexts.isEmpty {
+                pageContextsByUserMessageId.removeValue(forKey: editedMessageId)
+            } else {
+                pageContextsByUserMessageId[editedMessageId] = effectivePageContexts
+            }
+        }
 
         // Rebuild conversation history up to the edited message
-        conversationHistory = messages.filter { $0.role == .user || $0.role == .assistant }
-            .map { ["role": $0.role.rawValue, "content": $0.content] }
+        rebuildConversationHistory()
 
         // Send the new message
         let fullMessage = ConversationHistoryBuilder.buildFullMessage(
             content: newContent,
-            pageContexts: pageContexts
+            pageContexts: effectivePageContexts
         )
         // Remove the user message we just added (sendMessageInternal will re-add it)
         if messages.last?.role == .user {
@@ -204,7 +229,7 @@ class AgentManager {
             if !conversationHistory.isEmpty { conversationHistory.removeLast() }
             _ = lastMsg // suppress unused warning
         }
-        await sendMessageInternal(content: newContent, fullMessage: fullMessage)
+        await sendMessageInternal(content: newContent, fullMessage: fullMessage, pageContexts: effectivePageContexts, contextBadges: contextBadges)
     }
 
     /// Regenerate an assistant response (ID-based, falls back to last assistant message)
@@ -221,27 +246,30 @@ class AgentManager {
         let userMessageIndex = messages[..<idx].lastIndex(where: { $0.role == .user })
         guard let userIdx = userMessageIndex else { return }
 
-        let userContent = messages[userIdx].content
+        let userMessage = messages[userIdx]
+        let pageContexts = pageContextsByUserMessageId[userMessage.id] ?? []
+        let contextBadges = userMessage.contextBadges
+            ?? ChatContextBadge.deduplicated(pageContexts.map(\.contextBadge))
 
         // Remove from the assistant message onward
         messages = ConversationBranchManager.regenerateResponse(at: idx, in: messages)
 
         // Rebuild conversation history
-        conversationHistory = messages.filter { $0.role == .user || $0.role == .assistant }
-            .map { ["role": $0.role.rawValue, "content": $0.content] }
-
-        let fullMessage = ConversationHistoryBuilder.buildFullMessage(
-            content: userContent,
-            pageContexts: lastFailedPageContexts
-        )
+        rebuildConversationHistory()
+        lastFailedPageContexts = pageContexts
 
         // Re-send using internal method (user message already in messages)
-        await sendMessageInternalRegenerate(fullMessage: fullMessage)
+        await sendMessageInternalRegenerate(contextBadges: contextBadges)
     }
 
     // MARK: - Streaming Orchestration
 
-    private func sendMessageInternal(content: String, fullMessage: String) async {
+    private func sendMessageInternal(
+        content: String,
+        fullMessage: String,
+        pageContexts: [PageContext],
+        contextBadges: [ChatContextBadge]
+    ) async {
         isLoading = true
         isStreamingActive = true
 
@@ -254,30 +282,42 @@ class AgentManager {
             content: content,
             timestamp: Date(),
             modelUsed: "Apple Intelligence",
-            conversationId: conversationManager.currentConversation?.id
+            conversationId: conversationManager.currentConversation?.id,
+            contextBadges: contextBadges.isEmpty ? nil : contextBadges
         )
         messages.append(userMessage)
+        if pageContexts.isEmpty {
+            pageContextsByUserMessageId.removeValue(forKey: userMessage.id)
+        } else {
+            pageContextsByUserMessageId[userMessage.id] = pageContexts
+        }
         conversationManager.addMessage(userMessage)
 
         // Add to conversation history
         conversationHistory.append(["role": "user", "content": fullMessage])
 
-        await performStreaming(forRegenerate: false)
+        await performStreaming(contextBadges: contextBadges)
     }
 
     /// Internal streaming for regeneration (user message already in messages/history)
-    private func sendMessageInternalRegenerate(fullMessage: String) async {
+    private func sendMessageInternalRegenerate(contextBadges: [ChatContextBadge]) async {
         isLoading = true
         isStreamingActive = true
         lastFailedContent = nil
 
-        await performStreaming(forRegenerate: true)
+        await performStreaming(contextBadges: contextBadges)
     }
 
     /// Shared streaming logic used by both sendMessageInternal and regenerate
-    private func performStreaming(forRegenerate: Bool) async {
+    private func performStreaming(contextBadges: [ChatContextBadge]) async {
         // Add placeholder for assistant response with streaming flag
-        let assistantPlaceholder = ChatMessage(role: .assistant, content: "", timestamp: Date(), isStreaming: true)
+        let assistantPlaceholder = ChatMessage(
+            role: .assistant,
+            content: "",
+            timestamp: Date(),
+            isStreaming: true,
+            contextBadges: contextBadges.isEmpty ? nil : contextBadges
+        )
         let assistantMessageId = assistantPlaceholder.id
         messages.append(assistantPlaceholder)
 
@@ -392,6 +432,23 @@ class AgentManager {
         )
     }
 
+    private func rebuildConversationHistory() {
+        conversationHistory = messages.compactMap { message in
+            guard message.role == .user || message.role == .assistant else { return nil }
+
+            if message.role == .user {
+                let pageContexts = pageContextsByUserMessageId[message.id] ?? []
+                let fullMessage = ConversationHistoryBuilder.buildFullMessage(
+                    content: message.content,
+                    pageContexts: pageContexts
+                )
+                return ["role": message.role.rawValue, "content": fullMessage]
+            }
+
+            return ["role": message.role.rawValue, "content": message.content]
+        }
+    }
+
     // MARK: - Conversation Management
 
     func clearMessages() {
@@ -401,6 +458,7 @@ class AgentManager {
         conversationHistory.removeAll()
         lastFailedContent = nil
         lastFailedPageContexts = []
+        pageContextsByUserMessageId.removeAll()
         // Also clear the cached snapshot for this conversation
         if let id = activeConversationId {
             snapshots.removeValue(forKey: id)
@@ -417,4 +475,17 @@ struct PageContext {
     let url: String
     let title: String
     let textContent: String
+    let contextBadge: ChatContextBadge
+
+    init(
+        url: String,
+        title: String,
+        textContent: String,
+        contextBadge: ChatContextBadge? = nil
+    ) {
+        self.url = url
+        self.title = title
+        self.textContent = textContent
+        self.contextBadge = contextBadge ?? .website(title: title, url: url)
+    }
 }

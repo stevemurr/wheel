@@ -1,0 +1,35 @@
+import Testing
+@testable import WheelBrowser
+
+@Suite("Chat Context Badge Tests")
+struct ChatContextBadgeTests {
+
+    @Test("Page contexts default to a website badge")
+    func pageContextDefaultsToWebsiteBadge() {
+        let context = PageContext(
+            url: "https://www.mozilla.org/firefox/",
+            title: "",
+            textContent: "Firefox content"
+        )
+
+        #expect(context.contextBadge.kind == .website)
+        #expect(context.contextBadge.title == "mozilla.org")
+    }
+
+    @Test("Badge dedupe preserves unique websites and collapses shared sources")
+    func deduplicatesContextBadges() {
+        let deduplicated = ChatContextBadge.deduplicated([
+            .webSearch(resultsCount: 5),
+            .webSearch(resultsCount: 5),
+            .website(url: "https://example.com/a"),
+            .website(url: "https://example.org/b")
+        ])
+
+        #expect(deduplicated.count == 3)
+        #expect(deduplicated.map(\.id) == [
+            "web-search",
+            "website-https://example.com/a",
+            "website-https://example.org/b"
+        ])
+    }
+}
