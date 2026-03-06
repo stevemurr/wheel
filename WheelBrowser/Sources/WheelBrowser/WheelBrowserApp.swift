@@ -41,10 +41,10 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
         // Log startup configuration
         let settings = AppSettings.shared
-        Log.Services.info("LLM endpoint: \(settings.llmEndpoint)")
-        Log.Services.info("Summarization model: \(settings.summarizationModel)")
-        if settings.summarizationBaseURL == nil {
-            Log.Services.warning("Summarization endpoint URL is invalid!")
+        if OnDeviceLLM.shared.isAvailable {
+            Log.Services.info("On-device AI model: available")
+        } else {
+            Log.Services.warning("On-device AI model not available: \(OnDeviceLLM.shared.unavailabilityReason ?? "unknown")")
         }
         Log.LinkPreview.info("Link previews: \(settings.linkPreviewEnabled ? "enabled" : "disabled")")
 
@@ -61,7 +61,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func applicationWillTerminate(_ notification: Notification) {
-        // SemanticSearchManagerV2.save() is a no-op (DIndex handles persistence server-side).
+        // SemanticSearchManagerV2.save() is a no-op (SQLite WAL handles persistence).
         // No cleanup needed here.
     }
 }
@@ -251,13 +251,6 @@ struct WheelBrowserApp: App {
 
                 Divider()
 
-                Button("Scrape Page...") {
-                    NotificationCenter.default.post(name: .scrapePage, object: nil)
-                }
-                .keyboardShortcut("s", modifiers: [.command, .shift, .option])
-
-                Divider()
-
                 Button("Close All Overlays") {
                     NotificationCenter.default.post(name: .closeAllOverlays, object: nil)
                 }
@@ -307,7 +300,6 @@ extension Notification.Name {
 
     // Semantic search
     static let focusSemanticSearch = Notification.Name("focusSemanticSearch")
-    static let embeddingSettingsChanged = Notification.Name("embeddingSettingsChanged")
 
     // Zoom controls
     static let zoomIn = Notification.Name("zoomIn")
@@ -332,12 +324,6 @@ extension Notification.Name {
 
     // Open URL in active tab (for agent/MCP)
     static let openURL = Notification.Name("openURL")
-
-    // Scrape page
-    static let scrapePage = Notification.Name("scrapePage")
-
-    // Show scrape panel (posted by ScrapeManager when a job starts)
-    static let showScrapePanel = Notification.Name("showScrapePanel")
 
     // Open link in new tab (from context menu)
     static let openLinkInNewTab = Notification.Name("openLinkInNewTab")

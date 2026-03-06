@@ -66,7 +66,6 @@ enum AgentAction: Equatable {
     case waitForUser(reason: String)
     case wait(seconds: Double)
     case readText(elementId: Int)
-    case scrape(url: String, depth: UInt8, maxPages: Int)
     case newTab
     case openTab(url: String)
     case switchTab(index: Int)
@@ -128,7 +127,7 @@ class AgentEngine {
 
     @ObservationIgnored private let browserState: BrowserState
     @ObservationIgnored private let settings: AppSettings
-    @ObservationIgnored private let llmClient: any AgentLLMClient
+    @ObservationIgnored private let llmClient: any AgentLLMProvider
     @ObservationIgnored private let bridgeProvider: any BrowserBridgeProvider
     @ObservationIgnored private let loopDetector = AgentLoopDetector()
     @ObservationIgnored private var currentTaskHandle: Task<AgentResult, Never>?
@@ -162,12 +161,12 @@ class AgentEngine {
     init(browserState: BrowserState, settings: AppSettings) {
         self.browserState = browserState
         self.settings = settings
-        self.llmClient = AgentStreamingClient(settings: settings)
+        self.llmClient = OnDeviceLLM.shared
         self.bridgeProvider = browserState
     }
 
     /// Test initializer allowing injection of mock dependencies
-    init(browserState: BrowserState, llmClient: any AgentLLMClient, bridgeProvider: any BrowserBridgeProvider) {
+    init(browserState: BrowserState, llmClient: any AgentLLMProvider, bridgeProvider: any BrowserBridgeProvider) {
         self.browserState = browserState
         self.settings = AppSettings.shared
         self.llmClient = llmClient
@@ -289,13 +288,9 @@ class AgentEngine {
 
     // MARK: - Streaming LLM
 
-    /// Call the LLM with streaming if supported, providing real-time thought feedback.
-    /// Falls back to non-streaming callLLM() on stream error or if client doesn't support streaming.
+    /// Call the LLM with streaming, providing real-time thought feedback.
+    /// Falls back to non-streaming complete() on stream error.
     private func callLLMWithStreaming(prompt: String, systemPrompt: String) async throws -> String {
-        guard let streamingClient = llmClient as? AgentStreamingLLMClient else {
-            return try await llmClient.callLLM(prompt: prompt, systemPrompt: systemPrompt)
-        }
-
         do {
             var fullResponse = ""
             var lastUIUpdate = Date.distantPast
@@ -303,7 +298,7 @@ class AgentEngine {
 
             defer { streamingThought = nil }
 
-            for try await token in streamingClient.streamLLM(prompt: prompt, systemPrompt: systemPrompt) {
+            for try await token in llmClient.stream(prompt: prompt, systemPrompt: systemPrompt) {
                 fullResponse += token
 
                 let now = Date()
@@ -329,7 +324,7 @@ class AgentEngine {
         } catch {
             Log.Agent.warning("Streaming failed, falling back to non-streaming: \(error.localizedDescription)")
             streamingThought = nil
-            return try await llmClient.callLLM(prompt: prompt, systemPrompt: systemPrompt)
+            return try await llmClient.complete(prompt: prompt, systemPrompt: systemPrompt)
         }
     }
 
@@ -615,11 +610,6 @@ class AgentEngine {
                 return "Reading text near '\(label)'"
             }
             return "Reading text near element #\(id)"
-        case .scrape(let url, let depth, let maxPages):
-            if let host = URL(string: url)?.host {
-                return "Scraping \(host) (depth: \(depth), max: \(maxPages) pages)"
-            }
-            return "Scraping \(url) (depth: \(depth), max: \(maxPages) pages)"
         case .newTab:
             return "Opening new blank tab"
         case .openTab(let url):
@@ -753,16 +743,6 @@ class AgentEngine {
                 return ActionResult(message: "No text found near element #\(elementId).", delta: nil)
             }
             return ActionResult(message: "Text near element #\(elementId): \(text)", delta: nil)
-
-        case .scrape(let urlString, let depth, let maxPages):
-            let validatedURL = try NavigationPolicy.validate(urlString)
-            try await ScrapeManager.shared.startScrape(
-                url: validatedURL,
-                depth: depth,
-                stayOnDomain: true,
-                maxPages: maxPages
-            )
-            return ActionResult(message: "Scrape job started for \(validatedURL.absoluteString) (depth: \(depth), max: \(maxPages) pages). Scraping runs in the background.", delta: nil)
 
         case .newTab:
             browserState.addTab()

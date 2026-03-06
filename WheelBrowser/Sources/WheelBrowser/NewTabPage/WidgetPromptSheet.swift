@@ -138,20 +138,9 @@ struct WidgetPromptSheet: View {
 
         Task {
             do {
-                let settings = AppSettings.shared
-                guard let baseURL = settings.llmBaseURL else {
-                    throw WidgetError.specGenerationFailed("LLM endpoint not configured")
-                }
-
-                let client = OpenAICompatibleClient(
-                    baseURL: baseURL,
-                    apiKey: settings.useAPIKey ? settings.llmAPIKey : nil
-                )
-                let retrying = RetryingLLMClient(wrapping: client)
                 let registry = SkillRegistry.createDefault()
-                let generator = WidgetSpecGenerator(llmClient: retrying, registry: registry)
-
-                let validatedSpec = try await generator.generate(prompt: prompt, model: settings.selectedModel)
+                let generator = WidgetSpecGenerator(registry: registry)
+                let validatedSpec = try await generator.generate(prompt: prompt)
 
                 // Execute pipeline to get preview
                 let executor = PipelineExecutor(registry: registry)

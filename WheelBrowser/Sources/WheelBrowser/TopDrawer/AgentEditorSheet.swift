@@ -204,13 +204,9 @@ struct AgentEditorSheet: View {
                 .font(.system(size: 12, weight: .semibold))
                 .foregroundColor(.secondary)
 
-            Picker("", selection: $selectedModel) {
-                ForEach(AgentConfig.availableModels, id: \.self) { model in
-                    Text(model).tag(model)
-                }
-            }
-            .pickerStyle(.menu)
-            .labelsHidden()
+            Text("Apple Intelligence (on-device)")
+                .font(.system(size: 13))
+                .foregroundColor(.primary)
         }
     }
 

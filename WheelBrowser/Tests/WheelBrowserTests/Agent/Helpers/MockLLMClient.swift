@@ -13,21 +13,21 @@ import Foundation
 /// let engine = AgentEngine(browserState: state, llmClient: mock, bridgeProvider: provider)
 /// ```
 @MainActor
-final class MockLLMClient: AgentStreamingLLMClient {
+final class MockLLMClient: AgentLLMProvider {
     /// Scripted responses returned in order
     private var responses: [String]
     /// Index of the next response to return
     private var callIndex = 0
     /// Record of all prompts sent
     private(set) var promptHistory: [(prompt: String, systemPrompt: String)] = []
-    /// When true, streamLLM yields tokens one character at a time; otherwise yields the full response as one chunk
+    /// When true, stream yields tokens one character at a time; otherwise yields the full response as one chunk
     var simulateStreaming: Bool = false
 
     init(responses: [String]) {
         self.responses = responses
     }
 
-    nonisolated func callLLM(prompt: String, systemPrompt: String) async throws -> String {
+    nonisolated func complete(prompt: String, systemPrompt: String) async throws -> String {
         return await MainActor.run {
             promptHistory.append((prompt: prompt, systemPrompt: systemPrompt))
 
@@ -42,7 +42,7 @@ final class MockLLMClient: AgentStreamingLLMClient {
         }
     }
 
-    nonisolated func streamLLM(prompt: String, systemPrompt: String) -> AsyncThrowingStream<String, Error> {
+    nonisolated func stream(prompt: String, systemPrompt: String) -> AsyncThrowingStream<String, Error> {
         AsyncThrowingStream { continuation in
             Task { @MainActor in
                 self.promptHistory.append((prompt: prompt, systemPrompt: systemPrompt))

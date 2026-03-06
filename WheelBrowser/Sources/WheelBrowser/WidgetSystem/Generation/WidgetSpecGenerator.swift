@@ -3,32 +3,36 @@ import Foundation
 /// Generates widget pipeline specs by calling an LLM and validating the output.
 /// Includes a repair loop: on validation failure, re-prompts with error message (max 2 retries).
 final class WidgetSpecGenerator {
-    private let llmClient: any LLMClient
+    typealias CompletionProvider = @Sendable ([ChatMessage], String) async throws -> String
+
     private let registry: SkillRegistry
     private let maxRepairAttempts = 2
+    private let completionProvider: CompletionProvider
 
-    init(llmClient: any LLMClient, registry: SkillRegistry) {
-        self.llmClient = llmClient
+    init(registry: SkillRegistry) {
         self.registry = registry
+        self.completionProvider = { messages, instructions in
+            try await OnDeviceLLM.shared.complete(messages: messages, instructions: instructions)
+        }
+    }
+
+    /// Test initializer that accepts a custom completion provider.
+    init(registry: SkillRegistry, completionProvider: @escaping CompletionProvider) {
+        self.registry = registry
+        self.completionProvider = completionProvider
     }
 
     /// Generate a validated pipeline spec from a user description.
-    func generate(prompt: String, model: String) async throws -> ValidatedSpec {
+    func generate(prompt: String) async throws -> ValidatedSpec {
         let systemPrompt = SystemPromptBuilder.build(registry: registry)
 
         var messages = [ChatMessage.user(prompt)]
         var lastError: Error?
 
         for attempt in 0...maxRepairAttempts {
-            let options = LLMRequestOptions.widgetGeneration(model: model)
-
             let response: String
             do {
-                response = try await llmClient.complete(
-                    messages: messages,
-                    systemPrompt: systemPrompt,
-                    options: options
-                )
+                response = try await completionProvider(messages, systemPrompt)
             } catch {
                 throw WidgetError.specGenerationFailed("LLM request failed: \(error.localizedDescription)")
             }

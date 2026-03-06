@@ -2,32 +2,39 @@ import Testing
 import Foundation
 @testable import WheelBrowser
 
-/// Mock LLM client that returns canned responses for testing.
-/// Thread-safe: all state set at init time, only callIndex mutates (protected by lock).
-private final class WidgetMockLLMClient: LLMClient, @unchecked Sendable {
-    private let responses: [String]
-    private let lock = NSLock()
-    private var callIndex = 0
+/// Creates a WidgetSpecGenerator with a mock completion provider that returns canned responses.
+private func makeGenerator(responses: [String]) -> WidgetSpecGenerator {
+    let lock = NSLock()
+    var callIndex = 0
 
-    init(responses: [String]) {
-        self.responses = responses
-    }
-
-    func complete(messages: [ChatMessage], systemPrompt: String?, options: LLMRequestOptions) async throws -> String {
+    let provider: WidgetSpecGenerator.CompletionProvider = { _, _ in
         lock.lock()
         defer { lock.unlock() }
 
         guard callIndex < responses.count else {
-            throw LLMClientError.invalidResponse
+            throw OnDeviceLLMError.modelUnavailable("Mock ran out of responses")
         }
         let response = responses[callIndex]
         callIndex += 1
         return response
     }
 
-    func stream(messages: [ChatMessage], systemPrompt: String?, options: LLMRequestOptions) -> AsyncThrowingStream<String, Error> {
-        AsyncThrowingStream { $0.finish(throwing: LLMClientError.invalidResponse) }
+    return WidgetSpecGenerator(
+        registry: SkillRegistry.createDefault(),
+        completionProvider: provider
+    )
+}
+
+/// Creates a WidgetSpecGenerator with a mock that always throws.
+private func makeErrorGenerator() -> WidgetSpecGenerator {
+    let provider: WidgetSpecGenerator.CompletionProvider = { _, _ in
+        throw OnDeviceLLMError.modelUnavailable("Test error")
     }
+
+    return WidgetSpecGenerator(
+        registry: SkillRegistry.createDefault(),
+        completionProvider: provider
+    )
 }
 
 @Suite("WidgetSpecGenerator")
@@ -46,40 +53,34 @@ struct WidgetSpecGeneratorTests {
 
     @Test("Successful generation")
     func successfulGeneration() async throws {
-        let client = WidgetMockLLMClient(responses: [Self.validJSON])
-        let registry = SkillRegistry.createDefault()
-        let generator = WidgetSpecGenerator(llmClient: client, registry: registry)
+        let generator = makeGenerator(responses: [Self.validJSON])
 
-        let result = try await generator.generate(prompt: "Show top swift posts", model: "test-model")
+        let result = try await generator.generate(prompt: "Show top swift posts")
         #expect(result.spec.title == "Test Widget")
         #expect(result.spec.pipeline.count == 2)
     }
 
     @Test("Repair loop on invalid JSON, then valid")
     func repairLoop() async throws {
-        let client = WidgetMockLLMClient(responses: [
+        let generator = makeGenerator(responses: [
             "This is not valid JSON at all",
             Self.validJSON,
         ])
-        let registry = SkillRegistry.createDefault()
-        let generator = WidgetSpecGenerator(llmClient: client, registry: registry)
 
-        let result = try await generator.generate(prompt: "Show posts", model: "test-model")
+        let result = try await generator.generate(prompt: "Show posts")
         #expect(result.spec.title == "Test Widget")
     }
 
     @Test("Exhausted repair attempts")
     func exhaustedRepairs() async {
-        let client = WidgetMockLLMClient(responses: [
+        let generator = makeGenerator(responses: [
             "not json",
             "still not json",
             "nope",
         ])
-        let registry = SkillRegistry.createDefault()
-        let generator = WidgetSpecGenerator(llmClient: client, registry: registry)
 
         do {
-            _ = try await generator.generate(prompt: "Generate", model: "test-model")
+            _ = try await generator.generate(prompt: "Generate")
             Issue.record("Expected error")
         } catch let error as WidgetError {
             if case .specGenerationFailed = error {
@@ -94,11 +95,9 @@ struct WidgetSpecGeneratorTests {
 
     @Test("Strip markdown fences")
     func stripMarkdownFences() async throws {
-        let client = WidgetMockLLMClient(responses: ["```json\n\(Self.validJSON)\n```"])
-        let registry = SkillRegistry.createDefault()
-        let generator = WidgetSpecGenerator(llmClient: client, registry: registry)
+        let generator = makeGenerator(responses: ["```json\n\(Self.validJSON)\n```"])
 
-        let result = try await generator.generate(prompt: "Show posts", model: "test-model")
+        let result = try await generator.generate(prompt: "Show posts")
         #expect(result.spec.title == "Test Widget")
     }
 
@@ -114,11 +113,9 @@ struct WidgetSpecGeneratorTests {
         }
         """
 
-        let client = WidgetMockLLMClient(responses: [invalidSpec, Self.validJSON])
-        let registry = SkillRegistry.createDefault()
-        let generator = WidgetSpecGenerator(llmClient: client, registry: registry)
+        let generator = makeGenerator(responses: [invalidSpec, Self.validJSON])
 
-        let result = try await generator.generate(prompt: "Show data", model: "test-model")
+        let result = try await generator.generate(prompt: "Show data")
         #expect(result.spec.refreshIntervalSeconds == 600)
     }
 
@@ -126,12 +123,10 @@ struct WidgetSpecGeneratorTests {
 
     @Test("LLM error propagation: client throws, generator throws")
     func llmErrorPropagation() async {
-        let client = WidgetErrorLLMClient()
-        let registry = SkillRegistry.createDefault()
-        let generator = WidgetSpecGenerator(llmClient: client, registry: registry)
+        let generator = makeErrorGenerator()
 
         do {
-            _ = try await generator.generate(prompt: "fail", model: "test-model")
+            _ = try await generator.generate(prompt: "fail")
             Issue.record("Expected error")
         } catch let error as WidgetError {
             if case .specGenerationFailed(let msg) = error {
@@ -147,11 +142,9 @@ struct WidgetSpecGeneratorTests {
     @Test("Triple-backtick markdown fences with json language tag")
     func tripleBacktickWithJsonTag() async throws {
         let wrappedJSON = "```json\n\(Self.validJSON)\n```"
-        let client = WidgetMockLLMClient(responses: [wrappedJSON])
-        let registry = SkillRegistry.createDefault()
-        let generator = WidgetSpecGenerator(llmClient: client, registry: registry)
+        let generator = makeGenerator(responses: [wrappedJSON])
 
-        let result = try await generator.generate(prompt: "Generate", model: "test-model")
+        let result = try await generator.generate(prompt: "Generate")
         #expect(result.spec.title == "Test Widget")
     }
 
@@ -160,59 +153,17 @@ struct WidgetSpecGeneratorTests {
         let badStructure = """
         {"name": "not a widget spec", "data": [1, 2, 3]}
         """
-        let client = WidgetMockLLMClient(responses: [
+        let generator = makeGenerator(responses: [
             badStructure,
             badStructure,
             badStructure,
         ])
-        let registry = SkillRegistry.createDefault()
-        let generator = WidgetSpecGenerator(llmClient: client, registry: registry)
 
         do {
-            _ = try await generator.generate(prompt: "Generate", model: "test-model")
+            _ = try await generator.generate(prompt: "Generate")
             Issue.record("Expected error")
         } catch {
             // Expected: should fail because structure doesn't match WidgetPipelineSpec
         }
-    }
-
-    @Test("Model passthrough: mock client receives correct model")
-    func modelPassthrough() async throws {
-        let client = WidgetModelCaptureLLMClient(response: Self.validJSON)
-        let registry = SkillRegistry.createDefault()
-        let generator = WidgetSpecGenerator(llmClient: client, registry: registry)
-
-        _ = try await generator.generate(prompt: "Generate", model: "test-model")
-        #expect(client.capturedModel == "test-model")
-    }
-}
-
-/// Mock LLM client that always throws an error.
-private final class WidgetErrorLLMClient: LLMClient, @unchecked Sendable {
-    func complete(messages: [ChatMessage], systemPrompt: String?, options: LLMRequestOptions) async throws -> String {
-        throw LLMClientError.invalidResponse
-    }
-
-    func stream(messages: [ChatMessage], systemPrompt: String?, options: LLMRequestOptions) -> AsyncThrowingStream<String, Error> {
-        AsyncThrowingStream { $0.finish(throwing: LLMClientError.invalidResponse) }
-    }
-}
-
-/// Mock LLM client that captures the model parameter from options.
-private final class WidgetModelCaptureLLMClient: LLMClient, @unchecked Sendable {
-    private let response: String
-    private(set) var capturedModel: String?
-
-    init(response: String) {
-        self.response = response
-    }
-
-    func complete(messages: [ChatMessage], systemPrompt: String?, options: LLMRequestOptions) async throws -> String {
-        capturedModel = options.model
-        return response
-    }
-
-    func stream(messages: [ChatMessage], systemPrompt: String?, options: LLMRequestOptions) -> AsyncThrowingStream<String, Error> {
-        AsyncThrowingStream { $0.finish(throwing: LLMClientError.invalidResponse) }
     }
 }

@@ -26,44 +26,22 @@ enum AppearanceMode: String, CaseIterable {
     }
 }
 
-class AppSettings: ObservableObject {
+class AppSettings: ObservableObject, @unchecked Sendable {
     static let shared = AppSettings()
 
-    @AppStorage("llmEndpoint") var llmEndpoint: String = "http://localhost:11434/v1"
     @AppStorage("lettaServerURL") var lettaServerURL: String = "http://localhost:8283"
-    @AppStorage("selectedModel") var selectedModel: String = "llama3.2:latest"
 
     // MARK: - System Prompt Customization
 
     /// Custom system prompt for chat assistant. Empty string uses the default.
     @AppStorage("chatSystemPrompt") var chatSystemPrompt: String = ""
-
-    // MARK: - Summarization (uses main LLM endpoint with dedicated model)
-    @AppStorage("summarizationModel") var summarizationModel: String = "qwen-summarizer"
-
-    // Summarization uses the main LLM endpoint
-    var summarizationBaseURL: URL? {
-        llmBaseURL
-    }
     @AppStorage("sidebarVisible") var sidebarVisible: Bool = false
     @AppStorage("agentId") var agentId: String = ""
 
-    // MARK: - Semantic Search (DIndex) Configuration
+    // MARK: - Semantic Search Configuration
 
-    /// Whether to use remote DIndex server for embedding storage/search
-    @AppStorage("dindexEnabled") var dindexEnabled: Bool = false {
-        didSet { notifyEmbeddingSettingsChanged() }
-    }
-
-    /// DIndex server endpoint URL
-    @AppStorage("dindexEndpoint") var dindexEndpoint: String = "http://localhost:8080"
-
-    /// DIndex API key (stored in UserDefaults for simplicity; move to Keychain for production)
-    @AppStorage("dindexAPIKey") var dindexAPIKey: String = ""
-
-    private func notifyEmbeddingSettingsChanged() {
-        NotificationCenter.default.post(name: .embeddingSettingsChanged, object: nil)
-    }
+    /// Whether on-device semantic search is enabled (indexes pages locally via CoreML embeddings)
+    @AppStorage("semanticSearchEnabled") var semanticSearchEnabled: Bool = true
 
     /// Whether the left tab sidebar is expanded (showing full tab names) or collapsed (icons only)
     @AppStorage("tabSidebarExpanded") var tabSidebarExpanded: Bool = true
@@ -83,9 +61,6 @@ class AppSettings: ObservableObject {
             applyAppearance()
         }
     }
-
-    /// Whether to use API key authentication for remote LLM endpoints
-    @AppStorage("useAPIKey") var useAPIKey: Bool = false
 
     // MARK: - Widget System Settings
 

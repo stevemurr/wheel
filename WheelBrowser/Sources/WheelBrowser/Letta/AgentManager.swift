@@ -33,10 +33,6 @@ class AgentManager {
 
     // MARK: - Extracted Services
 
-    /// Type alias so the rest of AgentManager can refer to StreamChunk without qualification
-    typealias StreamChunk = StreamingResponseProcessor.StreamChunk
-
-    private let streamProcessor = StreamingResponseProcessor()
     private let bufferFlusher = MarkdownBufferFlusher()
 
     // MARK: - Per-Tab Conversation State
@@ -291,7 +287,7 @@ class AgentManager {
             role: .user,
             content: content,
             timestamp: Date(),
-            modelUsed: settings.selectedModel,
+            modelUsed: "Apple Intelligence",
             conversationId: conversationManager.currentConversation?.id
         )
         messages.append(userMessage)
@@ -314,12 +310,6 @@ class AgentManager {
 
     /// Shared streaming logic used by both sendMessageInternal and regenerate
     private func performStreaming(forRegenerate: Bool) async {
-        // Track thinking message by ID (stable across insertions)
-        var thinkingMessageId: UUID? = nil
-        var thinkingBuffer = ""
-        var pendingThinkingChunk = ""
-        var thinkingStartTime: Date? = nil
-
         // Add placeholder for assistant response with streaming flag
         let assistantPlaceholder = ChatMessage(role: .assistant, content: "", timestamp: Date(), isStreaming: true)
         let assistantMessageId = assistantPlaceholder.id
@@ -333,88 +323,20 @@ class AgentManager {
                 var lastUpdateTime = Date()
                 let maxUpdateInterval: TimeInterval = WindowConstants.streamingFlushInterval
 
-                for try await chunk in streamLLM() {
+                for try await contentText in streamLLM() {
                     try Task.checkCancellation()
                     let now = Date()
                     let timeSinceUpdate = now.timeIntervalSince(lastUpdateTime)
 
-                    switch chunk {
-                    case .thinking(let thinkingContent):
-                        // If this is the first thinking content, insert a thinking message before the assistant message
-                        if thinkingMessageId == nil {
-                            thinkingStartTime = Date()
-                            let thinkingMessage = ChatMessage(
-                                role: .thinking,
-                                content: "",
-                                timestamp: Date(),
-                                isStreaming: true,
-                                thinkingStartTime: thinkingStartTime
-                            )
-                            thinkingMessageId = thinkingMessage.id
-                            // Insert thinking message right before the assistant message
-                            if let assistantIdx = messages.firstIndex(where: { $0.id == assistantMessageId }) {
-                                messages.insert(thinkingMessage, at: assistantIdx)
-                            } else {
-                                messages.append(thinkingMessage)
-                            }
-                        }
+                    pendingChunk += contentText
 
-                        pendingThinkingChunk += thinkingContent
-
-                        // Flush thinking content on complete sentences or timeout
-                        if bufferFlusher.shouldFlush(pendingThinkingChunk) || timeSinceUpdate >= maxUpdateInterval {
-                            thinkingBuffer += pendingThinkingChunk
-                            pendingThinkingChunk = ""
-                            if let id = thinkingMessageId {
-                                safeUpdateMessage(id: id) { $0.content = thinkingBuffer }
-                            }
-                            streamingScrollToken &+= 1
-                            lastUpdateTime = now
-                        }
-
-                    case .content(let contentText):
-                        // If we were thinking, finalize thinking duration
-                        if let id = thinkingMessageId, let startTime = thinkingStartTime,
-                           messages.first(where: { $0.id == id })?.isStreaming == true {
-                            let duration = Date().timeIntervalSince(startTime)
-                            safeUpdateMessage(id: id) { msg in
-                                msg.isStreaming = false
-                                msg.thinkingDurationSeconds = duration
-                            }
-                        }
-
-                        pendingChunk += contentText
-
-                        // Flush on complete markdown structures or timeout
-                        if bufferFlusher.shouldFlush(pendingChunk) || timeSinceUpdate >= maxUpdateInterval {
-                            buffer += pendingChunk
-                            pendingChunk = ""
-                            safeUpdateMessage(id: assistantMessageId) { $0.content = buffer }
-                            streamingScrollToken &+= 1
-                            lastUpdateTime = now
-                        }
-
-                    case .finishReason:
-                        break // Handled in streamLLM()
-                    }
-                }
-
-                // Flush any remaining thinking content
-                if !pendingThinkingChunk.isEmpty {
-                    thinkingBuffer += pendingThinkingChunk
-                    if let id = thinkingMessageId {
-                        let duration = thinkingStartTime.map { Date().timeIntervalSince($0) }
-                        safeUpdateMessage(id: id) { msg in
-                            msg.content = thinkingBuffer
-                            msg.isStreaming = false
-                            msg.thinkingDurationSeconds = duration
-                        }
-                    }
-                } else if let id = thinkingMessageId {
-                    let duration = thinkingStartTime.map { Date().timeIntervalSince($0) }
-                    safeUpdateMessage(id: id) { msg in
-                        msg.isStreaming = false
-                        msg.thinkingDurationSeconds = duration
+                    // Flush on complete markdown structures or timeout
+                    if bufferFlusher.shouldFlush(pendingChunk) || timeSinceUpdate >= maxUpdateInterval {
+                        buffer += pendingChunk
+                        pendingChunk = ""
+                        safeUpdateMessage(id: assistantMessageId) { $0.content = buffer }
+                        streamingScrollToken &+= 1
+                        lastUpdateTime = now
                     }
                 }
 
@@ -434,7 +356,7 @@ class AgentManager {
                 safeUpdateMessage(id: assistantMessageId) { msg in
                     msg.content = displayContent
                     msg.isStreaming = false
-                    msg.modelUsed = self.settings.selectedModel
+                    msg.modelUsed = "Apple Intelligence"
                     msg.suggestedFollowUps = followUps
                     msg.artifacts = artifacts
                 }
@@ -452,18 +374,11 @@ class AgentManager {
                 lastFailedPageContexts = []
             } catch is CancellationError {
                 // User stopped generation - mark message as stopped
-                if let id = thinkingMessageId {
-                    safeUpdateMessage(id: id) { $0.isStreaming = false }
-                }
                 safeUpdateMessage(id: assistantMessageId) { msg in
                     msg.isStreaming = false
                     msg.wasStoppedByUser = true
                 }
             } catch {
-                // Mark thinking as done if we had any
-                if let id = thinkingMessageId {
-                    safeUpdateMessage(id: id) { $0.isStreaming = false }
-                }
                 safeUpdateMessage(id: assistantMessageId) { msg in
                     msg.content = "Error: \(error.localizedDescription)"
                     msg.isStreaming = false
@@ -482,70 +397,16 @@ class AgentManager {
 
     // MARK: - LLM Streaming
 
-    private func streamLLM() -> AsyncThrowingStream<StreamChunk, Error> {
-        AsyncThrowingStream { continuation in
-            let task = Task {
-                do {
-                    guard let url = URL(string: "\(settings.llmEndpoint)/chat/completions") else {
-                        throw LLMError.invalidURL
-                    }
-
-                    var request = URLRequest(url: url)
-                    request.httpMethod = "POST"
-                    request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-                    request.timeoutInterval = 120
-
-                    // Add API key authentication if enabled and configured
-                    if settings.useAPIKey && settings.hasAPIKey {
-                        request.setValue("Bearer \(settings.llmAPIKey)", forHTTPHeaderField: "Authorization")
-                    }
-
-                    let apiMessages = ConversationHistoryBuilder.buildAPIMessages(
-                        systemPrompt: self.systemPrompt,
-                        conversationHistory: self.conversationHistory
-                    )
-
-                    let body: [String: Any] = [
-                        "model": settings.selectedModel,
-                        "messages": apiMessages,
-                        "max_tokens": 2048,
-                        "stream": true
-                    ]
-
-                    request.httpBody = try JSONSerialization.data(withJSONObject: body)
-
-                    let (bytes, response) = try await URLSession.shared.bytes(for: request)
-
-                    guard let httpResponse = response as? HTTPURLResponse else {
-                        throw LLMError.invalidResponse
-                    }
-
-                    if httpResponse.statusCode != 200 {
-                        throw LLMError.httpError(statusCode: httpResponse.statusCode, message: "Stream request failed")
-                    }
-
-                    // Parse SSE stream and classify each event
-                    let processor = self.streamProcessor
-                    for try await jsonString in bytes.sseEvents {
-                        try Task.checkCancellation()
-                        for chunk in processor.processSSEEvent(jsonString) {
-                            if case .finishReason(let reason) = chunk, reason == "length" {
-                                Log.Chat.warning("streamLLM: Response truncated (finish_reason=length)")
-                            }
-                            continuation.yield(chunk)
-                        }
-                    }
-
-                    continuation.finish()
-                } catch {
-                    continuation.finish(throwing: error)
-                }
-            }
-
-            continuation.onTermination = { @Sendable _ in
-                task.cancel()
-            }
+    private func streamLLM() -> AsyncThrowingStream<String, Error> {
+        let chatMessages = conversationHistory.map { entry -> ChatMessage in
+            let role: ChatMessage.MessageRole = entry["role"] == "user" ? .user : .assistant
+            return ChatMessage(role: role, content: entry["content"] ?? "", timestamp: Date())
         }
+
+        return OnDeviceLLM.shared.stream(
+            messages: chatMessages,
+            instructions: self.systemPrompt
+        )
     }
 
     // MARK: - Conversation Management
@@ -575,22 +436,3 @@ struct PageContext {
     let textContent: String
 }
 
-enum LLMError: LocalizedError {
-    case invalidURL
-    case invalidResponse
-    case httpError(statusCode: Int, message: String)
-    case parseError
-
-    var errorDescription: String? {
-        switch self {
-        case .invalidURL:
-            return "Invalid LLM endpoint URL"
-        case .invalidResponse:
-            return "Invalid response from LLM"
-        case .httpError(let code, let message):
-            return "HTTP \(code): \(message)"
-        case .parseError:
-            return "Failed to parse LLM response"
-        }
-    }
-}

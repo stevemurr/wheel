@@ -106,15 +106,13 @@ class LinkPreviewState: ObservableObject {
         fetchTask?.cancel()
 
         fetchTask = Task {
-            // Check LLM configuration before starting
-            let settings = AppSettings.shared
-            guard let llmURL = settings.summarizationBaseURL else {
-                Log.LinkPreview.error("LLM endpoint not configured (llmEndpoint='\(settings.llmEndpoint)')")
-                self.error = "LLM not configured"
+            // Check on-device model availability
+            guard OnDeviceLLM.shared.isAvailable else {
+                Log.LinkPreview.error("On-device model not available: \(OnDeviceLLM.shared.unavailabilityReason ?? "unknown")")
+                self.error = "AI not available"
                 self.isLoading = false
                 return
             }
-            Log.LinkPreview.debug("Using LLM at \(llmURL.absoluteString)")
 
             do {
                 // Fetch page content
@@ -130,9 +128,9 @@ class LinkPreviewState: ObservableObject {
 
                 // Generate summary using SummaryGenerator
                 if let content = content, !content.isEmpty {
-                    // Index page in DIndex since we're fetching it anyway
+                    // Index page for semantic search since we're fetching it anyway
                     // This runs in background and doesn't block the preview
-                    if AppSettings.shared.dindexEnabled {
+                    if AppSettings.shared.semanticSearchEnabled {
                         Task.detached {
                             await SemanticSearchManagerV2.shared.indexPage(
                                 url: url.absoluteString,
