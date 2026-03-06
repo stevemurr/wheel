@@ -16,6 +16,25 @@ protocol AgentLLMProvider: Sendable {
 final class OnDeviceLLM: Sendable {
     static let shared = OnDeviceLLM()
 
+    enum AvailabilityStatus: Equatable, Sendable {
+        case available
+        case unavailable(String)
+
+        var isAvailable: Bool {
+            if case .available = self {
+                return true
+            }
+            return false
+        }
+
+        var reason: String? {
+            if case .unavailable(let reason) = self {
+                return reason
+            }
+            return nil
+        }
+    }
+
     /// Maximum token budget for the on-device model (input + output combined).
     private static let maxContextTokens = 4096
     /// Reserved tokens for model output.
@@ -27,26 +46,27 @@ final class OnDeviceLLM: Sendable {
 
     // MARK: - Availability
 
-    /// Whether the on-device model is ready to use.
-    var isAvailable: Bool {
-        SystemLanguageModel.default.availability == .available
+    /// Resolve model availability off the caller's actor to avoid blocking UI work.
+    func availabilityStatus() async -> AvailabilityStatus {
+        await Task.detached(priority: .utility) {
+            Self.resolveAvailabilityStatus()
+        }.value
     }
 
-    /// Human-readable description of why the model isn't available, or nil if it is.
-    var unavailabilityReason: String? {
+    private static func resolveAvailabilityStatus() -> AvailabilityStatus {
         switch SystemLanguageModel.default.availability {
         case .available:
-            return nil
+            return .available
         case .unavailable(.deviceNotEligible):
-            return "This Mac doesn't support Apple Intelligence. An Apple Silicon Mac is required."
+            return .unavailable("This Mac doesn't support Apple Intelligence. An Apple Silicon Mac is required.")
         case .unavailable(.appleIntelligenceNotEnabled):
-            return "Apple Intelligence is not enabled. Enable it in System Settings → Apple Intelligence & Siri."
+            return .unavailable("Apple Intelligence is not enabled. Enable it in System Settings → Apple Intelligence & Siri.")
         case .unavailable(.modelNotReady):
-            return "The on-device model is still downloading. Please wait and try again."
+            return .unavailable("The on-device model is still downloading. Please wait and try again.")
         case .unavailable(_):
-            return "The on-device language model is not available on this device."
+            return .unavailable("The on-device language model is not available on this device.")
         @unknown default:
-            return "The on-device language model is not available."
+            return .unavailable("The on-device language model is not available.")
         }
     }
 
@@ -54,25 +74,40 @@ final class OnDeviceLLM: Sendable {
 
     /// Single-shot completion with conversation messages.
     func complete(messages: [ChatMessage], instructions: String) async throws -> String {
-        guard isAvailable else {
-            throw OnDeviceLLMError.modelUnavailable(unavailabilityReason ?? "Model not available")
-        }
-
-        let session = LanguageModelSession(instructions: instructions)
         let prompt = buildPrompt(from: pruneMessages(messages))
-        let response = try await session.respond(to: prompt)
-        return response.content
+        return try await complete(prompt: prompt, instructions: instructions)
     }
 
     /// Single-shot completion with a raw prompt string.
     func complete(prompt: String, instructions: String) async throws -> String {
-        guard isAvailable else {
-            throw OnDeviceLLMError.modelUnavailable(unavailabilityReason ?? "Model not available")
-        }
+        try await Task.detached(priority: .userInitiated) {
+            let availability = Self.resolveAvailabilityStatus()
+            guard availability.isAvailable else {
+                throw OnDeviceLLMError.modelUnavailable(availability.reason ?? "Model not available")
+            }
 
-        let session = LanguageModelSession(instructions: instructions)
-        let response = try await session.respond(to: prompt)
-        return response.content
+            let session = LanguageModelSession(instructions: instructions)
+            let response = try await session.respond(to: prompt)
+            return response.content
+        }.value
+    }
+
+    /// Single-shot structured completion using FoundationModels guided generation.
+    func complete<Content: Generable & Sendable>(
+        prompt: String,
+        instructions: String,
+        generating type: Content.Type = Content.self
+    ) async throws -> Content {
+        try await Task.detached(priority: .userInitiated) {
+            let availability = Self.resolveAvailabilityStatus()
+            guard availability.isAvailable else {
+                throw OnDeviceLLMError.modelUnavailable(availability.reason ?? "Model not available")
+            }
+
+            let session = LanguageModelSession(instructions: instructions)
+            let response = try await session.respond(to: prompt, generating: Content.self)
+            return response.content
+        }.value
     }
 
     // MARK: - Streaming
@@ -80,42 +115,18 @@ final class OnDeviceLLM: Sendable {
     /// Streaming completion with conversation messages.
     /// Yields incremental text deltas (not cumulative snapshots).
     func stream(messages: [ChatMessage], instructions: String) -> AsyncThrowingStream<String, Error> {
-        AsyncThrowingStream { continuation in
-            let task = Task {
-                do {
-                    guard self.isAvailable else {
-                        throw OnDeviceLLMError.modelUnavailable(self.unavailabilityReason ?? "Model not available")
-                    }
-
-                    let session = LanguageModelSession(instructions: instructions)
-                    let prompt = self.buildPrompt(from: self.pruneMessages(messages))
-
-                    var previousContent = ""
-                    let stream = session.streamResponse(to: prompt)
-                    for try await partialResponse in stream {
-                        let currentContent = partialResponse.content
-                        if currentContent.count > previousContent.count {
-                            let delta = String(currentContent.dropFirst(previousContent.count))
-                            continuation.yield(delta)
-                            previousContent = currentContent
-                        }
-                    }
-                    continuation.finish()
-                } catch {
-                    continuation.finish(throwing: error)
-                }
-            }
-            continuation.onTermination = { _ in task.cancel() }
-        }
+        let prompt = buildPrompt(from: pruneMessages(messages))
+        return stream(prompt: prompt, instructions: instructions)
     }
 
     /// Streaming completion with a raw prompt string.
     func stream(prompt: String, instructions: String) -> AsyncThrowingStream<String, Error> {
         AsyncThrowingStream { continuation in
-            let task = Task {
+            let task = Task.detached(priority: .userInitiated) {
                 do {
-                    guard self.isAvailable else {
-                        throw OnDeviceLLMError.modelUnavailable(self.unavailabilityReason ?? "Model not available")
+                    let availability = Self.resolveAvailabilityStatus()
+                    guard availability.isAvailable else {
+                        throw OnDeviceLLMError.modelUnavailable(availability.reason ?? "Model not available")
                     }
 
                     let session = LanguageModelSession(instructions: instructions)

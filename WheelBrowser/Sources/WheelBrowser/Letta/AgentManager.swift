@@ -30,6 +30,8 @@ class AgentManager {
 
     private var settings = AppSettings.shared
     private let conversationManager = ConversationManager.shared
+    @ObservationIgnored private let llmClient: any AgentLLMProvider
+    @ObservationIgnored private let followUpSuggestionProvider: any FollowUpSuggestionProviding
 
     // MARK: - Extracted Services
 
@@ -64,7 +66,12 @@ class AgentManager {
     private var lastFailedContent: String?
     private var lastFailedPageContexts: [PageContext] = []
 
-    private init() {
+    init(
+        llmClient: any AgentLLMProvider = OnDeviceLLM.shared,
+        followUpSuggestionProvider: any FollowUpSuggestionProviding = OnDeviceFollowUpSuggestionProvider()
+    ) {
+        self.llmClient = llmClient
+        self.followUpSuggestionProvider = followUpSuggestionProvider
         // Tabs start fresh. Conversations are restored via switchConversation()
         // + snapshots, or via reopenLastClosedTab() which preserves conversationId.
     }
@@ -234,45 +241,6 @@ class AgentManager {
         await sendMessageInternalRegenerate(fullMessage: fullMessage)
     }
 
-    /// Parse follow-up suggestions from model output
-    private func parseFollowUpSuggestions(from content: String) -> [String] {
-        guard let startRange = content.range(of: "[SUGGESTIONS]"),
-              let endRange = content.range(of: "[/SUGGESTIONS]") else {
-            return []
-        }
-
-        let suggestionsText = String(content[startRange.upperBound..<endRange.lowerBound])
-        return suggestionsText
-            .components(separatedBy: .newlines)
-            .map { $0.trimmingCharacters(in: .whitespaces) }
-            .filter { !$0.isEmpty && !$0.hasPrefix("-") ? true : true }
-            .map { line in
-                var cleaned = line
-                if cleaned.hasPrefix("- ") { cleaned = String(cleaned.dropFirst(2)) }
-                if cleaned.hasPrefix("* ") { cleaned = String(cleaned.dropFirst(2)) }
-                // Remove numbered prefixes like "1. "
-                if let dotRange = cleaned.range(of: #"^\d+\.\s+"#, options: .regularExpression) {
-                    cleaned = String(cleaned[dotRange.upperBound...])
-                }
-                return cleaned.trimmingCharacters(in: .whitespaces)
-            }
-            .filter { !$0.isEmpty }
-            .prefix(3)
-            .map { String($0) }
-    }
-
-    /// Strip the [SUGGESTIONS] block from displayed content
-    private func stripSuggestionsBlock(from content: String) -> String {
-        guard let startRange = content.range(of: "[SUGGESTIONS]") else { return content }
-        // Find the end tag or trim from [SUGGESTIONS] to end
-        if let endRange = content.range(of: "[/SUGGESTIONS]") {
-            var result = content
-            result.removeSubrange(startRange.lowerBound..<endRange.upperBound)
-            return result.trimmingCharacters(in: .whitespacesAndNewlines)
-        }
-        return String(content[..<startRange.lowerBound]).trimmingCharacters(in: .whitespacesAndNewlines)
-    }
-
     // MARK: - Streaming Orchestration
 
     private func sendMessageInternal(content: String, fullMessage: String) async {
@@ -345,9 +313,10 @@ class AgentManager {
                     buffer += pendingChunk
                 }
 
-                // Parse follow-up suggestions from model output
-                let followUps = parseFollowUpSuggestions(from: buffer)
-                let displayContent = stripSuggestionsBlock(from: buffer)
+                // Prefer the legacy in-band suggestions block when present.
+                let parsedResponse = FollowUpSuggestionParser.parse(from: buffer)
+                let followUps = parsedResponse.suggestions
+                let displayContent = parsedResponse.displayContent
 
                 // Extract artifacts from code blocks
                 let artifacts = ArtifactExtractor.extract(from: displayContent)
@@ -367,6 +336,20 @@ class AgentManager {
                 // Persist the assistant message
                 if let assistantMessage = messages.first(where: { $0.id == assistantMessageId }) {
                     conversationManager.addMessage(assistantMessage)
+                }
+
+                if followUps.isEmpty,
+                   let userMessage = messages.last(where: { $0.role == .user })?.content,
+                   !displayContent.isEmpty {
+                    let conversationId = activeConversationId
+                    Task { @MainActor [weak self] in
+                        await self?.populateStructuredFollowUps(
+                            for: assistantMessageId,
+                            conversationId: conversationId,
+                            userMessage: userMessage,
+                            assistantResponse: displayContent
+                        )
+                    }
                 }
 
                 // Clear retry state on success
@@ -398,15 +381,63 @@ class AgentManager {
     // MARK: - LLM Streaming
 
     private func streamLLM() -> AsyncThrowingStream<String, Error> {
-        let chatMessages = conversationHistory.map { entry -> ChatMessage in
-            let role: ChatMessage.MessageRole = entry["role"] == "user" ? .user : .assistant
-            return ChatMessage(role: role, content: entry["content"] ?? "", timestamp: Date())
+        let prompt = conversationHistory.map { entry in
+            let rolePrefix = entry["role"] == "user" ? "User" : "Assistant"
+            let content = entry["content"] ?? ""
+            return "\(rolePrefix): \(content)"
+        }
+        .joined(separator: "\n\n")
+
+        return llmClient.stream(prompt: prompt, systemPrompt: self.systemPrompt)
+    }
+
+    private func populateStructuredFollowUps(
+        for assistantMessageId: UUID,
+        conversationId: UUID?,
+        userMessage: String,
+        assistantResponse: String
+    ) async {
+        do {
+            let suggestions = try await followUpSuggestionProvider.generateSuggestions(
+                userMessage: userMessage,
+                assistantResponse: assistantResponse
+            )
+
+            guard !suggestions.isEmpty else {
+                return
+            }
+
+            storeFollowUpSuggestions(
+                suggestions,
+                for: assistantMessageId,
+                conversationId: conversationId
+            )
+        } catch {
+            Log.Chat.warning("Structured follow-up generation failed: \(error.localizedDescription)")
+        }
+    }
+
+    private func storeFollowUpSuggestions(
+        _ suggestions: [String],
+        for assistantMessageId: UUID,
+        conversationId: UUID?
+    ) {
+        if let index = messages.firstIndex(where: { $0.id == assistantMessageId }) {
+            guard messages[index].suggestedFollowUps.isEmpty else { return }
+            messages[index].suggestedFollowUps = suggestions
+            conversationManager.updateMessage(at: index) { $0.suggestedFollowUps = suggestions }
+            return
         }
 
-        return OnDeviceLLM.shared.stream(
-            messages: chatMessages,
-            instructions: self.systemPrompt
-        )
+        guard let conversationId,
+              var snapshot = snapshots[conversationId],
+              let index = snapshot.messages.firstIndex(where: { $0.id == assistantMessageId }),
+              snapshot.messages[index].suggestedFollowUps.isEmpty else {
+            return
+        }
+
+        snapshot.messages[index].suggestedFollowUps = suggestions
+        snapshots[conversationId] = snapshot
     }
 
     // MARK: - Conversation Management
@@ -435,4 +466,3 @@ struct PageContext {
     let title: String
     let textContent: String
 }
-

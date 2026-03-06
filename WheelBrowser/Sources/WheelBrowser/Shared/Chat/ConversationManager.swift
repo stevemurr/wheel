@@ -136,12 +136,11 @@ class ConversationManager {
     private func scheduleDebouncedSave() {
         pendingSaveTask?.cancel()
         let interval = saveDebounceInterval
-        pendingSaveTask = Task { [weak self] in
+        pendingSaveTask = Task { @MainActor [weak self] in
             try? await Task.sleep(nanoseconds: UInt64(interval * 1_000_000_000))
-            guard !Task.isCancelled else { return }
-            if let conversation = await self?.currentConversation {
-                await self?.saveConversationImmediately(conversation)
-            }
+            guard !Task.isCancelled, let self else { return }
+            guard let conversation = currentConversation else { return }
+            saveConversationImmediately(conversation)
         }
     }
 
@@ -161,15 +160,22 @@ class ConversationManager {
 
     private func loadConversationsAsync() {
         let dir = conversationsDirectory
-        Task.detached { [weak self] in
-            guard FileManager.default.fileExists(atPath: dir.path) else { return }
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            savedConversations = await Self.loadConversations(from: dir)
+        }
+    }
+
+    nonisolated private static func loadConversations(from directory: URL) async -> [Conversation] {
+        await Task.detached(priority: .utility) {
+            guard FileManager.default.fileExists(atPath: directory.path) else { return [] }
 
             let decoder = JSONDecoder()
             decoder.dateDecodingStrategy = .iso8601
             var loaded: [Conversation] = []
 
             if let files = try? FileManager.default.contentsOfDirectory(
-                at: dir,
+                at: directory,
                 includingPropertiesForKeys: [.contentModificationDateKey],
                 options: .skipsHiddenFiles
             ) {
@@ -181,12 +187,8 @@ class ConversationManager {
                 }
             }
 
-            // Sort by most recently updated
             loaded.sort { $0.updatedAt > $1.updatedAt }
-
-            await MainActor.run {
-                self?.savedConversations = loaded
-            }
-        }
+            return loaded
+        }.value
     }
 }

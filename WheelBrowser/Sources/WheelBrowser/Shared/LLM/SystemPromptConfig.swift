@@ -24,6 +24,16 @@ enum SystemPromptConfig {
     [/SUGGESTIONS]
     """
 
+    /// Default system prompt for structured follow-up suggestion generation.
+    static let followUpSuggestionPrompt = """
+    You generate concise follow-up questions for Wheel, a browser-integrated assistant.
+
+    Return only structured data matching the provided schema.
+    Suggest 2-3 specific questions the user could naturally ask next.
+    Keep each question short, relevant to the assistant response, and phrased as a direct user prompt.
+    Do not repeat the assistant response verbatim.
+    """
+
     /// Resolved chat system prompt — uses custom if set, otherwise default.
     /// Includes module tool definitions when available.
     static var chatPrompt: String {

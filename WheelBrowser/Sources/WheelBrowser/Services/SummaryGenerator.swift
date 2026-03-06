@@ -19,13 +19,6 @@ actor SummaryGenerator {
         let truncatedContent = String(content.prefix(3000))
         let prompt = "Summarize the following text:\n\n\(truncatedContent)"
 
-        guard OnDeviceLLM.shared.isAvailable else {
-            return AsyncThrowingStream { continuation in
-                let reason = OnDeviceLLM.shared.unavailabilityReason ?? "Model not available"
-                continuation.finish(throwing: OnDeviceLLMError.modelUnavailable(reason))
-            }
-        }
-
         Log.Services.info("Starting on-device streaming summary generation")
         return OnDeviceLLM.shared.stream(prompt: prompt, instructions: Self.instructions)
     }
@@ -39,11 +32,6 @@ actor SummaryGenerator {
     /// Generate a summary for the given content
     /// Returns nil on failure (model unavailable, generation error, etc.)
     func generateSummary(content: String) async -> String? {
-        guard OnDeviceLLM.shared.isAvailable else {
-            Log.Services.error("On-device LLM not available: \(OnDeviceLLM.shared.unavailabilityReason ?? "unknown")")
-            return nil
-        }
-
         let truncatedContent = String(content.prefix(3000))
         let prompt = "Summarize the following text:\n\n\(truncatedContent)"
 

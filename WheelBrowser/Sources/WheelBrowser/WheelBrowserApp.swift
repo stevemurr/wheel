@@ -41,10 +41,13 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
         // Log startup configuration
         let settings = AppSettings.shared
-        if OnDeviceLLM.shared.isAvailable {
-            Log.Services.info("On-device AI model: available")
-        } else {
-            Log.Services.warning("On-device AI model not available: \(OnDeviceLLM.shared.unavailabilityReason ?? "unknown")")
+        Task.detached(priority: .utility) {
+            let availability = await OnDeviceLLM.shared.availabilityStatus()
+            if availability.isAvailable {
+                Log.Services.info("On-device AI model: available")
+            } else {
+                Log.Services.warning("On-device AI model not available: \(availability.reason ?? "unknown")")
+            }
         }
         Log.LinkPreview.info("Link previews: \(settings.linkPreviewEnabled ? "enabled" : "disabled")")
 

@@ -106,14 +106,6 @@ class LinkPreviewState {
         fetchTask?.cancel()
 
         fetchTask = Task {
-            // Check on-device model availability
-            guard OnDeviceLLM.shared.isAvailable else {
-                Log.LinkPreview.error("On-device model not available: \(OnDeviceLLM.shared.unavailabilityReason ?? "unknown")")
-                self.error = "AI not available"
-                self.isLoading = false
-                return
-            }
-
             do {
                 // Fetch page content
                 let (title, content) = try await fetchPageTitleAndContent(url: url)

@@ -45,6 +45,13 @@ actor NativeSearchService {
         isInitialized = true
     }
 
+    /// Force early embedder/model initialization so callers can fail fast
+    /// and disable semantic search instead of retrying on every operation.
+    func validateBackend() async throws {
+        try await ensureInitialized()
+        _ = try await embedder.dimension
+    }
+
     // MARK: - Indexing
 
     /// Index a page: chunk → embed → store via VecturaKit + metadata mapping

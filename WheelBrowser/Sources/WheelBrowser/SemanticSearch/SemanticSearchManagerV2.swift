@@ -34,11 +34,21 @@ class SemanticSearchManagerV2 {
             return
         }
 
-        searchService = NativeSearchService()
-        isAvailable = true
-        lastError = nil
-        Log.Search.info("Native search service initialized")
-        await updateStats()
+        let service = NativeSearchService()
+
+        do {
+            try await service.validateBackend()
+            searchService = service
+            isAvailable = true
+            lastError = nil
+            Log.Search.info("Native search service initialized")
+            await updateStats()
+        } catch {
+            searchService = nil
+            isAvailable = false
+            lastError = "Semantic search embeddings model failed to load. Re-download the local model cache to re-enable semantic search."
+            Log.Search.error("Native search service unavailable: \(error.localizedDescription)")
+        }
     }
 
     /// Reinitialize with new settings
