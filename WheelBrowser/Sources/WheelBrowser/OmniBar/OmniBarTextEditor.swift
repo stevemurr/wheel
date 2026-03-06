@@ -65,8 +65,9 @@ struct OmniBarTextEditor: NSViewRepresentable {
         OmniBarTextInputConfigurator.configure(textView)
 
         // Focus coordination (Rule 9: set focus before mode, Rule 11: no withAnimation on focus)
-        if isFocused {
+        if isFocused && !context.coordinator.isEditing {
             if let window = textView.window, window.firstResponder != textView {
+                OmniBarWindowDiagnostics.shared.arm(reason: "chat-programmatic-focus")
                 window.makeFirstResponder(textView)
             } else if textView.window == nil {
                 // View not yet in window hierarchy (e.g. mode switch created a new NSView).
@@ -74,9 +75,11 @@ struct OmniBarTextEditor: NSViewRepresentable {
                 let coordinator = context.coordinator
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) { [weak textView] in
                     guard coordinator.parent.isFocused,
+                          !coordinator.isEditing,
                           let textView = textView,
                           let window = textView.window,
                           window.firstResponder != textView else { return }
+                    OmniBarWindowDiagnostics.shared.arm(reason: "chat-delayed-programmatic-focus")
                     window.makeFirstResponder(textView)
                 }
             }
@@ -122,7 +125,7 @@ struct OmniBarTextEditor: NSViewRepresentable {
         var parent: OmniBarTextEditor
         weak var textView: NSTextView?
         weak var scrollView: NSScrollView?
-        private var isEditing = false
+        var isEditing = false
         private var placeholderLabel: NSTextField?
 
         init(_ parent: OmniBarTextEditor) {
@@ -150,6 +153,7 @@ struct OmniBarTextEditor: NSViewRepresentable {
 
         func textDidBeginEditing(_ notification: Notification) {
             isEditing = true
+            OmniBarWindowDiagnostics.shared.arm(reason: "chat-user-focus")
             if let textView {
                 OmniBarTextInputConfigurator.configure(textView)
             }

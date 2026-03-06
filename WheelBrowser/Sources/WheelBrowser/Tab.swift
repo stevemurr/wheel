@@ -208,6 +208,35 @@ class Tab: Identifiable {
         pipController.toggle()
     }
 
+    // MARK: - Focus Handoff
+
+    /// Blurs any active DOM element before the OmniBar takes focus.
+    /// This prevents WKWebView-owned text inputs from keeping browser-level
+    /// autofill surfaces alive while the app switches to a native command field.
+    func relinquishPageInputFocus() {
+        guard hasWebView else { return }
+
+        webView.evaluateJavaScript(
+            """
+            (() => {
+                const active = document.activeElement;
+                if (active && typeof active.blur === 'function') {
+                    active.blur();
+                    return true;
+                }
+                return false;
+            })();
+            """,
+            completionHandler: nil
+        )
+
+        guard let window = webView.window else { return }
+        if let responderView = window.firstResponder as? NSView,
+           responderView.isDescendant(of: webView) {
+            window.makeFirstResponder(nil)
+        }
+    }
+
     // MARK: - Cleanup
 
     /// Cleans up the tab by stopping any pending loads and pausing all media.

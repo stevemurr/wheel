@@ -20,11 +20,28 @@ struct StageManagerStrip: View {
     /// Delay timer so the strip doesn't collapse the instant the cursor wanders off.
     @State private var collapseWork: DispatchWorkItem?
 
-    private let collapseDelay: TimeInterval = 0.35
+    private let collapseDelay: TimeInterval = 0.42
+    private let minimumHotZoneHeight: CGFloat = 240
+    private let hotZoneVerticalForgiveness: CGFloat = 80
+    private let expandedHotZoneTrailingPadding: CGFloat = 28
 
-    /// Width of the invisible hover-detection zone (always present).
-    private var hoverZoneWidth: CGFloat {
-        max(130, StageManagerThumbnail.baseThumbnailWidth * shownScale + 20)
+    /// Narrow reveal strip when collapsed so the dock doesn't pop open from anywhere near the edge.
+    private var revealHotZoneWidth: CGFloat {
+        max(24, collapsedPeekMaxWidth + 14)
+    }
+
+    /// Wider interaction zone when expanded so the dock stays open while the pointer
+    /// moves around the visible thumbnails or just past their right edge.
+    private var expandedHotZoneWidth: CGFloat {
+        expandedDockWidth + expandedHotZoneTrailingPadding
+    }
+
+    private var activeHotZoneWidth: CGFloat {
+        isExpanded ? expandedHotZoneWidth : revealHotZoneWidth
+    }
+
+    private var expandedDockWidth: CGFloat {
+        StageManagerThumbnail.baseThumbnailWidth * shownScale + 12
     }
 
     private var shownScale: CGFloat {
@@ -43,77 +60,84 @@ struct StageManagerStrip: View {
         4 * max(0.85, hiddenScale)
     }
 
-    var body: some View {
-        // The hover zone is always full-width so the expanded thumbnails
-        // remain interactive; the visible content animates inside it.
-        ZStack(alignment: .leading) {
-            // Invisible hover target — always the full zone width
-            Color.clear
-                .frame(width: hoverZoneWidth)
-                .contentShape(Rectangle())
-                .onHover { hovering in
-                    if hovering {
-                        // Cancel any pending collapse and expand immediately
-                        collapseWork?.cancel()
-                        collapseWork = nil
-                        withAnimation(AppAnimation.panelSpring) {
-                            isExpanded = true
-                        }
-                    } else {
-                        // Delay collapse so brief cursor exits don't flicker
-                        let work = DispatchWorkItem { [self] in
-                            withAnimation(AppAnimation.panelSpring) {
-                                isExpanded = false
-                            }
-                        }
-                        collapseWork = work
-                        DispatchQueue.main.asyncAfter(deadline: .now() + collapseDelay, execute: work)
-                    }
-                }
+    private var shownThumbnailHeight: CGFloat {
+        StageManagerThumbnail.baseThumbnailHeight * shownScale
+    }
 
-            if isExpanded {
-                expandedContent
-                    .transition(.move(edge: .leading).combined(with: .opacity))
-            } else {
-                collapsedContent
-                    .transition(.move(edge: .leading).combined(with: .opacity))
+    private var collapsedPeekMaxWidth: CGFloat {
+        14 * hiddenScale
+    }
+
+    private var collapsedPeekHeight: CGFloat {
+        32 * hiddenScale
+    }
+
+    private var expandedStackHeight: CGFloat {
+        stackHeight(itemHeight: shownThumbnailHeight, spacing: expandedTabSpacing, verticalPadding: 24)
+    }
+
+    private var collapsedStackHeight: CGFloat {
+        stackHeight(itemHeight: collapsedPeekHeight, spacing: collapsedTabSpacing, verticalPadding: 0)
+    }
+
+    var body: some View {
+        GeometryReader { geometry in
+            // The hot zone stays centered around the actual tab stack instead of spanning
+            // the entire window height, which reduces accidental reveals near the corners.
+            ZStack(alignment: .leading) {
+                Color.clear
+                    .frame(
+                        width: activeHotZoneWidth,
+                        height: activeHotZoneHeight(in: geometry.size.height)
+                    )
+                    .contentShape(Rectangle())
+                    .frame(maxHeight: .infinity, alignment: .center)
+                    .onHover(perform: handleHotZoneHover)
+
+                if isExpanded {
+                    expandedContent(containerHeight: geometry.size.height)
+                        .transition(.move(edge: .leading).combined(with: .opacity))
+                } else {
+                    collapsedContent
+                        .transition(.move(edge: .leading).combined(with: .opacity))
+                }
             }
+            .frame(width: activeHotZoneWidth, alignment: .leading)
+            .frame(maxHeight: .infinity, alignment: .leading)
+            .allowsHitTesting(true)
         }
-        .frame(width: hoverZoneWidth, alignment: .leading)
-        .allowsHitTesting(true)
+        .frame(width: activeHotZoneWidth)
     }
 
     // MARK: - Expanded (full thumbnails)
 
-    private var expandedContent: some View {
-        GeometryReader { geometry in
-            ScrollView(.vertical, showsIndicators: false) {
-                LazyVStack(spacing: expandedTabSpacing) {
-                    ForEach(browserState.tabs) { tab in
-                        StageManagerThumbnail(
-                            tab: tab,
-                            screenshotManager: screenshotManager,
-                            isActive: tab.id == browserState.activeTabId,
-                            canClose: browserState.tabs.count > 1,
-                            sizeScale: shownScale,
-                            onSelect: {
-                                browserState.selectTab(tab.id)
-                            },
-                            onClose: {
-                                withAnimation(AppAnimation.springSnappy) {
-                                    browserState.closeTab(tab.id)
-                                }
+    private func expandedContent(containerHeight: CGFloat) -> some View {
+        ScrollView(.vertical, showsIndicators: false) {
+            LazyVStack(spacing: expandedTabSpacing) {
+                ForEach(browserState.tabs) { tab in
+                    StageManagerThumbnail(
+                        tab: tab,
+                        screenshotManager: screenshotManager,
+                        isActive: tab.id == browserState.activeTabId,
+                        canClose: browserState.tabs.count > 1,
+                        sizeScale: shownScale,
+                        onSelect: {
+                            browserState.selectTab(tab.id)
+                        },
+                        onClose: {
+                            withAnimation(AppAnimation.springSnappy) {
+                                browserState.closeTab(tab.id)
                             }
-                        )
-                    }
+                        }
+                    )
                 }
-                .frame(maxWidth: .infinity)
-                .padding(.vertical, 12)
-                .padding(.horizontal, 6)
-                .frame(minHeight: geometry.size.height, alignment: .center)
             }
+            .frame(maxWidth: .infinity)
+            .padding(.vertical, 12)
+            .padding(.horizontal, 6)
+            .frame(minHeight: containerHeight, alignment: .center)
         }
-        .frame(width: hoverZoneWidth)
+        .frame(width: expandedDockWidth)
     }
 
     // MARK: - Collapsed (binder-tab peeks)
@@ -137,7 +161,39 @@ struct StageManagerStrip: View {
 
             Spacer(minLength: 0)
         }
+        .frame(width: revealHotZoneWidth, alignment: .leading)
         .frame(maxHeight: .infinity)
+    }
+
+    private func handleHotZoneHover(_ hovering: Bool) {
+        if hovering {
+            collapseWork?.cancel()
+            collapseWork = nil
+            withAnimation(AppAnimation.panelSpring) {
+                isExpanded = true
+            }
+        } else {
+            let work = DispatchWorkItem { [self] in
+                withAnimation(AppAnimation.panelSpring) {
+                    isExpanded = false
+                }
+            }
+            collapseWork = work
+            DispatchQueue.main.asyncAfter(deadline: .now() + collapseDelay, execute: work)
+        }
+    }
+
+    private func activeHotZoneHeight(in containerHeight: CGFloat) -> CGFloat {
+        let naturalHeight = isExpanded ? expandedStackHeight : collapsedStackHeight
+        let targetHeight = max(minimumHotZoneHeight, naturalHeight + hotZoneVerticalForgiveness)
+        return min(containerHeight, targetHeight)
+    }
+
+    private func stackHeight(itemHeight: CGFloat, spacing: CGFloat, verticalPadding: CGFloat) -> CGFloat {
+        let count = CGFloat(browserState.tabs.count)
+        guard count > 0 else { return minimumHotZoneHeight }
+        let gaps = max(0, count - 1)
+        return count * itemHeight + gaps * spacing + verticalPadding
     }
 }
 

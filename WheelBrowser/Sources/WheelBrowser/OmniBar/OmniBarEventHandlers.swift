@@ -3,6 +3,10 @@ import SwiftUI
 // MARK: - onChange / onReceive Event Handler Methods
 
 extension OmniBar {
+    private func prepareForOmniBarFocus() {
+        tab.relinquishPageInputFocus()
+    }
+
     // MARK: - Full Page Chat State
 
     /// Updates `agentManager.isFullPageChatActive` based on current tab URL and mode.
@@ -15,7 +19,11 @@ extension OmniBar {
     /// `isChatTab`, allowing the user to return to the NTP.
     func updateFullPageChatState() {
         // Latch into chat mode when entering chat on an empty tab
-        if tab.url == nil && omniState.mode == .chat && !tab.isChatTab {
+        if OmniBarTabTransitionPolicy.shouldLatchEmptyTabIntoChat(
+            tab: tab,
+            currentMode: omniState.mode,
+            isInputFocused: isInputFocused
+        ) {
             tab.isChatTab = true
         }
         // Permanently lock the latch once a message has been sent
@@ -149,7 +157,7 @@ extension OmniBar {
                 }
             }
             // Show panel last (animated)
-            if !agentManager.messages.isEmpty {
+            if agentManager.isLoading || agentManager.isStreamingActive || !agentManager.messages.isEmpty {
                 omniState.setVisiblePanel(.chat)
             } else {
                 // Dismiss any stale panel from the previous mode (e.g. history
@@ -226,6 +234,7 @@ extension OmniBar {
     func handleFocusAddressBar() {
         // Chat tabs are locked to chat mode — unless no conversation started yet
         guard !agentManager.isFullPageChatActive || !tab.hasConversationStarted else { return }
+        prepareForOmniBarFocus()
         // Set focus BEFORE mode so that handleModeChange sees isInputFocused=true
         // and activates the panel directly, instead of dismissing then re-showing (flash).
         // withAnimation drives pill expansion + panel open as one smooth motion.
@@ -235,7 +244,7 @@ extension OmniBar {
         omniState.setMode(.address)
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
             if let window = NSApp.keyWindow,
-               let fieldEditor = window.fieldEditor(false, for: nil) as? NSTextView {
+               let fieldEditor = window.firstResponder as? NSTextView {
                 fieldEditor.selectAll(nil)
             }
         }
@@ -245,6 +254,7 @@ extension OmniBar {
 
     func handleFocusAISidebar() {
         // Set focus BEFORE mode — see handleFocusAddressBar for why.
+        prepareForOmniBarFocus()
         withAnimation(AppAnimation.panelSpring) {
             isInputFocused = true
         }
@@ -257,6 +267,7 @@ extension OmniBar {
     // MARK: - Focus Chat Input
 
     func handleFocusChatInput() {
+        prepareForOmniBarFocus()
         withAnimation(AppAnimation.panelSpring) {
             isInputFocused = true
         }
@@ -268,6 +279,7 @@ extension OmniBar {
 
     func handleFocusSemanticSearch() {
         guard !agentManager.isFullPageChatActive || !tab.hasConversationStarted else { return }
+        prepareForOmniBarFocus()
         withAnimation(AppAnimation.panelSpring) {
             isInputFocused = true
         }
@@ -290,6 +302,7 @@ extension OmniBar {
 
     func handleFocusReadingList() {
         guard !agentManager.isFullPageChatActive || !tab.hasConversationStarted else { return }
+        prepareForOmniBarFocus()
         withAnimation(AppAnimation.panelSpring) {
             isInputFocused = true
         }
@@ -316,6 +329,7 @@ extension OmniBar {
         // Focus chat mode and let the user edit via inline editor.
         // Set focus BEFORE mode (Rule 9). Do NOT call setVisiblePanel
         // here — setMode → handleModeChange → activateMode handles it (Rule 7).
+        prepareForOmniBarFocus()
         withAnimation(AppAnimation.panelSpring) {
             isInputFocused = true
         }

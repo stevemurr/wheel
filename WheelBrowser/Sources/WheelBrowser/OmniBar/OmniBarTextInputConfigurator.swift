@@ -1,6 +1,11 @@
 import AppKit
 
 enum OmniBarTextInputConfigurator {
+    static func configure(_ textField: NSTextField) {
+        textField.isAutomaticTextCompletionEnabled = false
+        textField.contentType = nil
+    }
+
     /// Treat OmniBar inputs as plain command fields, not rich writing surfaces.
     /// This avoids first-focus initialization of macOS text services that can
     /// briefly flash their own auxiliary window.
@@ -16,5 +21,6 @@ enum OmniBarTextInputConfigurator {
         textView.isAutomaticLinkDetectionEnabled = false
         textView.smartInsertDeleteEnabled = false
         textView.enabledTextCheckingTypes = 0
+        textView.contentType = nil
     }
 }

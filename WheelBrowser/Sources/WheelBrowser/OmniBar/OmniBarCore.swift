@@ -86,7 +86,10 @@ struct OmniBar: View {
             if tab.isChatTab {
                 omniState.setMode(.chat)
                 omniState.inputText = ""
-            } else if omniState.mode == .chat {
+            } else if OmniBarTabTransitionPolicy.shouldResetToAddressMode(
+                for: tab,
+                currentMode: omniState.mode
+            ) {
                 omniState.setMode(.address)
                 omniState.inputText = tab.url?.absoluteString ?? ""
             }
@@ -236,7 +239,7 @@ private struct ChatPanelToggle: View {
     var omniState: OmniBarState
 
     var body: some View {
-        if omniState.mode == .chat && !agentManager.messages.isEmpty {
+        if omniState.mode == .chat && (agentManager.isLoading || !agentManager.messages.isEmpty) {
             let panel = OmniBarMode.chat.correspondingPanel
             PanelToggleButton(isExpanded: omniState.visiblePanel == panel) {
                 if omniState.visiblePanel == panel {
