@@ -1,28 +1,8 @@
 import Testing
 @testable import WheelBrowser
 
-@Suite("Follow-Up Suggestion Parser Tests")
+@Suite("Follow-Up Suggestion Normalizer Tests")
 struct FollowUpSuggestionParserTests {
-
-    @Test("Extracts and strips tagged suggestions")
-    func extractsTaggedSuggestions() {
-        let response = """
-        Here is the answer.
-
-        [SUGGESTIONS]
-        - What changed recently?
-        - Can you summarize the key risks?
-        [/SUGGESTIONS]
-        """
-
-        let result = FollowUpSuggestionParser.parse(from: response)
-
-        #expect(result.displayContent == "Here is the answer.")
-        #expect(result.suggestions == [
-            "What changed recently?",
-            "Can you summarize the key risks?"
-        ])
-    }
 
     @Test("Normalizes bullets, numbering, duplicates, and blanks")
     func normalizesSuggestions() {
@@ -35,12 +15,29 @@ struct FollowUpSuggestionParserTests {
             "Fourth question?"
         ]
 
-        let normalized = FollowUpSuggestionParser.normalize(suggestions)
+        let normalized = FollowUpSuggestionNormalizer.normalize(suggestions)
 
         #expect(normalized == [
             "First question?",
             "Second question?",
             "Third question?"
+        ])
+    }
+
+    @Test("Structured chat responses expose normalized suggestions")
+    func normalizedSuggestionsFromStructuredResponse() {
+        let response = GeneratedChatAssistantResponse(
+            answer: "Here is the answer.",
+            suggestions: [
+                "- First follow-up?",
+                "Second follow-up?",
+                "Second follow-up?"
+            ]
+        )
+
+        #expect(response.normalizedSuggestions == [
+            "First follow-up?",
+            "Second follow-up?"
         ])
     }
 }

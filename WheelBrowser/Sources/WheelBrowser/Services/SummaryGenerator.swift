@@ -1,4 +1,5 @@
 import Foundation
+import FoundationModels
 
 /// Service for generating AI summaries of web pages using the on-device LLM
 actor SummaryGenerator {
@@ -20,7 +21,35 @@ actor SummaryGenerator {
         let prompt = "Summarize the following text:\n\n\(truncatedContent)"
 
         Log.Services.info("Starting on-device streaming summary generation")
-        return OnDeviceLLM.shared.stream(prompt: prompt, instructions: Self.instructions)
+        return AsyncThrowingStream { continuation in
+            let task = Task {
+                do {
+                    var previousSummary = ""
+
+                    for try await rawContent in OnDeviceLLM.shared.stream(
+                        prompt: prompt,
+                        instructions: Self.instructions,
+                        generating: GeneratedSummaryResponse.self
+                    ) {
+                        guard let currentSummary = try? rawContent.value(String.self, forProperty: "summary") else {
+                            continue
+                        }
+
+                        if currentSummary.count > previousSummary.count {
+                            let delta = String(currentSummary.dropFirst(previousSummary.count))
+                            continuation.yield(delta)
+                            previousSummary = currentSummary
+                        }
+                    }
+
+                    continuation.finish()
+                } catch {
+                    continuation.finish(throwing: error)
+                }
+            }
+
+            continuation.onTermination = { _ in task.cancel() }
+        }
     }
 
     enum SummaryError: Error {
@@ -36,16 +65,23 @@ actor SummaryGenerator {
         let prompt = "Summarize the following text:\n\n\(truncatedContent)"
 
         do {
-            let result = try await OnDeviceLLM.shared.complete(prompt: prompt, instructions: Self.instructions)
+            let result = try await OnDeviceLLM.shared.complete(
+                prompt: prompt,
+                instructions: Self.instructions,
+                generating: GeneratedSummaryResponse.self
+            )
 
-            Log.Services.debug("Raw response: \(result.prefix(300))")
+            let summary = result.summary
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+                .replacingOccurrences(of: "\n", with: " ")
+                .replacingOccurrences(of: "\\s+", with: " ", options: .regularExpression)
 
-            if let cleaned = cleanSummaryResponse(result) {
-                return String(cleaned.prefix(maxSummaryLength))
+            guard summary.count >= 10 else {
+                Log.Services.warning("Structured summary too short")
+                return nil
             }
 
-            Log.Services.warning("Summary response could not be cleaned")
-            return nil
+            return String(summary.prefix(maxSummaryLength))
 
         } catch {
             Log.Services.error("Summary generation error: \(error.localizedDescription)")
@@ -253,66 +289,5 @@ actor SummaryGenerator {
         text = text.replacingOccurrences(of: whitespacePattern, with: " ", options: .regularExpression)
 
         return text.trimmingCharacters(in: .whitespacesAndNewlines)
-    }
-
-    /// Clean up a summary response, removing prompt echoes and formatting issues
-    private func cleanSummaryResponse(_ raw: String) -> String? {
-        var text = raw
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-            .replacingOccurrences(of: "\n", with: " ")
-            .replacingOccurrences(of: "\\s+", with: " ", options: .regularExpression)
-
-        // If the response contains "Article:" it's echoing the prompt - extract after "Summary:"
-        if text.contains("Article:") {
-            if let summaryRange = text.range(of: "Summary:", options: .caseInsensitive) {
-                text = String(text[summaryRange.upperBound...]).trimmingCharacters(in: .whitespacesAndNewlines)
-            } else {
-                Log.Services.warning("Response echoed prompt, no summary found")
-                return nil
-            }
-        }
-
-        // Remove common prefixes
-        let prefixesToRemove = [
-            "summary:",
-            "here is the summary:",
-            "here's the summary:",
-            "the summary is:",
-            "sure!",
-            "sure,",
-            "here you go:",
-            "certainly!",
-            "of course!",
-            "okay,",
-            "ok,",
-        ]
-
-        for prefix in prefixesToRemove {
-            if text.lowercased().hasPrefix(prefix) {
-                text = String(text.dropFirst(prefix.count)).trimmingCharacters(in: .whitespacesAndNewlines)
-            }
-        }
-
-        // Remove surrounding quotes if present
-        if text.hasPrefix("\"") && text.hasSuffix("\"") && text.count > 2 {
-            text = String(text.dropFirst().dropLast())
-        }
-
-        // Check for prompt contamination
-        let badPatterns = ["write a", "output only", "1-2 sentence", "nothing else"]
-        let lowerText = text.lowercased()
-        for pattern in badPatterns {
-            if lowerText.contains(pattern) {
-                Log.Services.warning("Response contains prompt fragment: \(pattern)")
-                return nil
-            }
-        }
-
-        guard text.count >= 10 else {
-            Log.Services.warning("Summary too short after cleaning: \(text)")
-            return nil
-        }
-
-        return text
     }
 }

@@ -13,8 +13,10 @@ class TabScreenshotManager {
     /// Screenshots stored in a dictionary for O(1) lookup
     private(set) var screenshots: [UUID: NSImage] = [:]
 
-    /// Tracks last access time for LRU eviction - O(1) update vs O(n) array operations
-    private var accessTimestamps: [UUID: Date] = [:]
+    /// Tracks last write time for LRU eviction without mutating state during view rendering.
+    /// SwiftUI thumbnail views read from this manager inside `body`, so access tracking must
+    /// stay out of that code path to avoid self-invalidating render loops.
+    @ObservationIgnored private var accessTimestamps: [UUID: Date] = [:]
 
     private let thumbnailSize = CGSize(width: 240, height: 150)
 
@@ -67,17 +69,10 @@ class TabScreenshotManager {
         }
     }
 
-    /// Returns the cached screenshot for a tab, or nil if not available
-    /// Also updates LRU access timestamp to mark this screenshot as recently used
+    /// Returns the cached screenshot for a tab, or nil if not available.
+    /// This read must stay side-effect free because thumbnail views call it during rendering.
     func getScreenshot(for tabId: UUID) -> NSImage? {
-        guard let screenshot = screenshots[tabId] else {
-            return nil
-        }
-
-        // Update access timestamp (O(1) operation)
-        accessTimestamps[tabId] = Date()
-
-        return screenshot
+        screenshots[tabId]
     }
 
     /// Removes the screenshot for a tab (e.g., when tab is closed)

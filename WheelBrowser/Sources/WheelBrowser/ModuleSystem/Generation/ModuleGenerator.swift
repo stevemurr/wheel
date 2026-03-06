@@ -14,32 +14,32 @@ final class ModuleGenerator {
         var lastError: Error?
 
         for attempt in 0...maxRepairAttempts {
-            let response: String
+            let response: GeneratedModuleManifest
             do {
                 response = try await OnDeviceLLM.shared.complete(
                     messages: messages,
-                    instructions: systemPrompt
+                    instructions: systemPrompt,
+                    generating: GeneratedModuleManifest.self
                 )
             } catch {
                 throw ModuleGenerationError.llmFailed(error.localizedDescription)
             }
 
-            // Parse JSON from response
             let manifest: ModuleManifest
             do {
-                manifest = try parseManifest(from: response)
+                manifest = try response.toManifest()
             } catch {
                 if attempt < maxRepairAttempts {
-                    messages.append(.assistant(response))
+                    messages.append(.assistant(renderStructuredResponse(response)))
                     messages.append(.user(
-                        "Your response was not valid JSON. Error: \(error.localizedDescription). " +
-                        "Please output ONLY a valid JSON object."
+                        "Your previous response had invalid structured values. Error: \(error.localizedDescription). " +
+                        "Please correct the fields and return a valid manifest matching the schema."
                     ))
                     lastError = error
                     continue
                 }
                 throw ModuleGenerationError.parseFailed(
-                    "Failed to parse manifest after \(attempt + 1) attempts: \(error.localizedDescription)"
+                    "Failed to decode structured manifest after \(attempt + 1) attempts: \(error.localizedDescription)"
                 )
             }
 
@@ -48,10 +48,10 @@ final class ModuleGenerator {
                 return try ModuleValidator.validate(manifest)
             } catch let validationError as ModuleValidationError {
                 if attempt < maxRepairAttempts {
-                    messages.append(.assistant(response))
+                    messages.append(.assistant(renderStructuredResponse(response)))
                     messages.append(.user(
                         "The module failed validation: \(validationError.localizedDescription). " +
-                        "Please fix the issue and output the corrected JSON."
+                        "Please fix the issue and return the corrected structured manifest."
                     ))
                     lastError = validationError
                     continue
@@ -78,11 +78,12 @@ final class ModuleGenerator {
         var lastError: Error?
 
         for attempt in 0...maxRepairAttempts {
-            let response: String
+            let response: GeneratedModuleManifest
             do {
                 response = try await OnDeviceLLM.shared.complete(
                     messages: messages,
-                    instructions: systemPrompt
+                    instructions: systemPrompt,
+                    generating: GeneratedModuleManifest.self
                 )
             } catch {
                 throw ModuleGenerationError.llmFailed(error.localizedDescription)
@@ -90,25 +91,19 @@ final class ModuleGenerator {
 
             let manifest: ModuleManifest
             do {
-                var parsed = try parseManifest(from: response)
-                // Preserve the original ID for edits
-                parsed.id = currentManifest.id
-                parsed.version = currentManifest.version + 1
-                parsed.createdAt = currentManifest.createdAt
-                parsed.updatedAt = Date()
-                manifest = parsed
+                manifest = try response.toManifest(preserving: currentManifest)
             } catch {
                 if attempt < maxRepairAttempts {
-                    messages.append(.assistant(response))
+                    messages.append(.assistant(renderStructuredResponse(response)))
                     messages.append(.user(
-                        "Your response was not valid JSON. Error: \(error.localizedDescription). " +
-                        "Please output ONLY a valid JSON object."
+                        "Your previous response had invalid structured values. Error: \(error.localizedDescription). " +
+                        "Please correct the fields and return a valid manifest matching the schema."
                     ))
                     lastError = error
                     continue
                 }
                 throw ModuleGenerationError.parseFailed(
-                    "Failed to parse manifest after \(attempt + 1) attempts: \(error.localizedDescription)"
+                    "Failed to decode structured manifest after \(attempt + 1) attempts: \(error.localizedDescription)"
                 )
             }
 
@@ -116,10 +111,10 @@ final class ModuleGenerator {
                 return try ModuleValidator.validate(manifest)
             } catch let validationError as ModuleValidationError {
                 if attempt < maxRepairAttempts {
-                    messages.append(.assistant(response))
+                    messages.append(.assistant(renderStructuredResponse(response)))
                     messages.append(.user(
                         "The module failed validation: \(validationError.localizedDescription). " +
-                        "Please fix the issue and output the corrected JSON."
+                        "Please fix the issue and return the corrected structured manifest."
                     ))
                     lastError = validationError
                     continue
@@ -131,28 +126,8 @@ final class ModuleGenerator {
         throw ModuleGenerationError.exhaustedRetries(lastError?.localizedDescription ?? "unknown")
     }
 
-    // MARK: - JSON Parsing
-
-    private func parseManifest(from response: String) throws -> ModuleManifest {
-        // Strip markdown code fences if present
-        var json = response.trimmingCharacters(in: .whitespacesAndNewlines)
-        if json.hasPrefix("```") {
-            if let firstNewline = json.firstIndex(of: "\n") {
-                json = String(json[json.index(after: firstNewline)...])
-            }
-            if json.hasSuffix("```") {
-                json = String(json.dropLast(3))
-            }
-            json = json.trimmingCharacters(in: .whitespacesAndNewlines)
-        }
-
-        guard let data = json.data(using: .utf8) else {
-            throw ModuleGenerationError.parseFailed("Response is not valid UTF-8")
-        }
-
-        let decoder = JSONDecoder()
-        decoder.dateDecodingStrategy = .iso8601
-        return try decoder.decode(ModuleManifest.self, from: data)
+    private func renderStructuredResponse(_ response: GeneratedModuleManifest) -> String {
+        GeneratedContentBridge.prettyJSONString(from: response) ?? response.name
     }
 }
 

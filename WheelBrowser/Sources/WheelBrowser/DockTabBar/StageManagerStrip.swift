@@ -61,7 +61,7 @@ struct StageManagerStrip: View {
     // MARK: - Expanded (full thumbnails)
 
     private var expandedContent: some View {
-        VStack(spacing: 0) {
+        GeometryReader { geometry in
             ScrollView(.vertical, showsIndicators: false) {
                 LazyVStack(spacing: 10) {
                     ForEach(browserState.tabs) { tab in
@@ -81,10 +81,11 @@ struct StageManagerStrip: View {
                         )
                     }
                 }
+                .frame(maxWidth: .infinity)
                 .padding(.vertical, 12)
                 .padding(.horizontal, 6)
+                .frame(minHeight: geometry.size.height, alignment: .center)
             }
-
         }
         .frame(width: hoverZoneWidth)
     }
@@ -92,19 +93,24 @@ struct StageManagerStrip: View {
     // MARK: - Collapsed (binder-tab peeks)
 
     private var collapsedContent: some View {
-        VStack(spacing: 4) {
-            ForEach(browserState.tabs) { tab in
-                BinderTabPeek(
-                    tab: tab,
-                    isActive: tab.id == browserState.activeTabId,
-                    onSelect: {
-                        browserState.selectTab(tab.id)
-                    }
-                )
+        VStack(spacing: 0) {
+            Spacer(minLength: 0)
+
+            VStack(spacing: 4) {
+                ForEach(browserState.tabs) { tab in
+                    BinderTabPeek(
+                        tab: tab,
+                        isActive: tab.id == browserState.activeTabId,
+                        onSelect: {
+                            browserState.selectTab(tab.id)
+                        }
+                    )
+                }
             }
+
             Spacer(minLength: 0)
         }
-        .padding(.top, 16)
+        .frame(maxHeight: .infinity)
     }
 }
 

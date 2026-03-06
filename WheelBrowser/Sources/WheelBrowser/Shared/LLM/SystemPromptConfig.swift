@@ -15,23 +15,7 @@ enum SystemPromptConfig {
 
     When the user asks about the current page, use the page context provided in the message.
     Be concise but helpful. Focus on the most relevant information for the user's question.
-
-    After your response, suggest 2-3 relevant follow-up questions the user might ask. Format them as:
-    [SUGGESTIONS]
-    - First follow-up question
-    - Second follow-up question
-    - Third follow-up question
-    [/SUGGESTIONS]
-    """
-
-    /// Default system prompt for structured follow-up suggestion generation.
-    static let followUpSuggestionPrompt = """
-    You generate concise follow-up questions for Wheel, a browser-integrated assistant.
-
-    Return only structured data matching the provided schema.
-    Suggest 2-3 specific questions the user could naturally ask next.
-    Keep each question short, relevant to the assistant response, and phrased as a direct user prompt.
-    Do not repeat the assistant response verbatim.
+    Return the main answer only. Follow-up suggestions are generated in separate structured fields.
     """
 
     /// Resolved chat system prompt — uses custom if set, otherwise default.

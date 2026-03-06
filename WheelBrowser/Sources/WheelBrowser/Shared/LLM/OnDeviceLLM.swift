@@ -4,9 +4,18 @@ import FoundationModels
 // MARK: - AgentLLMProvider Protocol
 
 /// Protocol for agent LLM interactions, allowing test injection.
+/// All conformers must use FoundationModels guided generation.
 protocol AgentLLMProvider: Sendable {
-    func complete(prompt: String, systemPrompt: String) async throws -> String
-    func stream(prompt: String, systemPrompt: String) -> AsyncThrowingStream<String, Error>
+    func complete<Content: Generable & Sendable>(
+        prompt: String,
+        systemPrompt: String,
+        generating type: Content.Type
+    ) async throws -> Content
+    func stream<Content: Generable & Sendable>(
+        prompt: String,
+        systemPrompt: String,
+        generating type: Content.Type
+    ) -> AsyncThrowingStream<GeneratedContent, Error>
 }
 
 // MARK: - OnDeviceLLM
@@ -72,24 +81,14 @@ final class OnDeviceLLM: Sendable {
 
     // MARK: - Completion
 
-    /// Single-shot completion with conversation messages.
-    func complete(messages: [ChatMessage], instructions: String) async throws -> String {
+    /// Single-shot structured completion with conversation messages.
+    func complete<Content: Generable & Sendable>(
+        messages: [ChatMessage],
+        instructions: String,
+        generating type: Content.Type = Content.self
+    ) async throws -> Content {
         let prompt = buildPrompt(from: pruneMessages(messages))
-        return try await complete(prompt: prompt, instructions: instructions)
-    }
-
-    /// Single-shot completion with a raw prompt string.
-    func complete(prompt: String, instructions: String) async throws -> String {
-        try await Task.detached(priority: .userInitiated) {
-            let availability = Self.resolveAvailabilityStatus()
-            guard availability.isAvailable else {
-                throw OnDeviceLLMError.modelUnavailable(availability.reason ?? "Model not available")
-            }
-
-            let session = LanguageModelSession(instructions: instructions)
-            let response = try await session.respond(to: prompt)
-            return response.content
-        }.value
+        return try await complete(prompt: prompt, instructions: instructions, generating: type)
     }
 
     /// Single-shot structured completion using FoundationModels guided generation.
@@ -112,15 +111,22 @@ final class OnDeviceLLM: Sendable {
 
     // MARK: - Streaming
 
-    /// Streaming completion with conversation messages.
-    /// Yields incremental text deltas (not cumulative snapshots).
-    func stream(messages: [ChatMessage], instructions: String) -> AsyncThrowingStream<String, Error> {
+    /// Structured streaming completion with conversation messages.
+    func stream<Content: Generable & Sendable>(
+        messages: [ChatMessage],
+        instructions: String,
+        generating type: Content.Type = Content.self
+    ) -> AsyncThrowingStream<GeneratedContent, Error> {
         let prompt = buildPrompt(from: pruneMessages(messages))
-        return stream(prompt: prompt, instructions: instructions)
+        return stream(prompt: prompt, instructions: instructions, generating: type)
     }
 
-    /// Streaming completion with a raw prompt string.
-    func stream(prompt: String, instructions: String) -> AsyncThrowingStream<String, Error> {
+    /// Streaming structured completion.
+    func stream<Content: Generable & Sendable>(
+        prompt: String,
+        instructions: String,
+        generating type: Content.Type = Content.self
+    ) -> AsyncThrowingStream<GeneratedContent, Error> {
         AsyncThrowingStream { continuation in
             let task = Task.detached(priority: .userInitiated) {
                 do {
@@ -130,17 +136,12 @@ final class OnDeviceLLM: Sendable {
                     }
 
                     let session = LanguageModelSession(instructions: instructions)
+                    let stream = session.streamResponse(to: prompt, generating: Content.self)
 
-                    var previousContent = ""
-                    let stream = session.streamResponse(to: prompt)
                     for try await partialResponse in stream {
-                        let currentContent = partialResponse.content
-                        if currentContent.count > previousContent.count {
-                            let delta = String(currentContent.dropFirst(previousContent.count))
-                            continuation.yield(delta)
-                            previousContent = currentContent
-                        }
+                        continuation.yield(partialResponse.rawContent)
                     }
+
                     continuation.finish()
                 } catch {
                     continuation.finish(throwing: error)
@@ -198,12 +199,20 @@ final class OnDeviceLLM: Sendable {
 // MARK: - AgentLLMProvider Conformance
 
 extension OnDeviceLLM: AgentLLMProvider {
-    func complete(prompt: String, systemPrompt: String) async throws -> String {
-        try await complete(prompt: prompt, instructions: systemPrompt)
+    func complete<Content: Generable & Sendable>(
+        prompt: String,
+        systemPrompt: String,
+        generating type: Content.Type
+    ) async throws -> Content {
+        try await complete(prompt: prompt, instructions: systemPrompt, generating: type)
     }
 
-    func stream(prompt: String, systemPrompt: String) -> AsyncThrowingStream<String, Error> {
-        stream(prompt: prompt, instructions: systemPrompt)
+    func stream<Content: Generable & Sendable>(
+        prompt: String,
+        systemPrompt: String,
+        generating type: Content.Type
+    ) -> AsyncThrowingStream<GeneratedContent, Error> {
+        stream(prompt: prompt, instructions: systemPrompt, generating: type)
     }
 }
 

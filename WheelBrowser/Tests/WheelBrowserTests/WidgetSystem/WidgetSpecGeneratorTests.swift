@@ -1,22 +1,41 @@
 import Testing
 import Foundation
+import FoundationModels
 @testable import WheelBrowser
 
-/// Creates a WidgetSpecGenerator with a mock completion provider that returns canned responses.
-private func makeGenerator(responses: [String]) -> WidgetSpecGenerator {
-    let lock = NSLock()
-    var callIndex = 0
+private actor StructuredResponseQueue {
+    private var responses: [GeneratedWidgetPipelineSpec]
+    private var callIndex = 0
 
-    let provider: WidgetSpecGenerator.CompletionProvider = { _, _ in
-        lock.lock()
-        defer { lock.unlock() }
+    init(responses: [GeneratedWidgetPipelineSpec]) {
+        self.responses = responses
+    }
 
+    func next() throws -> GeneratedWidgetPipelineSpec {
         guard callIndex < responses.count else {
             throw OnDeviceLLMError.modelUnavailable("Mock ran out of responses")
         }
+
         let response = responses[callIndex]
         callIndex += 1
         return response
+    }
+}
+
+private func object(_ properties: [String: GeneratedContent]) -> GeneratedContent {
+    GeneratedContent(kind: .structure(properties: properties, orderedKeys: properties.keys.sorted()))
+}
+
+private func string(_ value: String) -> GeneratedContent {
+    GeneratedContent(kind: .string(value))
+}
+
+/// Creates a WidgetSpecGenerator with a mock completion provider that returns canned structured responses.
+private func makeGenerator(responses: [GeneratedWidgetPipelineSpec]) -> WidgetSpecGenerator {
+    let queue = StructuredResponseQueue(responses: responses)
+
+    let provider: WidgetSpecGenerator.CompletionProvider = { _, _ in
+        try await queue.next()
     }
 
     return WidgetSpecGenerator(
@@ -40,31 +59,54 @@ private func makeErrorGenerator() -> WidgetSpecGenerator {
 @Suite("WidgetSpecGenerator")
 struct WidgetSpecGeneratorTests {
 
-    private static let validJSON = """
-    {
-        "title": "Test Widget",
-        "refresh_interval_seconds": 600,
-        "pipeline": [
-            {"id": "fetch", "skill": "fetch_reddit_posts", "params": {"subreddit": "swift"}},
-            {"id": "render", "skill": "render_list", "params": {"input": "{{fetch.output}}", "headline_field": "title"}}
-        ]
-    }
-    """
+    private static let validResponse = GeneratedWidgetPipelineSpec(
+        title: "Test Widget",
+        refreshIntervalSeconds: 600,
+        pipeline: [
+            GeneratedWidgetPipelineStep(
+                id: "fetch",
+                skill: "fetch_reddit_posts",
+                params: object(["subreddit": string("swift")])
+            ),
+            GeneratedWidgetPipelineStep(
+                id: "render",
+                skill: "render_list",
+                params: object([
+                    "input": string("{{fetch.output}}"),
+                    "headline_field": string("title")
+                ])
+            )
+        ],
+        thinking: nil
+    )
+
+    private static let invalidStructuredResponse = GeneratedWidgetPipelineSpec(
+        title: "Broken Widget",
+        refreshIntervalSeconds: 600,
+        pipeline: [
+            GeneratedWidgetPipelineStep(
+                id: "fetch",
+                skill: "not_a_real_skill",
+                params: object(["subreddit": string("swift")])
+            )
+        ],
+        thinking: nil
+    )
 
     @Test("Successful generation")
     func successfulGeneration() async throws {
-        let generator = makeGenerator(responses: [Self.validJSON])
+        let generator = makeGenerator(responses: [Self.validResponse])
 
         let result = try await generator.generate(prompt: "Show top swift posts")
         #expect(result.spec.title == "Test Widget")
         #expect(result.spec.pipeline.count == 2)
     }
 
-    @Test("Repair loop on invalid JSON, then valid")
+    @Test("Repair loop on invalid structured response, then valid")
     func repairLoop() async throws {
         let generator = makeGenerator(responses: [
-            "This is not valid JSON at all",
-            Self.validJSON,
+            Self.invalidStructuredResponse,
+            Self.validResponse,
         ])
 
         let result = try await generator.generate(prompt: "Show posts")
@@ -74,9 +116,9 @@ struct WidgetSpecGeneratorTests {
     @Test("Exhausted repair attempts")
     func exhaustedRepairs() async {
         let generator = makeGenerator(responses: [
-            "not json",
-            "still not json",
-            "nope",
+            Self.invalidStructuredResponse,
+            Self.invalidStructuredResponse,
+            Self.invalidStructuredResponse,
         ])
 
         do {
@@ -93,27 +135,22 @@ struct WidgetSpecGeneratorTests {
         }
     }
 
-    @Test("Strip markdown fences")
-    func stripMarkdownFences() async throws {
-        let generator = makeGenerator(responses: ["```json\n\(Self.validJSON)\n```"])
-
-        let result = try await generator.generate(prompt: "Show posts")
-        #expect(result.spec.title == "Test Widget")
-    }
-
     @Test("Validation error triggers repair")
     func validationRepair() async throws {
-        let invalidSpec = """
-        {
-            "title": "Bad",
-            "refresh_interval_seconds": 10,
-            "pipeline": [
-                {"id": "render", "skill": "render_list", "params": {}}
-            ]
-        }
-        """
+        let invalidSpec = GeneratedWidgetPipelineSpec(
+            title: "Bad",
+            refreshIntervalSeconds: 10,
+            pipeline: [
+                GeneratedWidgetPipelineStep(
+                    id: "render",
+                    skill: "render_list",
+                    params: object([:])
+                )
+            ],
+            thinking: nil
+        )
 
-        let generator = makeGenerator(responses: [invalidSpec, Self.validJSON])
+        let generator = makeGenerator(responses: [invalidSpec, Self.validResponse])
 
         let result = try await generator.generate(prompt: "Show data")
         #expect(result.spec.refreshIntervalSeconds == 600)
@@ -136,34 +173,6 @@ struct WidgetSpecGeneratorTests {
             }
         } catch {
             Issue.record("Unexpected error: \(error)")
-        }
-    }
-
-    @Test("Triple-backtick markdown fences with json language tag")
-    func tripleBacktickWithJsonTag() async throws {
-        let wrappedJSON = "```json\n\(Self.validJSON)\n```"
-        let generator = makeGenerator(responses: [wrappedJSON])
-
-        let result = try await generator.generate(prompt: "Generate")
-        #expect(result.spec.title == "Test Widget")
-    }
-
-    @Test("Non-spec JSON (valid JSON but wrong structure)")
-    func nonSpecJSON() async {
-        let badStructure = """
-        {"name": "not a widget spec", "data": [1, 2, 3]}
-        """
-        let generator = makeGenerator(responses: [
-            badStructure,
-            badStructure,
-            badStructure,
-        ])
-
-        do {
-            _ = try await generator.generate(prompt: "Generate")
-            Issue.record("Expected error")
-        } catch {
-            // Expected: should fail because structure doesn't match WidgetPipelineSpec
         }
     }
 }

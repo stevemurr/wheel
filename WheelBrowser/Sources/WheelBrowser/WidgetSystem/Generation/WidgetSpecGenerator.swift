@@ -1,9 +1,9 @@
 import Foundation
 
 /// Generates widget pipeline specs by calling an LLM and validating the output.
-/// Includes a repair loop: on validation failure, re-prompts with error message (max 2 retries).
+/// Includes a repair loop when structured output still violates domain validation rules.
 final class WidgetSpecGenerator {
-    typealias CompletionProvider = @Sendable ([ChatMessage], String) async throws -> String
+    typealias CompletionProvider = @Sendable ([ChatMessage], String) async throws -> GeneratedWidgetPipelineSpec
 
     private let registry: SkillRegistry
     private let maxRepairAttempts = 2
@@ -12,7 +12,11 @@ final class WidgetSpecGenerator {
     init(registry: SkillRegistry) {
         self.registry = registry
         self.completionProvider = { messages, instructions in
-            try await OnDeviceLLM.shared.complete(messages: messages, instructions: instructions)
+            try await OnDeviceLLM.shared.complete(
+                messages: messages,
+                instructions: instructions,
+                generating: GeneratedWidgetPipelineSpec.self
+            )
         }
     }
 
@@ -30,25 +34,24 @@ final class WidgetSpecGenerator {
         var lastError: Error?
 
         for attempt in 0...maxRepairAttempts {
-            let response: String
+            let response: GeneratedWidgetPipelineSpec
             do {
                 response = try await completionProvider(messages, systemPrompt)
             } catch {
                 throw WidgetError.specGenerationFailed("LLM request failed: \(error.localizedDescription)")
             }
 
-            // Parse JSON from response
             let spec: WidgetPipelineSpec
             do {
-                spec = try parseSpec(from: response)
+                spec = try response.toWidgetPipelineSpec()
             } catch {
                 if attempt < maxRepairAttempts {
-                    messages.append(.assistant(response))
-                    messages.append(.user("Your response was not valid JSON. Error: \(error.localizedDescription). Please output ONLY a valid JSON object."))
+                    messages.append(.assistant(renderStructuredResponse(response)))
+                    messages.append(.user("Your previous response had invalid structured values. Error: \(error.localizedDescription). Please correct the fields and return a valid spec matching the schema."))
                     lastError = error
                     continue
                 }
-                throw WidgetError.specGenerationFailed("Failed to parse spec after \(attempt + 1) attempts: \(error.localizedDescription)")
+                throw WidgetError.specGenerationFailed("Failed to decode structured spec after \(attempt + 1) attempts: \(error.localizedDescription)")
             }
 
             // Validate
@@ -56,8 +59,8 @@ final class WidgetSpecGenerator {
                 return try SpecValidator.validate(spec)
             } catch let validationError as SpecValidationError {
                 if attempt < maxRepairAttempts {
-                    messages.append(.assistant(response))
-                    messages.append(.user("The spec failed validation: \(validationError.localizedDescription). Please fix the issue and output the corrected JSON."))
+                    messages.append(.assistant(renderStructuredResponse(response)))
+                    messages.append(.user("The spec failed validation: \(validationError.localizedDescription). Please fix the issue and return the corrected structured spec."))
                     lastError = validationError
                     continue
                 }
@@ -68,25 +71,7 @@ final class WidgetSpecGenerator {
         throw WidgetError.specGenerationFailed("Exhausted repair attempts. Last error: \(lastError?.localizedDescription ?? "unknown")")
     }
 
-    private func parseSpec(from response: String) throws -> WidgetPipelineSpec {
-        // Strip markdown code fences if present
-        var json = response.trimmingCharacters(in: .whitespacesAndNewlines)
-        if json.hasPrefix("```") {
-            // Remove opening fence (with optional language tag)
-            if let firstNewline = json.firstIndex(of: "\n") {
-                json = String(json[json.index(after: firstNewline)...])
-            }
-            // Remove closing fence
-            if json.hasSuffix("```") {
-                json = String(json.dropLast(3))
-            }
-            json = json.trimmingCharacters(in: .whitespacesAndNewlines)
-        }
-
-        guard let data = json.data(using: .utf8) else {
-            throw WidgetError.specGenerationFailed("Response is not valid UTF-8")
-        }
-
-        return try JSONDecoder().decode(WidgetPipelineSpec.self, from: data)
+    private func renderStructuredResponse(_ response: GeneratedWidgetPipelineSpec) -> String {
+        GeneratedContentBridge.prettyJSONString(from: response) ?? response.title
     }
 }

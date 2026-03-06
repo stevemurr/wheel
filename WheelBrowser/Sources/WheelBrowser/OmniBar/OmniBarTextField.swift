@@ -183,7 +183,13 @@ enum KeyboardCommand {
             return .escape
         case #selector(NSResponder.insertTab(_:)):
             return .tab
+        case #selector(NSResponder.insertTabIgnoringFieldEditor(_:)):
+            return .tab
         case #selector(NSResponder.insertBacktab(_:)):
+            return .shiftTab
+        case #selector(NSWindow.selectNextKeyView(_:)):
+            return .tab
+        case #selector(NSWindow.selectPreviousKeyView(_:)):
             return .shiftTab
         case #selector(NSResponder.deleteBackward(_:)):
             return .deleteBackward

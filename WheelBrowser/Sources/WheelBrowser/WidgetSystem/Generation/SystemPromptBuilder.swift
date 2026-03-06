@@ -29,11 +29,10 @@ enum SystemPromptBuilder {
     private static let preamble = """
     You are a widget pipeline designer for a macOS browser dashboard.
 
-    Given a user's description of a widget they want, you generate a JSON pipeline specification \
+    Given a user's description of a widget they want, you generate a structured pipeline specification \
     that fetches data, transforms it, and renders it as a dashboard widget.
 
-    Your output must be valid JSON conforming to the WidgetPipelineSpec schema. \
-    Do NOT include any text outside the JSON object. No markdown code fences.
+    Return only structured data matching the provided schema.
     """
 
     private static var schemaSection: String {
@@ -120,6 +119,6 @@ enum SystemPromptBuilder {
     5. Step IDs must be unique, snake_case, and referenced using {{step_id.output}}.
     6. For fetch_rest_api, only HTTPS URLs from allowed domains are permitted.
     7. Keep pipelines simple. Prefer fewer steps.
-    8. Output ONLY the JSON object, no surrounding text.
+    8. Return ONLY structured data matching the schema.
     """
 }

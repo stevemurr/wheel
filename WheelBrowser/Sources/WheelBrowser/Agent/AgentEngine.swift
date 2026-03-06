@@ -1,4 +1,5 @@
 import Foundation
+import FoundationModels
 import SwiftUI
 
 /// Represents a single step in the agent's execution
@@ -297,42 +298,38 @@ class AgentEngine {
     // MARK: - Streaming LLM
 
     /// Call the LLM with streaming, providing real-time thought feedback.
-    /// Falls back to non-streaming complete() on stream error.
-    private func callLLMWithStreaming(prompt: String, systemPrompt: String) async throws -> String {
+    /// Falls back to non-streaming structured completion on stream error.
+    private func callLLMWithStreaming(prompt: String, systemPrompt: String) async throws -> GeneratedAgentDecision {
         do {
-            var fullResponse = ""
-            var lastUIUpdate = Date.distantPast
-            let flushInterval = WindowConstants.streamingFlushInterval
+            var latestRawContent: GeneratedContent?
 
             defer { streamingThought = nil }
 
-            for try await token in llmClient.stream(prompt: prompt, systemPrompt: systemPrompt) {
-                fullResponse += token
+            for try await rawContent in llmClient.stream(
+                prompt: prompt,
+                systemPrompt: systemPrompt,
+                generating: GeneratedAgentDecision.self
+            ) {
+                latestRawContent = rawContent
 
-                let now = Date()
-                if now.timeIntervalSince(lastUIUpdate) >= flushInterval {
-                    lastUIUpdate = now
-                    // Extract the THOUGHT portion for display (text between "THOUGHT:" and "ACTION:")
-                    if let thoughtRange = fullResponse.range(of: "THOUGHT:", options: .caseInsensitive) {
-                        let afterThought = fullResponse[thoughtRange.upperBound...]
-                        if let actionRange = afterThought.range(of: "ACTION:", options: .caseInsensitive) {
-                            streamingThought = String(afterThought[..<actionRange.lowerBound]).trimmingCharacters(in: .whitespacesAndNewlines)
-                        } else {
-                            streamingThought = String(afterThought).trimmingCharacters(in: .whitespacesAndNewlines)
-                        }
-                    }
+                if let thought = try? rawContent.value(String.self, forProperty: "thought") {
+                    streamingThought = thought.trimmingCharacters(in: .whitespacesAndNewlines)
                 }
             }
 
-            guard !fullResponse.isEmpty else {
+            guard let latestRawContent else {
                 throw AgentError.invalidLLMResponse("Empty streaming response")
             }
 
-            return fullResponse
+            return try latestRawContent.value(GeneratedAgentDecision.self)
         } catch {
             Log.Agent.warning("Streaming failed, falling back to non-streaming: \(error.localizedDescription)")
             streamingThought = nil
-            return try await llmClient.complete(prompt: prompt, systemPrompt: systemPrompt)
+            return try await llmClient.complete(
+                prompt: prompt,
+                systemPrompt: systemPrompt,
+                generating: GeneratedAgentDecision.self
+            )
         }
     }
 
@@ -423,14 +420,17 @@ class AgentEngine {
                 recentErrors: recentErrors
             )
             Log.Agent.debug("Sending prompt to LLM (length: \(prompt.count) chars)")
-            let llmResponse = try await callLLMWithStreaming(prompt: prompt, systemPrompt: dynamicSystemPrompt)
-            Log.Agent.info("LLM Response:\n\(llmResponse)")
+            let llmDecision = try await callLLMWithStreaming(prompt: prompt, systemPrompt: dynamicSystemPrompt)
 
-            // Parse thought and action
-            guard let (thought, action) = AgentResponseParser.parseResponse(llmResponse) else {
+            // Decode the structured decision into the domain action model
+            let thought: String
+            let action: AgentAction
+            do {
+                (thought, action) = try llmDecision.toDecision()
+            } catch {
                 let failureCount = loopDetector.recordParseFailure()
                 let maxFailures = loopDetector.maxConsecutiveParseFailures
-                Log.Agent.warning("Parse failed (attempt \(failureCount)/\(maxFailures)). Raw response:\n\(llmResponse)")
+                Log.Agent.warning("Structured decision failed validation (attempt \(failureCount)/\(maxFailures)): \(error.localizedDescription)")
 
                 if failureCount >= maxFailures {
                     Log.Agent.error("Max consecutive parse failures reached, aborting")

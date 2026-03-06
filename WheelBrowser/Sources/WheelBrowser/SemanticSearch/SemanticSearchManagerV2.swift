@@ -6,6 +6,10 @@ import SwiftUI
 @Observable
 class SemanticSearchManagerV2 {
     static let shared = SemanticSearchManagerV2()
+    nonisolated private static let initializationTimeout: TimeInterval = 20
+    nonisolated private static let indexingTimeout: TimeInterval = 20
+    nonisolated private static let searchTimeout: TimeInterval = 10
+    nonisolated private static let statsTimeout: TimeInterval = 5
 
     private(set) var isIndexing = false
     private(set) var indexedCount: Int = 0
@@ -14,6 +18,7 @@ class SemanticSearchManagerV2 {
     private(set) var isAvailable = false
 
     @ObservationIgnored private var searchService: NativeSearchService?
+    @ObservationIgnored private var initializationTask: Task<NativeSearchService, Error>?
 
     private var settings: AppSettings { AppSettings.shared }
 
@@ -29,21 +34,46 @@ class SemanticSearchManagerV2 {
         Log.Search.debug("SemanticSearchManagerV2 initializing (native mode)")
 
         guard settings.semanticSearchEnabled else {
+            initializationTask?.cancel()
+            initializationTask = nil
             Log.Search.info("Semantic search disabled in settings")
             isAvailable = false
             return
         }
 
-        let service = NativeSearchService()
+        if let searchService {
+            self.searchService = searchService
+            isAvailable = true
+            lastError = nil
+            await updateStats()
+            return
+        }
+
+        if initializationTask == nil {
+            Log.Search.debug("SemanticSearchManagerV2 starting backend initialization off-main")
+            initializationTask = Task.detached(priority: .utility) {
+                let service = NativeSearchService()
+                try await withSemanticSearchTimeout(seconds: Self.initializationTimeout) {
+                    try await service.validateBackend()
+                }
+                return service
+            }
+        }
 
         do {
-            try await service.validateBackend()
+            guard let initializationTask else { return }
+            let service = try await initializationTask.value
+            self.initializationTask = nil
             searchService = service
             isAvailable = true
             lastError = nil
             Log.Search.info("Native search service initialized")
             await updateStats()
+        } catch is CancellationError {
+            self.initializationTask = nil
+            Log.Search.debug("Semantic search initialization cancelled")
         } catch {
+            self.initializationTask = nil
             searchService = nil
             isAvailable = false
             lastError = "Semantic search embeddings model failed to load. Re-download the local model cache to re-enable semantic search."
@@ -53,6 +83,8 @@ class SemanticSearchManagerV2 {
 
     /// Reinitialize with new settings
     func reinitialize() async {
+        initializationTask?.cancel()
+        initializationTask = nil
         searchService = nil
         isAvailable = false
         lastError = nil
@@ -84,14 +116,21 @@ class SemanticSearchManagerV2 {
         defer { isIndexing = false }
 
         do {
-            try await service.indexPage(
-                url: pageURL,
-                title: title,
-                content: content,
-                categories: categories
-            )
+            try await withSemanticSearchTimeout(seconds: Self.indexingTimeout) {
+                try await service.indexPage(
+                    url: pageURL,
+                    title: title,
+                    content: content,
+                    categories: categories
+                )
+            }
             Log.Search.info("Successfully indexed: \(url) (content: \(content.count) chars)")
             await updateStats()
+        } catch SemanticSearchOperationTimeout.timedOut {
+            searchService = nil
+            isAvailable = false
+            lastError = "Semantic search timed out while indexing. It has been disabled to keep the app responsive."
+            Log.Search.error("Indexing timeout for \(url); disabling semantic search")
         } catch {
             lastError = error.localizedDescription
             Log.Search.error("Indexing error for \(url): \(error.localizedDescription)")
@@ -115,9 +154,17 @@ class SemanticSearchManagerV2 {
         }
 
         do {
-            let results = try await service.search(query: query, limit: limit)
+            let results = try await withSemanticSearchTimeout(seconds: Self.searchTimeout) {
+                try await service.search(query: query, limit: limit)
+            }
             Log.Search.debug("search completed: \(results.count) results for '\(query)'")
             return results.map { makeResult(from: $0) }
+        } catch SemanticSearchOperationTimeout.timedOut {
+            searchService = nil
+            isAvailable = false
+            lastError = "Semantic search timed out and has been disabled to keep the app responsive."
+            Log.Search.error("Search timeout for '\(query)'; disabling semantic search")
+            return []
         } catch {
             if (error as? URLError)?.code == .cancelled || error is CancellationError {
                 Log.Search.debug("Search cancelled (superseded by newer query)")
@@ -143,13 +190,21 @@ class SemanticSearchManagerV2 {
         }
 
         do {
-            let results = try await service.search(
-                query: query,
-                categories: categories.isEmpty ? nil : categories,
-                limit: limit
-            )
+            let results = try await withSemanticSearchTimeout(seconds: Self.searchTimeout) {
+                try await service.search(
+                    query: query,
+                    categories: categories.isEmpty ? nil : categories,
+                    limit: limit
+                )
+            }
             Log.Search.debug("searchWithCategories completed: \(results.count) results for '\(query)'")
             return results.map { makeResult(from: $0) }
+        } catch SemanticSearchOperationTimeout.timedOut {
+            searchService = nil
+            isAvailable = false
+            lastError = "Semantic search timed out and has been disabled to keep the app responsive."
+            Log.Search.error("Category search timeout for '\(query)'; disabling semantic search")
+            return []
         } catch {
             if (error as? URLError)?.code == .cancelled || error is CancellationError {
                 Log.Search.debug("Category search cancelled (superseded by newer query)")
@@ -213,8 +268,15 @@ class SemanticSearchManagerV2 {
         }
 
         do {
-            let stats = try await service.getStats()
+            let stats = try await withSemanticSearchTimeout(seconds: Self.statsTimeout) {
+                try await service.getStats()
+            }
             indexedCount = stats.totalChunks
+        } catch SemanticSearchOperationTimeout.timedOut {
+            searchService = nil
+            isAvailable = false
+            lastError = "Semantic search timed out while refreshing stats. It has been disabled to keep the app responsive."
+            Log.Search.error("Semantic search stats timed out; disabling semantic search")
         } catch {
             Log.Search.warning("Failed to get stats: \(error.localizedDescription)")
         }
@@ -235,9 +297,16 @@ class SemanticSearchManagerV2 {
         }
 
         do {
-            try await service.clearAll()
+            try await withSemanticSearchTimeout(seconds: Self.indexingTimeout) {
+                try await service.clearAll()
+            }
             await updateStats()
             Log.Search.info("Index cleared successfully")
+        } catch SemanticSearchOperationTimeout.timedOut {
+            searchService = nil
+            isAvailable = false
+            lastError = "Semantic search timed out while clearing the index. It has been disabled to keep the app responsive."
+            Log.Search.error("Semantic search clearIndex timed out; disabling semantic search")
         } catch {
             lastError = error.localizedDescription
             Log.Search.error("Failed to clear index: \(error.localizedDescription)")
@@ -256,6 +325,33 @@ extension SemanticSearchManagerV2 {
     @MainActor
     static var current: SemanticSearchManagerV2 {
         shared
+    }
+}
+
+private enum SemanticSearchOperationTimeout: Error {
+    case timedOut
+}
+
+private func withSemanticSearchTimeout<T: Sendable>(
+    seconds: TimeInterval,
+    operation: @escaping @Sendable () async throws -> T
+) async throws -> T {
+    try await withThrowingTaskGroup(of: T.self) { group in
+        group.addTask {
+            try await operation()
+        }
+        group.addTask {
+            try await Task.sleep(nanoseconds: UInt64(seconds * 1_000_000_000))
+            throw SemanticSearchOperationTimeout.timedOut
+        }
+
+        let result = try await group.next()
+        group.cancelAll()
+
+        guard let result else {
+            throw SemanticSearchOperationTimeout.timedOut
+        }
+        return result
     }
 }
 

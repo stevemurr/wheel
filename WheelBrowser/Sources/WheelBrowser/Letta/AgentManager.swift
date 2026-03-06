@@ -1,4 +1,5 @@
 import Foundation
+import FoundationModels
 import Observation
 
 @MainActor
@@ -31,7 +32,6 @@ class AgentManager {
     private var settings = AppSettings.shared
     private let conversationManager = ConversationManager.shared
     @ObservationIgnored private let llmClient: any AgentLLMProvider
-    @ObservationIgnored private let followUpSuggestionProvider: any FollowUpSuggestionProviding
 
     // MARK: - Extracted Services
 
@@ -67,11 +67,9 @@ class AgentManager {
     private var lastFailedPageContexts: [PageContext] = []
 
     init(
-        llmClient: any AgentLLMProvider = OnDeviceLLM.shared,
-        followUpSuggestionProvider: any FollowUpSuggestionProviding = OnDeviceFollowUpSuggestionProvider()
+        llmClient: any AgentLLMProvider = OnDeviceLLM.shared
     ) {
         self.llmClient = llmClient
-        self.followUpSuggestionProvider = followUpSuggestionProvider
         // Tabs start fresh. Conversations are restored via switchConversation()
         // + snapshots, or via reopenLastClosedTab() which preserves conversationId.
     }
@@ -286,37 +284,50 @@ class AgentManager {
         // Wrap in a task so we can cancel via stopGeneration()
         let streamTask = Task { @MainActor in
             do {
-                var buffer = ""
+                var latestRawContent: GeneratedContent?
+                var latestAnswer = ""
+                var lastStreamedAnswer = ""
                 var pendingChunk = ""
                 var lastUpdateTime = Date()
                 let maxUpdateInterval: TimeInterval = WindowConstants.streamingFlushInterval
 
-                for try await contentText in streamLLM() {
+                for try await rawContent in streamLLM() {
                     try Task.checkCancellation()
+                    latestRawContent = rawContent
+
+                    guard let currentAnswer = try? rawContent.value(String.self, forProperty: "answer") else {
+                        continue
+                    }
+
                     let now = Date()
                     let timeSinceUpdate = now.timeIntervalSince(lastUpdateTime)
+                    latestAnswer = currentAnswer
 
-                    pendingChunk += contentText
+                    if currentAnswer.count > lastStreamedAnswer.count {
+                        pendingChunk += String(currentAnswer.dropFirst(lastStreamedAnswer.count))
+                    } else if currentAnswer != lastStreamedAnswer {
+                        pendingChunk = currentAnswer
+                    }
+                    lastStreamedAnswer = currentAnswer
 
                     // Flush on complete markdown structures or timeout
                     if bufferFlusher.shouldFlush(pendingChunk) || timeSinceUpdate >= maxUpdateInterval {
-                        buffer += pendingChunk
                         pendingChunk = ""
-                        safeUpdateMessage(id: assistantMessageId) { $0.content = buffer }
+                        safeUpdateMessage(id: assistantMessageId) { $0.content = latestAnswer }
                         streamingScrollToken &+= 1
                         lastUpdateTime = now
                     }
                 }
 
-                // Flush any remaining content
-                if !pendingChunk.isEmpty {
-                    buffer += pendingChunk
+                guard let latestRawContent else {
+                    throw AgentError.invalidLLMResponse("Structured chat response stream produced no content")
                 }
 
-                // Prefer the legacy in-band suggestions block when present.
-                let parsedResponse = FollowUpSuggestionParser.parse(from: buffer)
-                let followUps = parsedResponse.suggestions
-                let displayContent = parsedResponse.displayContent
+                let displayContent = (try? latestRawContent.value(String.self, forProperty: "answer"))?
+                    .trimmingCharacters(in: .whitespacesAndNewlines) ?? latestAnswer.trimmingCharacters(in: .whitespacesAndNewlines)
+                let followUps = FollowUpSuggestionNormalizer.normalize(
+                    (try? latestRawContent.value([String].self, forProperty: "suggestions")) ?? []
+                )
 
                 // Extract artifacts from code blocks
                 let artifacts = ArtifactExtractor.extract(from: displayContent)
@@ -336,20 +347,6 @@ class AgentManager {
                 // Persist the assistant message
                 if let assistantMessage = messages.first(where: { $0.id == assistantMessageId }) {
                     conversationManager.addMessage(assistantMessage)
-                }
-
-                if followUps.isEmpty,
-                   let userMessage = messages.last(where: { $0.role == .user })?.content,
-                   !displayContent.isEmpty {
-                    let conversationId = activeConversationId
-                    Task { @MainActor [weak self] in
-                        await self?.populateStructuredFollowUps(
-                            for: assistantMessageId,
-                            conversationId: conversationId,
-                            userMessage: userMessage,
-                            assistantResponse: displayContent
-                        )
-                    }
                 }
 
                 // Clear retry state on success
@@ -380,7 +377,7 @@ class AgentManager {
 
     // MARK: - LLM Streaming
 
-    private func streamLLM() -> AsyncThrowingStream<String, Error> {
+    private func streamLLM() -> AsyncThrowingStream<GeneratedContent, Error> {
         let prompt = conversationHistory.map { entry in
             let rolePrefix = entry["role"] == "user" ? "User" : "Assistant"
             let content = entry["content"] ?? ""
@@ -388,56 +385,11 @@ class AgentManager {
         }
         .joined(separator: "\n\n")
 
-        return llmClient.stream(prompt: prompt, systemPrompt: self.systemPrompt)
-    }
-
-    private func populateStructuredFollowUps(
-        for assistantMessageId: UUID,
-        conversationId: UUID?,
-        userMessage: String,
-        assistantResponse: String
-    ) async {
-        do {
-            let suggestions = try await followUpSuggestionProvider.generateSuggestions(
-                userMessage: userMessage,
-                assistantResponse: assistantResponse
-            )
-
-            guard !suggestions.isEmpty else {
-                return
-            }
-
-            storeFollowUpSuggestions(
-                suggestions,
-                for: assistantMessageId,
-                conversationId: conversationId
-            )
-        } catch {
-            Log.Chat.warning("Structured follow-up generation failed: \(error.localizedDescription)")
-        }
-    }
-
-    private func storeFollowUpSuggestions(
-        _ suggestions: [String],
-        for assistantMessageId: UUID,
-        conversationId: UUID?
-    ) {
-        if let index = messages.firstIndex(where: { $0.id == assistantMessageId }) {
-            guard messages[index].suggestedFollowUps.isEmpty else { return }
-            messages[index].suggestedFollowUps = suggestions
-            conversationManager.updateMessage(at: index) { $0.suggestedFollowUps = suggestions }
-            return
-        }
-
-        guard let conversationId,
-              var snapshot = snapshots[conversationId],
-              let index = snapshot.messages.firstIndex(where: { $0.id == assistantMessageId }),
-              snapshot.messages[index].suggestedFollowUps.isEmpty else {
-            return
-        }
-
-        snapshot.messages[index].suggestedFollowUps = suggestions
-        snapshots[conversationId] = snapshot
+        return llmClient.stream(
+            prompt: prompt,
+            systemPrompt: self.systemPrompt,
+            generating: GeneratedChatAssistantResponse.self
+        )
     }
 
     // MARK: - Conversation Management

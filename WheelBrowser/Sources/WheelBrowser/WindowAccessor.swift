@@ -46,8 +46,8 @@ final class TrafficLightPillManager {
     private let standardLeftMargin: CGFloat = 18
     private let standardTopOffset: CGFloat = 22
     private let buttonSpacing: CGFloat = 22
-    private let horizontalPadding: CGFloat = 8
-    private let verticalPadding: CGFloat = 4
+    private let horizontalPadding: CGFloat = 10
+    private let verticalPadding: CGFloat = 5
 
     func addPill(to window: NSWindow) {
         // Remove any existing pill and observer
@@ -118,14 +118,16 @@ final class TrafficLightPillManager {
     }
 }
 
-/// The pill-shaped background view behind the traffic light buttons
+/// The pill-shaped background view behind the traffic light buttons.
+/// Uses a rounded vibrancy subview so the material stays clipped to the capsule.
 final class TrafficLightPillView: NSView {
+    private let effectView = NSVisualEffectView()
+    private let highlightLayer = CAGradientLayer()
 
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
         wantsLayer = true
         setupAppearance()
-
     }
 
     required init?(coder: NSCoder) {
@@ -139,14 +141,38 @@ final class TrafficLightPillView: NSView {
     }
 
     private func setupAppearance() {
-        layer?.cornerRadius = bounds.height / 2
+        layer?.masksToBounds = false
+
+        effectView.translatesAutoresizingMaskIntoConstraints = false
+        effectView.blendingMode = .withinWindow
+        effectView.material = .titlebar
+        effectView.state = .followsWindowActiveState
+        effectView.wantsLayer = true
+        addSubview(effectView)
+
+        NSLayoutConstraint.activate([
+            effectView.leadingAnchor.constraint(equalTo: leadingAnchor),
+            effectView.trailingAnchor.constraint(equalTo: trailingAnchor),
+            effectView.topAnchor.constraint(equalTo: topAnchor),
+            effectView.bottomAnchor.constraint(equalTo: bottomAnchor)
+        ])
+
+        highlightLayer.startPoint = CGPoint(x: 0.5, y: 1.0)
+        highlightLayer.endPoint = CGPoint(x: 0.5, y: 0.0)
+        highlightLayer.locations = [0.0, 0.45, 1.0]
+        effectView.layer?.addSublayer(highlightLayer)
+
         updateColors()
     }
 
     override func layout() {
         super.layout()
-        // Update corner radius when size changes to maintain pill shape
-        layer?.cornerRadius = bounds.height / 2
+        let cornerRadius = bounds.height / 2
+        layer?.cornerRadius = cornerRadius
+        effectView.layer?.cornerRadius = cornerRadius
+        effectView.layer?.masksToBounds = true
+        highlightLayer.frame = effectView.bounds.insetBy(dx: 1, dy: 1)
+        highlightLayer.cornerRadius = max(0, cornerRadius - 1)
     }
 
     override func viewDidChangeEffectiveAppearance() {
@@ -155,7 +181,37 @@ final class TrafficLightPillView: NSView {
     }
 
     private func updateColors() {
-        layer?.backgroundColor = NSColor.black.withAlphaComponent(0.06).cgColor
+        let isDarkMode = effectiveAppearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
+
+        effectView.layer?.backgroundColor = (
+            isDarkMode
+                ? NSColor.black.withAlphaComponent(0.18)
+                : NSColor.white.withAlphaComponent(0.42)
+        ).cgColor
+        layer?.borderWidth = 1
+        layer?.borderColor = (
+            isDarkMode
+                ? NSColor.white.withAlphaComponent(0.14)
+                : NSColor.black.withAlphaComponent(0.10)
+        ).cgColor
+        layer?.shadowColor = NSColor.black.withAlphaComponent(isDarkMode ? 0.22 : 0.12).cgColor
+        layer?.shadowOpacity = 1
+        layer?.shadowRadius = 10
+        layer?.shadowOffset = CGSize(width: 0, height: -1)
+
+        highlightLayer.colors = [
+            (
+                isDarkMode
+                    ? NSColor.white.withAlphaComponent(0.16)
+                    : NSColor.white.withAlphaComponent(0.34)
+            ).cgColor,
+            (
+                isDarkMode
+                    ? NSColor.white.withAlphaComponent(0.05)
+                    : NSColor.white.withAlphaComponent(0.12)
+            ).cgColor,
+            NSColor.clear.cgColor
+        ]
     }
 }
 

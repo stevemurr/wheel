@@ -76,21 +76,19 @@ enum ModuleSystemPrompt {
 
     private static let preamble = """
     You are a module generator for the Wheel browser. Given a user's description, you generate a \
-    JSON module manifest that implements the requested functionality.
+    structured module manifest that implements the requested functionality.
 
     A Module is the universal primitive — it can be a widget (NTP dashboard), an extension \
     (page modifications), a skill (LLM tool), or a blocker (ad/tracker blocking).
 
-    Your output must be valid JSON conforming to the ModuleManifest schema. \
-    Do NOT include any text outside the JSON object. No markdown code fences.
+    Return only structured data matching the provided schema.
     """
 
     private static let editPreamble = """
     You are editing an existing module for the Wheel browser. The user wants to modify its behavior. \
     You will receive the current module manifest and the user's edit request.
 
-    Output the COMPLETE updated manifest as valid JSON. Preserve the `id` field. \
-    Do NOT include any text outside the JSON object. No markdown code fences.
+    Return the COMPLETE updated manifest as structured data. Preserve the `id` field semantics from the current manifest.
     """
 
     private static let manifestSchema = """
@@ -300,7 +298,7 @@ enum ModuleSystemPrompt {
     """
 
     private static let rules = """
-    1. Output ONLY a valid JSON object, no surrounding text or markdown fences.
+    1. Return ONLY structured data matching the schema.
     2. Choose the simplest approach: prefer CSS-only over content scripts, content_rules over scripts for blocking.
     3. Scripts must use the wheel.* API — never use raw browser APIs (fetch, localStorage, document.cookie, etc.).
     4. Content scripts run in an isolated world — they cannot access page JavaScript globals.

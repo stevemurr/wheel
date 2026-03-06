@@ -50,6 +50,7 @@ actor NativeSearchService {
     func validateBackend() async throws {
         try await ensureInitialized()
         _ = try await embedder.dimension
+        _ = try await embedder.embed(text: "semantic search health check")
     }
 
     // MARK: - Indexing
