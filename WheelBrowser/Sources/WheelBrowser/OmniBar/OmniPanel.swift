@@ -1,15 +1,15 @@
 import SwiftUI
 
 /// A reusable panel that appears above the OmniBar for different modes
-struct OmniPanel<Content: View>: View {
+struct OmniPanel<Content: View, MenuContent: View>: View {
     let title: String
     let icon: String
     let iconColor: Color
     let borderColor: Color
     let subtitle: String?
-    let menuContent: (() -> AnyView)?
     let onDismiss: () -> Void
     @ViewBuilder let content: () -> Content
+    private let menuContent: (() -> MenuContent)?
 
     @State private var isHovering = false
 
@@ -22,7 +22,26 @@ struct OmniPanel<Content: View>: View {
         iconColor: Color = .accentColor,
         borderColor: Color = .blue,
         subtitle: String? = nil,
-        menuContent: (() -> AnyView)? = nil,
+        onDismiss: @escaping () -> Void,
+        @ViewBuilder content: @escaping () -> Content
+    ) where MenuContent == EmptyView {
+        self.title = title
+        self.icon = icon
+        self.iconColor = iconColor
+        self.borderColor = borderColor
+        self.subtitle = subtitle
+        self.menuContent = nil
+        self.onDismiss = onDismiss
+        self.content = content
+    }
+
+    init(
+        title: String,
+        icon: String,
+        iconColor: Color = .accentColor,
+        borderColor: Color = .blue,
+        subtitle: String? = nil,
+        @ViewBuilder menuContent: @escaping () -> MenuContent,
         onDismiss: @escaping () -> Void,
         @ViewBuilder content: @escaping () -> Content
     ) {

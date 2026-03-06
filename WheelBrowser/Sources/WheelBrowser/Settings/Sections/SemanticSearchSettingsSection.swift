@@ -7,7 +7,7 @@ struct SemanticSearchSettingsSection: View {
     var body: some View {
         Section("Semantic Search") {
             Toggle("Enable Semantic Search", isOn: $settings.semanticSearchEnabled)
-                .onChange(of: settings.semanticSearchEnabled) { _ in
+                .onChange(of: settings.semanticSearchEnabled) {
                     Task { await semanticSearch.reinitialize() }
                 }
 

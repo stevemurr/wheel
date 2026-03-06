@@ -6,15 +6,20 @@ import Foundation
 /// with real LLM calls. These tests verify end-to-end agent capability.
 ///
 /// Run all live tests:
-///   swift test --filter AgentLiveTests
+///   WHEEL_RUN_LIVE_AGENT_TESTS=1 swift test --filter AgentLiveTests
 ///
 /// Run a specific scenario:
-///   swift test --filter AgentLiveTests/search_duckduckgo
+///   WHEEL_RUN_LIVE_AGENT_TESTS=1 swift test --filter AgentLiveTests/search_duckduckgo
 ///
 /// Run scenarios by tag:
-///   swift test --filter AgentLiveTests/testByTag
+///   WHEEL_RUN_LIVE_AGENT_TESTS=1 swift test --filter AgentLiveTests/testByTag
 @Suite("Agent Live Tests", .tags(.live))
 struct AgentLiveTests {
+    private static let liveTestsEnvironmentKey = "WHEEL_RUN_LIVE_AGENT_TESTS"
+
+    private static var liveTestsEnabled: Bool {
+        ProcessInfo.processInfo.environment[liveTestsEnvironmentKey] == "1"
+    }
 
     /// Fixtures directory containing scenario JSON files
     private var fixturesDirectory: URL {
@@ -26,36 +31,42 @@ struct AgentLiveTests {
     @Test("search_duckduckgo", .tags(.search, .basic))
     @MainActor
     func searchDuckDuckGo() async throws {
+        guard Self.liveTestsEnabled else { return }
         try await runScenario(named: "search_duckduckgo")
     }
 
     @Test("navigate_wikipedia", .tags(.navigation))
     @MainActor
     func navigateWikipedia() async throws {
+        guard Self.liveTestsEnabled else { return }
         try await runScenario(named: "navigate_wikipedia")
     }
 
     @Test("direct_navigation", .tags(.navigation, .basic))
     @MainActor
     func directNavigation() async throws {
+        guard Self.liveTestsEnabled else { return }
         try await runScenario(named: "direct_navigation")
     }
 
     @Test("read_content", .tags(.read))
     @MainActor
     func readContent() async throws {
+        guard Self.liveTestsEnabled else { return }
         try await runScenario(named: "read_content")
     }
 
     @Test("multi_step_navigation", .tags(.navigation, .multiStep))
     @MainActor
     func multiStepNavigation() async throws {
+        guard Self.liveTestsEnabled else { return }
         try await runScenario(named: "multi_step_navigation")
     }
 
     @Test("scroll_and_find", .tags(.scroll))
     @MainActor
     func scrollAndFind() async throws {
+        guard Self.liveTestsEnabled else { return }
         try await runScenario(named: "scroll_and_find")
     }
 
@@ -64,6 +75,7 @@ struct AgentLiveTests {
     @Test("Run all scenarios and generate report")
     @MainActor
     func runAllScenariosWithReport() async throws {
+        guard Self.liveTestsEnabled else { return }
         let browserState = BrowserState()
         let settings = AppSettings.shared
 

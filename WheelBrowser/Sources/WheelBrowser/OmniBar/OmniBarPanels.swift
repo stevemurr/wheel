@@ -206,13 +206,11 @@ private struct ChatOmniPanel: View {
                 borderColor: .purple,
                 subtitle: agentManager.isLoading ? "Thinking..." : nil,
                 menuContent: {
-                    AnyView(Group {
-                        Button("Clear Chat") { agentManager.clearMessages() }
-                        Divider()
-                        Button("Reset Agent", role: .destructive) {
-                            Task { await agentManager.resetAgent() }
-                        }
-                    })
+                    Button("Clear Chat") { agentManager.clearMessages() }
+                    Divider()
+                    Button("Reset Agent", role: .destructive) {
+                        Task { await agentManager.resetAgent() }
+                    }
                 },
                 onDismiss: onDismiss
             ) {
@@ -254,11 +252,9 @@ fileprivate struct SemanticSearchOmniPanel: View {
                 borderColor: .orange,
                 subtitle: subtitle,
                 menuContent: {
-                    AnyView(Group {
-                        Button("Clear Index") {
-                            Task { await searchManager.clearIndex() }
-                        }
-                    })
+                    Button("Clear Index") {
+                        Task { await searchManager.clearIndex() }
+                    }
                 },
                 onDismiss: onDismiss
             ) {
@@ -294,12 +290,10 @@ private struct DownloadsOmniPanel: View {
                 borderColor: .blue,
                 subtitle: subtitle,
                 menuContent: {
-                    AnyView(Group {
-                        Button("Clear Completed") { downloadManager.clearCompleted() }
-                        Button("Show in Finder") {
-                            downloadManager.openDownloadsFolder()
-                        }
-                    })
+                    Button("Clear Completed") { downloadManager.clearCompleted() }
+                    Button("Show in Finder") {
+                        downloadManager.openDownloadsFolder()
+                    }
                 },
                 onDismiss: { downloadManager.dismissPanel() }
             ) {
@@ -341,13 +335,11 @@ private struct AgentOmniPanel: View {
             borderColor: .green,
             subtitle: subtitle,
             menuContent: {
-                AnyView(Group {
-                    Button("Cancel Task") { agentEngine.cancel() }
-                        .disabled(!agentEngine.isRunning)
-                    Divider()
-                    Button("Clear History") { agentEngine.steps = [] }
-                        .disabled(agentEngine.steps.isEmpty)
-                })
+                Button("Cancel Task") { agentEngine.cancel() }
+                    .disabled(!agentEngine.isRunning)
+                Divider()
+                Button("Clear History") { agentEngine.steps = [] }
+                    .disabled(agentEngine.steps.isEmpty)
             },
             onDismiss: onDismiss
         ) {

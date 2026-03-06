@@ -46,7 +46,7 @@ enum HighlightedTextBuilder {
     /// Build Text by grouping contiguous characters with the same highlight state into runs.
     /// For a 28-char URL with 2 highlight groups: ~5 Text views instead of 28.
     private static func buildRuns(_ string: String, isHighlighted: (Int) -> Bool) -> Text {
-        var result = Text("")
+        var runs: [Text] = []
         var currentRun = ""
         var currentIsHighlighted = false
         var isFirstRun = true
@@ -61,7 +61,7 @@ enum HighlightedTextBuilder {
 
             if charHighlighted != currentIsHighlighted {
                 // Flush the current run
-                result = result + styledText(currentRun, highlighted: currentIsHighlighted)
+                runs.append(styledText(currentRun, highlighted: currentIsHighlighted))
                 currentRun = ""
                 currentIsHighlighted = charHighlighted
             }
@@ -71,10 +71,16 @@ enum HighlightedTextBuilder {
 
         // Flush final run
         if !currentRun.isEmpty {
-            result = result + styledText(currentRun, highlighted: currentIsHighlighted)
+            runs.append(styledText(currentRun, highlighted: currentIsHighlighted))
         }
 
-        return result
+        guard let firstRun = runs.first else {
+            return Text("")
+        }
+
+        return runs.dropFirst().reduce(firstRun) { combined, run in
+            Text("\(combined)\(run)")
+        }
     }
 
     private static func styledText(_ text: String, highlighted: Bool) -> Text {

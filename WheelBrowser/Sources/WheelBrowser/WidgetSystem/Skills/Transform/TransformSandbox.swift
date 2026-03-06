@@ -21,7 +21,7 @@ final class TransformSandbox: @unchecked Sendable {
 
         // Load the transform runtime
         if let runtimeURL = Bundle.module.url(forResource: "transform_runtime", withExtension: "js", subdirectory: "WidgetSystem"),
-           let runtimeJS = try? String(contentsOf: runtimeURL) {
+           let runtimeJS = try? String(contentsOf: runtimeURL, encoding: .utf8) {
             ctx.evaluateScript(runtimeJS)
         }
 

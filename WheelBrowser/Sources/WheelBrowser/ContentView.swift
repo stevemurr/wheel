@@ -189,22 +189,14 @@ private struct NavigationErrorOverlay: View {
 
 private struct TabNotificationModifier: ViewModifier {
     let state: BrowserState
-    let workspaceManager: WorkspaceManager
-    let saveTabState: (UUID) -> Void
 
     func body(content: Content) -> some View {
         content
             .onReceive(NotificationCenter.default.publisher(for: .newTab)) { _ in
                 state.addTab()
-                if let workspaceId = workspaceManager.currentWorkspaceID {
-                    saveTabState(workspaceId)
-                }
             }
             .onReceive(NotificationCenter.default.publisher(for: .closeTab)) { _ in
                 state.closeActiveTab()
-                if let workspaceId = workspaceManager.currentWorkspaceID {
-                    saveTabState(workspaceId)
-                }
             }
             .onReceive(NotificationCenter.default.publisher(for: .switchToTab)) { notification in
                 if let tabIndex = notification.object as? Int {
@@ -243,7 +235,7 @@ private struct NavigationNotificationModifier: ViewModifier {
             .onReceive(NotificationCenter.default.publisher(for: .openURL)) { notification in
                 if let url = notification.object as? URL,
                    state.activeTab?.isChatTab != true {
-                    state.activeTab?.load(url.absoluteString)
+                    state.navigate(to: url)
                 }
             }
             .onReceive(NotificationCenter.default.publisher(for: .togglePictureInPicture)) { _ in
@@ -336,12 +328,17 @@ struct ContentView: View {
             .frame(minWidth: 800, minHeight: 600)
             .onAppear(perform: handleOnAppear)
             .modifier(TabNotificationModifier(
-                state: state,
-                workspaceManager: workspaceManager,
-                saveTabState: saveCurrentTabState
+                state: state
             ))
             .modifier(NavigationNotificationModifier(state: state))
             .modifier(ZoomNotificationModifier(state: state))
+            .onReceive(NotificationCenter.default.publisher(for: .workspaceDidChange)) { notification in
+                if let workspaceId = notification.userInfo?["newWorkspaceID"] as? UUID {
+                    Task { @MainActor in
+                        state.bindToWorkspace(workspaceId)
+                    }
+                }
+            }
             .onReceive(NotificationCenter.default.publisher(for: .toggleDownloads)) { _ in
                 downloadManager.togglePanel()
             }
@@ -369,31 +366,13 @@ struct ContentView: View {
 
     private func handleOnAppear() {
         if let currentWorkspaceId = workspaceManager.currentWorkspaceID {
-            state.bindToWorkspace(currentWorkspaceId)
+            Task { @MainActor in
+                state.bindToWorkspace(currentWorkspaceId)
+            }
         }
 
         // Initialize the module system
         ModuleInjectionHandler.shared.configure(store: moduleStore)
-    }
-
-    private func saveCurrentTabState(to workspaceId: UUID) {
-        let persistedTabs = state.tabs.map { tab in
-            PersistedTab(
-                id: tab.id,
-                url: tab.url?.absoluteString,
-                title: tab.title,
-                isChatTab: tab.isChatTab,
-                hasConversationStarted: tab.hasConversationStarted,
-                conversationId: tab.conversationId
-            )
-        }
-
-        let tabState = WorkspaceTabState(
-            tabData: persistedTabs,
-            activeTabId: state.activeTabId
-        )
-
-        workspaceManager.saveTabState(tabState, for: workspaceId)
     }
 }
 

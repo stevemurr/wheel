@@ -130,7 +130,7 @@ struct WorkspaceManagerTests {
     @Test("Deleting current workspace switches to first available")
     func deletingCurrentSwitchesToFirst() {
         let manager = TestableWorkspaceManager()
-        let workspace1 = manager.createWorkspace(name: "First")
+        _ = manager.createWorkspace(name: "First")
         let workspace2 = manager.createWorkspace(name: "Second")
 
         manager.switchToWorkspace(workspace2.id)
@@ -293,5 +293,76 @@ struct WorkspaceManagerTests {
         let manager = TestableWorkspaceManager()
 
         #expect(manager.tabCount(for: UUID()) == 0)
+    }
+}
+
+@Suite("Workspace Integration Tests")
+@MainActor
+struct WorkspaceIntegrationTests {
+    @Test("BrowserState restores persisted tab IDs and active tab")
+    func restoresPersistedTabsAndSelection() {
+        let (manager, directory) = makeWorkspaceManager()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let browserState = BrowserState(
+            workspaceStateStore: WorkspaceStateStore(
+                saveTabState: { state, workspaceID in
+                    manager.saveTabState(state, for: workspaceID)
+                },
+                getTabState: { workspaceID in
+                    manager.getTabState(for: workspaceID)
+                },
+                clearTabState: { workspaceID in
+                    manager.clearTabState(for: workspaceID)
+                }
+            )
+        )
+
+        let firstWorkspaceID = manager.currentWorkspaceID!
+        browserState.bindToWorkspace(firstWorkspaceID)
+        browserState.addTab()
+
+        let expectedTabIDs = browserState.tabs.map(\.id)
+        let expectedActiveTabID = browserState.activeTabId
+
+        let secondWorkspaceID = manager.createWorkspace(name: "Second").id
+        browserState.bindToWorkspace(secondWorkspaceID)
+        browserState.bindToWorkspace(firstWorkspaceID)
+
+        #expect(browserState.tabs.map(\.id) == expectedTabIDs)
+        #expect(browserState.activeTabId == expectedActiveTabID)
+        #expect(browserState.activeTab != nil)
+    }
+
+    @Test("Workspace tab count reflects saved tab state")
+    func tabCountUsesSavedState() {
+        let (manager, directory) = makeWorkspaceManager()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let workspaceID = manager.currentWorkspaceID!
+
+        let state = WorkspaceTabState(
+            tabData: [
+                PersistedTab(id: UUID(), url: nil, title: "One", isChatTab: false, hasConversationStarted: false, conversationId: UUID()),
+                PersistedTab(id: UUID(), url: nil, title: "Two", isChatTab: false, hasConversationStarted: false, conversationId: UUID())
+            ],
+            activeTabId: nil
+        )
+
+        manager.saveTabState(state, for: workspaceID)
+
+        #expect(manager.tabCount(for: workspaceID) == 2)
+    }
+
+    private func makeWorkspaceManager() -> (WorkspaceManager, URL) {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+
+        return (
+            WorkspaceManager(
+                workspacesFileURL: directory.appendingPathComponent("workspaces.json"),
+                tabStatesFileURL: directory.appendingPathComponent("workspace_tabs.json")
+            ),
+            directory
+        )
     }
 }

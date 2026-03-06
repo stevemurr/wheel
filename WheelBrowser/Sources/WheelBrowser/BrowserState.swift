@@ -45,6 +45,24 @@ struct WorkspaceTabState: Codable {
     let activeTabId: UUID?
 }
 
+struct WorkspaceStateStore {
+    let saveTabState: @MainActor (WorkspaceTabState, UUID) -> Void
+    let getTabState: @MainActor (UUID) -> WorkspaceTabState?
+    let clearTabState: @MainActor (UUID) -> Void
+
+    static let shared = WorkspaceStateStore(
+        saveTabState: { state, workspaceID in
+            WorkspaceManager.shared.saveTabState(state, for: workspaceID)
+        },
+        getTabState: { workspaceID in
+            WorkspaceManager.shared.getTabState(for: workspaceID)
+        },
+        clearTabState: { workspaceID in
+            WorkspaceManager.shared.clearTabState(for: workspaceID)
+        }
+    )
+}
+
 @Observable
 class BrowserState: BrowserBridgeProvider {
     /// Returns a BrowserBridge for a specific tab (protocol conformance)
@@ -60,12 +78,10 @@ class BrowserState: BrowserBridgeProvider {
     /// Stack of recently closed tabs (most recent first)
     @ObservationIgnored private var closedTabsHistory: [ClosedTabInfo] = []
     @ObservationIgnored private let maxClosedTabsHistory = 20
+    @ObservationIgnored private let workspaceStateStore: WorkspaceStateStore
 
     /// Current workspace ID being managed
     private(set) var currentWorkspaceId: UUID?
-
-    /// Cache of tab states per workspace (in-memory for quick switching)
-    @ObservationIgnored private var workspaceTabStates: [UUID: WorkspaceTabState] = [:]
 
     var activeTab: Tab? {
         guard let id = activeTabId else { return nil }
@@ -117,36 +133,24 @@ class BrowserState: BrowserBridgeProvider {
     func navigate(to url: URL) {
         guard activeTab?.isChatTab != true else { return }
         activeTab?.load(url.absoluteString)
+        persistCurrentWorkspaceState()
     }
 
-    init() {
+    init(workspaceStateStore: WorkspaceStateStore = .shared) {
+        self.workspaceStateStore = workspaceStateStore
         addTab()
     }
 
     // MARK: - Workspace Integration
 
     /// Saves the current tab state for the given workspace
+    @MainActor
     func saveStateForWorkspace(_ workspaceId: UUID) {
-        let persistedTabs = tabs.map { tab in
-            PersistedTab(
-                id: tab.id,
-                url: tab.url?.absoluteString,
-                title: tab.title,
-                isChatTab: tab.isChatTab,
-                hasConversationStarted: tab.hasConversationStarted,
-                conversationId: tab.conversationId
-            )
-        }
-
-        let state = WorkspaceTabState(
-            tabData: persistedTabs,
-            activeTabId: activeTabId
-        )
-
-        workspaceTabStates[workspaceId] = state
+        workspaceStateStore.saveTabState(makeWorkspaceTabState(), workspaceId)
     }
 
     /// Loads tabs for a workspace, restoring from saved state
+    @MainActor
     func loadStateForWorkspace(_ workspaceId: UUID) {
         // Save current workspace state before switching
         if let currentId = currentWorkspaceId, currentId != workspaceId {
@@ -155,47 +159,23 @@ class BrowserState: BrowserBridgeProvider {
 
         currentWorkspaceId = workspaceId
 
-        // Check if we have cached state for this workspace
-        if let state = workspaceTabStates[workspaceId], !state.tabData.isEmpty {
-            // Clean up existing tabs before removing
-            for tab in tabs {
-                tab.cleanup()
-            }
-            tabs.removeAll()
-            tabsByID.removeAll()
-
-            for persistedTab in state.tabData {
-                let tab = Tab()
-                tab.isChatTab = persistedTab.isChatTab
-                tab.hasConversationStarted = persistedTab.hasConversationStarted
-                tab.conversationId = persistedTab.conversationId
-                tabs.append(tab)
-                tabsByID[tab.id] = tab
-
-                if let urlString = persistedTab.url {
-                    tab.load(urlString)
-                }
-            }
-
-            activeTabId = state.activeTabId ?? tabs.first?.id
-            assertTabIntegrity()
+        if let state = workspaceStateStore.getTabState(workspaceId), !state.tabData.isEmpty {
+            restoreTabs(from: state)
         } else {
             // No saved state - create a fresh tab for this workspace
-            for tab in tabs {
-                tab.cleanup()
-            }
-            tabs.removeAll()
-            tabsByID.removeAll()
+            clearAllTabs()
             addTab()
         }
     }
 
     /// Clears the cached state for a workspace (e.g., when workspace is deleted)
+    @MainActor
     func clearStateForWorkspace(_ workspaceId: UUID) {
-        workspaceTabStates.removeValue(forKey: workspaceId)
+        workspaceStateStore.clearTabState(workspaceId)
     }
 
     /// Binds this BrowserState to a workspace manager for automatic syncing
+    @MainActor
     func bindToWorkspace(_ workspaceId: UUID) {
         if currentWorkspaceId != workspaceId {
             loadStateForWorkspace(workspaceId)
@@ -208,6 +188,7 @@ class BrowserState: BrowserBridgeProvider {
         tabsByID[tab.id] = tab
         activeTabId = tab.id
         assertTabIntegrity()
+        persistCurrentWorkspaceState()
     }
 
     /// Add a new tab with a specific URL
@@ -220,6 +201,7 @@ class BrowserState: BrowserBridgeProvider {
         }
         tab.load(url.absoluteString)
         assertTabIntegrity()
+        persistCurrentWorkspaceState()
     }
 
     func closeTab(_ id: UUID) {
@@ -268,6 +250,7 @@ class BrowserState: BrowserBridgeProvider {
             }
 
             assertTabIntegrity()
+            persistCurrentWorkspaceState()
         }
     }
 
@@ -280,6 +263,7 @@ class BrowserState: BrowserBridgeProvider {
     func selectTab(_ id: UUID) {
         captureScreenshotOfActiveTab()
         activeTabId = id
+        persistCurrentWorkspaceState()
     }
 
     /// Select tab by index (1-based for keyboard shortcuts)
@@ -299,6 +283,7 @@ class BrowserState: BrowserBridgeProvider {
         guard targetIndex >= 0 && targetIndex < tabs.count else { return }
         captureScreenshotOfActiveTab()
         activeTabId = tabs[targetIndex].id
+        persistCurrentWorkspaceState()
     }
 
     /// Select the previous tab (wraps around)
@@ -307,6 +292,7 @@ class BrowserState: BrowserBridgeProvider {
         captureScreenshotOfActiveTab()
         let newIndex = currentIndex > 0 ? currentIndex - 1 : tabs.count - 1
         activeTabId = tabs[newIndex].id
+        persistCurrentWorkspaceState()
     }
 
     /// Select the next tab (wraps around)
@@ -315,6 +301,7 @@ class BrowserState: BrowserBridgeProvider {
         captureScreenshotOfActiveTab()
         let newIndex = currentIndex < tabs.count - 1 ? currentIndex + 1 : 0
         activeTabId = tabs[newIndex].id
+        persistCurrentWorkspaceState()
     }
 
     /// Reopen the most recently closed tab
@@ -324,10 +311,12 @@ class BrowserState: BrowserBridgeProvider {
         guard let closedInfo = closedTabsHistory.first else { return false }
         closedTabsHistory.removeFirst()
 
-        let tab = Tab()
-        tab.isChatTab = closedInfo.isChatTab
-        tab.hasConversationStarted = closedInfo.hasConversationStarted
-        tab.conversationId = closedInfo.conversationId
+        let tab = Tab(
+            title: closedInfo.title,
+            isChatTab: closedInfo.isChatTab,
+            hasConversationStarted: closedInfo.hasConversationStarted,
+            conversationId: closedInfo.conversationId
+        )
         tabs.append(tab)
         tabsByID[tab.id] = tab
         activeTabId = tab.id
@@ -337,6 +326,7 @@ class BrowserState: BrowserBridgeProvider {
         }
 
         assertTabIntegrity()
+        persistCurrentWorkspaceState()
         return true
     }
 
@@ -351,6 +341,68 @@ class BrowserState: BrowserBridgeProvider {
         let captureTab = tab
         Task { @MainActor in
             await TabScreenshotManager.shared.captureScreenshot(for: captureTab)
+        }
+    }
+
+    private func makeWorkspaceTabState() -> WorkspaceTabState {
+        let persistedTabs = tabs.map { tab in
+            PersistedTab(
+                id: tab.id,
+                url: tab.url?.absoluteString,
+                title: tab.title,
+                isChatTab: tab.isChatTab,
+                hasConversationStarted: tab.hasConversationStarted,
+                conversationId: tab.conversationId
+            )
+        }
+
+        return WorkspaceTabState(
+            tabData: persistedTabs,
+            activeTabId: activeTabId
+        )
+    }
+
+    private func clearAllTabs() {
+        for tab in tabs {
+            tab.cleanup()
+        }
+        tabs.removeAll()
+        tabsByID.removeAll()
+        activeTabId = nil
+    }
+
+    private func restoreTabs(from state: WorkspaceTabState) {
+        clearAllTabs()
+
+        for persistedTab in state.tabData {
+            let tab = Tab(
+                id: persistedTab.id,
+                title: persistedTab.title,
+                isChatTab: persistedTab.isChatTab,
+                hasConversationStarted: persistedTab.hasConversationStarted,
+                conversationId: persistedTab.conversationId
+            )
+            tabs.append(tab)
+            tabsByID[tab.id] = tab
+
+            if let urlString = persistedTab.url {
+                tab.load(urlString)
+            }
+        }
+
+        if let restoredActiveTabId = state.activeTabId, tabsByID[restoredActiveTabId] != nil {
+            activeTabId = restoredActiveTabId
+        } else {
+            activeTabId = tabs.first?.id
+        }
+
+        assertTabIntegrity()
+    }
+
+    private func persistCurrentWorkspaceState() {
+        guard let workspaceID = currentWorkspaceId else { return }
+        Task { @MainActor in
+            self.saveStateForWorkspace(workspaceID)
         }
     }
 }

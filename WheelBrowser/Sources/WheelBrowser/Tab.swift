@@ -4,7 +4,7 @@ import AppKit
 
 @Observable
 class Tab: Identifiable {
-    let id = UUID()
+    let id: UUID
     var title: String = "New Tab"
     var url: URL?
     var isLoading: Bool = false
@@ -64,7 +64,21 @@ class Tab: Identifiable {
     private let maxZoom: Double = 3.0
     private let zoomStep: Double = 0.1
 
-    init() {}
+    init(
+        id: UUID = UUID(),
+        title: String = "New Tab",
+        url: URL? = nil,
+        isChatTab: Bool = false,
+        hasConversationStarted: Bool = false,
+        conversationId: UUID = UUID()
+    ) {
+        self.id = id
+        self.title = title
+        self.url = url
+        self.isChatTab = isChatTab
+        self.hasConversationStarted = hasConversationStarted
+        self.conversationId = conversationId
+    }
 
     /// Creates a fully-configured WKWebView for browsing.
     private static func createWebView() -> WKWebView {

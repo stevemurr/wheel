@@ -11,6 +11,10 @@ extension Notification.Name {
 @Observable
 class WorkspaceManager {
     static let shared = WorkspaceManager()
+    private static let defaultWorkspacesFileURL =
+        FileManager.appSupportDirectory.appendingPathComponent("workspaces.json")
+    private static let defaultTabStatesFileURL =
+        FileManager.appSupportDirectory.appendingPathComponent("workspace_tabs.json")
 
     private(set) var workspaces: [Workspace] = []
     var currentWorkspaceID: UUID?
@@ -18,17 +22,15 @@ class WorkspaceManager {
     /// Cached tab states per workspace for persistence
     private(set) var workspaceTabStates: [UUID: WorkspaceTabState] = [:]
 
-    /// File URL for persisting workspaces
-    private var workspacesFileURL: URL {
-        FileManager.appSupportDirectory.appendingPathComponent("workspaces.json")
-    }
+    @ObservationIgnored private let workspacesFileURL: URL
+    @ObservationIgnored private let tabStatesFileURL: URL
 
-    /// File URL for persisting workspace tab states
-    private var tabStatesFileURL: URL {
-        FileManager.appSupportDirectory.appendingPathComponent("workspace_tabs.json")
-    }
-
-    private init() {
+    init(
+        workspacesFileURL: URL? = nil,
+        tabStatesFileURL: URL? = nil
+    ) {
+        self.workspacesFileURL = workspacesFileURL ?? Self.defaultWorkspacesFileURL
+        self.tabStatesFileURL = tabStatesFileURL ?? Self.defaultTabStatesFileURL
         loadWorkspaces()
         loadTabStates()
 
@@ -71,6 +73,7 @@ class WorkspaceManager {
     /// Deletes a workspace by ID
     func deleteWorkspace(_ id: UUID) {
         workspaces.removeAll { $0.id == id }
+        workspaceTabStates.removeValue(forKey: id)
 
         // If we deleted the current workspace, switch to the first available
         if currentWorkspaceID == id {
@@ -78,6 +81,7 @@ class WorkspaceManager {
         }
 
         saveWorkspaces()
+        saveTabStates()
     }
 
     /// Switches to a workspace by ID
@@ -172,7 +176,10 @@ class WorkspaceManager {
 
     /// Gets the tab count for a workspace
     func tabCount(for workspaceID: UUID) -> Int {
-        workspaces.first { $0.id == workspaceID }?.tabIDs.count ?? 0
+        if let state = workspaceTabStates[workspaceID] {
+            return state.tabData.count
+        }
+        return workspaces.first { $0.id == workspaceID }?.tabIDs.count ?? 0
     }
 
     // MARK: - Tab State Management
@@ -180,6 +187,7 @@ class WorkspaceManager {
     /// Saves tab state for a workspace
     func saveTabState(_ state: WorkspaceTabState, for workspaceID: UUID) {
         workspaceTabStates[workspaceID] = state
+        syncTabIDs(for: workspaceID, tabIDs: state.tabData.map(\.id))
         saveTabStates()
     }
 
@@ -191,7 +199,14 @@ class WorkspaceManager {
     /// Clears tab state for a workspace
     func clearTabState(for workspaceID: UUID) {
         workspaceTabStates.removeValue(forKey: workspaceID)
+        syncTabIDs(for: workspaceID, tabIDs: [])
         saveTabStates()
+    }
+
+    private func syncTabIDs(for workspaceID: UUID, tabIDs: [UUID]) {
+        guard let index = workspaces.firstIndex(where: { $0.id == workspaceID }) else { return }
+        workspaces[index].tabIDs = tabIDs
+        saveWorkspaces()
     }
 
     // MARK: - Persistence
