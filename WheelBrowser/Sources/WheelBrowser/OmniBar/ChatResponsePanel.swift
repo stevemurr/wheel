@@ -2,6 +2,28 @@ import SwiftUI
 import MarkdownUI
 import AppKit
 
+private enum ChatSurfaceStyle {
+    static func userFill(compact: Bool) -> Color {
+        Color.accentColor.opacity(compact ? 0.14 : 0.10)
+    }
+
+    static func userBorder(compact: Bool) -> Color {
+        Color.accentColor.opacity(compact ? 0.24 : 0.18)
+    }
+
+    static func assistantFill(compact: Bool) -> Color {
+        compact
+            ? Color(nsColor: .controlBackgroundColor).opacity(0.72)
+            : .clear
+    }
+
+    static func assistantBorder(compact: Bool) -> Color {
+        compact
+            ? Color(nsColor: .separatorColor).opacity(0.22)
+            : .clear
+    }
+}
+
 // MARK: - Pulsing Loading Dot
 
 struct ChatPanelPulsingDot: View {
@@ -24,11 +46,13 @@ struct ChatPanelPulsingDot: View {
 /// Collapsible thinking/reasoning bubble for displaying AI thought process
 struct ThinkingBubble: View {
     let message: ChatMessage
+    var compact: Bool = false
     @State private var isExpanded: Bool
     @State private var isHovered = false
 
-    init(message: ChatMessage) {
+    init(message: ChatMessage, compact: Bool = false) {
         self.message = message
+        self.compact = compact
         // Auto-expand while streaming
         self._isExpanded = State(initialValue: message.isStreaming)
     }
@@ -52,16 +76,21 @@ struct ThinkingBubble: View {
                 HStack(spacing: 6) {
                     Image(systemName: isExpanded ? "chevron.down" : "chevron.right")
                         .font(.system(size: 9, weight: .semibold))
-                        .foregroundColor(.purple.opacity(0.7))
+                        .foregroundColor(.secondary.opacity(0.85))
                         .frame(width: 12)
 
-                    Image(systemName: "brain")
-                        .font(.system(size: 10, weight: .medium))
-                        .foregroundColor(.purple.opacity(0.7))
+                    RoundedRectangle(cornerRadius: 6, style: .continuous)
+                        .fill(Color(nsColor: .controlAccentColor).opacity(0.12))
+                        .frame(width: 18, height: 18)
+                        .overlay {
+                            Image(systemName: "brain.head.profile")
+                                .font(.system(size: 10, weight: .medium))
+                                .foregroundColor(Color(nsColor: .controlAccentColor).opacity(0.8))
+                        }
 
-                    Text("Thinking")
-                        .font(.system(size: 11, weight: .medium))
-                        .foregroundColor(.purple.opacity(0.8))
+                    Text("Thought Process")
+                        .font(.system(size: compact ? 11 : 12, weight: .semibold))
+                        .foregroundColor(.primary.opacity(0.82))
 
                     if message.isStreaming {
                         // Live timer using TimelineView (Rule 5: no .contentTransition on streaming)
@@ -79,12 +108,18 @@ struct ThinkingBubble: View {
 
                     Spacer()
 
+                    if !message.isStreaming {
+                        Image(systemName: "checkmark.circle.fill")
+                            .font(.system(size: 11, weight: .semibold))
+                            .foregroundColor(.green.opacity(0.72))
+                    }
+
                     Text(durationLabel)
-                        .font(.system(size: 9))
-                        .foregroundColor(.secondary.opacity(0.5))
+                        .font(.system(size: 10, weight: .medium, design: .monospaced))
+                        .foregroundColor(.secondary.opacity(0.65))
                 }
-                .padding(.horizontal, 10)
-                .padding(.vertical, 8)
+                .padding(.horizontal, compact ? 10 : 12)
+                .padding(.vertical, compact ? 8 : 10)
                 .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
@@ -105,16 +140,16 @@ struct ThinkingBubble: View {
                 Divider()
                     .opacity(0.3)
 
-                ThinkingContentView(content: message.content)
+                ThinkingContentView(content: message.content, compact: compact)
             }
         }
         .background(
-            RoundedRectangle(cornerRadius: 10, style: .continuous)
-                .fill(Color.purple.opacity(isHovered ? 0.08 : 0.05))
+            RoundedRectangle(cornerRadius: compact ? 12 : 14, style: .continuous)
+                .fill(Color(nsColor: .controlBackgroundColor).opacity(isHovered ? 0.82 : 0.66))
         )
         .overlay(
-            RoundedRectangle(cornerRadius: 10, style: .continuous)
-                .stroke(Color.purple.opacity(0.15), lineWidth: 1)
+            RoundedRectangle(cornerRadius: compact ? 12 : 14, style: .continuous)
+                .stroke(Color(nsColor: .separatorColor).opacity(0.32), lineWidth: 1)
         )
         .frame(maxWidth: .infinity, alignment: .leading)
     }
@@ -123,18 +158,19 @@ struct ThinkingBubble: View {
 /// Extracted content view for ThinkingBubble — isolates text rendering from header (timer, progress bar)
 private struct ThinkingContentView: View {
     let content: String
+    let compact: Bool
 
     var body: some View {
         ScrollView {
             Text(content)
-                .font(.system(size: 11.5, design: .monospaced))
-                .foregroundColor(.primary.opacity(0.75))
+                .font(.system(size: compact ? 11.5 : 12.5, design: .monospaced))
+                .foregroundColor(.secondary.opacity(0.88))
                 .textSelection(.enabled)
                 .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(.horizontal, 10)
-                .padding(.vertical, 8)
+                .padding(.horizontal, compact ? 10 : 12)
+                .padding(.vertical, compact ? 8 : 10)
         }
-        .frame(maxHeight: 200)
+        .frame(maxHeight: compact ? 180 : 220)
     }
 }
 
@@ -147,7 +183,7 @@ private struct ThinkingLiveTimer: View {
             let elapsed = Int(timeline.date.timeIntervalSince(startTime))
             Text("\(elapsed)s")
                 .font(.system(size: 10, weight: .medium, design: .monospaced))
-                .foregroundColor(.purple.opacity(0.6))
+                .foregroundColor(.secondary.opacity(0.7))
         }
     }
 }
@@ -159,12 +195,12 @@ private struct ThinkingProgressBar: View {
     var body: some View {
         GeometryReader { geometry in
             RoundedRectangle(cornerRadius: 1)
-                .fill(Color.purple.opacity(0.3))
+                .fill(Color(nsColor: .controlAccentColor).opacity(0.35))
                 .frame(width: geometry.size.width * 0.4)
                 .offset(x: offset * geometry.size.width * 0.6)
         }
         .clipShape(RoundedRectangle(cornerRadius: 1))
-        .background(Color.purple.opacity(0.1))
+        .background(Color(nsColor: .separatorColor).opacity(0.18))
         .onAppear {
             withAnimation(.easeInOut(duration: 1.2).repeatForever(autoreverses: true)) {
                 offset = 1
@@ -181,10 +217,11 @@ private struct MessageContentView: View {
     let content: String
     let role: ChatMessage.MessageRole
     let isStreaming: Bool
+    let compact: Bool
 
     var body: some View {
         Markdown(content)
-            .markdownTheme(ChatMarkdownTheme.theme(for: role))
+            .markdownTheme(ChatMarkdownTheme.theme(for: role, compact: compact))
             .textSelection(.enabled)
             .frame(maxWidth: .infinity, alignment: .leading)
 
@@ -219,16 +256,16 @@ private struct ArtifactChipsView: View {
 /// Compact message bubble for the chat panel
 struct ChatPanelMessageBubble: View {
     let message: ChatMessage
+    var compact: Bool = false
     var onEdit: ((String) -> Void)?
     var onRegenerate: (() -> Void)?
     var onSelectArtifact: ((ChatArtifact) -> Void)?
-    @State private var isHovered = false
     @State private var isEditing = false
 
     var body: some View {
         // Special handling for thinking messages - use collapsible view
         if message.role == .thinking {
-            ThinkingBubble(message: message)
+            ThinkingBubble(message: message, compact: compact)
                 .padding(.vertical, 2)
         } else {
             regularMessageBubble
@@ -244,14 +281,7 @@ struct ChatPanelMessageBubble: View {
             VStack(alignment: message.role == .user ? .trailing : .leading, spacing: 6) {
                 // Role indicator for user messages only
                 if message.role == .user {
-                    HStack(spacing: 4) {
-                        Text("You")
-                            .font(.system(size: 10, weight: .medium))
-                            .foregroundColor(.secondary.opacity(0.8))
-                        Image(systemName: "person.fill")
-                            .font(.system(size: 9))
-                            .foregroundColor(.secondary.opacity(0.6))
-                    }
+                    userHeader
                 }
 
                 // Inline editor or message content
@@ -276,7 +306,8 @@ struct ChatPanelMessageBubble: View {
                                 MessageContentView(
                                     content: message.content,
                                     role: message.role,
-                                    isStreaming: message.isStreaming
+                                    isStreaming: message.isStreaming,
+                                    compact: compact
                                 )
 
                                 // Artifact chips (isolated — won't re-eval during streaming)
@@ -287,51 +318,48 @@ struct ChatPanelMessageBubble: View {
                                     )
                                 }
                             }
-                            .padding(.horizontal, 12)
-                            .padding(.vertical, 12)
+                            .padding(.horizontal, contentHorizontalPadding)
+                            .padding(.vertical, contentVerticalPadding)
                         }
                     }
                     .frame(minWidth: 60, alignment: message.role == .user ? .trailing : .leading)
                     .background(bubbleBackground)
-                    .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+                    .clipShape(RoundedRectangle(cornerRadius: bubbleCornerRadius, style: .continuous))
                     .overlay(
-                        RoundedRectangle(cornerRadius: 12, style: .continuous)
+                        RoundedRectangle(cornerRadius: bubbleCornerRadius, style: .continuous)
                             .stroke(bubbleBorder, lineWidth: 1.0)
                     )
                 }
 
-                // Hover action bar — guarded behind !isStreaming so it won't re-eval during streaming
+                // Action bar — guarded behind !isStreaming so it won't re-eval during streaming
                 if !message.isStreaming && !message.content.isEmpty && !isEditing {
                     MessageActionBar(
                         message: message,
-                        isHovered: isHovered,
+                        leadingInset: message.role == .assistant ? actionBarLeadingInset : 0,
+                        trailingInset: message.role == .user ? actionBarTrailingInset : 0,
                         onEdit: message.role == .user ? { isEditing = true } : nil,
-                        onCopy: { PasteboardHelper.copy(message.content) },
                         onRegenerate: message.role == .assistant ? onRegenerate : nil
                     )
                 }
             }
-            .frame(maxWidth: message.role == .user ? 400 : .infinity, alignment: message.role == .user ? .trailing : .leading)
+            .frame(maxWidth: message.role == .user ? userBubbleMaxWidth : .infinity, alignment: message.role == .user ? .trailing : .leading)
 
             if message.role != .user {
                 Spacer(minLength: 50)
             }
         }
         .padding(.vertical, 2)
-        .onHover { hovering in
-            isHovered = hovering
-        }
     }
 
     @ViewBuilder
     private var bubbleBackground: some View {
         switch message.role {
         case .user:
-            Color.accentColor
+            ChatSurfaceStyle.userFill(compact: compact)
         case .assistant:
-            Color(nsColor: .textBackgroundColor).opacity(0.5)
+            ChatSurfaceStyle.assistantFill(compact: compact)
         case .system:
-            Color.orange.opacity(0.1)
+            Color.orange.opacity(compact ? 0.10 : 0.08)
         case .thinking:
             Color.purple.opacity(0.08)
         }
@@ -340,13 +368,60 @@ struct ChatPanelMessageBubble: View {
     private var bubbleBorder: Color {
         switch message.role {
         case .user:
-            return .clear
+            return ChatSurfaceStyle.userBorder(compact: compact)
         case .assistant:
-            return Color(nsColor: .separatorColor).opacity(0.3)
+            return ChatSurfaceStyle.assistantBorder(compact: compact)
         case .system:
             return Color.orange.opacity(0.2)
         case .thinking:
             return Color.purple.opacity(0.15)
+        }
+    }
+
+    private var userBubbleMaxWidth: CGFloat {
+        compact ? 360 : 520
+    }
+
+    private var bubbleCornerRadius: CGFloat {
+        compact ? 14 : 18
+    }
+
+    private var contentHorizontalPadding: CGFloat {
+        if message.role == .assistant && !compact {
+            return 4
+        }
+        return compact ? 12 : 14
+    }
+
+    private var contentVerticalPadding: CGFloat {
+        if message.role == .assistant && !compact {
+            return 2
+        }
+        return compact ? 12 : 13
+    }
+
+    private var actionBarLeadingInset: CGFloat {
+        compact ? contentHorizontalPadding : max(6, contentHorizontalPadding)
+    }
+
+    private var actionBarTrailingInset: CGFloat {
+        compact ? contentHorizontalPadding : max(8, contentHorizontalPadding)
+    }
+
+    private var userHeader: some View {
+        HStack(spacing: 6) {
+            Circle()
+                .fill(Color.accentColor.opacity(0.12))
+                .frame(width: 18, height: 18)
+                .overlay {
+                    Image(systemName: "person.fill")
+                        .font(.system(size: 9, weight: .semibold))
+                        .foregroundColor(Color.accentColor.opacity(0.82))
+                }
+
+            Text("You")
+                .font(.system(size: compact ? 10 : 11, weight: .semibold))
+                .foregroundColor(.secondary.opacity(0.8))
         }
     }
 

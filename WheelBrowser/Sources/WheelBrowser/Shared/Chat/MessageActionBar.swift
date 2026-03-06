@@ -1,13 +1,13 @@
 import SwiftUI
 
-/// Hover-reveal action toolbar for chat messages.
+/// Action toolbar for chat messages.
 /// User messages: Edit, Copy.
 /// Assistant messages: Copy, Regenerate, Branch navigator.
 struct MessageActionBar: View {
     let message: ChatMessage
-    let isHovered: Bool
+    var leadingInset: CGFloat = 0
+    var trailingInset: CGFloat = 0
     var onEdit: (() -> Void)?
-    var onCopy: (() -> Void)?
     var onRegenerate: (() -> Void)?
     var onSwitchBranch: ((Int) -> Void)?
 
@@ -37,11 +37,10 @@ struct MessageActionBar: View {
                     branchNavigator
                 }
             }
-
-            Spacer()
         }
-        .opacity(isHovered || showCopied ? 1.0 : 0.0)
-        .animation(AppAnimation.standardOut, value: isHovered)
+        .frame(maxWidth: .infinity, alignment: message.role == .user ? .trailing : .leading)
+        .padding(.leading, leadingInset)
+        .padding(.trailing, trailingInset)
     }
 
     // MARK: - Components
@@ -91,8 +90,12 @@ struct MessageActionBar: View {
         .padding(.horizontal, 6)
         .padding(.vertical, 3)
         .background(
-            RoundedRectangle(cornerRadius: 4, style: .continuous)
-                .fill(Color(nsColor: .controlBackgroundColor).opacity(0.6))
+            Capsule(style: .continuous)
+                .fill(.ultraThinMaterial)
+        )
+        .overlay(
+            Capsule(style: .continuous)
+                .stroke(Color(nsColor: .separatorColor).opacity(0.25), lineWidth: 1)
         )
     }
 
@@ -105,16 +108,20 @@ struct MessageActionBar: View {
         Button(action: action) {
             HStack(spacing: 4) {
                 Image(systemName: icon)
-                    .font(.system(size: 10, weight: .medium))
+                    .font(.system(size: 10, weight: .semibold))
                 Text(label)
-                    .font(.system(size: 10, weight: .medium))
+                    .font(.system(size: 10, weight: .semibold))
             }
             .foregroundColor(color)
             .padding(.horizontal, 8)
             .padding(.vertical, 4)
             .background(
-                RoundedRectangle(cornerRadius: 6, style: .continuous)
-                    .fill(Color(nsColor: .controlBackgroundColor).opacity(0.6))
+                Capsule(style: .continuous)
+                    .fill(.ultraThinMaterial)
+            )
+            .overlay(
+                Capsule(style: .continuous)
+                    .stroke(Color(nsColor: .separatorColor).opacity(0.25), lineWidth: 1)
             )
         }
         .buttonStyle(.plain)

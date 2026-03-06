@@ -11,14 +11,24 @@ struct OmniBarTabTransitionPolicyTests {
             OmniBarTabTransitionPolicy.shouldLatchEmptyTabIntoChat(
                 tab: tab,
                 currentMode: .chat,
-                isInputFocused: false
+                isInputFocused: true,
+                hasExplicitChatFocusIntent: false
             ) == false
         )
         #expect(
             OmniBarTabTransitionPolicy.shouldLatchEmptyTabIntoChat(
                 tab: tab,
                 currentMode: .chat,
-                isInputFocused: true
+                isInputFocused: false,
+                hasExplicitChatFocusIntent: true
+            ) == false
+        )
+        #expect(
+            OmniBarTabTransitionPolicy.shouldLatchEmptyTabIntoChat(
+                tab: tab,
+                currentMode: .chat,
+                isInputFocused: true,
+                hasExplicitChatFocusIntent: true
             ) == true
         )
     }

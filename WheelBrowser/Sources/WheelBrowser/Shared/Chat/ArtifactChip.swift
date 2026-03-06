@@ -20,25 +20,25 @@ struct ArtifactChip: View {
 
     var body: some View {
         Button(action: onTap) {
-            HStack(spacing: 4) {
+            HStack(spacing: 5) {
                 Image(systemName: iconName)
-                    .font(.system(size: 9, weight: .medium))
-                    .foregroundColor(.purple.opacity(0.7))
+                    .font(.system(size: 9, weight: .semibold))
+                    .foregroundColor(.secondary.opacity(0.85))
 
                 Text(truncatedTitle)
-                    .font(.system(size: 10, weight: .medium))
-                    .foregroundColor(.primary.opacity(0.8))
+                    .font(.system(size: 10.5, weight: .semibold))
+                    .foregroundColor(.primary.opacity(0.82))
                     .lineLimit(1)
             }
-            .padding(.horizontal, 8)
-            .padding(.vertical, 4)
+            .padding(.horizontal, 9)
+            .padding(.vertical, 5)
             .background(
-                RoundedRectangle(cornerRadius: 6, style: .continuous)
-                    .fill(Color.purple.opacity(isHovered ? 0.12 : 0.06))
+                Capsule(style: .continuous)
+                    .fill(Color(nsColor: .controlBackgroundColor).opacity(isHovered ? 0.84 : 0.68))
             )
             .overlay(
-                RoundedRectangle(cornerRadius: 6, style: .continuous)
-                    .stroke(Color.purple.opacity(0.2), lineWidth: 0.5)
+                Capsule(style: .continuous)
+                    .stroke(Color(nsColor: .separatorColor).opacity(0.22), lineWidth: 1)
             )
         }
         .buttonStyle(.plain)

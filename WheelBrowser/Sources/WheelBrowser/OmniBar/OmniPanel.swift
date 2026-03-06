@@ -11,7 +11,7 @@ struct OmniPanel<Content: View, MenuContent: View>: View {
     @ViewBuilder let content: () -> Content
     private let menuContent: (() -> MenuContent)?
 
-    @State private var isHovering = false
+    @Environment(\.colorScheme) private var currentColorScheme
 
     private let maxHeight: CGFloat = WindowConstants.omniPanelMaxHeight
     private let maxWidth: CGFloat = WindowConstants.omniPanelMaxWidth
@@ -69,18 +69,30 @@ struct OmniPanel<Content: View, MenuContent: View>: View {
         .frame(maxWidth: maxWidth)
         .frame(maxHeight: maxHeight)
         .background(
-            RoundedRectangle(cornerRadius: WindowConstants.panelCornerRadius, style: .continuous)
-                .fill(Color(nsColor: .windowBackgroundColor))
-                .shadow(color: Color.black.opacity(WindowConstants.panelShadowOpacity), radius: WindowConstants.panelShadowRadius, x: 0, y: 4)
+            ZStack {
+                RoundedRectangle(cornerRadius: WindowConstants.panelCornerRadius, style: .continuous)
+                    .fill(panelBaseFill)
+
+                RoundedRectangle(cornerRadius: WindowConstants.panelCornerRadius, style: .continuous)
+                    .fill(.ultraThinMaterial)
+                    .opacity(currentColorScheme == .dark ? 0.18 : 0.10)
+
+                RoundedRectangle(cornerRadius: WindowConstants.panelCornerRadius, style: .continuous)
+                    .fill(borderColor.opacity(currentColorScheme == .dark ? 0.04 : 0.025))
+            }
+            .shadow(color: panelShadowColor, radius: WindowConstants.panelShadowRadius + 4, x: 0, y: 6)
         )
         .overlay(
-            RoundedRectangle(cornerRadius: WindowConstants.panelCornerRadius, style: .continuous)
-                .stroke(borderColor.opacity(0.5), lineWidth: 1.0)
+            ZStack {
+                RoundedRectangle(cornerRadius: WindowConstants.panelCornerRadius, style: .continuous)
+                    .stroke(borderColor.opacity(currentColorScheme == .dark ? 0.30 : 0.16), lineWidth: 1.0)
+
+                RoundedRectangle(cornerRadius: WindowConstants.panelCornerRadius, style: .continuous)
+                    .stroke(panelInnerHighlight, lineWidth: 1.0)
+                    .padding(1)
+            }
         )
         .clipShape(RoundedRectangle(cornerRadius: WindowConstants.panelCornerRadius, style: .continuous))
-        .onHover { hovering in
-            isHovering = hovering
-        }
     }
 
     // MARK: - Header
@@ -135,6 +147,30 @@ struct OmniPanel<Content: View, MenuContent: View>: View {
         }
         .padding(.horizontal, WindowConstants.headerPadding)
         .padding(.vertical, 10)
-        .background(Color(nsColor: .separatorColor).opacity(0.05))
+        .background(panelHeaderFill)
+    }
+
+    private var panelBaseFill: Color {
+        if currentColorScheme == .dark {
+            return Color(nsColor: .windowBackgroundColor)
+        }
+
+        return Color(red: 0.989, green: 0.985, blue: 0.978)
+    }
+
+    private var panelHeaderFill: Color {
+        if currentColorScheme == .dark {
+            return Color.white.opacity(0.04)
+        }
+
+        return Color.black.opacity(0.025)
+    }
+
+    private var panelInnerHighlight: Color {
+        currentColorScheme == .dark ? Color.white.opacity(0.05) : Color.white.opacity(0.86)
+    }
+
+    private var panelShadowColor: Color {
+        Color.black.opacity(currentColorScheme == .dark ? 0.30 : WindowConstants.panelShadowOpacity + 0.06)
     }
 }

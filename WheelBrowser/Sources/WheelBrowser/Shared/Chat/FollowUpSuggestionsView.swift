@@ -7,35 +7,41 @@ struct FollowUpSuggestionsView: View {
 
     var body: some View {
         if !suggestions.isEmpty {
-            ScrollView(.horizontal, showsIndicators: false) {
-                HStack(spacing: 8) {
-                    ForEach(suggestions, id: \.self) { suggestion in
-                        Button(action: { onSelect(suggestion) }) {
-                            HStack(spacing: 4) {
-                                Image(systemName: "sparkle")
-                                    .font(.system(size: 9, weight: .medium))
-                                    .foregroundColor(.purple.opacity(0.7))
+            VStack(alignment: .leading, spacing: 8) {
+                Text("Continue with")
+                    .font(.system(size: 11, weight: .semibold))
+                    .foregroundColor(.secondary)
 
-                                Text(suggestion)
-                                    .font(.system(size: 12, weight: .medium))
-                                    .foregroundColor(.primary.opacity(0.8))
-                                    .lineLimit(1)
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: 8) {
+                        ForEach(suggestions, id: \.self) { suggestion in
+                            Button(action: { onSelect(suggestion) }) {
+                                HStack(spacing: 6) {
+                                    Image(systemName: "arrow.turn.down.right")
+                                        .font(.system(size: 10, weight: .semibold))
+                                        .foregroundColor(.secondary.opacity(0.8))
+
+                                    Text(suggestion)
+                                        .font(.system(size: 12.5, weight: .medium))
+                                        .foregroundColor(.primary.opacity(0.84))
+                                        .lineLimit(1)
+                                }
+                                .padding(.horizontal, 12)
+                                .padding(.vertical, 8)
+                                .background(
+                                    Capsule(style: .continuous)
+                                        .fill(.ultraThinMaterial)
+                                )
+                                .overlay(
+                                    Capsule(style: .continuous)
+                                        .stroke(Color(nsColor: .separatorColor).opacity(0.24), lineWidth: 1)
+                                )
                             }
-                            .padding(.horizontal, 12)
-                            .padding(.vertical, 7)
-                            .background(
-                                RoundedRectangle(cornerRadius: 16, style: .continuous)
-                                    .fill(Color(nsColor: .controlBackgroundColor).opacity(0.6))
-                            )
-                            .overlay(
-                                RoundedRectangle(cornerRadius: 16, style: .continuous)
-                                    .stroke(Color.purple.opacity(0.2), lineWidth: 1)
-                            )
+                            .buttonStyle(.plain)
                         }
-                        .buttonStyle(.plain)
                     }
+                    .padding(.vertical, 2)
                 }
-                .padding(.vertical, 4)
             }
         }
     }

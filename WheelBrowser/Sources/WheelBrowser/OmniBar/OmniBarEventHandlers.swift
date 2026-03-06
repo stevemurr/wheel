@@ -22,9 +22,11 @@ extension OmniBar {
         if OmniBarTabTransitionPolicy.shouldLatchEmptyTabIntoChat(
             tab: tab,
             currentMode: omniState.mode,
-            isInputFocused: isInputFocused
+            isInputFocused: isInputFocused,
+            hasExplicitChatFocusIntent: tab.hasExplicitChatFocusIntent
         ) {
             tab.isChatTab = true
+            tab.hasExplicitChatFocusIntent = false
         }
         // Permanently lock the latch once a message has been sent
         if tab.isChatTab && !tab.hasConversationStarted && !agentManager.messages.isEmpty {
@@ -34,6 +36,7 @@ extension OmniBar {
         // the user can switch back to NTP before sending their first message
         if tab.isChatTab && !tab.hasConversationStarted && tab.url == nil && omniState.mode != .chat {
             tab.isChatTab = false
+            tab.hasExplicitChatFocusIntent = false
         }
         let shouldBeActive = tab.url == nil && tab.isChatTab
         if agentManager.isFullPageChatActive != shouldBeActive {
@@ -107,6 +110,10 @@ extension OmniBar {
     // MARK: - Mode Change
 
     func handleModeChange(_ newMode: OmniBarMode) {
+        if newMode != .chat {
+            tab.hasExplicitChatFocusIntent = false
+        }
+
         // Clear search state for VMs not owned by the new mode
         clearSearchState(except: newMode)
 
@@ -157,7 +164,12 @@ extension OmniBar {
                 }
             }
             // Show panel last (animated)
-            if agentManager.isLoading || agentManager.isStreamingActive || !agentManager.messages.isEmpty {
+            if OmniBarChatPanelVisibilityPolicy.shouldShowPanel(
+                isSending: isSending,
+                isLoading: agentManager.isLoading,
+                isStreaming: agentManager.isStreamingActive,
+                hasMessages: !agentManager.messages.isEmpty
+            ) {
                 omniState.setVisiblePanel(.chat)
             } else {
                 // Dismiss any stale panel from the previous mode (e.g. history
@@ -258,6 +270,7 @@ extension OmniBar {
         withAnimation(AppAnimation.panelSpring) {
             isInputFocused = true
         }
+        tab.hasExplicitChatFocusIntent = true
         omniState.resetMentions(includeCurrentPage: tab.url != nil)
         omniState.setMode(.chat)
         // NOTE: Do NOT call setVisiblePanel here — setMode triggers
@@ -271,6 +284,7 @@ extension OmniBar {
         withAnimation(AppAnimation.panelSpring) {
             isInputFocused = true
         }
+        tab.hasExplicitChatFocusIntent = true
         omniState.resetMentions(includeCurrentPage: tab.url != nil)
         omniState.setMode(.chat)
     }
@@ -518,6 +532,7 @@ extension OmniBar: OmniBarKeyboardHandler {
             let wasChat = omniState.mode == .chat
             omniState.nextMode()
             if !wasChat && omniState.mode == .chat {
+                tab.hasExplicitChatFocusIntent = true
                 omniState.resetMentions(includeCurrentPage: tab.url != nil)
             }
             return true
@@ -527,6 +542,7 @@ extension OmniBar: OmniBarKeyboardHandler {
             let wasChat = omniState.mode == .chat
             omniState.previousMode()
             if !wasChat && omniState.mode == .chat {
+                tab.hasExplicitChatFocusIntent = true
                 omniState.resetMentions(includeCurrentPage: tab.url != nil)
             }
             return true

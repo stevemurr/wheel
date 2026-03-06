@@ -58,7 +58,7 @@ struct ContextMenuCardView: View {
             RoundedRectangle(cornerRadius: 10, style: .continuous)
                 .strokeBorder(Color(nsColor: .separatorColor), lineWidth: 0.5)
         )
-        .panelShadow(.elevated)
+        .shadow(color: Color.black.opacity(0.20), radius: 20, x: 0, y: 8)
     }
 
     private func isHighlighted(_ item: ContextMenuItem) -> Bool {

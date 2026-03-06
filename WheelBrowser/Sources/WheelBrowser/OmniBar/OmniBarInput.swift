@@ -64,6 +64,8 @@ extension OmniBar {
                         }
                     }
                 )
+                .frame(height: OmniBarTextEditor.lineHeight + OmniBarTextEditor.verticalPadding)
+                .fixedSize(horizontal: false, vertical: true)
             }
 
             // Action button (clear in address mode, send in chat mode)
@@ -76,21 +78,36 @@ extension OmniBar {
             maxWidth: shouldExpand ? OmniBarLayout.expandedMaxWidth : OmniBarLayout.collapsedMaxWidth
         )
         .background {
-            Capsule()
-                .fill(.ultraThinMaterial)
-                .shadow(
-                    color: isInputFocused ? omniState.modeColor.opacity(0.3) : Color.black.opacity(0.15),
-                    radius: isInputFocused ? 8 : 4,
-                    x: 0,
-                    y: 2
-                )
+            ZStack {
+                Capsule()
+                    .fill(inputPillBaseFill)
+
+                Capsule()
+                    .fill(.ultraThinMaterial)
+                    .opacity(currentColorScheme == .dark ? 0.22 : 0.14)
+
+                Capsule()
+                    .fill(inputPillTintOverlay)
+            }
+            .shadow(
+                color: inputPillShadowColor,
+                radius: isInputFocused ? 12 : 6,
+                x: 0,
+                y: isInputFocused ? 6 : 3
+            )
         }
         .overlay {
-            Capsule()
-                .strokeBorder(
-                    isInputFocused ? omniState.modeColor.opacity(0.6) : Color.primary.opacity(0.1),
-                    lineWidth: isInputFocused ? 2 : 1
-                )
+            ZStack {
+                Capsule()
+                    .strokeBorder(
+                        inputPillBorderColor,
+                        lineWidth: isInputFocused ? 1.5 : 1
+                    )
+
+                Capsule()
+                    .strokeBorder(inputPillInnerHighlight, lineWidth: 1)
+                    .padding(1.5)
+            }
         }
     }
 
@@ -184,6 +201,44 @@ extension OmniBar {
         AgentInlineStatusView(agentEngine: agentEngine) {
             omniState.setVisiblePanel(.agent)
         }
+    }
+
+    private var inputPillBaseFill: Color {
+        if currentColorScheme == .dark {
+            return Color(nsColor: .controlBackgroundColor).opacity(isInputFocused ? 0.92 : 0.84)
+        }
+
+        return Color(red: 0.985, green: 0.98, blue: 0.972)
+    }
+
+    private var inputPillTintOverlay: Color {
+        if currentColorScheme == .dark {
+            return omniState.modeColor.opacity(isInputFocused ? 0.10 : 0.04)
+        }
+
+        return omniState.modeColor.opacity(isInputFocused ? 0.07 : 0.03)
+    }
+
+    private var inputPillBorderColor: Color {
+        if isInputFocused {
+            return omniState.modeColor.opacity(currentColorScheme == .dark ? 0.58 : 0.42)
+        }
+
+        return currentColorScheme == .dark
+            ? Color.white.opacity(0.10)
+            : Color.black.opacity(0.08)
+    }
+
+    private var inputPillInnerHighlight: Color {
+        currentColorScheme == .dark ? Color.white.opacity(0.06) : Color.white.opacity(0.82)
+    }
+
+    private var inputPillShadowColor: Color {
+        if isInputFocused {
+            return omniState.modeColor.opacity(currentColorScheme == .dark ? 0.18 : 0.14)
+        }
+
+        return Color.black.opacity(currentColorScheme == .dark ? 0.18 : 0.10)
     }
 }
 

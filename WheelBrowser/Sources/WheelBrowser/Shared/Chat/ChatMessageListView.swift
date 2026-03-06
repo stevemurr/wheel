@@ -28,7 +28,7 @@ struct ChatMessageListView: View {
     var body: some View {
         ScrollViewReader { proxy in
             ScrollView(showsIndicators: true) {
-                LazyVStack(spacing: 8) {
+                LazyVStack(spacing: compact ? 10 : 18) {
                     if agentManager.messages.isEmpty {
                         emptyState
                     } else {
@@ -37,11 +37,11 @@ struct ChatMessageListView: View {
                         scrollAnchor
                     }
                 }
-                .padding(.horizontal, compact ? 14 : 24)
-                .padding(.top, compact ? 12 : 40)
-                .padding(.bottom, compact ? 12 : 80)
+                .padding(.horizontal, compact ? 14 : 28)
+                .padding(.top, compact ? 12 : 28)
+                .padding(.bottom, compact ? 12 : 96)
                 .if(!compact) { view in
-                    view.frame(maxWidth: 700).frame(maxWidth: .infinity)
+                    view.frame(maxWidth: 760, alignment: .leading).frame(maxWidth: .infinity)
                 }
             }
             .onChange(of: agentManager.messages.count) { _, _ in
@@ -92,6 +92,7 @@ struct ChatMessageListView: View {
             VStack(alignment: .leading, spacing: 4) {
                 ChatPanelMessageBubble(
                     message: message,
+                    compact: compact,
                     onEdit: { newContent in
                         Task {
                             await agentManager.editAndResend(

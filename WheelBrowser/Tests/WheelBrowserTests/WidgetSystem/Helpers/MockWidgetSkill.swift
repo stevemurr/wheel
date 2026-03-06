@@ -27,10 +27,10 @@ final class MockWidgetSkill: WidgetSkill, @unchecked Sendable {
     }
 
     func execute(params: [String: Any]) async throws -> Any {
-        lock.lock()
-        invocationCount += 1
-        lastParams = params
-        lock.unlock()
+        lock.withLock {
+            invocationCount += 1
+            lastParams = params
+        }
 
         if delay > 0 {
             try await Task.sleep(nanoseconds: UInt64(delay * 1_000_000_000))

@@ -113,7 +113,7 @@ struct ArtifactPanelView: View {
     private var markdownView: some View {
         ScrollView {
             Markdown(artifact.content)
-                .markdownTheme(ChatMarkdownTheme.assistantTheme)
+                .markdownTheme(ChatMarkdownTheme.assistantTheme(compact: false))
                 .textSelection(.enabled)
                 .padding(14)
         }

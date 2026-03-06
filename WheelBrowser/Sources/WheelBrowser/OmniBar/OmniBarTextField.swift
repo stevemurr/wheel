@@ -1,6 +1,16 @@
 import SwiftUI
 import AppKit
 
+private enum OmniBarSingleLineLayout {
+    static let height: CGFloat = OmniBarTextEditor.lineHeight + OmniBarTextEditor.verticalPadding
+
+    static func verticalInset(for textView: NSTextView) -> CGFloat {
+        let font = textView.font ?? NSFont.systemFont(ofSize: 13)
+        let lineHeight = textView.layoutManager?.defaultLineHeight(for: font) ?? font.ascender - font.descender + font.leading
+        return max(0, floor((height - lineHeight) / 2))
+    }
+}
+
 /// Protocol for handling keyboard commands from the OmniBar text field.
 /// The parent view provides the implementation, absorbing mode-specific logic
 /// that previously required passing multiple ViewModels as parameters.
@@ -28,7 +38,7 @@ struct OmniBarTextField: NSViewRepresentable {
     var onAtDismiss: () -> Void
 
     func makeNSView(context: Context) -> NSScrollView {
-        let scrollView = NSScrollView()
+        let scrollView = CommandTextScrollView()
         scrollView.hasVerticalScroller = false
         scrollView.hasHorizontalScroller = false
         scrollView.drawsBackground = false
@@ -46,17 +56,22 @@ struct OmniBarTextField: NSViewRepresentable {
         textView.drawsBackground = false
         textView.isVerticallyResizable = false
         textView.isHorizontallyResizable = true
+        textView.minSize = NSSize(width: 0, height: OmniBarSingleLineLayout.height)
+        textView.maxSize = NSSize(width: CGFloat.greatestFiniteMagnitude, height: OmniBarSingleLineLayout.height)
+        textView.frame = NSRect(x: 0, y: 0, width: 0, height: OmniBarSingleLineLayout.height)
         textView.autoresizingMask = [.width]
-        textView.textContainerInset = NSSize(width: 0, height: 1)
         textView.textContainer?.containerSize = NSSize(
             width: CGFloat.greatestFiniteMagnitude,
-            height: CGFloat.greatestFiniteMagnitude
+            height: OmniBarSingleLineLayout.height
         )
         textView.textContainer?.widthTracksTextView = false
+        textView.textContainer?.heightTracksTextView = true
         textView.textContainer?.lineFragmentPadding = 0
         OmniBarTextInputConfigurator.configure(textView)
+        textView.textContainerInset = NSSize(width: 0, height: OmniBarSingleLineLayout.verticalInset(for: textView))
 
         scrollView.documentView = textView
+        scrollView.frame.size.height = OmniBarSingleLineLayout.height
         context.coordinator.textView = textView
         context.coordinator.scrollView = scrollView
 
@@ -73,6 +88,7 @@ struct OmniBarTextField: NSViewRepresentable {
         }
 
         OmniBarTextInputConfigurator.configure(textView)
+        textView.textContainerInset = NSSize(width: 0, height: OmniBarSingleLineLayout.verticalInset(for: textView))
         context.coordinator.updatePlaceholder()
         requestFocusIfNeeded(for: textView, coordinator: context.coordinator)
     }
@@ -123,6 +139,12 @@ struct OmniBarTextField: NSViewRepresentable {
                 return
             }
             super.doCommand(by: selector)
+        }
+    }
+
+    final class CommandTextScrollView: NSScrollView {
+        override var intrinsicContentSize: NSSize {
+            NSSize(width: NSView.noIntrinsicMetric, height: OmniBarSingleLineLayout.height)
         }
     }
 
@@ -200,7 +222,7 @@ struct OmniBarTextField: NSViewRepresentable {
                     textView.addSubview(label)
                     NSLayoutConstraint.activate([
                         label.leadingAnchor.constraint(equalTo: textView.leadingAnchor, constant: textView.textContainerInset.width),
-                        label.topAnchor.constraint(equalTo: textView.topAnchor, constant: textView.textContainerInset.height)
+                        label.centerYAnchor.constraint(equalTo: textView.centerYAnchor)
                     ])
                     placeholderLabel = label
                 }

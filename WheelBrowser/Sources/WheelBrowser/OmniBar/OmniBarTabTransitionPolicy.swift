@@ -8,9 +8,13 @@ enum OmniBarTabTransitionPolicy {
     static func shouldLatchEmptyTabIntoChat(
         tab: Tab,
         currentMode: OmniBarMode,
-        isInputFocused: Bool
+        isInputFocused: Bool,
+        hasExplicitChatFocusIntent: Bool
     ) -> Bool {
-        shouldPreferNewTabPage(for: tab) && currentMode == .chat && isInputFocused
+        shouldPreferNewTabPage(for: tab)
+            && currentMode == .chat
+            && isInputFocused
+            && hasExplicitChatFocusIntent
     }
 
     private static func shouldPreferNewTabPage(for tab: Tab) -> Bool {

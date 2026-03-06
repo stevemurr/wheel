@@ -35,11 +35,11 @@ struct CodeBlockView: View {
             // Code content
             codeContent
         }
-        .background(Color(nsColor: .textBackgroundColor).opacity(0.8))
-        .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+        .background(Color(nsColor: .controlBackgroundColor).opacity(0.52))
+        .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
         .overlay(
-            RoundedRectangle(cornerRadius: 8, style: .continuous)
-                .stroke(Color(nsColor: .separatorColor).opacity(0.2), lineWidth: 0.5)
+            RoundedRectangle(cornerRadius: 10, style: .continuous)
+                .stroke(Color(nsColor: .separatorColor).opacity(0.24), lineWidth: 1)
         )
         .onHover { hovering in
             isHovered = hovering
@@ -72,7 +72,7 @@ struct CodeBlockView: View {
         }
         .padding(.horizontal, 10)
         .padding(.vertical, 6)
-        .background(Color(nsColor: .controlBackgroundColor).opacity(0.4))
+        .background(Color(nsColor: .windowBackgroundColor).opacity(0.45))
     }
 
     // MARK: - Code Content

@@ -47,6 +47,7 @@ extension OmniBar {
         ChatOmniPanel(
             agentManager: agentManager,
             omniState: omniState,
+            isSending: isSending,
             onDismiss: { omniState.dismissVisiblePanel() },
             onPopulateInput: { text in
                 omniState.inputText = text
@@ -162,21 +163,36 @@ struct HistoryPanelContent: View {
 
 struct ChatPanelContent: View {
     var agentManager: AgentManager
+    var isSending: Bool
     var onSubmitPrompt: ((String) -> Void)?
 
     var body: some View {
-        ChatMessageListView(
-            agentManager: agentManager,
-            onSubmitPrompt: onSubmitPrompt,
-            onSelectArtifact: { artifact in
-                agentManager.selectedArtifact = artifact
-            },
-            compact: true
-        )
+        Group {
+            if isSending && agentManager.messages.isEmpty {
+                VStack(spacing: 10) {
+                    ProgressView()
+                        .controlSize(.regular)
+
+                    Text("Preparing response…")
+                        .font(.system(size: 13, weight: .medium))
+                        .foregroundColor(.secondary)
+                }
+                .frame(maxWidth: .infinity, minHeight: 180)
+            } else {
+                ChatMessageListView(
+                    agentManager: agentManager,
+                    onSubmitPrompt: onSubmitPrompt,
+                    onSelectArtifact: { artifact in
+                        agentManager.selectedArtifact = artifact
+                    },
+                    compact: true
+                )
+            }
+        }
     }
 
     var subtitle: String? {
-        if agentManager.isLoading {
+        if isSending || agentManager.isLoading {
             return "Thinking..."
         }
         return nil
@@ -190,6 +206,7 @@ struct ChatPanelContent: View {
 private struct ChatOmniPanel: View {
     var agentManager: AgentManager
     var omniState: OmniBarState
+    var isSending: Bool
     var onDismiss: () -> Void
     var onPopulateInput: ((String) -> Void)?
 
@@ -204,7 +221,7 @@ private struct ChatOmniPanel: View {
                 icon: "bubble.left.and.bubble.right.fill",
                 iconColor: .purple,
                 borderColor: .purple,
-                subtitle: agentManager.isLoading ? "Thinking..." : nil,
+                subtitle: isSending || agentManager.isLoading ? "Thinking..." : nil,
                 menuContent: {
                     Button("Clear Chat") { agentManager.clearMessages() }
                     Divider()
@@ -214,7 +231,11 @@ private struct ChatOmniPanel: View {
                 },
                 onDismiss: onDismiss
             ) {
-                ChatPanelContent(agentManager: agentManager, onSubmitPrompt: onPopulateInput)
+                ChatPanelContent(
+                    agentManager: agentManager,
+                    isSending: isSending,
+                    onSubmitPrompt: onPopulateInput
+                )
             }
             .modifier(PanelWrapperModifier())
         }

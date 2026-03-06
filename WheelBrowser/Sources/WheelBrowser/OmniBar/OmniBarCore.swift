@@ -6,6 +6,7 @@ struct OmniBar: View {
     var agentManager: AgentManager
     var browserState: BrowserState
     var agentEngine: AgentEngine
+    @Environment(\.colorScheme) var currentColorScheme
     @State var omniState = OmniBarState()
     @State var suggestionsVM = SuggestionsViewModel()
     @State var semanticSearchVM = SemanticSearchViewModel()
@@ -141,7 +142,7 @@ struct OmniBar: View {
                     .zIndex(100)
 
                 // Panel toggle buttons for modes with content
-                ChatPanelToggle(agentManager: agentManager, omniState: omniState)
+                ChatPanelToggle(agentManager: agentManager, omniState: omniState, isSending: isSending)
                 panelToggle(for: .semantic, hasContent: !semanticSearchVM.results.isEmpty)
                 AgentPanelToggle(agentEngine: agentEngine, omniState: omniState)
                 panelToggle(for: .readingList, hasContent: !readingListVM.items.isEmpty)
@@ -237,9 +238,15 @@ struct OmniBar: View {
 private struct ChatPanelToggle: View {
     var agentManager: AgentManager
     var omniState: OmniBarState
+    var isSending: Bool
 
     var body: some View {
-        if omniState.mode == .chat && (agentManager.isLoading || !agentManager.messages.isEmpty) {
+        if omniState.mode == .chat && OmniBarChatPanelVisibilityPolicy.shouldShowPanel(
+            isSending: isSending,
+            isLoading: agentManager.isLoading,
+            isStreaming: agentManager.isStreamingActive,
+            hasMessages: !agentManager.messages.isEmpty
+        ) {
             let panel = OmniBarMode.chat.correspondingPanel
             PanelToggleButton(isExpanded: omniState.visiblePanel == panel) {
                 if omniState.visiblePanel == panel {
