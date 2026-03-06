@@ -2,8 +2,8 @@ import SwiftUI
 
 /// UI for displaying browsing history specific to the current workspace
 struct WorkspaceHistoryView: View {
-    @ObservedObject private var browsingHistory = BrowsingHistory.shared
-    @ObservedObject private var workspaceManager = WorkspaceManager.shared
+    private var browsingHistory = BrowsingHistory.shared
+    private var workspaceManager = WorkspaceManager.shared
 
     @State private var searchText = ""
     @State private var hoveredEntryID: UUID?

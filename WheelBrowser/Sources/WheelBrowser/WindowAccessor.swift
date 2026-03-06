@@ -126,13 +126,6 @@ final class TrafficLightPillView: NSView {
         wantsLayer = true
         setupAppearance()
 
-        // Observe appearance changes for dark/light mode support
-        NotificationCenter.default.addObserver(
-            self,
-            selector: #selector(appearanceDidChange),
-            name: NSApplication.didChangeOcclusionStateNotification,
-            object: nil
-        )
     }
 
     required init?(coder: NSCoder) {
@@ -161,17 +154,13 @@ final class TrafficLightPillView: NSView {
         updateColors()
     }
 
-    @objc private func appearanceDidChange() {
-        updateColors()
-    }
-
     private func updateColors() {
         layer?.backgroundColor = NSColor.black.withAlphaComponent(0.06).cgColor
     }
 }
 
 class FocusableView: NSView {
-    override var acceptsFirstResponder: Bool { true }
+    override var acceptsFirstResponder: Bool { false }
 
     override func mouseDown(with event: NSEvent) {
         window?.makeKey()

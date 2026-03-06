@@ -56,6 +56,11 @@ final class PageLifecycleHandler {
             indexPage(webView, url, title, workspaceID)
         }
 
+        // Inject module content scripts and CSS for matching modules
+        if let url = webView.url {
+            ModuleInjectionHandler.shared.injectModules(into: webView, for: url)
+        }
+
         // Capture screenshot for tab preview after a short delay
         let captureTab = tab
         let screenshotTask = Task { @MainActor in

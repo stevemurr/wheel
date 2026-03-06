@@ -1,9 +1,9 @@
 import SwiftUI
 
 struct TabWheelView: View {
-    @ObservedObject var browserState: BrowserState
-    @ObservedObject var wheelState: TabWheelState
-    @ObservedObject var screenshotManager = TabScreenshotManager.shared
+    var browserState: BrowserState
+    var wheelState: TabWheelState
+    var screenshotManager = TabScreenshotManager.shared
     let onSelectTab: (UUID) -> Void
     let onDismiss: () -> Void
 

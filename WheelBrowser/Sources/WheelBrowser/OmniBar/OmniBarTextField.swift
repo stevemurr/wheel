@@ -80,11 +80,14 @@ struct OmniBarTextField: NSViewRepresentable {
         func controlTextDidBeginEditing(_ obj: Notification) {
             isEditing = true
             DispatchQueue.main.async {
-                // No withAnimation here — the implicit .animation() on omniBarContent
-                // handles pill expansion, and setVisiblePanel() handles panel transitions.
-                // Wrapping this in withAnimation created a third overlapping animation
-                // context that fought with those two, producing a flash on first focus.
-                self.parent.isFocused = true
+                // Wrap in withAnimation so pill expansion (width, border, shadow)
+                // animates smoothly alongside the panel open from setVisiblePanel().
+                // This was previously forbidden because it overlapped with the
+                // .animation() modifier on omniBarContent — but that modifier has
+                // been removed, so this is now the sole animation driver for focus gain.
+                withAnimation(AppAnimation.panelSpring) {
+                    self.parent.isFocused = true
+                }
             }
         }
 
@@ -151,6 +154,41 @@ struct OmniBarTextField: NSViewRepresentable {
             }
 
             return parent.keyboardHandler.handleKeyboardCommand(command, mode: parent.mode, text: parent.text)
+        }
+    }
+}
+
+// MARK: - Keyboard Command
+
+/// Typed representation of NSResponder keyboard selectors used in the OmniBar.
+enum KeyboardCommand {
+    case moveUp
+    case moveDown
+    case submit
+    case escape
+    case tab
+    case shiftTab
+    case deleteBackward
+
+    /// Converts an NSResponder selector to a typed `KeyboardCommand`, if recognized.
+    static func from(selector: Selector) -> KeyboardCommand? {
+        switch selector {
+        case #selector(NSResponder.moveUp(_:)):
+            return .moveUp
+        case #selector(NSResponder.moveDown(_:)):
+            return .moveDown
+        case #selector(NSResponder.insertNewline(_:)):
+            return .submit
+        case #selector(NSResponder.cancelOperation(_:)):
+            return .escape
+        case #selector(NSResponder.insertTab(_:)):
+            return .tab
+        case #selector(NSResponder.insertBacktab(_:)):
+            return .shiftTab
+        case #selector(NSResponder.deleteBackward(_:)):
+            return .deleteBackward
+        default:
+            return nil
         }
     }
 }

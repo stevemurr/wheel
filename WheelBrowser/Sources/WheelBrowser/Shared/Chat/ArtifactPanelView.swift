@@ -87,7 +87,7 @@ struct ArtifactPanelView: View {
     }
 
     private var codeView: some View {
-        ScrollView([.horizontal, .vertical]) {
+        ScrollView(.vertical) {
             VStack(alignment: .leading, spacing: 0) {
                 let lines = artifact.content.components(separatedBy: "\n")
                 ForEach(Array(lines.enumerated()), id: \.offset) { index, line in
@@ -120,7 +120,7 @@ struct ArtifactPanelView: View {
     }
 
     private var jsonView: some View {
-        ScrollView([.horizontal, .vertical]) {
+        ScrollView(.vertical) {
             let prettyPrinted = prettyPrintJSON(artifact.content)
             let lines = prettyPrinted.components(separatedBy: "\n")
             VStack(alignment: .leading, spacing: 0) {
@@ -143,7 +143,7 @@ struct ArtifactPanelView: View {
     }
 
     private var htmlView: some View {
-        ScrollView([.horizontal, .vertical]) {
+        ScrollView(.vertical) {
             Text(SyntaxHighlighter.highlight(artifact.content, language: "html"))
                 .font(.system(size: 12, design: .monospaced))
                 .textSelection(.enabled)

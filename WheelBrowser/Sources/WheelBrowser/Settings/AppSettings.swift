@@ -29,14 +29,11 @@ enum AppearanceMode: String, CaseIterable {
 class AppSettings: ObservableObject, @unchecked Sendable {
     static let shared = AppSettings()
 
-    @AppStorage("lettaServerURL") var lettaServerURL: String = "http://localhost:8283"
-
     // MARK: - System Prompt Customization
 
     /// Custom system prompt for chat assistant. Empty string uses the default.
     @AppStorage("chatSystemPrompt") var chatSystemPrompt: String = ""
     @AppStorage("sidebarVisible") var sidebarVisible: Bool = false
-    @AppStorage("agentId") var agentId: String = ""
 
     // MARK: - Semantic Search Configuration
 

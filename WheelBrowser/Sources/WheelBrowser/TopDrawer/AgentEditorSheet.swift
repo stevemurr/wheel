@@ -3,7 +3,7 @@ import SwiftUI
 /// Modal sheet for creating or editing an agent
 struct AgentEditorSheet: View {
     @Environment(\.dismiss) private var dismiss
-    @ObservedObject var manager: AgentStudioManager
+    var manager: AgentStudioManager
 
     // Editing state
     let existingAgent: AgentConfig?

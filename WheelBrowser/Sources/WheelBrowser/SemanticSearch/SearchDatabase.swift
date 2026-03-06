@@ -130,38 +130,37 @@ actor SearchDatabase {
     }
 
     private func createSchema() throws {
-        let schema = """
-        CREATE TABLE IF NOT EXISTS pages (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            url TEXT NOT NULL UNIQUE,
-            title TEXT,
-            domain TEXT,
-            full_text TEXT,
-            summary TEXT,
-            first_visited_at INTEGER NOT NULL,
-            last_visited_at INTEGER NOT NULL,
-            visit_count INTEGER DEFAULT 1,
-            workspace_id TEXT,
-            is_saved INTEGER DEFAULT 0,
-            saved_at INTEGER
-        );
+        // Migrate old DIndex pages table BEFORE creating indexes/FTS (which reference
+        // columns that don't exist in the old schema). If migration detects old schema,
+        // it drops and recreates everything, so the IF NOT EXISTS below become no-ops.
+        try runMigrations()
 
-        CREATE INDEX IF NOT EXISTS idx_pages_domain ON pages(domain);
-        CREATE INDEX IF NOT EXISTS idx_pages_last_visited ON pages(last_visited_at DESC);
-        CREATE INDEX IF NOT EXISTS idx_pages_workspace ON pages(workspace_id);
+        try execute("""
+            CREATE TABLE IF NOT EXISTS pages (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                url TEXT NOT NULL UNIQUE,
+                title TEXT,
+                domain TEXT,
+                full_text TEXT,
+                summary TEXT,
+                first_visited_at INTEGER NOT NULL DEFAULT 0,
+                last_visited_at INTEGER NOT NULL DEFAULT 0,
+                visit_count INTEGER DEFAULT 1,
+                workspace_id TEXT,
+                is_saved INTEGER DEFAULT 0,
+                saved_at INTEGER
+            )
+        """)
 
-        CREATE VIRTUAL TABLE IF NOT EXISTS pages_fts USING fts5(
-            title,
-            summary,
-            tokenize='porter unicode61'
-        );
-        """
+        try execute("CREATE INDEX IF NOT EXISTS idx_pages_domain ON pages(domain)")
+        try execute("CREATE INDEX IF NOT EXISTS idx_pages_last_visited ON pages(last_visited_at DESC)")
+        try execute("CREATE INDEX IF NOT EXISTS idx_pages_workspace ON pages(workspace_id)")
 
-        for statement in schema.components(separatedBy: ";") {
-            let trimmed = statement.trimmingCharacters(in: .whitespacesAndNewlines)
-            guard !trimmed.isEmpty else { continue }
-            try execute(trimmed)
-        }
+        try execute("""
+            CREATE VIRTUAL TABLE IF NOT EXISTS pages_fts USING fts5(
+                title, summary, tokenize='porter unicode61'
+            )
+        """)
 
         // FTS triggers
         try execute("""
@@ -183,33 +182,89 @@ actor SearchDatabase {
             END
         """)
 
-        try runMigrations()
         try execute("CREATE INDEX IF NOT EXISTS idx_pages_saved ON pages(is_saved, saved_at DESC) WHERE is_saved = 1")
     }
 
     private func runMigrations() throws {
-        var stmt: OpaquePointer?
-        defer { sqlite3_finalize(stmt) }
+        // Collect existing column names (finalize stmt before any DDL to avoid SQLITE_LOCKED)
+        let columns: Set<String> = {
+            var stmt: OpaquePointer?
+            defer { sqlite3_finalize(stmt) }
 
-        guard sqlite3_prepare_v2(db, "PRAGMA table_info(pages)", -1, &stmt, nil) == SQLITE_OK else {
+            guard sqlite3_prepare_v2(db, "PRAGMA table_info(pages)", -1, &stmt, nil) == SQLITE_OK else {
+                return []
+            }
+
+            var names = Set<String>()
+            while sqlite3_step(stmt) == SQLITE_ROW {
+                if let namePtr = sqlite3_column_text(stmt, 1) {
+                    names.insert(String(cString: namePtr))
+                }
+            }
+            return names
+        }()
+
+        guard !columns.isEmpty else { return }
+
+        // If `domain` is missing, the pages table is from old DIndex (only id/url/title).
+        // Drop and recreate — old DIndex page data isn't valuable enough to migrate,
+        // and NOT NULL columns can't be added via ALTER TABLE without defaults.
+        if !columns.contains("domain") {
+            try execute("DROP TRIGGER IF EXISTS pages_fts_insert")
+            try execute("DROP TRIGGER IF EXISTS pages_fts_update")
+            try execute("DROP TRIGGER IF EXISTS pages_fts_delete")
+            try execute("DROP TABLE IF EXISTS pages_fts")
+            try execute("DROP TABLE IF EXISTS pages")
+            // Recreate via createSchema on next call — but since we're called FROM
+            // createSchema, we need to create them here directly.
+            try execute("""
+                CREATE TABLE pages (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    url TEXT NOT NULL UNIQUE,
+                    title TEXT,
+                    domain TEXT,
+                    full_text TEXT,
+                    summary TEXT,
+                    first_visited_at INTEGER NOT NULL DEFAULT 0,
+                    last_visited_at INTEGER NOT NULL DEFAULT 0,
+                    visit_count INTEGER DEFAULT 1,
+                    workspace_id TEXT,
+                    is_saved INTEGER DEFAULT 0,
+                    saved_at INTEGER
+                )
+            """)
+            try execute("CREATE INDEX IF NOT EXISTS idx_pages_domain ON pages(domain)")
+            try execute("CREATE INDEX IF NOT EXISTS idx_pages_last_visited ON pages(last_visited_at DESC)")
+            try execute("CREATE INDEX IF NOT EXISTS idx_pages_workspace ON pages(workspace_id)")
+            try execute("""
+                CREATE VIRTUAL TABLE pages_fts USING fts5(
+                    title, summary, tokenize='porter unicode61'
+                )
+            """)
+            try execute("""
+                CREATE TRIGGER pages_fts_insert AFTER INSERT ON pages BEGIN
+                    INSERT INTO pages_fts(rowid, title, summary) VALUES (new.id, new.title, new.summary);
+                END
+            """)
+            try execute("""
+                CREATE TRIGGER pages_fts_update AFTER UPDATE OF title, summary ON pages BEGIN
+                    DELETE FROM pages_fts WHERE rowid = old.id;
+                    INSERT INTO pages_fts(rowid, title, summary) VALUES (new.id, new.title, new.summary);
+                END
+            """)
+            try execute("""
+                CREATE TRIGGER pages_fts_delete AFTER DELETE ON pages BEGIN
+                    DELETE FROM pages_fts WHERE rowid = old.id;
+                END
+            """)
             return
         }
 
-        var hasIsSaved = false
-        var hasSavedAt = false
-
-        while sqlite3_step(stmt) == SQLITE_ROW {
-            if let namePtr = sqlite3_column_text(stmt, 1) {
-                let name = String(cString: namePtr)
-                if name == "is_saved" { hasIsSaved = true }
-                if name == "saved_at" { hasSavedAt = true }
-            }
-        }
-
-        if !hasIsSaved {
+        // Incremental column additions for tables that already have the new schema
+        if !columns.contains("is_saved") {
             try execute("ALTER TABLE pages ADD COLUMN is_saved INTEGER DEFAULT 0")
         }
-        if !hasSavedAt {
+        if !columns.contains("saved_at") {
             try execute("ALTER TABLE pages ADD COLUMN saved_at INTEGER")
         }
     }

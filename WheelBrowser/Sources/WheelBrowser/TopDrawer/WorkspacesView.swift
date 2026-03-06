@@ -2,7 +2,7 @@ import SwiftUI
 
 /// UI for displaying and managing workspaces in the top drawer
 struct WorkspacesView: View {
-    @ObservedObject private var workspaceManager = WorkspaceManager.shared
+    private var workspaceManager = WorkspaceManager.shared
     @State private var isCreatingWorkspace = false
     @State private var editingWorkspace: Workspace?
     @State private var showingDeleteConfirmation: Workspace?
@@ -260,7 +260,7 @@ struct WorkspaceEditorSheet: View {
     let onSave: (String, String, String, UUID?) -> Void
     let onCancel: () -> Void
 
-    @ObservedObject private var agentStudioManager = AgentStudioManager.shared
+    var agentStudioManager = AgentStudioManager.shared
 
     @State private var name: String = ""
     @State private var selectedIcon: String = "folder"

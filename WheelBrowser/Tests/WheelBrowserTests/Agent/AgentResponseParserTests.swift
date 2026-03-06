@@ -256,26 +256,6 @@ struct AgentResponseParserTests {
         #expect(action == .click(elementId: 5))
     }
 
-    // MARK: - parseAction: scrape
-
-    @Test("Parses scrape with double-quoted URL")
-    func scrapeDoubleQuoted() {
-        let action = AgentResponseParser.parseAction(#"scrape("https://example.com", 2, 100)"#)
-        #expect(action == .scrape(url: "https://example.com", depth: 2, maxPages: 100))
-    }
-
-    @Test("Parses scrape with single-quoted URL")
-    func scrapeSingleQuoted() {
-        let action = AgentResponseParser.parseAction("scrape('https://example.com/path', 1, 50)")
-        #expect(action == .scrape(url: "https://example.com/path", depth: 1, maxPages: 50))
-    }
-
-    @Test("Parses scrape with whitespace variations")
-    func scrapeWhitespace() {
-        let action = AgentResponseParser.parseAction(#"scrape( "https://example.com" , 3 , 200 )"#)
-        #expect(action == .scrape(url: "https://example.com", depth: 3, maxPages: 200))
-    }
-
     // MARK: - parseAction: new_tab
 
     @Test("Parses new_tab")

@@ -148,8 +148,12 @@ struct OmniBarTextEditor: NSViewRepresentable {
         func textDidBeginEditing(_ notification: Notification) {
             isEditing = true
             DispatchQueue.main.async {
-                // No withAnimation — Rule 11
-                self.parent.isFocused = true
+                // Wrap in withAnimation so pill expansion animates smoothly
+                // alongside the panel open. Safe now that .animation() was
+                // removed from omniBarContent (no overlapping contexts).
+                withAnimation(AppAnimation.panelSpring) {
+                    self.parent.isFocused = true
+                }
             }
         }
 

@@ -1,39 +1,16 @@
 import SwiftUI
 
-/// Animation state scoped to `omniBarContent` only (not the parent VStack).
-/// Similarly, the find-bar animation is scoped to a Group wrapper around
-/// `OmniBarFindBar`. Both modifiers are kept off the parent VStack so that
-/// panel transitions are driven solely by explicit `withAnimation` in
-/// `setVisiblePanel()`/`dismissVisiblePanel()`. Placing either animation on
-/// the VStack would cause panels to receive two overlapping animation
-/// contexts, producing a visual flash on first activation.
-///
-/// NOTE: `isInputFocused` was intentionally removed from this struct.
-/// Including it caused the `.animation()` modifier on `omniBarContent` to
-/// fire on every focus change — even when `shouldExpand` was already true
-/// (e.g. cursor hovering). This created a second animation context that
-/// competed with `setVisiblePanel()`'s `withAnimation`, producing a flash
-/// when the history panel first opened. The pill's focus-dependent visual
-/// changes (shadow, border color, icon tint) are subtle enough to change
-/// instantly without animation.
-private struct OmniBarAnimationState: Equatable {
-    let shouldExpand: Bool
-}
-
 /// The OmniBar - a unified input bar for URL navigation, AI chat, and semantic search
 struct OmniBar: View {
-    @ObservedObject var tab: Tab
+    var tab: Tab
     var agentManager: AgentManager
-    @ObservedObject var browserState: BrowserState
+    var browserState: BrowserState
     var agentEngine: AgentEngine
-    @StateObject var omniState = OmniBarState()
-    @StateObject var suggestionsVM = SuggestionsViewModel()
-    @StateObject var semanticSearchVM = SemanticSearchViewModel()
-    @StateObject var mentionSuggestionsVM = MentionSuggestionsViewModel()
-    @StateObject var readingListVM = ReadingListViewModel()
-    @ObservedObject var semanticSearchManager = SemanticSearchManagerV2.shared
-    @ObservedObject var downloadManager = DownloadManager.shared
-    @ObservedObject var scrapeManager = ScrapeManager.shared
+    @State var omniState = OmniBarState()
+    @State var suggestionsVM = SuggestionsViewModel()
+    @State var semanticSearchVM = SemanticSearchViewModel()
+    @State var mentionSuggestionsVM = MentionSuggestionsViewModel()
+    @State var readingListVM = ReadingListViewModel()
 
     let contentExtractor: ContentExtractor
 
@@ -56,7 +33,6 @@ struct OmniBar: View {
     var isSemanticPanelVisible: Bool { omniState.isPanelVisible(for: .semantic) }
     var isAgentPanelVisible: Bool { omniState.isPanelVisible(for: .agent) }
     var isReadingListPanelVisible: Bool { omniState.isPanelVisible(for: .readingList) }
-    var isScrapingPanelVisible: Bool { omniState.isPanelVisible(for: .scraping) }
 
 
     var body: some View {
@@ -82,14 +58,20 @@ struct OmniBar: View {
             }
             .animation(AppAnimation.standard, value: tab.isFindBarVisible)
 
-            // OmniBar itself
+            // OmniBar itself — NO .animation() modifier here.
+            // The implicit .animation() created an animation context that overlapped
+            // with setVisiblePanel()'s withAnimation when focus was gained, because
+            // .animation(_:value:) animates ALL state changes in the view when the
+            // value changes — not just shouldExpand-derived changes. This double
+            // animation context produced the flash. Hover expansion is animated
+            // explicitly below; focus-driven expansion is instant (the user is
+            // typically already hovering, and the panel animation dominates).
             omniBarContent
-                .animation(AppAnimation.panelSpring, value: OmniBarAnimationState(
-                    shouldExpand: shouldExpand
-                ))
         }
         .onHover { hovering in
-            isHovering = hovering
+            withAnimation(AppAnimation.panelSpring) {
+                isHovering = hovering
+            }
         }
         .onChange(of: tab.url) { _, newURL in handleURLChange(newURL) }
         .onChange(of: tab.id) { _, _ in
@@ -120,7 +102,9 @@ struct OmniBar: View {
                 if omniState.mode != .chat {
                     omniState.setMode(.chat)
                 }
-                isInputFocused = true
+                withAnimation(AppAnimation.panelSpring) {
+                    isInputFocused = true
+                }
             }
         }
         .onAppear {
@@ -249,7 +233,7 @@ struct OmniBar: View {
 /// not the entire OmniBar body.
 private struct ChatPanelToggle: View {
     var agentManager: AgentManager
-    @ObservedObject var omniState: OmniBarState
+    var omniState: OmniBarState
 
     var body: some View {
         if omniState.mode == .chat && !agentManager.messages.isEmpty {
@@ -270,7 +254,7 @@ private struct ChatPanelToggle: View {
 /// Extracted from OmniBar to isolate `agentEngine.steps` and `agentEngine.isRunning` reads.
 private struct AgentPanelToggle: View {
     var agentEngine: AgentEngine
-    @ObservedObject var omniState: OmniBarState
+    var omniState: OmniBarState
 
     var body: some View {
         if omniState.mode == .agent && (!agentEngine.steps.isEmpty || agentEngine.isRunning) {
@@ -306,10 +290,6 @@ private struct OmniBarNotificationModifier: ViewModifier {
             .onReceive(NotificationCenter.default.publisher(for: Notification.Name("pageSaveStateChanged"))) { notification in
                 omniBar.handlePageSaveStateChanged(notification)
             }
-            .onReceive(NotificationCenter.default.publisher(for: .showScrapePanel)) { _ in
-                guard !omniBar.agentManager.isFullPageChatActive else { return }
-                omniBar.omniState.setMode(.scraping)
-            }
             .onReceive(NotificationCenter.default.publisher(for: .copyLastResponse)) { _ in
                 omniBar.handleCopyLastResponse()
             }
@@ -319,5 +299,43 @@ private struct OmniBarNotificationModifier: ViewModifier {
             .onReceive(NotificationCenter.default.publisher(for: .editLastMessage)) { _ in
                 omniBar.handleEditLastMessage()
             }
+    }
+}
+
+// MARK: - Panel Subtitle Computed Properties
+
+extension OmniBar {
+    var historyPanelSubtitle: String {
+        // Single pass to count both tabs and history entries
+        var tabCount = 0
+        var historyCount = 0
+        for suggestion in suggestionsVM.suggestions {
+            if suggestion.isOpenTab {
+                tabCount += 1
+            } else {
+                historyCount += 1
+            }
+        }
+
+        if !omniState.inputText.isEmpty && !suggestionsVM.suggestions.isEmpty {
+            var parts: [String] = []
+            if tabCount > 0 {
+                parts.append("\(tabCount) tab\(tabCount == 1 ? "" : "s")")
+            }
+            if historyCount > 0 {
+                parts.append("\(historyCount) history")
+            }
+            return parts.joined(separator: ", ")
+        }
+        return "Tabs & Recent"
+    }
+
+    var readingListPanelSubtitle: String {
+        if readingListVM.isLoading {
+            return "Loading..."
+        } else if !readingListVM.items.isEmpty {
+            return "\(readingListVM.items.count) saved"
+        }
+        return ""
     }
 }

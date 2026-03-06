@@ -53,32 +53,14 @@ extension OmniBar {
             }
         )
 
-        // Semantic search panel - appears above OmniBar when in semantic mode
-        if isSemanticPanelVisible {
-            OmniPanel(
-                title: "Semantic Search",
-                icon: "brain.head.profile",
-                iconColor: .orange,
-                borderColor: .orange,
-                subtitle: semanticPanelSubtitle,
-                menuContent: {
-                    AnyView(Group {
-                        Button("Clear Index") {
-                            Task { await semanticSearchManager.clearIndex() }
-                        }
-                    })
-                },
-                onDismiss: { omniState.dismissVisiblePanel() }
-            ) {
-                SemanticSearchPanelContent(
-                    viewModel: semanticSearchVM,
-                    searchManager: semanticSearchManager,
-                    searchText: omniState.inputText,
-                    onSelect: { result in handleSemanticSelection(result) }
-                )
-            }
-            .panelWrapper()
-        }
+        // Semantic search panel - extracted to isolate SemanticSearchManagerV2 observation
+        SemanticSearchOmniPanel(
+            isVisible: isSemanticPanelVisible,
+            semanticSearchVM: semanticSearchVM,
+            omniState: omniState,
+            onDismiss: { omniState.dismissVisiblePanel() },
+            onSelect: { result in handleSemanticSelection(result) }
+        )
 
         // Agent panel - appears above OmniBar when in agent mode
         if isAgentPanelVisible {
@@ -109,57 +91,95 @@ extension OmniBar {
             .panelWrapper()
         }
 
-        // Downloads panel - appears above OmniBar when downloads are active
-        if downloadManager.showDownloadsPanel {
-            OmniPanel(
-                title: "Downloads",
-                icon: "arrow.down.circle.fill",
-                iconColor: .blue,
-                borderColor: .blue,
-                subtitle: downloadsPanelSubtitle,
-                menuContent: {
-                    AnyView(Group {
-                        Button("Clear Completed") { downloadManager.clearCompleted() }
-                        Button("Show in Finder") {
-                            downloadManager.openDownloadsFolder()
-                        }
-                    })
-                },
-                onDismiss: { downloadManager.dismissPanel() }
-            ) {
-                DownloadsPanelContent(manager: downloadManager)
-            }
-            .panelWrapper()
-        }
+        // Downloads panel - extracted to isolate DownloadManager observation
+        DownloadsOmniPanel()
+    }
+}
 
-        // Scrape panel - appears above OmniBar when in scraping mode
-        if isScrapingPanelVisible {
-            OmniPanel(
-                title: "Web Scraping",
-                icon: "network",
-                iconColor: .cyan,
-                borderColor: .cyan,
-                subtitle: scrapePanelSubtitle,
-                menuContent: {
-                    AnyView(Group {
-                        Button("New Scrape...") {
-                            NotificationCenter.default.post(name: .scrapePage, object: nil)
+// MARK: - History Panel using OmniPanel
+
+struct HistoryPanelContent: View {
+    var viewModel: SuggestionsViewModel
+    let searchText: String
+    let onSelect: (Suggestion) -> Void
+
+    var body: some View {
+        ScrollViewReader { proxy in
+            ScrollView(showsIndicators: true) {
+                LazyVStack(spacing: 2) {
+                    if viewModel.suggestions.isEmpty {
+                        if searchText.isEmpty {
+                            // No history at all
+                            OmniPanelEmptyState(
+                                icon: "clock",
+                                title: "No browsing history",
+                                subtitle: "Pages you visit will appear here"
+                            )
+                            .padding(.top, 30)
+                        } else {
+                            // No search results
+                            OmniPanelEmptyState(
+                                icon: "magnifyingglass",
+                                title: "No matches found",
+                                subtitle: "Try a different search term"
+                            )
+                            .padding(.top, 30)
                         }
-                        Divider()
-                        Button("Clear Completed") { scrapeManager.clearCompleted() }
-                    })
-                },
-                onDismiss: {
-                    omniState.dismissVisiblePanel()
-                    if omniState.mode == .scraping {
-                        omniState.mode = .address
+                    } else {
+                        // Show suggestions (either search results or recent history)
+                        ForEach(Array(viewModel.suggestions.enumerated()), id: \.element.id) { index, suggestion in
+                            SuggestionRow(
+                                suggestion: suggestion,
+                                isSelected: index == viewModel.selectedIndex,
+                                onSelect: { onSelect(suggestion) }
+                            )
+                        }
                     }
                 }
-            ) {
-                ScrapePanelContent(manager: scrapeManager)
+                .padding(.horizontal, 8)
+                .padding(.vertical, 8)
             }
-            .panelWrapper()
+            .onChange(of: viewModel.selectedIndex) { _, newIndex in
+                if newIndex >= 0 && newIndex < viewModel.suggestions.count {
+                    let selectedId = viewModel.suggestions[newIndex].id
+                    withAnimation(AppAnimation.quickOut) {
+                        proxy.scrollTo(selectedId, anchor: .center)
+                    }
+                }
+            }
         }
+    }
+
+    var subtitle: String {
+        if !searchText.isEmpty {
+            return "\(viewModel.suggestions.count) results"
+        }
+        return "Recent"
+    }
+}
+
+// MARK: - Chat Panel using OmniPanel
+
+struct ChatPanelContent: View {
+    var agentManager: AgentManager
+    var onSubmitPrompt: ((String) -> Void)?
+
+    var body: some View {
+        ChatMessageListView(
+            agentManager: agentManager,
+            onSubmitPrompt: onSubmitPrompt,
+            onSelectArtifact: { artifact in
+                agentManager.selectedArtifact = artifact
+            },
+            compact: true
+        )
+    }
+
+    var subtitle: String? {
+        if agentManager.isLoading {
+            return "Thinking..."
+        }
+        return nil
     }
 }
 
@@ -169,7 +189,7 @@ extension OmniBar {
 /// from the OmniBar body. Only this sub-view re-evaluates when chat messages change during streaming.
 private struct ChatOmniPanel: View {
     var agentManager: AgentManager
-    @ObservedObject var omniState: OmniBarState
+    var omniState: OmniBarState
     var onDismiss: () -> Void
     var onPopulateInput: ((String) -> Void)?
 
@@ -199,6 +219,93 @@ private struct ChatOmniPanel: View {
                 ChatPanelContent(agentManager: agentManager, onSubmitPrompt: onPopulateInput)
             }
             .modifier(PanelWrapperModifier())
+        }
+    }
+}
+
+// MARK: - Semantic Search OmniPanel (isolated sub-view for per-property observation)
+
+/// Extracted from OmniBar to isolate `SemanticSearchManagerV2` observation.
+/// Only this sub-view re-evaluates when the search manager's state changes.
+fileprivate struct SemanticSearchOmniPanel: View {
+    var isVisible: Bool
+    var semanticSearchVM: SemanticSearchViewModel
+    var omniState: OmniBarState
+    var onDismiss: () -> Void
+    var onSelect: (SemanticSearchResult) -> Void
+
+    private var searchManager: SemanticSearchManagerV2 { .shared }
+
+    private var subtitle: String {
+        if semanticSearchVM.isSearching {
+            return "Searching..."
+        } else if !semanticSearchVM.results.isEmpty {
+            return "\(semanticSearchVM.results.count) results"
+        }
+        return "\(searchManager.indexedCount) pages indexed"
+    }
+
+    var body: some View {
+        if isVisible {
+            OmniPanel(
+                title: "Semantic Search",
+                icon: "brain.head.profile",
+                iconColor: .orange,
+                borderColor: .orange,
+                subtitle: subtitle,
+                menuContent: {
+                    AnyView(Group {
+                        Button("Clear Index") {
+                            Task { await searchManager.clearIndex() }
+                        }
+                    })
+                },
+                onDismiss: onDismiss
+            ) {
+                SemanticSearchPanelContent(
+                    viewModel: semanticSearchVM,
+                    searchManager: searchManager,
+                    searchText: omniState.inputText,
+                    onSelect: { result in onSelect(result) }
+                )
+            }
+            .panelWrapper()
+        }
+    }
+}
+
+// MARK: - Downloads OmniPanel (isolated sub-view for per-property observation)
+
+/// Extracted from OmniBar to isolate `DownloadManager` observation.
+/// Only this sub-view re-evaluates when download progress changes.
+private struct DownloadsOmniPanel: View {
+    private var downloadManager = DownloadManager.shared
+
+    private var subtitle: String {
+        downloadManager.panelSubtitle
+    }
+
+    var body: some View {
+        if downloadManager.showDownloadsPanel {
+            OmniPanel(
+                title: "Downloads",
+                icon: "arrow.down.circle.fill",
+                iconColor: .blue,
+                borderColor: .blue,
+                subtitle: subtitle,
+                menuContent: {
+                    AnyView(Group {
+                        Button("Clear Completed") { downloadManager.clearCompleted() }
+                        Button("Show in Finder") {
+                            downloadManager.openDownloadsFolder()
+                        }
+                    })
+                },
+                onDismiss: { downloadManager.dismissPanel() }
+            ) {
+                DownloadsPanelContent(manager: downloadManager)
+            }
+            .panelWrapper()
         }
     }
 }

@@ -4,7 +4,7 @@ import WebKit
 /// Handles semantic search indexing of web pages.
 ///
 /// Extracts page content via JavaScript evaluation and sends it to
-/// `SemanticSearchManagerV2` for embedding and storage.
+/// `SemanticSearchManagerV2` for local embedding and storage.
 enum SemanticIndexingHandler {
 
     /// URL prefixes that should be skipped for indexing.
@@ -40,8 +40,8 @@ enum SemanticIndexingHandler {
         Log.Search.debug("indexPageForSemanticSearch called: url=\(urlString), title=\(title)")
 
         // Check if semantic search is enabled
-        guard AppSettings.shared.dindexEnabled else {
-            Log.Search.debug("indexPageForSemanticSearch skipped: DIndex disabled in settings")
+        guard AppSettings.shared.semanticSearchEnabled else {
+            Log.Search.debug("indexPageForSemanticSearch skipped: semantic search disabled")
             return
         }
 
@@ -84,7 +84,6 @@ enum SemanticIndexingHandler {
 
             Log.Search.debug("Content extracted successfully: \(content.count) chars for \(urlString)")
 
-            // Use the new V2 manager with sqlite-vec backend
             Task { @MainActor in
                 await SemanticSearchManagerV2.shared.indexPage(
                     url: urlString,

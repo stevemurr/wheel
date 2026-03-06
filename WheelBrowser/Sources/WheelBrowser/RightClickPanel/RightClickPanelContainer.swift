@@ -2,8 +2,8 @@ import SwiftUI
 import AppKit
 
 struct RightClickPanelContainer: View {
-    @ObservedObject var state: TabWheelState
-    @ObservedObject var browserState: BrowserState
+    var state: TabWheelState
+    var browserState: BrowserState
     let containerSize: CGSize
 
     private let edgePadding: CGFloat = 20

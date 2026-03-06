@@ -3,7 +3,7 @@ import AppKit
 
 /// A floating overlay window that displays web content
 struct OverlayWindow: View {
-    @ObservedObject var item: OverlayWindowItem
+    var item: OverlayWindowItem
     let containerSize: CGSize
     let onClose: () -> Void
     let onBringToFront: () -> Void

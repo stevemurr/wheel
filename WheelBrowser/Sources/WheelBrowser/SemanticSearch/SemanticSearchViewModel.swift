@@ -2,11 +2,11 @@ import SwiftUI
 
 /// ViewModel for semantic search in the OmniBar
 @MainActor
-class SemanticSearchViewModel: ObservableObject, ListSelectable {
-    @Published var results: [SemanticSearchResult] = []
-    @Published var isSearching = false
-    @Published var selectedIndex: Int = -1
-    @Published var hasSearched = false
+@Observable class SemanticSearchViewModel: ListSelectable {
+    var results: [SemanticSearchResult] = []
+    var isSearching = false
+    var selectedIndex: Int = -1
+    var hasSearched = false
 
     private let searchDebouncer = Debouncer(delay: .milliseconds(300))
 

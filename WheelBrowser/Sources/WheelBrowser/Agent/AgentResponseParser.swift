@@ -191,25 +191,6 @@ enum AgentResponseParser {
             return .done(summary: "Task completed")
         }
 
-        // scrape("url", depth, maxPages)
-        if let match = trimmed.range(of: #"scrape\s*\(\s*["'](.+?)["']\s*,\s*(\d+)\s*,\s*(\d+)\s*\)"#, options: .regularExpression) {
-            let content = String(trimmed[match])
-            // Extract URL between quotes
-            if let urlRange = content.range(of: #"["'](.+?)["']"#, options: .regularExpression) {
-                var url = String(content[urlRange])
-                url = url.trimmingCharacters(in: CharacterSet(charactersIn: "\"'"))
-                // Extract the two numeric args after the URL
-                let afterURL = String(content[urlRange.upperBound...])
-                let numbers = afterURL.components(separatedBy: CharacterSet.decimalDigits.inverted)
-                    .filter { !$0.isEmpty }
-                if numbers.count >= 2,
-                   let depth = UInt8(numbers[0]),
-                   let maxPages = Int(numbers[1]) {
-                    return .scrape(url: url, depth: depth, maxPages: maxPages)
-                }
-            }
-        }
-
         // new_tab
         if trimmed.lowercased().hasPrefix("new_tab") {
             return .newTab

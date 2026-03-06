@@ -181,12 +181,6 @@ enum HarmonyFormatParser {
                         case "done", "complete":
                             let summary = json["summary"] as? String ?? "Task completed"
                             return .done(summary: summary)
-                        case "scrape":
-                            if let url = json["url"] as? String,
-                               let depth = json["depth"] as? Int,
-                               let maxPages = json["maxPages"] as? Int ?? json["max_pages"] as? Int {
-                                return .scrape(url: url, depth: UInt8(clamping: depth), maxPages: maxPages)
-                            }
                         case "new_tab", "newtab":
                             return .newTab
                         case "open_tab", "opentab":
@@ -304,35 +298,6 @@ enum HarmonyFormatParser {
                         return .readText(elementId: id)
                     }
                 }
-            }
-        }
-
-        // browser.scrape
-        if response.contains("browser.scrape") {
-            if let urlRange = response.range(of: #""url"\s*:\s*"([^"]*)""#, options: .regularExpression) {
-                var url = String(response[urlRange])
-                if let valueStart = url.range(of: ":") {
-                    url = String(url[valueStart.upperBound...])
-                        .trimmingCharacters(in: .whitespaces)
-                        .trimmingCharacters(in: CharacterSet(charactersIn: "\""))
-                }
-                var depth: UInt8 = 1
-                var maxPages = 50
-                if let depthRange = response.range(of: #""depth"\s*:\s*(\d+)"#, options: .regularExpression) {
-                    let depthStr = String(response[depthRange])
-                    if let numRange = depthStr.range(of: #"\d+$"#, options: .regularExpression),
-                       let d = UInt8(depthStr[numRange]) {
-                        depth = d
-                    }
-                }
-                if let mpRange = response.range(of: #""(?:maxPages|max_pages)"\s*:\s*(\d+)"#, options: .regularExpression) {
-                    let mpStr = String(response[mpRange])
-                    if let numRange = mpStr.range(of: #"\d+$"#, options: .regularExpression),
-                       let mp = Int(mpStr[numRange]) {
-                        maxPages = mp
-                    }
-                }
-                return .scrape(url: url, depth: depth, maxPages: maxPages)
             }
         }
 

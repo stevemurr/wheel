@@ -1,13 +1,13 @@
 import Foundation
-import Combine
 
 /// Manages the collection of agent configurations with persistence
 @MainActor
-class AgentStudioManager: ObservableObject {
+@Observable
+class AgentStudioManager {
     static let shared = AgentStudioManager()
 
-    @Published private(set) var agents: [AgentConfig] = []
-    @Published var activeAgentID: UUID?
+    private(set) var agents: [AgentConfig] = []
+    var activeAgentID: UUID?
 
     /// File URL for persisting agents
     private var agentsFileURL: URL {

@@ -32,22 +32,27 @@ struct HistorySearchResult: Sendable {
 /// Manages browsing history with persistence
 /// Uses an index for O(1) URL lookups instead of O(n) array scans
 @MainActor
-class BrowsingHistory: ObservableObject {
+@Observable
+class BrowsingHistory {
     static let shared = BrowsingHistory()
 
-    @Published private(set) var entries: [HistoryEntry] = []
+    private(set) var entries: [HistoryEntry] = []
 
     /// Index mapping URL strings to their position in the entries array
     /// Enables O(1) lookup for duplicate detection instead of O(n) removeAll
+    @ObservationIgnored
     private var urlIndex: [String: Int] = [:]
 
     /// Maximum number of history entries to store
+    @ObservationIgnored
     private let maxEntries = 1000
 
     /// Debounce interval for batching saves
+    @ObservationIgnored
     private let saveDebounceInterval: TimeInterval = 2.0
 
     /// Pending save task, cancelled and replaced on each mutation
+    @ObservationIgnored
     private var pendingSaveTask: Task<Void, Never>?
 
     /// File URL for persisting history

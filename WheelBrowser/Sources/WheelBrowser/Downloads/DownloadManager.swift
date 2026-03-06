@@ -61,12 +61,14 @@ struct DownloadItem: Identifiable {
 
 /// Manages all downloads in the browser
 @MainActor
-class DownloadManager: ObservableObject {
+@Observable
+class DownloadManager {
     static let shared = DownloadManager()
 
-    @Published var downloads: [DownloadItem] = []
-    @Published var showDownloadsPanel: Bool = false
+    var downloads: [DownloadItem] = []
+    var showDownloadsPanel: Bool = false
 
+    @ObservationIgnored
     private var activeDownloads: [WKDownload: UUID] = [:]
 
     private init() {}

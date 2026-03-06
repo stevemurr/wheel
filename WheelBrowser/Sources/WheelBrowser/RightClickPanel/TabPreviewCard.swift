@@ -2,8 +2,8 @@ import SwiftUI
 
 /// A larger preview card for tabs showing visual thumbnail and title
 struct TabPreviewCard: View {
-    @ObservedObject var tab: Tab
-    @ObservedObject var screenshotManager: TabScreenshotManager
+    var tab: Tab
+    var screenshotManager: TabScreenshotManager
     let isActive: Bool
     let isHovered: Bool
     let canClose: Bool

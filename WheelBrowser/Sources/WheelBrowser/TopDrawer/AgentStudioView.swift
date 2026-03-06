@@ -2,7 +2,7 @@ import SwiftUI
 
 /// UI for the Agent Studio section of the top drawer
 struct AgentStudioView: View {
-    @ObservedObject var manager: AgentStudioManager
+    var manager: AgentStudioManager
     /// Binding to notify parent when a sheet is presented (keeps drawer visible)
     @Binding var isSheetPresented: Bool
 

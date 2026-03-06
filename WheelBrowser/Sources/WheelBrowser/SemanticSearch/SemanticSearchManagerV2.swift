@@ -1,41 +1,23 @@
 import Foundation
 import SwiftUI
-import Combine
 
-/// Manages semantic search using remote DIndex server
+/// Manages semantic search using native on-device embeddings and hybrid search
 @MainActor
-class SemanticSearchManagerV2: ObservableObject {
+@Observable
+class SemanticSearchManagerV2 {
     static let shared = SemanticSearchManagerV2()
 
-    @Published private(set) var isIndexing = false
-    @Published private(set) var indexedCount: Int = 0
-    @Published private(set) var pendingCount: Int = 0
-    @Published private(set) var lastError: String?
-    @Published private(set) var isAvailable = false
-    @Published private(set) var isDIndexConnected = false
+    private(set) var isIndexing = false
+    private(set) var indexedCount: Int = 0
+    private(set) var pendingCount: Int = 0
+    private(set) var lastError: String?
+    private(set) var isAvailable = false
 
-    private var dindexService: DIndexService?
-
-    /// Public accessor for the DIndex service (used by ScrapeManager)
-    var dIndexService: DIndexService? {
-        dindexService
-    }
+    @ObservationIgnored private var searchService: NativeSearchService?
 
     private var settings: AppSettings { AppSettings.shared }
-    private var cancellables = Set<AnyCancellable>()
 
     private init() {
-        // Listen for settings changes
-        NotificationCenter.default.publisher(for: .embeddingSettingsChanged)
-            .receive(on: DispatchQueue.main)
-            .sink { [weak self] _ in
-                Task { @MainActor in
-                    guard let self = self else { return }
-                    await self.reinitialize()
-                }
-            }
-            .store(in: &cancellables)
-
         Task {
             await initialize()
         }
@@ -44,61 +26,26 @@ class SemanticSearchManagerV2: ObservableObject {
     // MARK: - Initialization
 
     private func initialize() async {
-        Log.Search.debug("SemanticSearchManagerV2 initializing, dindexEnabled=\(settings.dindexEnabled)")
-        guard settings.dindexEnabled else {
-            Log.Search.info("DIndex disabled in settings, skipping initialization")
-            isAvailable = false
-            isDIndexConnected = false
-            return
-        }
+        Log.Search.debug("SemanticSearchManagerV2 initializing (native mode)")
 
-        await initializeDIndex()
-    }
-
-    /// Initialize remote DIndex service
-    private func initializeDIndex() async {
-        Log.Search.debug("initializeDIndex starting, endpoint=\(settings.dindexEndpoint)")
-        guard settings.dindexEnabled,
-              let endpoint = URL(string: settings.dindexEndpoint) else {
-            Log.Search.warning("initializeDIndex failed: dindexEnabled=\(settings.dindexEnabled), endpoint invalid: '\(settings.dindexEndpoint)'")
-            dindexService = nil
-            isDIndexConnected = false
+        guard settings.semanticSearchEnabled else {
+            Log.Search.info("Semantic search disabled in settings")
             isAvailable = false
             return
         }
 
-        let apiKey = settings.dindexAPIKey.isEmpty ? nil : settings.dindexAPIKey
-        Log.Search.debug("Creating DIndexService with endpoint=\(endpoint), apiKey=\(apiKey != nil ? "set" : "nil")")
-        let service = DIndexService(endpoint: endpoint, apiKey: apiKey)
-
-        // Verify connection
-        Log.Search.debug("Checking DIndex health...")
-        let healthy = await service.checkHealth()
-        if healthy {
-            dindexService = service
-            isDIndexConnected = true
-            isAvailable = true
-            lastError = nil
-            Log.Search.info("DIndex connected at \(settings.dindexEndpoint)")
-
-            // Fetch initial stats
-            await updateStats()
-        } else {
-            dindexService = nil
-            isDIndexConnected = false
-            isAvailable = false
-            lastError = "Could not connect to DIndex server"
-            Log.Search.warning("DIndex health check failed for \(settings.dindexEndpoint)")
-        }
+        searchService = NativeSearchService()
+        isAvailable = true
+        lastError = nil
+        Log.Search.info("Native search service initialized")
+        await updateStats()
     }
 
     /// Reinitialize with new settings
     func reinitialize() async {
-        dindexService = nil
-        isDIndexConnected = false
+        searchService = nil
         isAvailable = false
         lastError = nil
-
         await initialize()
     }
 
@@ -112,10 +59,10 @@ class SemanticSearchManagerV2: ObservableObject {
         workspaceID: UUID? = nil,
         categories: Set<EmbeddingCategory> = [.history, .web]
     ) async {
-        Log.Search.debug("indexPage called: url=\(url), title=\(title), contentLength=\(content.count), categories=\(categories.map { $0.rawValue })")
+        Log.Search.debug("indexPage called: url=\(url), title=\(title), contentLength=\(content.count)")
 
-        guard isAvailable, let dindex = dindexService else {
-            Log.Search.debug("indexPage skipped: isAvailable=\(isAvailable), dindexService=\(dindexService != nil ? "present" : "nil")")
+        guard isAvailable, let service = searchService else {
+            Log.Search.debug("indexPage skipped: isAvailable=\(isAvailable)")
             return
         }
         guard let pageURL = URL(string: url) else {
@@ -127,8 +74,7 @@ class SemanticSearchManagerV2: ObservableObject {
         defer { isIndexing = false }
 
         do {
-            Log.Search.debug("Sending to DIndex: \(pageURL.absoluteString)")
-            try await dindex.indexPage(
+            try await service.indexPage(
                 url: pageURL,
                 title: title,
                 content: content,
@@ -144,7 +90,7 @@ class SemanticSearchManagerV2: ObservableObject {
 
     /// Register a page without content extraction (for PDFs and other non-indexable content)
     func registerPage(url: String, title: String, workspaceID: UUID? = nil) async {
-        // No-op for DIndex-only mode - pages are indexed with content
+        // No-op — PDFs need content extraction to be indexed
     }
 
     // MARK: - Search
@@ -153,17 +99,16 @@ class SemanticSearchManagerV2: ObservableObject {
     func search(query: String, limit: Int = 20) async -> [SemanticSearchResult] {
         Log.Search.debug("search called: query='\(query)', limit=\(limit)")
 
-        guard isAvailable, let dindex = dindexService else {
-            Log.Search.debug("search skipped: isAvailable=\(isAvailable), dindexService=\(dindexService != nil ? "present" : "nil")")
+        guard isAvailable, let service = searchService else {
+            Log.Search.debug("search skipped: isAvailable=\(isAvailable)")
             return []
         }
 
         do {
-            let results = try await dindex.search(query: query, limit: limit)
+            let results = try await service.search(query: query, limit: limit)
             Log.Search.debug("search completed: \(results.count) results for '\(query)'")
             return results.map { makeResult(from: $0) }
         } catch {
-            // Cancellation is expected during debounced typing - log as debug, not error
             if (error as? URLError)?.code == .cancelled || error is CancellationError {
                 Log.Search.debug("Search cancelled (superseded by newer query)")
             } else {
@@ -182,13 +127,13 @@ class SemanticSearchManagerV2: ObservableObject {
     ) async -> [SemanticSearchResult] {
         Log.Search.debug("searchWithCategories called: query='\(query)', categories=\(categories.map { $0.rawValue }), limit=\(limit)")
 
-        guard isAvailable, let dindex = dindexService else {
-            Log.Search.debug("searchWithCategories skipped: isAvailable=\(isAvailable), dindexService=\(dindexService != nil ? "present" : "nil")")
+        guard isAvailable, let service = searchService else {
+            Log.Search.debug("searchWithCategories skipped: isAvailable=\(isAvailable)")
             return []
         }
 
         do {
-            let results = try await dindex.search(
+            let results = try await service.search(
                 query: query,
                 categories: categories.isEmpty ? nil : categories,
                 limit: limit
@@ -196,21 +141,19 @@ class SemanticSearchManagerV2: ObservableObject {
             Log.Search.debug("searchWithCategories completed: \(results.count) results for '\(query)'")
             return results.map { makeResult(from: $0) }
         } catch {
-            // Cancellation is expected during debounced typing - log as debug, not error
             if (error as? URLError)?.code == .cancelled || error is CancellationError {
                 Log.Search.debug("Category search cancelled (superseded by newer query)")
             } else {
                 lastError = error.localizedDescription
-                Log.Search.error("DIndex search error: \(error.localizedDescription)")
+                Log.Search.error("Search error: \(error.localizedDescription)")
             }
             return []
         }
     }
 
-    /// Convert a DIndexSearchItem to a SemanticSearchResult
-    private func makeResult(from item: DIndexSearchItem) -> SemanticSearchResult {
-        let hashValue = item.id.hashValue
-        let id = UInt64(bitPattern: Int64(hashValue))
+    /// Convert a NativeSearchResult to a SemanticSearchResult
+    private func makeResult(from item: NativeSearchResult) -> SemanticSearchResult {
+        let id = UInt64(bitPattern: Int64(item.url.hashValue))
         let citation = CitationInfo(
             content: item.content,
             snippet: item.snippet,
@@ -229,18 +172,19 @@ class SemanticSearchManagerV2: ObservableObject {
                 chunkScore: chunk.relevanceScore
             )
         }
+        let matchedBy = Set(item.matchedBy)
         return SemanticSearchResult(
             id: id,
             page: IndexedPage(
                 id: id,
-                url: item.url ?? "",
+                url: item.url,
                 title: item.title ?? "",
                 snippet: item.snippet ?? String(item.content.prefix(200)),
                 timestamp: Date(),
                 workspaceID: nil,
                 citation: citation,
                 additionalCitations: additionalCitations,
-                documentMatchedBy: item.documentMatchedBy
+                documentMatchedBy: matchedBy
             ),
             score: item.score
         )
@@ -253,20 +197,20 @@ class SemanticSearchManagerV2: ObservableObject {
     }
 
     private func updateStats() async {
-        guard let dindex = dindexService else {
+        guard let service = searchService else {
             indexedCount = 0
             return
         }
 
         do {
-            let stats = try await dindex.getStats()
+            let stats = try await service.getStats()
             indexedCount = stats.totalChunks
         } catch {
-            Log.Search.warning("Failed to get DIndex stats: \(error.localizedDescription)")
+            Log.Search.warning("Failed to get stats: \(error.localizedDescription)")
         }
     }
 
-    /// Refresh index statistics (call after external indexing like scraping)
+    /// Refresh index statistics
     func refreshStats() async {
         await updateStats()
     }
@@ -275,13 +219,13 @@ class SemanticSearchManagerV2: ObservableObject {
 
     /// Clear all entries from the index
     func clearIndex() async {
-        guard let dindex = dindexService else {
-            Log.Search.debug("clearIndex skipped: dindexService not available")
+        guard let service = searchService else {
+            Log.Search.debug("clearIndex skipped: service not available")
             return
         }
 
         do {
-            try await dindex.clearAll()
+            try await service.clearAll()
             await updateStats()
             Log.Search.info("Index cleared successfully")
         } catch {
@@ -292,14 +236,13 @@ class SemanticSearchManagerV2: ObservableObject {
 
     /// Save/sync the index (called on app termination)
     func save() async {
-        // No-op - DIndex handles persistence
+        // No-op — SQLite handles persistence via WAL
     }
 }
 
 // MARK: - Bridge for existing code
 
 extension SemanticSearchManagerV2 {
-    /// For compatibility with existing SemanticSearchManager API
     @MainActor
     static var current: SemanticSearchManagerV2 {
         shared

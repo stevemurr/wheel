@@ -5,7 +5,7 @@ import WebKit
 /// Features: reader mode, in-overlay navigation (no history recording)
 struct OverlayWebView: NSViewRepresentable {
     let url: URL
-    @ObservedObject var item: OverlayWindowItem
+    var item: OverlayWindowItem
     @Binding var isLoading: Bool
     @Binding var isReaderMode: Bool
 

@@ -3,7 +3,7 @@ import AppKit
 
 /// A mini window-style panel that displays a link summary with action buttons
 struct SummaryWindow: View {
-    @ObservedObject var state: LinkPreviewState
+    var state: LinkPreviewState
     let containerSize: CGSize
     let onClose: () -> Void
     let onSaveToReadingList: () -> Void

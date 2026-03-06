@@ -29,14 +29,15 @@ struct Conversation: Codable, Identifiable {
 
 /// Manages conversation persistence to disk with debounced saves
 @MainActor
-class ConversationManager: ObservableObject {
+@Observable
+class ConversationManager {
     static let shared = ConversationManager()
 
-    @Published private(set) var currentConversation: Conversation?
-    @Published private(set) var savedConversations: [Conversation] = []
+    private(set) var currentConversation: Conversation?
+    private(set) var savedConversations: [Conversation] = []
 
-    private var pendingSaveTask: Task<Void, Never>?
-    private let saveDebounceInterval: TimeInterval = 2.0
+    @ObservationIgnored private var pendingSaveTask: Task<Void, Never>?
+    @ObservationIgnored private let saveDebounceInterval: TimeInterval = 2.0
 
     private var conversationsDirectory: URL {
         let dir = FileManager.appSupportDirectory

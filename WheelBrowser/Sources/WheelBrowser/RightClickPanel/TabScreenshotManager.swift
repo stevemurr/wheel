@@ -3,14 +3,15 @@ import WebKit
 
 /// Manages screenshot capture and caching for tab previews with LRU eviction
 @MainActor
-class TabScreenshotManager: ObservableObject {
+@Observable
+class TabScreenshotManager {
     static let shared = TabScreenshotManager()
 
     /// Maximum number of screenshots to cache before evicting oldest entries
-    private let maxCacheSize = 25
+    @ObservationIgnored private let maxCacheSize = 25
 
     /// Screenshots stored in a dictionary for O(1) lookup
-    @Published private(set) var screenshots: [UUID: NSImage] = [:]
+    private(set) var screenshots: [UUID: NSImage] = [:]
 
     /// Tracks last access time for LRU eviction - O(1) update vs O(n) array operations
     private var accessTimestamps: [UUID: Date] = [:]

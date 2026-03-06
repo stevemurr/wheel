@@ -2,7 +2,7 @@ import SwiftUI
 
 /// Container view that renders all overlay windows from the manager
 struct OverlayWindowContainer: View {
-    @ObservedObject var manager: OverlayWindowManager
+    var manager: OverlayWindowManager
     let containerSize: CGSize
 
     var body: some View {
@@ -68,9 +68,9 @@ struct OverlayWindowContainer: View {
 // MARK: - Position Modifier
 
 /// A ViewModifier that observes the window's position and applies it
-/// This ensures the view updates when position changes since it directly observes the ObservableObject
+/// This ensures the view updates when position changes since it directly observes the @Observable class
 private struct OverlayPositionModifier: ViewModifier {
-    @ObservedObject var window: OverlayWindowItem
+    var window: OverlayWindowItem
     let containerSize: CGSize
 
     func body(content: Content) -> some View {

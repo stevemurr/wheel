@@ -15,8 +15,6 @@ extension OmniBar {
             submitAgent()
         case .readingList:
             submitReadingList()
-        case .scraping:
-            break // Scraping mode has no text input submission
         }
     }
 

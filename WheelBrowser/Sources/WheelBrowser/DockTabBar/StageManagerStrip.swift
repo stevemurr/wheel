@@ -6,8 +6,8 @@ import SwiftUI
 /// slivers that look like notebook divider tabs.
 /// **Expanded (on hover):** full 3D-tilted thumbnail previews slide in.
 struct StageManagerStrip: View {
-    @ObservedObject var browserState: BrowserState
-    @ObservedObject var screenshotManager: TabScreenshotManager
+    var browserState: BrowserState
+    var screenshotManager: TabScreenshotManager
 
     @State private var isExpanded = false
 
@@ -113,7 +113,7 @@ struct StageManagerStrip: View {
 /// A tiny sliver that sticks out from the left window edge — like a physical
 /// notebook divider tab. Color-coded by domain, with the active tab highlighted.
 private struct BinderTabPeek: View {
-    @ObservedObject var tab: Tab
+    var tab: Tab
     let isActive: Bool
     let onSelect: () -> Void
 

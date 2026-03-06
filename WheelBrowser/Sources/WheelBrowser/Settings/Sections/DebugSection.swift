@@ -74,7 +74,7 @@ struct DebugSection: View {
                         try await database.initialize()
                         try await database.clearAllData()
 
-                        // Clear remote DIndex server
+                        // Clear native semantic search index
                         await SemanticSearchManagerV2.shared.clearIndex()
                     } catch {
                         Log.Settings.error("Failed to clear semantic index: \(error.localizedDescription)")

@@ -8,14 +8,15 @@ extension Notification.Name {
 
 /// Manages workspace storage and operations
 @MainActor
-class WorkspaceManager: ObservableObject {
+@Observable
+class WorkspaceManager {
     static let shared = WorkspaceManager()
 
-    @Published private(set) var workspaces: [Workspace] = []
-    @Published var currentWorkspaceID: UUID?
+    private(set) var workspaces: [Workspace] = []
+    var currentWorkspaceID: UUID?
 
     /// Cached tab states per workspace for persistence
-    @Published private(set) var workspaceTabStates: [UUID: WorkspaceTabState] = [:]
+    private(set) var workspaceTabStates: [UUID: WorkspaceTabState] = [:]
 
     /// File URL for persisting workspaces
     private var workspacesFileURL: URL {

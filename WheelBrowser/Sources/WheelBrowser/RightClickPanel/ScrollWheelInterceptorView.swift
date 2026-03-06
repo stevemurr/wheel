@@ -2,7 +2,7 @@ import SwiftUI
 import AppKit
 
 struct ScrollWheelInterceptorView: NSViewRepresentable {
-    @ObservedObject var wheelState: TabWheelState
+    var wheelState: TabWheelState
     let tabCount: Int
 
     func makeNSView(context: Context) -> ScrollWheelInterceptorNSView {

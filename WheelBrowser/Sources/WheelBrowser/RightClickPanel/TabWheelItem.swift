@@ -6,7 +6,7 @@ struct TabWheelItem: View {
     let isSelected: Bool
     let size: CGFloat
     let scale: CGFloat
-    @ObservedObject var screenshotManager: TabScreenshotManager
+    var screenshotManager: TabScreenshotManager
 
     @State private var isHovered = false
 

@@ -78,37 +78,35 @@ struct CodeBlockView: View {
     // MARK: - Code Content
 
     private var codeContent: some View {
-        ScrollView(.horizontal, showsIndicators: false) {
-            HStack(alignment: .top, spacing: 0) {
-                // Line numbers
-                if showLineNumbers {
-                    VStack(alignment: .trailing, spacing: 0) {
-                        ForEach(Array(lines.enumerated()), id: \.offset) { index, _ in
-                            Text("\(index + 1)")
-                                .font(.system(size: 11.5, design: .monospaced))
-                                .foregroundColor(.secondary.opacity(0.4))
-                                .frame(minWidth: lineNumberWidth, alignment: .trailing)
-                        }
-                    }
-                    .padding(.leading, 8)
-                    .padding(.trailing, 4)
-                    .padding(.vertical, 10)
-                    .background(Color(nsColor: .controlBackgroundColor).opacity(0.2))
-
-                    Divider()
-                        .opacity(0.2)
-                }
-
-                // Highlighted code
-                VStack(alignment: .leading, spacing: 0) {
-                    ForEach(Array(lines.enumerated()), id: \.offset) { _, line in
-                        Text(SyntaxHighlighter.highlight(line, language: normalizedLanguage))
+        HStack(alignment: .top, spacing: 0) {
+            // Line numbers
+            if showLineNumbers {
+                VStack(alignment: .trailing, spacing: 0) {
+                    ForEach(Array(lines.enumerated()), id: \.offset) { index, _ in
+                        Text("\(index + 1)")
                             .font(.system(size: 11.5, design: .monospaced))
-                            .textSelection(.enabled)
+                            .foregroundColor(.secondary.opacity(0.4))
+                            .frame(minWidth: lineNumberWidth, alignment: .trailing)
                     }
                 }
-                .padding(10)
+                .padding(.leading, 8)
+                .padding(.trailing, 4)
+                .padding(.vertical, 10)
+                .background(Color(nsColor: .controlBackgroundColor).opacity(0.2))
+
+                Divider()
+                    .opacity(0.2)
             }
+
+            // Highlighted code
+            VStack(alignment: .leading, spacing: 0) {
+                ForEach(Array(lines.enumerated()), id: \.offset) { _, line in
+                    Text(SyntaxHighlighter.highlight(line, language: normalizedLanguage))
+                        .font(.system(size: 11.5, design: .monospaced))
+                        .textSelection(.enabled)
+                }
+            }
+            .padding(10)
         }
     }
 

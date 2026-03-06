@@ -9,13 +9,23 @@ extension OmniBar {
     /// Called BEFORE `setVisiblePanel` to ensure non-animated state changes precede
     /// animated panel transitions (Rule 8). Does NOT use `withAnimation`.
     ///
-    /// Once an empty tab enters chat mode, `tab.isChatTab` latches to `true`
-    /// and the tab permanently shows `FullPageChatView`. Mode cycling and
-    /// escape-to-address are blocked elsewhere when this flag is set.
+    /// When an empty tab enters chat mode, `tab.isChatTab` latches to `true`
+    /// and the tab shows `FullPageChatView`. The latch becomes permanent once a
+    /// message has been sent. Before that, switching away from chat mode unlatches
+    /// `isChatTab`, allowing the user to return to the NTP.
     func updateFullPageChatState() {
-        // One-way latch: once a tab becomes a chat tab, it stays that way
+        // Latch into chat mode when entering chat on an empty tab
         if tab.url == nil && omniState.mode == .chat && !tab.isChatTab {
             tab.isChatTab = true
+        }
+        // Permanently lock the latch once a message has been sent
+        if tab.isChatTab && !tab.hasConversationStarted && !agentManager.messages.isEmpty {
+            tab.hasConversationStarted = true
+        }
+        // Allow unlatching only if no conversation has started yet —
+        // the user can switch back to NTP before sending their first message
+        if tab.isChatTab && !tab.hasConversationStarted && tab.url == nil && omniState.mode != .chat {
+            tab.isChatTab = false
         }
         let shouldBeActive = tab.url == nil && tab.isChatTab
         if agentManager.isFullPageChatActive != shouldBeActive {
@@ -50,7 +60,7 @@ extension OmniBar {
             semanticSearchVM.search(query: newValue)
         case .readingList:
             readingListVM.search(query: newValue)
-        case .chat, .agent, .scraping:
+        case .chat, .agent:
             break
         }
     }
@@ -158,8 +168,6 @@ extension OmniBar {
         case .readingList:
             readingListVM.loadSavedPages()
             omniState.setVisiblePanel(.readingList)
-        case .scraping:
-            omniState.setVisiblePanel(.scraping)
         }
     }
 
@@ -172,8 +180,8 @@ extension OmniBar {
             return
         }
 
-        if downloadManager.showDownloadsPanel {
-            downloadManager.dismissPanel()
+        if DownloadManager.shared.showDownloadsPanel {
+            DownloadManager.shared.dismissPanel()
         } else if omniState.showMentionDropdown {
             omniState.dismissMentionDropdown()
             mentionSuggestionsVM.clear()
@@ -206,11 +214,6 @@ extension OmniBar {
             omniState.inputText = tab.url?.absoluteString ?? ""
         case .chat:
             break // Chat preserves input
-        case .scraping:
-            if omniState.mode == .scraping {
-                omniState.mode = .address
-            }
-            omniState.inputText = ""
         case .semantic, .agent, .readingList, .downloads:
             omniState.inputText = ""
         case .none:
@@ -221,13 +224,14 @@ extension OmniBar {
     // MARK: - Focus Address Bar
 
     func handleFocusAddressBar() {
-        // Chat tabs are locked to chat mode
-        guard !agentManager.isFullPageChatActive else { return }
+        // Chat tabs are locked to chat mode — unless no conversation started yet
+        guard !agentManager.isFullPageChatActive || !tab.hasConversationStarted else { return }
         // Set focus BEFORE mode so that handleModeChange sees isInputFocused=true
         // and activates the panel directly, instead of dismissing then re-showing (flash).
-        // No withAnimation — pill expansion is driven by the implicit .animation() on
-        // omniBarContent, and panel transitions by setVisiblePanel()'s own withAnimation.
-        isInputFocused = true
+        // withAnimation drives pill expansion + panel open as one smooth motion.
+        withAnimation(AppAnimation.panelSpring) {
+            isInputFocused = true
+        }
         omniState.setMode(.address)
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
             if let window = NSApp.keyWindow,
@@ -241,8 +245,9 @@ extension OmniBar {
 
     func handleFocusAISidebar() {
         // Set focus BEFORE mode — see handleFocusAddressBar for why.
-        // No withAnimation — see handleFocusAddressBar for why.
-        isInputFocused = true
+        withAnimation(AppAnimation.panelSpring) {
+            isInputFocused = true
+        }
         omniState.resetMentions(includeCurrentPage: tab.url != nil)
         omniState.setMode(.chat)
         // NOTE: Do NOT call setVisiblePanel here — setMode triggers
@@ -252,8 +257,9 @@ extension OmniBar {
     // MARK: - Focus Chat Input
 
     func handleFocusChatInput() {
-        // No withAnimation — see handleFocusAddressBar for why.
-        isInputFocused = true
+        withAnimation(AppAnimation.panelSpring) {
+            isInputFocused = true
+        }
         omniState.resetMentions(includeCurrentPage: tab.url != nil)
         omniState.setMode(.chat)
     }
@@ -261,9 +267,10 @@ extension OmniBar {
     // MARK: - Focus Semantic Search
 
     func handleFocusSemanticSearch() {
-        guard !agentManager.isFullPageChatActive else { return }
-        // No withAnimation — see handleFocusAddressBar for why.
-        isInputFocused = true
+        guard !agentManager.isFullPageChatActive || !tab.hasConversationStarted else { return }
+        withAnimation(AppAnimation.panelSpring) {
+            isInputFocused = true
+        }
         omniState.setMode(.semantic)
         // NOTE: Do NOT call setVisiblePanel here — handled by setMode → handleModeChange → activateMode.
     }
@@ -282,9 +289,10 @@ extension OmniBar {
     // MARK: - Focus Reading List
 
     func handleFocusReadingList() {
-        guard !agentManager.isFullPageChatActive else { return }
-        // No withAnimation — see handleFocusAddressBar for why.
-        isInputFocused = true
+        guard !agentManager.isFullPageChatActive || !tab.hasConversationStarted else { return }
+        withAnimation(AppAnimation.panelSpring) {
+            isInputFocused = true
+        }
         omniState.setMode(.readingList)
         // NOTE: Do NOT call setVisiblePanel here — handled by setMode → handleModeChange → activateMode.
         // readingListVM.loadSavedPages() is called inside activateMode.
@@ -305,10 +313,13 @@ extension OmniBar {
     }
 
     func handleEditLastMessage() {
-        // Focus chat mode and let the user edit via inline editor
-        isInputFocused = true
+        // Focus chat mode and let the user edit via inline editor.
+        // Set focus BEFORE mode (Rule 9). Do NOT call setVisiblePanel
+        // here — setMode → handleModeChange → activateMode handles it (Rule 7).
+        withAnimation(AppAnimation.panelSpring) {
+            isInputFocused = true
+        }
         omniState.setMode(.chat)
-        omniState.setVisiblePanel(.chat)
     }
 
     // MARK: - Search State Helpers
@@ -401,6 +412,67 @@ extension OmniBar: OmniBarKeyboardHandler {
         }
     }
 
+    // MARK: - Page Save Logic
+
+    func toggleSaveCurrentPage() {
+        guard let url = tab.url else { return }
+        let title = tab.title
+
+        Task {
+            do {
+                let database = SearchDatabase.shared
+                try await database.initialize()
+                let isSaved = try await database.toggleSaved(url: url.absoluteString, title: title)
+
+                // Show brief visual feedback
+                await MainActor.run {
+                    // Post notification for potential visual feedback
+                    NotificationCenter.default.post(
+                        name: Notification.Name("pageSaveStateChanged"),
+                        object: nil,
+                        userInfo: ["url": url.absoluteString, "isSaved": isSaved]
+                    )
+                }
+
+                Log.OmniBar.info("Page \(isSaved ? "saved to" : "removed from") reading list: \(url.absoluteString)")
+
+                // Generate summary in background if page was saved
+                if isSaved {
+                    Task.detached {
+                        await SummaryGenerator.shared.backfillSummaries()
+                    }
+                }
+            } catch {
+                Log.OmniBar.error("Failed to toggle save state", error: error)
+            }
+        }
+    }
+
+    func checkIfCurrentPageIsSaved() async {
+        guard let url = tab.url else {
+            await MainActor.run {
+                isCurrentPageSaved = false
+            }
+            return
+        }
+
+        do {
+            let database = SearchDatabase.shared
+            try await database.initialize()
+            let saved = try await database.isSaved(url: url.absoluteString)
+            await MainActor.run {
+                withAnimation(AppAnimation.medium) {
+                    isCurrentPageSaved = saved
+                }
+            }
+        } catch {
+            Log.OmniBar.error("Failed to check save state", error: error)
+            await MainActor.run {
+                isCurrentPageSaved = false
+            }
+        }
+    }
+
     /// General keyboard handling shared across all modes.
     private func handleGeneralKeyboardCommand(_ command: KeyboardCommand, mode: OmniBarMode) -> Bool {
         switch command {
@@ -413,7 +485,7 @@ extension OmniBar: OmniBarKeyboardHandler {
             case .address: suggestionsVM.selectPrevious()
             case .semantic: semanticSearchVM.selectPrevious()
             case .readingList: readingListVM.selectPrevious()
-            case .chat, .agent, .scraping: return false
+            case .chat, .agent: return false
             }
             return true
 
@@ -422,13 +494,13 @@ extension OmniBar: OmniBarKeyboardHandler {
             case .address: suggestionsVM.selectNext()
             case .semantic: semanticSearchVM.selectNext()
             case .readingList: readingListVM.selectNext()
-            case .chat, .agent, .scraping: return false
+            case .chat, .agent: return false
             }
             return true
 
         case .tab:
-            // Block mode cycling on chat tabs
-            guard !agentManager.isFullPageChatActive else { return true }
+            // Block mode cycling on chat tabs — unless no conversation started yet
+            guard !agentManager.isFullPageChatActive || !tab.hasConversationStarted else { return true }
             let wasChat = omniState.mode == .chat
             omniState.nextMode()
             if !wasChat && omniState.mode == .chat {
@@ -437,7 +509,7 @@ extension OmniBar: OmniBarKeyboardHandler {
             return true
 
         case .shiftTab:
-            guard !agentManager.isFullPageChatActive else { return true }
+            guard !agentManager.isFullPageChatActive || !tab.hasConversationStarted else { return true }
             let wasChat = omniState.mode == .chat
             omniState.previousMode()
             if !wasChat && omniState.mode == .chat {

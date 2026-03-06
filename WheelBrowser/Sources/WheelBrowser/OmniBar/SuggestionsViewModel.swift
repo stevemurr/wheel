@@ -120,9 +120,9 @@ extension ListSelectable {
 
 /// View model for managing address bar suggestions
 @MainActor
-class SuggestionsViewModel: ObservableObject, ListSelectable {
-    @Published var suggestions: [Suggestion] = []
-    @Published var selectedIndex: Int = -1
+@Observable class SuggestionsViewModel: ListSelectable {
+    var suggestions: [Suggestion] = []
+    var selectedIndex: Int = -1
 
     var selectableCount: Int { suggestions.count }
 

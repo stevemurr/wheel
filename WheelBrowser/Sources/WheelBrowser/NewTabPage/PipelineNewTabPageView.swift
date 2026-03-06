@@ -1,16 +1,26 @@
 import SwiftUI
 
-/// The main new tab page view, powered by the pipeline widget system.
+/// The main new tab page view, powered by the pipeline widget system and module widgets.
 struct PipelineNewTabPageView: View {
     @State private var widgetStore = WidgetStore()
     @State private var showingPromptSheet = false
     @State private var isEditing = false
+    var moduleStore: ModuleStore?
+
+    /// Module-based widgets (schedule or manual trigger with backgroundScript).
+    private var moduleWidgets: [ModuleInstance] {
+        moduleStore?.enabledModules(ofType: .widget) ?? []
+    }
+
+    private var hasAnyWidgets: Bool {
+        !widgetStore.widgets.isEmpty || !moduleWidgets.isEmpty
+    }
 
     var body: some View {
         ScrollView {
             VStack(spacing: 24) {
                 greeting
-                if widgetStore.widgets.isEmpty {
+                if !hasAnyWidgets {
                     emptyState
                 } else {
                     widgetGrid
@@ -24,7 +34,7 @@ struct PipelineNewTabPageView: View {
         .background(Color(nsColor: .windowBackgroundColor))
         .overlay(alignment: .bottomTrailing) {
             HStack(spacing: 12) {
-                if !widgetStore.widgets.isEmpty {
+                if hasAnyWidgets {
                     editButton
                 }
                 addWidgetButton
@@ -89,6 +99,7 @@ struct PipelineNewTabPageView: View {
         LazyVGrid(columns: [
             GridItem(.adaptive(minimum: 300, maximum: 500), spacing: 16)
         ], spacing: 16) {
+            // Pipeline widgets (legacy)
             ForEach(Array(widgetStore.widgets.enumerated()), id: \.element.id) { index, widget in
                 PipelineWidgetContainerView(
                     widget: widget,
@@ -102,6 +113,15 @@ struct PipelineNewTabPageView: View {
                     onMoveDown: {
                         widgetStore.moveWidget(from: IndexSet(integer: index), to: index + 2)
                     }
+                )
+            }
+
+            // Module-based widgets
+            ForEach(moduleWidgets) { module in
+                ModuleWidgetContainerView(
+                    module: module,
+                    isEditMode: isEditing,
+                    onRemove: { moduleStore?.remove(id: module.id) }
                 )
             }
         }

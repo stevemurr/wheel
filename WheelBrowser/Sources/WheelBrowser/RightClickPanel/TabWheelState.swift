@@ -1,14 +1,14 @@
 import SwiftUI
-import Combine
 
 @MainActor
-class TabWheelState: ObservableObject {
+@Observable
+class TabWheelState {
     static let shared = TabWheelState()
 
-    @Published var isVisible: Bool = false
-    @Published var position: CGPoint = .zero
-    @Published var rotationAngle: Double = 0.0
-    @Published var selectedIndex: Int = 0
+    var isVisible: Bool = false
+    var position: CGPoint = .zero
+    var rotationAngle: Double = 0.0
+    var selectedIndex: Int = 0
 
     private var accumulatedScroll: CGFloat = 0
     private let trackpadThreshold: CGFloat = 20

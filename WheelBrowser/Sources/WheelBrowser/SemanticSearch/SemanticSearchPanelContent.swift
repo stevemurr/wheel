@@ -3,8 +3,8 @@ import SwiftUI
 // MARK: - Semantic Search Panel Content
 
 struct SemanticSearchPanelContent: View {
-    @ObservedObject var viewModel: SemanticSearchViewModel
-    @ObservedObject var searchManager: SemanticSearchManagerV2
+    var viewModel: SemanticSearchViewModel
+    var searchManager: SemanticSearchManagerV2
     let searchText: String
     let onSelect: (SemanticSearchResult) -> Void
 

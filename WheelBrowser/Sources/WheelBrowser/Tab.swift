@@ -2,20 +2,25 @@ import Foundation
 import WebKit
 import AppKit
 
-class Tab: Identifiable, ObservableObject {
+@Observable
+class Tab: Identifiable {
     let id = UUID()
-    @Published var title: String = "New Tab"
-    @Published var url: URL?
-    @Published var isLoading: Bool = false
-    @Published var lastError: NavigationError?
-    @Published var canGoBack: Bool = false
-    @Published var canGoForward: Bool = false
-    @Published var zoomLevel: Double = 1.0
-    @Published var isFindBarVisible: Bool = false
-    @Published var findSearchText: String = ""
-    @Published var hasActiveAgent: Bool = false
-    @Published var agentProgress: String = ""
-    @Published var isChatTab: Bool = false
+    var title: String = "New Tab"
+    var url: URL?
+    var isLoading: Bool = false
+    var lastError: NavigationError?
+    var canGoBack: Bool = false
+    var canGoForward: Bool = false
+    var zoomLevel: Double = 1.0
+    var isFindBarVisible: Bool = false
+    var findSearchText: String = ""
+    var hasActiveAgent: Bool = false
+    var agentProgress: String = ""
+    var isChatTab: Bool = false
+
+    /// Set to true once a message has been sent in this tab's conversation.
+    /// Once true, the chat tab latch becomes permanent.
+    var hasConversationStarted: Bool = false
 
     /// Each tab has its own conversation ID for per-tab chat isolation.
     var conversationId: UUID = UUID()
@@ -36,8 +41,8 @@ class Tab: Identifiable, ObservableObject {
     var hasWebView: Bool { _webView != nil }
 
     /// Lazy controllers backed by webView
-    private lazy var findController = FindInPageController(webView: webView)
-    private lazy var pipController = PictureInPictureController(webView: webView)
+    @ObservationIgnored private lazy var findController = FindInPageController(webView: webView)
+    @ObservationIgnored private lazy var pipController = PictureInPictureController(webView: webView)
 
     /// Computed display title that handles empty/default titles gracefully
     /// Returns the URL host (without www.) if title is empty or "New Tab"

@@ -5,8 +5,7 @@ struct SettingsView: View {
         Form {
             AppearanceSection()
             LLMSettingsSection()
-            DIndexSettingsSection()
-            AgentSection()
+            SemanticSearchSettingsSection()
             WidgetSettingsSection()
 
             Section("MCP Server") {

@@ -24,9 +24,11 @@ enum SystemPromptConfig {
     [/SUGGESTIONS]
     """
 
-    /// Resolved chat system prompt — uses custom if set, otherwise default
+    /// Resolved chat system prompt — uses custom if set, otherwise default.
+    /// Includes module tool definitions when available.
     static var chatPrompt: String {
         let custom = AppSettings.shared.chatSystemPrompt
-        return custom.isEmpty ? defaultChatPrompt : custom
+        let base = custom.isEmpty ? defaultChatPrompt : custom
+        return ModuleToolBridge.shared.enhancedSystemPrompt(base: base)
     }
 }

@@ -2,15 +2,16 @@ import SwiftUI
 
 /// Represents a single overlay window displaying web content
 @MainActor
-class OverlayWindowItem: ObservableObject, Identifiable {
+@Observable
+class OverlayWindowItem: Identifiable {
     let id = UUID()
     let url: URL
-    @Published var title: String
-    @Published var position: CGPoint
-    @Published var size: CGSize
-    @Published var isMinimized: Bool = false
-    @Published var isMaximized: Bool = false
-    @Published var zIndex: Int
+    var title: String
+    var position: CGPoint
+    var size: CGSize
+    var isMinimized: Bool = false
+    var isMaximized: Bool = false
+    var zIndex: Int
     let createdAt: Date = Date()
 
     // Store pre-maximize state for restore
@@ -28,13 +29,17 @@ class OverlayWindowItem: ObservableObject, Identifiable {
 
 /// Manages overlay windows that float over the main browser content
 @MainActor
-class OverlayWindowManager: ObservableObject {
+@Observable
+class OverlayWindowManager {
     static let shared = OverlayWindowManager()
 
-    @Published var windows: [OverlayWindowItem] = []
+    var windows: [OverlayWindowItem] = []
+    @ObservationIgnored
     private var nextZIndex = 0
+    @ObservationIgnored
     private let maxWindows = 5
     /// O(1) index lookup cache for window items by UUID
+    @ObservationIgnored
     private var windowIndexCache: [UUID: Int] = [:]
 
     // Default window dimensions
@@ -42,6 +47,7 @@ class OverlayWindowManager: ObservableObject {
     private let cascadeOffset: CGFloat = 30
 
     /// Container size for calculating centered positions
+    @ObservationIgnored
     var containerSize: CGSize = .zero
 
     private init() {}

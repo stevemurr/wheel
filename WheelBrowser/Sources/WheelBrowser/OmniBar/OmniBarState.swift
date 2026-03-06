@@ -1,5 +1,4 @@
 import SwiftUI
-import Combine
 
 /// Represents the current mode of the OmniBar
 enum OmniBarMode: Equatable, CaseIterable {
@@ -8,7 +7,6 @@ enum OmniBarMode: Equatable, CaseIterable {
     case semantic
     case agent
     case readingList
-    case scraping
 
     /// SF Symbol icon for this mode
     var icon: String {
@@ -18,7 +16,6 @@ enum OmniBarMode: Equatable, CaseIterable {
         case .semantic: return "brain.head.profile"
         case .agent: return "wand.and.stars"
         case .readingList: return "bookmark.fill"
-        case .scraping: return "network"
         }
     }
 
@@ -30,7 +27,6 @@ enum OmniBarMode: Equatable, CaseIterable {
         case .semantic: return "Search history semantically..."
         case .agent: return "Describe a task for the agent..."
         case .readingList: return "Search reading list..."
-        case .scraping: return "Scraping jobs..."
         }
     }
 
@@ -42,7 +38,6 @@ enum OmniBarMode: Equatable, CaseIterable {
         case .semantic: return .orange
         case .agent: return .green
         case .readingList: return .pink
-        case .scraping: return .cyan
         }
     }
 
@@ -54,7 +49,6 @@ enum OmniBarMode: Equatable, CaseIterable {
         case .semantic: return .semantic
         case .agent: return .agent
         case .readingList: return .readingList
-        case .scraping: return .scraping
         }
     }
 }
@@ -67,23 +61,21 @@ enum OmniBarPanelVisibility: Equatable {
     case semantic
     case agent
     case readingList
-    case scraping
     case downloads
 }
 
 /// Manages the state of the OmniBar
 @MainActor
-class OmniBarState: ObservableObject {
-    @Published var mode: OmniBarMode = .address
-    @Published var inputText: String = ""
-    // NOTE: isFocused was removed — it was @Published but never read in any view,
-    // causing spurious objectWillChange signals. Use OmniBar's @State isInputFocused instead.
-    @Published var visiblePanel: OmniBarPanelVisibility = .none
+@Observable
+class OmniBarState {
+    var mode: OmniBarMode = .address
+    var inputText: String = ""
+    var visiblePanel: OmniBarPanelVisibility = .none
 
     // MARK: - Mention State
-    @Published var mentions: [Mention] = [.currentPage]
-    @Published var showMentionDropdown: Bool = false
-    @Published var mentionSearchText: String = ""
+    var mentions: [Mention] = [.currentPage]
+    var showMentionDropdown: Bool = false
+    var mentionSearchText: String = ""
 
     /// Switch to the next mode (Tab key).
     /// See setMode() for why this must NOT use withAnimation.

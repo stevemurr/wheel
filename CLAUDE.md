@@ -62,46 +62,44 @@ WheelBrowser/
 
 ## OmniBar Animation Invariants (CRITICAL - READ BEFORE TOUCHING OMNIBAR)
 
-The OmniBar has a recurring flashing/flickering bug caused by overlapping SwiftUI animation contexts. These rules MUST be followed to prevent regressions:
+The OmniBar had a recurring flashing/flickering bug caused by overlapping SwiftUI animation contexts. The root fixes were:
+1. Migrating `Tab` and `OmniBarState` to `@Observable` (per-property tracking, no blanket `objectWillChange`)
+2. Removing the `.animation()` modifier from `omniBarContent` (it created an implicit animation context that overlapped with `setVisiblePanel()`'s explicit `withAnimation`, producing a flash on every focus gain)
 
-### Rule 1: No `.animation()` on the parent VStack
-The `.animation()` modifier in `OmniBarCore.body` must ONLY be on `omniBarContent` and the find-bar `Group` — NEVER on the parent `VStack`. Placing it on the VStack causes panels to receive two overlapping animation contexts (implicit from `.animation()` + explicit from `withAnimation` in `setVisiblePanel()`), producing a flash.
+Pill expansion is now animated explicitly via `withAnimation` on hover only. Focus-driven expansion is instant (the user is typically already hovering, and the panel animation is the dominant visual change).
 
-### Rule 2: No `withAnimation` in mode-setting methods
+### Rule 1: Prefer `@Observable` over `ObservableObject`
+All new model/state classes MUST use `@Observable`. Pass them to sub-views as plain `var` (not `@ObservedObject`). Use `@State` (not `@StateObject`) when owning an `@Observable` instance. Use `@Bindable` when you need `$` binding syntax on a plain `var`. Migrate existing `ObservableObject` types when touching them. `Tab`, `OmniBarState`, `AgentManager`, `AgentEngine`, `ModuleStore`, and `WidgetStore` are already `@Observable`.
+
+### Rule 2: No `.animation()` on omniBarContent or the parent VStack
+The only implicit `.animation()` allowed in OmniBarCore is on the find-bar `Group`. `omniBarContent` must NOT have `.animation()` — it creates an implicit animation context that overlaps with `setVisiblePanel()`'s `withAnimation(panelSpring)` when both fire in the same render pass (e.g., focus gain triggers both pill expansion and panel open). Hover expansion uses explicit `withAnimation` in `.onHover`.
+
+### Rule 3: No `withAnimation` in mode-setting methods
 `setMode()`, `nextMode()`, and `previousMode()` in `OmniBarState` must NOT wrap in `withAnimation`. Mode changes trigger `onChange(of: omniState.mode)` → `handleModeChange()` → `setVisiblePanel()` which has its own `withAnimation(panelSpring)`. Adding `withAnimation` in setMode creates nested animation contexts → flash.
 
-### Rule 3: No dismiss-then-activate in `handleModeChange`
+### Rule 4: No dismiss-then-activate in `handleModeChange`
 `handleModeChange()` must NOT call `dismissVisiblePanel()` before `activateMode()`. This creates two sequential `withAnimation` blocks — the first animates to `.none`, the second animates to the new panel — causing a visible flash. Instead, `activateMode()` directly sets the new panel (atomic swap).
 
-### Rule 4: Guard delayed dismissals against stale focus
+### Rule 5: Guard delayed dismissals against stale focus
 `handleFocusLost()` uses a 200ms delay. The delayed block MUST check `isInputFocused` before dismissing, because focus may have been regained during the delay. Without this check, the delayed dismiss fires after the new panel is already open → flash.
 
-### Rule 5: No `.contentTransition(.opacity)` on streaming content
+### Rule 6: No `.contentTransition(.opacity)` on streaming content
 Views that update at high frequency (chat streaming, progress indicators) must NOT use `.contentTransition(.opacity)` or per-update `.animation()` modifiers. These create overlapping opacity fades that produce a flash effect.
 
-### Rule 6: Prefer `@Observable` classes passed as plain `var`
-High-frequency data sources (e.g., `AgentEngine`) must use `@Observable` and be passed to sub-views as plain `var` — never `@ObservedObject`. Extract sub-views for each data source so that OmniBar.body has zero direct property reads on it. With `@Observable`, SwiftUI tracks per-property access, so only the sub-view that reads `streamingThought` re-evaluates during streaming — not the entire OmniBar.
-
 ### Rule 7: No redundant `setVisiblePanel` calls
-Handler methods (e.g., `handleFocusAISidebar`, `handleFocusSemanticSearch`) must NOT call `setVisiblePanel()` directly. `setMode()` triggers `onChange(of: mode)` → `handleModeChange()` → `activateMode()` → `setVisiblePanel()`. Calling it again creates redundant `withAnimation` transactions. `setVisiblePanel` has a guard (`guard visiblePanel != panel`) but calling it redundantly still creates unnecessary code paths.
+Handler methods (e.g., `handleFocusAISidebar`, `handleFocusSemanticSearch`) must NOT call `setVisiblePanel()` directly. `setMode()` triggers `onChange(of: mode)` → `handleModeChange()` → `activateMode()` → `setVisiblePanel()`. Calling it again creates redundant `withAnimation` transactions.
 
 ### Rule 8: Non-animated state changes BEFORE animated panel changes
-In `activateMode()`, load suggestions / search results / reading list BEFORE calling `setVisiblePanel()`. View model `@Published` mutations fire `objectWillChange` without an animation context. If they fire AFTER the animated panel change, they create non-animated body re-evals that can interleave with the transition animation.
+In `activateMode()`, load suggestions / search results / reading list BEFORE calling `setVisiblePanel()`. View model mutations should fire before the animated panel transition to prevent non-animated body re-evals from interleaving with the transition animation.
 
 ### Rule 9: Set focus BEFORE mode in handler methods
 Methods like `handleFocusAddressBar()` must set `isInputFocused = true` BEFORE `setMode()`. If mode is set first, `handleModeChange` fires and sees `isInputFocused == false`, causing it to dismiss the panel. Then the subsequent focus gain re-opens it → dismiss-then-show flash.
 
-### Rule 10: No dead `@Published` properties on OmniBarState
-Do not add `@Published` properties to `OmniBarState` that are not read by any view. Every `@Published` mutation fires `objectWillChange`, triggering a full body re-eval of OmniBar. With `@Observable` classes this is less critical (unused properties don't trigger updates), but `OmniBarState` still uses `ObservableObject`, so the rule applies there. Prefer migrating to `@Observable` where possible.
+### Rule 10: ALWAYS wrap `isInputFocused = true` in `withAnimation(panelSpring)`
+Setting `isInputFocused = true` MUST be wrapped in `withAnimation(AppAnimation.panelSpring)` — in coordinator callbacks, keyboard shortcut handlers, and any other code path. This ensures pill expansion (width, border, shadow) animates smoothly alongside the panel open from `setVisiblePanel()`. This was previously forbidden when `.animation()` was on `omniBarContent`, but now that the implicit modifier is removed, `withAnimation` on focus is the sole animation driver and does NOT overlap with anything.
 
-### Rule 11: No `withAnimation` wrapping `isInputFocused = true`
-Setting `isInputFocused` must NOT be wrapped in `withAnimation`. The pill expansion is already animated by the implicit `.animation()` on `omniBarContent` (which tracks `shouldExpand` via `OmniBarAnimationState`), and panel transitions are animated by `setVisiblePanel()`'s own `withAnimation`. Adding a `withAnimation` around the focus change creates overlapping animation contexts that produce a flash on first focus.
-
-### Rule 12: Only track `shouldExpand` in `OmniBarAnimationState`
-`OmniBarAnimationState` must only contain `shouldExpand`, NOT `isInputFocused`. Including `isInputFocused` causes the `.animation()` modifier to fire on every focus change — even when `shouldExpand` is already `true` (e.g. cursor is hovering). This creates a second animation context competing with `setVisiblePanel()`'s `withAnimation`, producing a flash when the history panel opens. The pill's focus-dependent visuals (shadow, border, icon tint) are subtle enough to change instantly.
-
-### Rule 13: Extract sub-views for `@Observable` data sources in OmniBar
-When adding a new `@Observable` data source to OmniBar, **always** pass it to an extracted sub-view — never read its properties directly in `OmniBar.body`. This ensures OmniBar's body re-evaluation frequency stays independent of the data source's update frequency. See `AgentInlineStatusView`, `AgentActionButton`, `AgentPanelToggle`, and `AgentOmniPanel` as examples.
+### Rule 11: Extract sub-views for high-frequency data sources in OmniBar
+When adding a new data source to OmniBar that updates frequently, pass it to an extracted sub-view — never read its properties directly in `OmniBar.body`. This keeps OmniBar's body re-evaluation frequency independent of the data source. See `AgentInlineStatusView`, `AgentActionButton`, `AgentPanelToggle`, and `AgentOmniPanel` as examples.
 
 ## Common Tasks
 

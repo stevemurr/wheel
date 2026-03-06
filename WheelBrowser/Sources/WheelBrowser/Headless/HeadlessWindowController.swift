@@ -61,7 +61,7 @@ class HeadlessWindowController {
 
 /// Minimal SwiftUI view for headless mode — just web views, no UI chrome.
 private struct HeadlessContentView: View {
-    @ObservedObject var browserState: BrowserState
+    var browserState: BrowserState
 
     var body: some View {
         ZStack {

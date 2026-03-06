@@ -2,10 +2,10 @@ import SwiftUI
 
 /// ViewModel for managing @ mention suggestions in chat mode
 @MainActor
-class MentionSuggestionsViewModel: ObservableObject, ListSelectable {
-    @Published var suggestions: [MentionSuggestion] = []
-    @Published var selectedIndex: Int = -1
-    @Published var isSearching = false
+@Observable class MentionSuggestionsViewModel: ListSelectable {
+    var suggestions: [MentionSuggestion] = []
+    var selectedIndex: Int = -1
+    var isSearching = false
 
     var selectableCount: Int { suggestions.count }
 

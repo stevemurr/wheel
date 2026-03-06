@@ -1,7 +1,6 @@
 import Foundation
 
 /// A unified chat message model for use across the application.
-/// Replaces duplicate ChatMessage definitions in LettaModels and AIWidgetCreatorViewModel.
 public struct ChatMessage: Identifiable, Equatable, Hashable, Codable {
     public let id: UUID
     public let role: MessageRole

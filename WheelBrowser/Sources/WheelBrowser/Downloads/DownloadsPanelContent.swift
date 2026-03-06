@@ -2,7 +2,7 @@ import SwiftUI
 
 /// Downloads panel body displayed inside OmniPanel
 struct DownloadsPanelContent: View {
-    @ObservedObject var manager: DownloadManager
+    var manager: DownloadManager
 
     var body: some View {
         ScrollView(showsIndicators: true) {

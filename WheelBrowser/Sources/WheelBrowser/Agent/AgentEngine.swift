@@ -1,6 +1,5 @@
 import Foundation
 import SwiftUI
-import Combine
 
 /// Represents a single step in the agent's execution
 struct AgentStep: Identifiable {
@@ -132,7 +131,7 @@ class AgentEngine {
     @ObservationIgnored private let loopDetector = AgentLoopDetector()
     @ObservationIgnored private var currentTaskHandle: Task<AgentResult, Never>?
     @ObservationIgnored private weak var boundTab: Tab?
-    @ObservationIgnored private var tabClosureObserver: AnyCancellable?
+    @ObservationIgnored private var tabClosureObserverTask: Task<Void, Never>?
 
     // MARK: - Configuration (excluded from observation)
 
@@ -254,28 +253,37 @@ class AgentEngine {
 
     /// Set up observer to detect when the bound tab is closed
     private func setupTabClosureObserver() {
-        tabClosureObserver?.cancel()
-        tabClosureObserver = browserState.$tabs
-            .receive(on: DispatchQueue.main)
-            .sink { [weak self] tabs in
-                guard let self = self,
-                      let boundId = self.boundTabId,
-                      self.isRunning else { return }
-
+        tabClosureObserverTask?.cancel()
+        tabClosureObserverTask = Task { [weak self] in
+            while !Task.isCancelled {
+                guard let self else { return }
+                let tabs = await withCheckedContinuation { continuation in
+                    withObservationTracking {
+                        _ = self.browserState.tabs
+                    } onChange: {
+                        Task { @MainActor in
+                            continuation.resume(returning: self.browserState.tabs)
+                        }
+                    }
+                }
+                guard !Task.isCancelled else { return }
+                guard let boundId = self.boundTabId, self.isRunning else { continue }
                 if !tabs.contains(where: { $0.id == boundId }) {
                     Log.Agent.warning("Bound tab was closed, cancelling agent")
                     self.error = "Tab was closed"
                     let errorStep = AgentStep(type: .error, content: "Task cancelled: tab was closed", timestamp: Date())
                     self.steps.append(errorStep)
                     self.cancel()
+                    return
                 }
             }
+        }
     }
 
     /// Clean up tab binding when agent finishes
     private func cleanupTabBinding() {
-        tabClosureObserver?.cancel()
-        tabClosureObserver = nil
+        tabClosureObserverTask?.cancel()
+        tabClosureObserverTask = nil
 
         if let tab = boundTab {
             tab.hasActiveAgent = false

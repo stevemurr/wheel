@@ -1,11 +1,11 @@
 import Foundation
-import Combine
 
 /// Stores information about a closed tab for restoration
 struct ClosedTabInfo {
     let url: URL?
     let title: String
     let isChatTab: Bool
+    let hasConversationStarted: Bool
     let conversationId: UUID
     let closedAt: Date
 }
@@ -16,13 +16,15 @@ struct PersistedTab: Codable {
     let url: String?
     let title: String
     let isChatTab: Bool
+    let hasConversationStarted: Bool
     let conversationId: UUID
 
-    init(id: UUID, url: String?, title: String, isChatTab: Bool, conversationId: UUID) {
+    init(id: UUID, url: String?, title: String, isChatTab: Bool, hasConversationStarted: Bool, conversationId: UUID) {
         self.id = id
         self.url = url
         self.title = title
         self.isChatTab = isChatTab
+        self.hasConversationStarted = hasConversationStarted
         self.conversationId = conversationId
     }
 
@@ -32,6 +34,7 @@ struct PersistedTab: Codable {
         url = try container.decodeIfPresent(String.self, forKey: .url)
         title = try container.decode(String.self, forKey: .title)
         isChatTab = try container.decodeIfPresent(Bool.self, forKey: .isChatTab) ?? false
+        hasConversationStarted = try container.decodeIfPresent(Bool.self, forKey: .hasConversationStarted) ?? false
         conversationId = try container.decodeIfPresent(UUID.self, forKey: .conversationId) ?? UUID()
     }
 }
@@ -42,26 +45,27 @@ struct WorkspaceTabState: Codable {
     let activeTabId: UUID?
 }
 
-class BrowserState: ObservableObject, BrowserBridgeProvider {
+@Observable
+class BrowserState: BrowserBridgeProvider {
     /// Returns a BrowserBridge for a specific tab (protocol conformance)
     @MainActor
     func bridge(for tabId: UUID) -> (any BrowserBridge)? {
         return accessibilityBridge(for: tabId)
     }
 
-    @Published var tabs: [Tab] = []
-    private var tabsByID: [UUID: Tab] = [:]
-    @Published var activeTabId: UUID?
+    var tabs: [Tab] = []
+    @ObservationIgnored private var tabsByID: [UUID: Tab] = [:]
+    var activeTabId: UUID?
 
     /// Stack of recently closed tabs (most recent first)
-    private var closedTabsHistory: [ClosedTabInfo] = []
-    private let maxClosedTabsHistory = 20
+    @ObservationIgnored private var closedTabsHistory: [ClosedTabInfo] = []
+    @ObservationIgnored private let maxClosedTabsHistory = 20
 
     /// Current workspace ID being managed
     private(set) var currentWorkspaceId: UUID?
 
     /// Cache of tab states per workspace (in-memory for quick switching)
-    private var workspaceTabStates: [UUID: WorkspaceTabState] = [:]
+    @ObservationIgnored private var workspaceTabStates: [UUID: WorkspaceTabState] = [:]
 
     var activeTab: Tab? {
         guard let id = activeTabId else { return nil }
@@ -129,6 +133,7 @@ class BrowserState: ObservableObject, BrowserBridgeProvider {
                 url: tab.url?.absoluteString,
                 title: tab.title,
                 isChatTab: tab.isChatTab,
+                hasConversationStarted: tab.hasConversationStarted,
                 conversationId: tab.conversationId
             )
         }
@@ -162,6 +167,7 @@ class BrowserState: ObservableObject, BrowserBridgeProvider {
             for persistedTab in state.tabData {
                 let tab = Tab()
                 tab.isChatTab = persistedTab.isChatTab
+                tab.hasConversationStarted = persistedTab.hasConversationStarted
                 tab.conversationId = persistedTab.conversationId
                 tabs.append(tab)
                 tabsByID[tab.id] = tab
@@ -227,6 +233,7 @@ class BrowserState: ObservableObject, BrowserBridgeProvider {
                 url: tab.url,
                 title: tab.title,
                 isChatTab: tab.isChatTab,
+                hasConversationStarted: tab.hasConversationStarted,
                 conversationId: tab.conversationId,
                 closedAt: Date()
             )
@@ -319,6 +326,7 @@ class BrowserState: ObservableObject, BrowserBridgeProvider {
 
         let tab = Tab()
         tab.isChatTab = closedInfo.isChatTab
+        tab.hasConversationStarted = closedInfo.hasConversationStarted
         tab.conversationId = closedInfo.conversationId
         tabs.append(tab)
         tabsByID[tab.id] = tab

@@ -1,7 +1,7 @@
 import SwiftUI
 
 struct LinkPreviewOverlay: View {
-    @ObservedObject var state = LinkPreviewState.shared
+    var state = LinkPreviewState.shared
     let containerSize: CGSize
     let onOpenInTab: (URL) -> Void
 

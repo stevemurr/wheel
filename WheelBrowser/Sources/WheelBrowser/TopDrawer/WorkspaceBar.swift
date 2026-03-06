@@ -2,8 +2,8 @@ import SwiftUI
 
 /// A horizontal bar of workspace icons displayed at the top of the browser
 struct WorkspaceBar: View {
-    @ObservedObject private var workspaceManager = WorkspaceManager.shared
-    @ObservedObject private var agentStudioManager = AgentStudioManager.shared
+    private var workspaceManager = WorkspaceManager.shared
+    private var agentStudioManager = AgentStudioManager.shared
     @State private var isCreatingWorkspace = false
     @State private var editingWorkspace: Workspace?
     @State private var showingDeleteConfirmation: Workspace?
@@ -15,6 +15,58 @@ struct WorkspaceBar: View {
     private let iconSize: CGFloat = 32
 
     var body: some View {
+        barContent
+            .sheet(isPresented: $isCreatingWorkspace) {
+                WorkspaceEditorSheet(
+                    mode: .create,
+                    onSave: { name, icon, color, agentID in
+                        workspaceManager.createWorkspace(name: name, icon: icon, color: color, defaultAgentID: agentID)
+                        isCreatingWorkspace = false
+                    },
+                    onCancel: {
+                        isCreatingWorkspace = false
+                    }
+                )
+            }
+            .sheet(item: $editingWorkspace) { workspace in
+                WorkspaceEditorSheet(
+                    mode: .edit(workspace),
+                    onSave: { name, icon, color, agentID in
+                        workspaceManager.updateWorkspace(
+                            id: workspace.id,
+                            name: name,
+                            icon: icon,
+                            color: color,
+                            defaultAgentID: agentID
+                        )
+                        editingWorkspace = nil
+                    },
+                    onCancel: {
+                        editingWorkspace = nil
+                    }
+                )
+            }
+            .alert(
+                "Delete Workspace?",
+                isPresented: Binding(
+                    get: { showingDeleteConfirmation != nil },
+                    set: { if !$0 { showingDeleteConfirmation = nil } }
+                ),
+                presenting: showingDeleteConfirmation
+            ) { workspace in
+                Button("Delete", role: .destructive) {
+                    workspaceManager.deleteWorkspace(workspace.id)
+                    showingDeleteConfirmation = nil
+                }
+                Button("Cancel", role: .cancel) {
+                    showingDeleteConfirmation = nil
+                }
+            } message: { workspace in
+                Text("Are you sure you want to delete \"\(workspace.name)\"? This cannot be undone.")
+            }
+    }
+
+    private var barContent: some View {
         HStack(spacing: 0) {
             // Workspace icons
             ScrollView(.horizontal, showsIndicators: false) {
@@ -54,54 +106,6 @@ struct WorkspaceBar: View {
                 .frame(height: 1),
             alignment: .bottom
         )
-        .sheet(isPresented: $isCreatingWorkspace) {
-            WorkspaceEditorSheet(
-                mode: .create,
-                onSave: { name, icon, color, agentID in
-                    workspaceManager.createWorkspace(name: name, icon: icon, color: color, defaultAgentID: agentID)
-                    isCreatingWorkspace = false
-                },
-                onCancel: {
-                    isCreatingWorkspace = false
-                }
-            )
-        }
-        .sheet(item: $editingWorkspace) { workspace in
-            WorkspaceEditorSheet(
-                mode: .edit(workspace),
-                onSave: { name, icon, color, agentID in
-                    workspaceManager.updateWorkspace(
-                        id: workspace.id,
-                        name: name,
-                        icon: icon,
-                        color: color,
-                        defaultAgentID: agentID
-                    )
-                    editingWorkspace = nil
-                },
-                onCancel: {
-                    editingWorkspace = nil
-                }
-            )
-        }
-        .alert(
-            "Delete Workspace?",
-            isPresented: Binding(
-                get: { showingDeleteConfirmation != nil },
-                set: { if !$0 { showingDeleteConfirmation = nil } }
-            ),
-            presenting: showingDeleteConfirmation
-        ) { workspace in
-            Button("Delete", role: .destructive) {
-                workspaceManager.deleteWorkspace(workspace.id)
-                showingDeleteConfirmation = nil
-            }
-            Button("Cancel", role: .cancel) {
-                showingDeleteConfirmation = nil
-            }
-        } message: { workspace in
-            Text("Are you sure you want to delete \"\(workspace.name)\"? This cannot be undone.")
-        }
     }
 
     private func selectWorkspace(_ workspace: Workspace) {

@@ -5,26 +5,32 @@ import AppKit
 
 /// Model Context Protocol server for external client access to browser automation
 @MainActor
-class MCPServer: ObservableObject {
+@Observable
+class MCPServer {
     // MARK: - Singleton
 
     static let shared = MCPServer()
 
-    // MARK: - Published State
+    // MARK: - Observable State
 
-    @Published var isRunning: Bool = false
-    @Published var port: UInt16 = 8765
-    @Published var connectionCount: Int = 0
-    @Published var lastError: String?
+    var isRunning: Bool = false
+    var port: UInt16 = 8765
+    var connectionCount: Int = 0
+    var lastError: String?
 
     // MARK: - Dependencies
 
+    @ObservationIgnored
     private weak var browserState: BrowserState?
+    @ObservationIgnored
     private weak var agentEngine: AgentEngine?
+    @ObservationIgnored
     private var listener: NWListener?
+    @ObservationIgnored
     private var connections: [NWConnection] = []
 
     /// Buffer for accumulating partial HTTP requests per connection
+    @ObservationIgnored
     private var connectionBuffers: [ObjectIdentifier: Data] = [:]
 
     // MARK: - Initialization

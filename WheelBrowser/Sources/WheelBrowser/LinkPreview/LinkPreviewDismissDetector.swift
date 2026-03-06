@@ -2,7 +2,7 @@ import SwiftUI
 import AppKit
 
 struct LinkPreviewDismissDetector: NSViewRepresentable {
-    @ObservedObject var state = LinkPreviewState.shared
+    var state = LinkPreviewState.shared
     let panelFrame: CGRect
 
     func makeNSView(context: Context) -> LinkPreviewTrackingView {

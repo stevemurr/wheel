@@ -2,7 +2,7 @@ import SwiftUI
 
 /// Settings view for the MCP Server configuration
 struct MCPSettingsView: View {
-    @ObservedObject private var mcpServer = MCPServer.shared
+    private var mcpServer = MCPServer.shared
     @State private var portInput: String = ""
 
     var body: some View {

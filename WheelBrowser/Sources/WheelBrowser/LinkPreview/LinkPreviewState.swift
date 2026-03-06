@@ -1,51 +1,51 @@
 import SwiftUI
-import Combine
 
 @MainActor
-class LinkPreviewState: ObservableObject {
+@Observable
+class LinkPreviewState {
     static let shared = LinkPreviewState()
 
     // MARK: - Cached Regexes (compiled once)
 
-    private static let titleRegex = try? NSRegularExpression(
+    @ObservationIgnored private static let titleRegex = try? NSRegularExpression(
         pattern: "<title[^>]*>([^<]+)</title>",
         options: .caseInsensitive
     )
-    private static let metaPropertyRegex = try? NSRegularExpression(
+    @ObservationIgnored private static let metaPropertyRegex = try? NSRegularExpression(
         pattern: "<meta[^>]*property=[\"']og:title[\"'][^>]*content=[\"']([^\"']+)[\"']",
         options: .caseInsensitive
     )
-    private static let metaPropertyAltRegex = try? NSRegularExpression(
+    @ObservationIgnored private static let metaPropertyAltRegex = try? NSRegularExpression(
         pattern: "<meta[^>]*content=[\"']([^\"']+)[\"'][^>]*property=[\"']og:title[\"']",
         options: .caseInsensitive
     )
-    private static let scriptRegex = try? NSRegularExpression(
+    @ObservationIgnored private static let scriptRegex = try? NSRegularExpression(
         pattern: "<script[^>]*>[\\s\\S]*?</script>",
         options: []
     )
-    private static let styleRegex = try? NSRegularExpression(
+    @ObservationIgnored private static let styleRegex = try? NSRegularExpression(
         pattern: "<style[^>]*>[\\s\\S]*?</style>",
         options: []
     )
-    private static let tagRegex = try? NSRegularExpression(
+    @ObservationIgnored private static let tagRegex = try? NSRegularExpression(
         pattern: "<[^>]+>",
         options: []
     )
-    private static let whitespaceRegex = try? NSRegularExpression(
+    @ObservationIgnored private static let whitespaceRegex = try? NSRegularExpression(
         pattern: "\\s+",
         options: []
     )
 
-    @Published var isVisible: Bool = false
-    @Published var position: CGPoint = .zero
-    @Published var linkURL: URL?
-    @Published var linkText: String = ""
-    @Published var pageTitle: String?
-    @Published var summary: String?
-    @Published var isLoading: Bool = false
-    @Published var error: String?
+    var isVisible: Bool = false
+    var position: CGPoint = .zero
+    var linkURL: URL?
+    var linkText: String = ""
+    var pageTitle: String?
+    var summary: String?
+    var isLoading: Bool = false
+    var error: String?
 
-    private var fetchTask: Task<Void, Never>?
+    @ObservationIgnored private var fetchTask: Task<Void, Never>?
 
     private init() {}
 

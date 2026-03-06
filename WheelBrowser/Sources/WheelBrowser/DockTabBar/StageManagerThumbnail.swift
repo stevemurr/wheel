@@ -3,8 +3,8 @@ import SwiftUI
 /// Individual tab thumbnail in the Stage Manager strip.
 /// Rendered with a 3D Y-axis tilt so thumbnails appear "turned" like in macOS Stage Manager.
 struct StageManagerThumbnail: View {
-    @ObservedObject var tab: Tab
-    @ObservedObject var screenshotManager: TabScreenshotManager
+    var tab: Tab
+    var screenshotManager: TabScreenshotManager
     let isActive: Bool
     let canClose: Bool
     let onSelect: () -> Void

@@ -3,13 +3,13 @@ import SwiftUI
 // MARK: - Browser Content Area (extracted to help compiler with type checking)
 
 private struct BrowserContentArea: View {
-    @ObservedObject var activeTab: Tab
+    var activeTab: Tab
     var agentManager: AgentManager
-    @ObservedObject var browserState: BrowserState
+    var browserState: BrowserState
     @ObservedObject var settings: AppSettings
     var agentEngine: AgentEngine
-    @ObservedObject var wheelState: TabWheelState
-    @ObservedObject var contextMenuState = ContextMenuState.shared
+    var wheelState: TabWheelState
+    var contextMenuState = ContextMenuState.shared
     let contentExtractor: ContentExtractor
     var moduleStore: ModuleStore?
 
@@ -89,7 +89,7 @@ private struct BrowserContentArea: View {
 
 /// Container for a single tab's web view - keeps it in hierarchy even when not active
 private struct TabWebViewContainer: View {
-    @ObservedObject var tab: Tab
+    var tab: Tab
     var agentManager: AgentManager
     var moduleStore: ModuleStore?
     let isActive: Bool
@@ -270,28 +270,24 @@ private struct ZoomNotificationModifier: ViewModifier {
 }
 
 struct ContentView: View {
-    @StateObject private var state: BrowserState
+    @State private var state: BrowserState
     @State private var agentEngine: AgentEngine
     private var agentManager = AgentManager.shared
-    @ObservedObject private var agentStudioManager = AgentStudioManager.shared
-    @ObservedObject private var workspaceManager = WorkspaceManager.shared
+    private var agentStudioManager = AgentStudioManager.shared
+    private var workspaceManager = WorkspaceManager.shared
     @ObservedObject private var settings = AppSettings.shared
-    @ObservedObject private var downloadManager = DownloadManager.shared
-    @ObservedObject private var wheelState = TabWheelState.shared
-    @ObservedObject private var scrapeManager = ScrapeManager.shared
+    private var downloadManager = DownloadManager.shared
+    @State private var wheelState = TabWheelState.shared
     private let contentExtractor = ContentExtractor()
 
     /// Module system store — manages all installed modules.
     @State private var moduleStore = ModuleStore()
 
-    /// URL to show scrape config sheet for
-    @State private var scrapeConfigURL: URL?
-
     init() {
         let browserState = BrowserState()
         let engine = AgentEngine(browserState: browserState, settings: AppSettings.shared)
 
-        _state = StateObject(wrappedValue: browserState)
+        _state = State(wrappedValue: browserState)
         _agentEngine = State(wrappedValue: engine)
 
         // Configure the shared MCP server with browser dependencies
@@ -366,34 +362,6 @@ struct ContentView: View {
                 // Show tab wheel at center of window
                 let initialIndex = state.activeTabIndex ?? 0
                 wheelState.show(at: .zero, initialIndex: initialIndex, tabCount: state.tabs.count)
-            }
-            .onReceive(NotificationCenter.default.publisher(for: .scrapePage)) { _ in
-                if let url = state.activeTab?.url {
-                    scrapeConfigURL = url
-                }
-            }
-            .sheet(item: $scrapeConfigURL) { url in
-                ScrapeConfigSheet(
-                    url: url,
-                    onStart: { config in
-                        scrapeConfigURL = nil
-                        Task {
-                            do {
-                                try await scrapeManager.startScrape(
-                                    url: config.url,
-                                    depth: config.depth,
-                                    stayOnDomain: config.stayOnDomain,
-                                    maxPages: config.maxPages
-                                )
-                            } catch {
-                                Log.Scrape.error("Failed to start scrape", error: error)
-                            }
-                        }
-                    },
-                    onCancel: {
-                        scrapeConfigURL = nil
-                    }
-                )
             }
     }
 

@@ -11,8 +11,8 @@ final class WidgetStore {
 
     private let registry: SkillRegistry
     private let executor: PipelineExecutor
-    private nonisolated(unsafe) var refreshTask: Task<Void, Never>?
-    private nonisolated(unsafe) var activationObserver: NSObjectProtocol?
+    @ObservationIgnored private nonisolated(unsafe) var refreshTask: Task<Void, Never>?
+    @ObservationIgnored private nonisolated(unsafe) var activationObserver: NSObjectProtocol?
 
     private static let storePath: URL = {
         let appSupport = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
