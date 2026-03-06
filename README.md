@@ -6,8 +6,8 @@
 
 The macOS browser with an AI copilot, semantic memory, and workspaces built-in.
 
-![macOS](https://img.shields.io/badge/macOS-14.0+-000?logo=apple&logoColor=white)
-![Swift](https://img.shields.io/badge/Swift-5.9+-F05138?logo=swift&logoColor=white)
+![macOS](https://img.shields.io/badge/macOS-26+-000?logo=apple&logoColor=white)
+![Swift](https://img.shields.io/badge/Swift-6.2+-F05138?logo=swift&logoColor=white)
 ![License](https://img.shields.io/badge/License-MIT-blue)
 
 </div>
@@ -41,17 +41,18 @@ The OmniBar floats at the bottom. It expands when focused, collapses when you're
 ### AI Chat
 Talk to any webpage. Wheel extracts the content and gives the AI full context.
 
+- **Apple Intelligence** — Powered by the on-device language model via FoundationModels. No API keys, no servers, no data leaves your Mac.
 - **@mentions** — Pull in multiple tabs or history results
 - **Streaming** — Watch responses arrive in real-time
 - **Agent Studio** — Build custom agents with system prompts
 
 ### Semantic Search
-Every page you visit gets embedded. Search by concept, not exact text.
+Every page you visit gets embedded locally. Search by concept, not exact text.
 
-- Powered by [DIndex](https://github.com/stevemurr/dindex) for semantic vector search
+- Powered by [VecturaKit](https://github.com/rryam/VecturaKit) for on-device vector search
 - Automatic background indexing as you browse
 - Category filtering with `@Web`, `@History`, `@ReadingList` mentions
-- Requires a running DIndex server (configure in Settings)
+- Fully local — no external server required
 
 ### Workspaces
 Keep contexts separate. Each workspace has its own tabs, color, and default agent.
@@ -61,9 +62,7 @@ Press **Cmd+S** to save any page. Press **Cmd+B** to browse your list. Search wi
 
 ### The Rest
 - **Downloads** — Progress tracking, auto-organized
-- **Content Blocking** — Built-in ad blocker with category controls
 - **Picture-in-Picture** — Float videos (Cmd+Shift+P)
-- **Dark Mode** — System-aware or forced
 - **Middle-click panel** — Quick tab switching and actions
 
 ---
@@ -111,36 +110,7 @@ Or run directly:
 swift run WheelBrowser
 ```
 
-**Requirements:** macOS 14+, Xcode 15+
-
----
-
-## LLM Setup
-
-Wheel works with any OpenAI-compatible API.
-
-| Provider | Endpoint |
-|----------|----------|
-| **Ollama** (local) | `http://localhost:11434/v1` |
-| **OpenAI** | `https://api.openai.com/v1` |
-| **OpenRouter** | `https://openrouter.ai/api/v1` |
-
-Configure in **Settings** → **AI**.
-
----
-
-## DIndex Setup
-
-Semantic search requires a running [DIndex](https://github.com/stevemurr/dindex) server.
-
-```bash
-# Clone and run DIndex
-git clone https://github.com/stevemurr/dindex.git
-cd dindex
-cargo run --release
-```
-
-By default, DIndex runs on `http://localhost:8080`. Configure the endpoint in **Settings** → **Semantic Search**.
+**Requirements:** macOS 26+, Apple Silicon, Xcode 26+, Apple Intelligence enabled
 
 ---
 
@@ -149,13 +119,16 @@ By default, DIndex runs on `http://localhost:8080`. Configure the endpoint in **
 ```
 WheelBrowser/
 ├── OmniBar/          # The unified input system
-├── SemanticSearch/   # DIndex-powered semantic search
+├── SemanticSearch/   # VecturaKit-powered on-device vector search
 ├── Letta/            # AI agent integration
+├── Shared/LLM/      # Apple FoundationModels integration
+├── ModuleSystem/     # Extensible module architecture
 ├── Workspaces/       # Context management
 ├── RightClickPanel/  # Quick actions overlay
-├── Downloads/        # Download handling
-└── ContentBlocking/  # Ad blocking
+└── Downloads/        # Download handling
 ```
+
+All AI features run entirely on-device using Apple Intelligence (FoundationModels) and VecturaKit. No external servers, API keys, or network calls required for AI functionality.
 
 ---
 
