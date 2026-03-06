@@ -9,14 +9,39 @@ struct StageManagerStrip: View {
     var browserState: BrowserState
     var screenshotManager: TabScreenshotManager
 
+    @AppStorage(AppSettings.hiddenTabScaleKey)
+    private var hiddenTabScale = AppSettings.defaultHiddenTabScale
+
+    @AppStorage(AppSettings.shownTabScaleKey)
+    private var shownTabScale = AppSettings.defaultShownTabScale
+
     @State private var isExpanded = false
 
     /// Delay timer so the strip doesn't collapse the instant the cursor wanders off.
     @State private var collapseWork: DispatchWorkItem?
 
-    /// Width of the invisible hover-detection zone (always present).
-    private let hoverZoneWidth: CGFloat = 130
     private let collapseDelay: TimeInterval = 0.35
+
+    /// Width of the invisible hover-detection zone (always present).
+    private var hoverZoneWidth: CGFloat {
+        max(130, StageManagerThumbnail.baseThumbnailWidth * shownScale + 20)
+    }
+
+    private var shownScale: CGFloat {
+        CGFloat(clamp(shownTabScale, to: AppSettings.shownTabScaleRange))
+    }
+
+    private var hiddenScale: CGFloat {
+        CGFloat(clamp(hiddenTabScale, to: AppSettings.hiddenTabScaleRange))
+    }
+
+    private var expandedTabSpacing: CGFloat {
+        10 * max(0.9, shownScale)
+    }
+
+    private var collapsedTabSpacing: CGFloat {
+        4 * max(0.85, hiddenScale)
+    }
 
     var body: some View {
         // The hover zone is always full-width so the expanded thumbnails
@@ -63,13 +88,14 @@ struct StageManagerStrip: View {
     private var expandedContent: some View {
         GeometryReader { geometry in
             ScrollView(.vertical, showsIndicators: false) {
-                LazyVStack(spacing: 10) {
+                LazyVStack(spacing: expandedTabSpacing) {
                     ForEach(browserState.tabs) { tab in
                         StageManagerThumbnail(
                             tab: tab,
                             screenshotManager: screenshotManager,
                             isActive: tab.id == browserState.activeTabId,
                             canClose: browserState.tabs.count > 1,
+                            sizeScale: shownScale,
                             onSelect: {
                                 browserState.selectTab(tab.id)
                             },
@@ -96,11 +122,12 @@ struct StageManagerStrip: View {
         VStack(spacing: 0) {
             Spacer(minLength: 0)
 
-            VStack(spacing: 4) {
+            VStack(spacing: collapsedTabSpacing) {
                 ForEach(browserState.tabs) { tab in
                     BinderTabPeek(
                         tab: tab,
                         isActive: tab.id == browserState.activeTabId,
+                        sizeScale: hiddenScale,
                         onSelect: {
                             browserState.selectTab(tab.id)
                         }
@@ -121,15 +148,23 @@ struct StageManagerStrip: View {
 private struct BinderTabPeek: View {
     var tab: Tab
     let isActive: Bool
+    let sizeScale: CGFloat
     let onSelect: () -> Void
 
     @State private var isHovered = false
 
     private var peekWidth: CGFloat {
-        isActive ? 14 : (isHovered ? 12 : 8)
+        let baseWidth = isActive ? 14.0 : (isHovered ? 12.0 : 8.0)
+        return baseWidth * sizeScale
     }
 
-    private let peekHeight: CGFloat = 32
+    private var peekHeight: CGFloat {
+        32 * sizeScale
+    }
+
+    private var peekCornerRadius: CGFloat {
+        5 * sizeScale
+    }
 
     var body: some View {
         // The tab shape: left edge is flush/straight, right edge is rounded
@@ -137,8 +172,8 @@ private struct BinderTabPeek: View {
             cornerRadii: .init(
                 topLeading: 0,
                 bottomLeading: 0,
-                bottomTrailing: 5,
-                topTrailing: 5
+                bottomTrailing: peekCornerRadius,
+                topTrailing: peekCornerRadius
             ),
             style: .continuous
         )
@@ -151,15 +186,15 @@ private struct BinderTabPeek: View {
                     cornerRadii: .init(
                         topLeading: 0,
                         bottomLeading: 0,
-                        bottomTrailing: 5,
-                        topTrailing: 5
+                        bottomTrailing: peekCornerRadius,
+                        topTrailing: peekCornerRadius
                     ),
                     style: .continuous
                 )
-                .strokeBorder(Color(nsColor: .controlAccentColor), lineWidth: 1.5)
+                .strokeBorder(Color(nsColor: .controlAccentColor), lineWidth: max(1, 1.5 * sizeScale))
             }
         }
-        .shadow(color: .black.opacity(0.25), radius: 2, x: 1, y: 1)
+        .shadow(color: .black.opacity(0.25), radius: 2 * sizeScale, x: sizeScale, y: sizeScale)
         .animation(AppAnimation.hoverSpring, value: isHovered)
         .animation(AppAnimation.hoverSpring, value: isActive)
         .onTapGesture(perform: onSelect)
@@ -176,4 +211,8 @@ private struct BinderTabPeek: View {
         }
         return DomainGradient.solidColor(for: tab.url?.host)
     }
+}
+
+private func clamp(_ value: Double, to range: ClosedRange<Double>) -> Double {
+    min(max(value, range.lowerBound), range.upperBound)
 }

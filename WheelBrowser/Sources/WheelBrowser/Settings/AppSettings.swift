@@ -28,6 +28,13 @@ enum AppearanceMode: String, CaseIterable {
 
 class AppSettings: ObservableObject, @unchecked Sendable {
     static let shared = AppSettings()
+    static let hiddenTabScaleKey = "hiddenTabScale"
+    static let shownTabScaleKey = "shownTabScale"
+    static let defaultHiddenTabScale = 1.0
+    static let defaultShownTabScale = 1.0
+    static let hiddenTabScaleRange: ClosedRange<Double> = 0.7...1.7
+    static let shownTabScaleRange: ClosedRange<Double> = 0.75...1.6
+    static let tabScaleStep = 0.05
 
     // MARK: - System Prompt Customization
 
@@ -45,6 +52,12 @@ class AppSettings: ObservableObject, @unchecked Sendable {
 
     /// Whether the tab dock auto-hides (like macOS Dock)
     @AppStorage("tabDockAutoHide") var tabDockAutoHide: Bool = false
+
+    /// Scale factor for collapsed binder-tab peeks in the left tab dock
+    @AppStorage(hiddenTabScaleKey) var hiddenTabScale: Double = defaultHiddenTabScale
+
+    /// Scale factor for expanded thumbnail tabs in the left tab dock
+    @AppStorage(shownTabScaleKey) var shownTabScale: Double = defaultShownTabScale
 
     /// Whether the MCP server should start automatically on app launch
     @AppStorage("mcpServerEnabled") var mcpServerEnabled: Bool = true

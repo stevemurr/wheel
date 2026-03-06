@@ -41,6 +41,7 @@ struct OmniBarTextEditor: NSViewRepresentable {
         textView.textContainer?.widthTracksTextView = true
         textView.textContainer?.lineFragmentPadding = 0
         textView.isAutomaticTextCompletionEnabled = false
+        OmniBarTextInputConfigurator.configure(textView)
         textView.delegate = context.coordinator
         textView.chatDelegate = context.coordinator
 
@@ -60,6 +61,8 @@ struct OmniBarTextEditor: NSViewRepresentable {
             textView.string = text
             context.coordinator.updateHeight()
         }
+
+        OmniBarTextInputConfigurator.configure(textView)
 
         // Focus coordination (Rule 9: set focus before mode, Rule 11: no withAnimation on focus)
         if isFocused {
@@ -147,6 +150,9 @@ struct OmniBarTextEditor: NSViewRepresentable {
 
         func textDidBeginEditing(_ notification: Notification) {
             isEditing = true
+            if let textView {
+                OmniBarTextInputConfigurator.configure(textView)
+            }
             DispatchQueue.main.async {
                 // Wrap in withAnimation so pill expansion animates smoothly
                 // alongside the panel open. Safe now that .animation() was

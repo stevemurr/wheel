@@ -3,22 +3,32 @@ import SwiftUI
 /// Individual tab thumbnail in the Stage Manager strip.
 /// Rendered with a 3D Y-axis tilt so thumbnails appear "turned" like in macOS Stage Manager.
 struct StageManagerThumbnail: View {
+    static let baseThumbnailWidth: CGFloat = 110
+    static let baseThumbnailHeight: CGFloat = 70
+
     var tab: Tab
     var screenshotManager: TabScreenshotManager
     let isActive: Bool
     let canClose: Bool
+    let sizeScale: CGFloat
     let onSelect: () -> Void
     let onClose: () -> Void
 
     @State private var isHovered = false
 
-    private let thumbnailWidth: CGFloat = 110
-    private let thumbnailHeight: CGFloat = 70
-    private let cornerRadius: CGFloat = 8
-
     /// Y-axis rotation angle in degrees — tilts the thumbnail so the
     /// right edge appears closer and the left edge recedes.
     private let tiltAngle: Double = 8
+
+    private var thumbnailWidth: CGFloat { Self.baseThumbnailWidth * sizeScale }
+    private var thumbnailHeight: CGFloat { Self.baseThumbnailHeight * sizeScale }
+    private var cornerRadius: CGFloat { 8 * sizeScale }
+    private var titleFontSize: CGFloat { max(8, 9 * sizeScale) }
+    private var titleHorizontalPadding: CGFloat { max(4, 6 * sizeScale) }
+    private var titleVerticalPadding: CGFloat { max(2, 3 * sizeScale) }
+    private var closeButtonFontSize: CGFloat { max(12, 14 * sizeScale) }
+    private var placeholderFontSize: CGFloat { max(16, 20 * sizeScale) }
+    private var loadingPadding: CGFloat { max(3, 4 * sizeScale) }
 
     var body: some View {
         ZStack(alignment: .topTrailing) {
@@ -42,12 +52,12 @@ struct StageManagerThumbnail: View {
             if isHovered && canClose && !tab.hasActiveAgent {
                 Button(action: onClose) {
                     Image(systemName: "xmark.circle.fill")
-                        .font(.system(size: 14))
+                        .font(.system(size: closeButtonFontSize))
                         .foregroundColor(.white)
                         .shadow(color: .black.opacity(0.5), radius: 2, x: 0, y: 1)
                 }
                 .buttonStyle(.plain)
-                .padding(4)
+                .padding(loadingPadding)
             }
         }
         // 3D tilt: rotate around Y-axis with perspective
@@ -101,15 +111,15 @@ struct StageManagerThumbnail: View {
 
             if tab.isChatTab {
                 Image(systemName: "sparkles")
-                    .font(.system(size: 20, weight: .medium))
+                    .font(.system(size: placeholderFontSize, weight: .medium))
                     .foregroundColor(.purple.opacity(0.8))
             } else if let host = tab.url?.host {
                 Text(DomainGradient.initial(for: host))
-                    .font(.system(size: 20, weight: .semibold))
+                    .font(.system(size: placeholderFontSize, weight: .semibold))
                     .foregroundColor(.white.opacity(0.8))
             } else {
                 Image(systemName: "globe")
-                    .font(.system(size: 20, weight: .medium))
+                    .font(.system(size: placeholderFontSize, weight: .medium))
                     .foregroundColor(.white.opacity(0.6))
             }
         }
@@ -119,12 +129,12 @@ struct StageManagerThumbnail: View {
 
     private var titleOverlay: some View {
         Text(tab.title)
-            .font(.system(size: 9, weight: .medium))
+            .font(.system(size: titleFontSize, weight: .medium))
             .foregroundColor(.white)
             .lineLimit(1)
             .truncationMode(.tail)
-            .padding(.horizontal, 6)
-            .padding(.vertical, 3)
+            .padding(.horizontal, titleHorizontalPadding)
+            .padding(.vertical, titleVerticalPadding)
             .frame(maxWidth: .infinity, alignment: .leading)
             .background(
                 LinearGradient(
@@ -152,11 +162,11 @@ struct StageManagerThumbnail: View {
         VStack {
             ProgressView()
                 .controlSize(.small)
-                .padding(4)
+                .padding(loadingPadding)
             Spacer()
         }
         .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(4)
+        .padding(loadingPadding)
     }
 
     // MARK: - Styling

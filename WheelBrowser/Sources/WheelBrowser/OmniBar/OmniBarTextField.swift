@@ -56,6 +56,10 @@ struct OmniBarTextField: NSViewRepresentable {
         }
         nsView.placeholderString = placeholder
 
+        if let editor = nsView.currentEditor() as? NSTextView {
+            OmniBarTextInputConfigurator.configure(editor)
+        }
+
         if isFocused && nsView.window != nil && nsView.window?.firstResponder != nsView.currentEditor() {
             nsView.window?.makeFirstResponder(nsView)
         }
@@ -79,6 +83,10 @@ struct OmniBarTextField: NSViewRepresentable {
 
         func controlTextDidBeginEditing(_ obj: Notification) {
             isEditing = true
+            if let textField = obj.object as? NSTextField,
+               let editor = textField.currentEditor() as? NSTextView {
+                OmniBarTextInputConfigurator.configure(editor)
+            }
             DispatchQueue.main.async {
                 // Wrap in withAnimation so pill expansion (width, border, shadow)
                 // animates smoothly alongside the panel open from setVisiblePanel().

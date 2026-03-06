@@ -123,6 +123,11 @@ final class TrafficLightPillManager {
 final class TrafficLightPillView: NSView {
     private let effectView = NSVisualEffectView()
     private let highlightLayer = CAGradientLayer()
+    private var trackingArea: NSTrackingArea?
+    private var isHovered = false
+    private let hoverPulseAnimationKey = "trafficLightPill.hoverPulse"
+    private let baseEffectAlpha: CGFloat = 0.74
+    private let hoveredEffectAlpha: CGFloat = 0.86
 
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
@@ -180,38 +185,105 @@ final class TrafficLightPillView: NSView {
         updateColors()
     }
 
+    override func updateTrackingAreas() {
+        super.updateTrackingAreas()
+
+        if let trackingArea {
+            removeTrackingArea(trackingArea)
+        }
+
+        let trackingArea = NSTrackingArea(
+            rect: .zero,
+            options: [.activeAlways, .inVisibleRect, .mouseEnteredAndExited],
+            owner: self,
+            userInfo: nil
+        )
+        addTrackingArea(trackingArea)
+        self.trackingArea = trackingArea
+    }
+
+    override func mouseEntered(with event: NSEvent) {
+        super.mouseEntered(with: event)
+        setHovered(true)
+    }
+
+    override func mouseExited(with event: NSEvent) {
+        super.mouseExited(with: event)
+        setHovered(false)
+    }
+
     private func updateColors() {
         let isDarkMode = effectiveAppearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
 
         effectView.layer?.backgroundColor = (
             isDarkMode
-                ? NSColor.black.withAlphaComponent(0.18)
-                : NSColor.white.withAlphaComponent(0.42)
+                ? NSColor.black.withAlphaComponent(0.08)
+                : NSColor.white.withAlphaComponent(0.18)
         ).cgColor
+        effectView.alphaValue = isHovered ? hoveredEffectAlpha : baseEffectAlpha
         layer?.borderWidth = 1
         layer?.borderColor = (
             isDarkMode
-                ? NSColor.white.withAlphaComponent(0.14)
-                : NSColor.black.withAlphaComponent(0.10)
+                ? NSColor.white.withAlphaComponent(0.12)
+                : NSColor.black.withAlphaComponent(0.08)
         ).cgColor
         layer?.shadowColor = NSColor.black.withAlphaComponent(isDarkMode ? 0.22 : 0.12).cgColor
         layer?.shadowOpacity = 1
-        layer?.shadowRadius = 10
+        layer?.shadowRadius = isHovered ? 12 : 10
         layer?.shadowOffset = CGSize(width: 0, height: -1)
 
         highlightLayer.colors = [
             (
                 isDarkMode
-                    ? NSColor.white.withAlphaComponent(0.16)
-                    : NSColor.white.withAlphaComponent(0.34)
+                    ? NSColor.white.withAlphaComponent(0.12)
+                    : NSColor.white.withAlphaComponent(0.24)
             ).cgColor,
             (
                 isDarkMode
-                    ? NSColor.white.withAlphaComponent(0.05)
-                    : NSColor.white.withAlphaComponent(0.12)
+                    ? NSColor.white.withAlphaComponent(0.04)
+                : NSColor.white.withAlphaComponent(0.08)
             ).cgColor,
             NSColor.clear.cgColor
         ]
+        highlightLayer.opacity = isHovered ? 1 : 0.88
+    }
+
+    private func setHovered(_ hovered: Bool) {
+        guard hovered != isHovered else { return }
+        isHovered = hovered
+
+        updateColors()
+
+        if hovered {
+            startHoverPulse()
+        } else {
+            stopHoverPulse()
+        }
+    }
+
+    private func startHoverPulse() {
+        guard layer?.animation(forKey: hoverPulseAnimationKey) == nil else { return }
+
+        let pulse = CABasicAnimation(keyPath: "transform.scale")
+        pulse.fromValue = 1.0
+        pulse.toValue = 1.028
+        pulse.duration = 1.05
+        pulse.autoreverses = true
+        pulse.repeatCount = .infinity
+        pulse.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
+        pulse.isAdditive = false
+
+        layer?.add(pulse, forKey: hoverPulseAnimationKey)
+    }
+
+    private func stopHoverPulse() {
+        layer?.removeAnimation(forKey: hoverPulseAnimationKey)
+
+        CATransaction.begin()
+        CATransaction.setAnimationDuration(0.16)
+        CATransaction.setAnimationTimingFunction(CAMediaTimingFunction(name: .easeOut))
+        layer?.transform = CATransform3DIdentity
+        CATransaction.commit()
     }
 }
 
