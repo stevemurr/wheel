@@ -288,7 +288,7 @@ enum WidgetManifestSystemPrompt {
         - lineChart config: { title, xField, series: [{ field, label, color? }], yPrefix?, showPoints? } and returned data must be object[]
         - statCard config: { title, valueField, prefix?, suffix?, changeField?, changeIsPercent? } and returned data must be a single object
         - table config: { title, columns: [{ field, header, prefix? }], maxRows? } and returned data must be object[]
-        - list config: { title, labelField, valueField?, iconField?, maxItems? } and returned data must be object[]
+        - list config: { title, labelField, valueField?, subtitleField?, badgeField?, captionField?, iconField?, linkField?, maxItems?, variant? } and returned data must be object[]
         - text config: { title?, markdown } and returned data must be { content: string }
         - priceCard config: { title, priceField, changeField?, changePercentField?, prefix?, footnote? } and returned data must be a single object
 
@@ -298,6 +298,7 @@ enum WidgetManifestSystemPrompt {
         - Do not use external time APIs or regex parsing for clocks
         - For JSON APIs, prefer fetchUrl -> parseJson -> transform/filterSort/computeStats
         - For text widgets, prefer one transform step that returns { content: ... }
+        - For lists, use compact for simple summaries, ranked for leaderboards/watchlists, feed for headlines/updates, agenda for schedules, and cards for richer multi-line items
         - Prefer CoinGecko, Open-Meteo, wttr.in?format=j1, Frankfurter, REST Countries, Numbers API, and similar no-auth sources
         - Avoid APIs requiring auth keys and avoid unstable scraping targets unless no reliable API exists
 
@@ -468,9 +469,17 @@ private enum WidgetManifestNormalizer {
         case .list:
             setIfMissing(&config, key: "title", value: string(in: config, keys: ["heading", "name"]) ?? fallbackTitle)
             setIfMissing(&config, key: "labelField", value: string(in: config, keys: ["titleField", "nameField", "textField", "field"]) ?? "label")
-            setIfMissing(&config, key: "valueField", value: string(in: config, keys: ["subtitleField", "detailField"]))
-            setIfMissing(&config, key: "iconField", value: string(in: config, keys: ["emojiField", "imageField"]))
+            setIfMissing(&config, key: "valueField", value: string(in: config, keys: ["trailingField", "value", "detailField"]))
+            setIfMissing(&config, key: "subtitleField", value: string(in: config, keys: ["secondaryField", "descriptionField", "summaryField"]))
+            setIfMissing(&config, key: "badgeField", value: string(in: config, keys: ["statusField", "tagField", "pillField"]))
+            setIfMissing(&config, key: "captionField", value: string(in: config, keys: ["metaField", "footerField", "captionField"]))
+            setIfMissing(&config, key: "iconField", value: string(in: config, keys: ["emojiField", "imageField", "symbolField"]))
+            setIfMissing(&config, key: "linkField", value: string(in: config, keys: ["urlField", "hrefField", "link", "linkField"]))
             setIfMissing(&config, key: "maxItems", value: int(in: config, keys: ["limit", "rows"]))
+            if let variant = string(in: config, keys: ["variant", "layout", "style"]),
+               let normalizedVariant = canonicalListVariant(from: variant) {
+                config["variant"] = normalizedVariant
+            }
         case .text:
             setIfMissing(&config, key: "title", value: string(in: config, keys: ["heading", "name"]))
             if config["markdown"] is String {
@@ -591,6 +600,23 @@ private enum WidgetManifestNormalizer {
                 "field": field,
                 "header": headers?[safe: index] ?? prettifyFieldName(field),
             ]
+        }
+    }
+
+    private static func canonicalListVariant(from rawValue: String) -> String? {
+        switch normalizedIdentifier(rawValue) {
+        case "compact", "simple":
+            return ListVariant.compact.rawValue
+        case "ranked", "ranking", "leaderboard":
+            return ListVariant.ranked.rawValue
+        case "feed", "news", "updates":
+            return ListVariant.feed.rawValue
+        case "agenda", "schedule", "timeline":
+            return ListVariant.agenda.rawValue
+        case "cards", "card", "richcards":
+            return ListVariant.cards.rawValue
+        default:
+            return nil
         }
     }
 

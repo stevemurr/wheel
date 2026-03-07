@@ -236,6 +236,8 @@ struct WidgetManifestGeneratorTests {
         #expect(config.title == "Pacific and Beijing")
         #expect(config.labelField == "label")
         #expect(config.valueField == "time")
+        #expect(config.subtitleField == "timeZone")
+        #expect(config.variant == .compact)
     }
 
     @Test("Generator repairs placeholder output keys and refs")

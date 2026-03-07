@@ -45,6 +45,7 @@ struct WidgetDashboardStoreTests {
             WidgetRecord(
                 manifest: staleManifest,
                 position: 0,
+                lastAttemptedAt: Date(timeIntervalSinceNow: -300),
                 lastLoadedAt: Date(timeIntervalSinceNow: -300),
                 lastError: nil
             ),
@@ -82,6 +83,36 @@ struct WidgetDashboardStoreTests {
 
         #expect(!FileManager.default.fileExists(atPath: legacyFile.path))
         #expect(!FileManager.default.fileExists(atPath: legacyDirectory.path))
+    }
+
+    @MainActor
+    @Test("Recent widget errors do not immediately retrigger stale refresh")
+    func recentErrorDoesNotImmediatelyRefresh() throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        let storageURL = directory.appendingPathComponent("widgets.json")
+        let manifest = textManifest(title: "Retry", content: "Later", ttl: 300)
+        let records = [
+            WidgetRecord(
+                manifest: manifest,
+                position: 0,
+                lastAttemptedAt: Date(),
+                lastLoadedAt: nil,
+                lastError: "Network error"
+            ),
+        ]
+
+        let encoder = JSONEncoder()
+        try encoder.encode(records).write(to: storageURL)
+
+        let store = WidgetDashboardStore(
+            storageURL: storageURL,
+            legacyCleanupPaths: [],
+            observeActivation: false
+        )
+        store.refreshStale()
+
+        #expect(store.pendingRefreshIDs.isEmpty)
     }
 }
 

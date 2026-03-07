@@ -3,7 +3,7 @@ import Testing
 import WebKit
 @testable import WheelBrowser
 
-@Suite("WidgetRuntimeIntegration")
+@Suite("WidgetRuntimeIntegration", .serialized)
 struct WidgetRuntimeIntegrationTests {
     @MainActor
     @Test("Dashboard bootstraps and renders a text widget")
@@ -124,7 +124,7 @@ struct WidgetRuntimeIntegrationTests {
 
         let manifest = textWidgetManifest(title: "Removable", content: "Delete me")
         harness.bridge.bootstrapDashboard(
-            records: [WidgetRecord(manifest: manifest, position: 0, lastLoadedAt: nil, lastError: nil)],
+            records: [WidgetRecord(manifest: manifest, position: 0, lastAttemptedAt: nil, lastLoadedAt: nil, lastError: nil)],
             isEditing: true
         )
         try await harness.waitUntilLoaded(id: manifest.id)
@@ -148,6 +148,8 @@ struct WidgetRuntimeIntegrationTests {
     func cacheAvoidsRepeatedFetches() async throws {
         MockWidgetURLProtocol.requestCount = 0
         MockWidgetURLProtocol.responseData = Data(#"{"value":42}"#.utf8)
+        MockWidgetURLProtocol.lastRequest = nil
+        MockWidgetURLProtocol.lastBodyData = nil
         let configuration = URLSessionConfiguration.ephemeral
         configuration.protocolClasses = [MockWidgetURLProtocol.self]
         let session = URLSession(configuration: configuration)
@@ -161,12 +163,59 @@ struct WidgetRuntimeIntegrationTests {
         try await harness.waitUntilLoadedCount(1, for: manifest.id)
 
         harness.bridge.setDashboardState(
-            records: [WidgetRecord(manifest: manifest, position: 0, lastLoadedAt: nil, lastError: nil)],
+            records: [WidgetRecord(manifest: manifest, position: 0, lastAttemptedAt: nil, lastLoadedAt: nil, lastError: nil)],
             isEditing: false
         )
         try await harness.waitUntilLoadedCount(2, for: manifest.id)
 
         #expect(MockWidgetURLProtocol.requestCount == 1)
+    }
+
+    @MainActor
+    @Test("Runtime forwards fetch method headers and body")
+    func forwardsFetchRequestDetails() async throws {
+        MockWidgetURLProtocol.requestCount = 0
+        MockWidgetURLProtocol.responseData = Data(#"{"ok":true}"#.utf8)
+        MockWidgetURLProtocol.lastRequest = nil
+        MockWidgetURLProtocol.lastBodyData = nil
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [MockWidgetURLProtocol.self]
+        let session = URLSession(configuration: configuration)
+
+        let harness = try WidgetRuntimeHarness(session: session)
+        harness.load()
+        try await harness.waitUntilReady()
+
+        let manifest = postFetchWidgetManifest()
+        harness.bootstrap([manifest])
+        try await harness.waitUntilLoaded(id: manifest.id)
+
+        guard let request = MockWidgetURLProtocol.lastRequest else {
+            Issue.record("Expected proxied request to reach URLSession")
+            return
+        }
+
+        #expect(request.httpMethod == "POST")
+        #expect(request.value(forHTTPHeaderField: "Content-Type") == "application/json")
+        let body = String(data: MockWidgetURLProtocol.lastBodyData ?? Data(), encoding: .utf8)
+        #expect(body == #"{"pair":"BTCUSD"}"#)
+    }
+
+    @MainActor
+    @Test("Runtime escapes plain text widget content")
+    func escapesPlainTextContent() async throws {
+        let harness = try WidgetRuntimeHarness()
+        harness.load()
+        try await harness.waitUntilReady()
+
+        let manifest = textWidgetManifest(title: "Escaped", content: "<b>literal</b>")
+        harness.bootstrap([manifest])
+        try await harness.waitUntilLoaded(id: manifest.id)
+
+        let innerHTML = try await harness.webView.evaluateJavaScript(
+            "document.querySelector('.text-block')?.innerHTML"
+        ) as? String
+        #expect(innerHTML == "&lt;b&gt;literal&lt;/b&gt;")
     }
 }
 
@@ -206,7 +255,7 @@ private final class WidgetRuntimeHarness {
     func bootstrap(_ manifests: [WidgetManifest]) {
         schemeHandler.updateAllowedHosts(for: manifests)
         let records = manifests.enumerated().map { index, manifest in
-            WidgetRecord(manifest: manifest, position: index, lastLoadedAt: nil, lastError: nil)
+            WidgetRecord(manifest: manifest, position: index, lastAttemptedAt: nil, lastLoadedAt: nil, lastError: nil)
         }
         bridge.bootstrapDashboard(records: records, isEditing: false)
     }
@@ -255,6 +304,8 @@ private func waitUntil(
 private final class MockWidgetURLProtocol: URLProtocol {
     static var requestCount = 0
     static var responseData = Data()
+    static var lastRequest: URLRequest?
+    static var lastBodyData: Data?
 
     override class func canInit(with request: URLRequest) -> Bool {
         request.url?.scheme == "https"
@@ -266,6 +317,8 @@ private final class MockWidgetURLProtocol: URLProtocol {
 
     override func startLoading() {
         Self.requestCount += 1
+        Self.lastRequest = request
+        Self.lastBodyData = request.httpBody ?? Self.readBody(from: request.httpBodyStream)
         let response = HTTPURLResponse(
             url: request.url!,
             statusCode: 200,
@@ -278,6 +331,29 @@ private final class MockWidgetURLProtocol: URLProtocol {
     }
 
     override func stopLoading() {}
+
+    private static func readBody(from stream: InputStream?) -> Data? {
+        guard let stream else { return nil }
+        stream.open()
+        defer { stream.close() }
+
+        let bufferSize = 4096
+        let buffer = UnsafeMutablePointer<UInt8>.allocate(capacity: bufferSize)
+        defer { buffer.deallocate() }
+
+        var data = Data()
+        while stream.hasBytesAvailable {
+            let count = stream.read(buffer, maxLength: bufferSize)
+            if count < 0 {
+                return nil
+            }
+            if count == 0 {
+                break
+            }
+            data.append(buffer, count: count)
+        }
+        return data
+    }
 }
 
 private func textWidgetManifest(title: String, content: String, markdown: Bool = false) -> WidgetManifest {
@@ -363,8 +439,13 @@ private func multiClockWidgetManifest() -> WidgetManifest {
                 title: "Pacific and Beijing",
                 labelField: "label",
                 valueField: "time",
+                subtitleField: "timeZone",
+                badgeField: nil,
+                captionField: nil,
                 iconField: nil,
-                maxItems: 2
+                linkField: nil,
+                maxItems: 2,
+                variant: .compact
             )
         ),
         skillChain: [
@@ -406,5 +487,43 @@ private func multiClockWidgetManifest() -> WidgetManifest {
         returns: "clockList",
         ttl: 0,
         prompt: "Pacific and Beijing"
+    )
+}
+
+private func postFetchWidgetManifest() -> WidgetManifest {
+    WidgetManifest(
+        widgetType: .text,
+        config: .text(TextConfig(title: "POST", markdown: false)),
+        skillChain: [
+            WidgetSkillStep(
+                step: 1,
+                skill: .fetchUrl,
+                params: [
+                    "url": AnyCodable("https://api.example.com/query"),
+                    "method": AnyCodable("POST"),
+                    "headers": AnyCodable([
+                        "Content-Type": "application/json",
+                    ]),
+                    "body": AnyCodable(#"{"pair":"BTCUSD"}"#),
+                ],
+                outputKey: "raw"
+            ),
+            WidgetSkillStep(
+                step: 2,
+                skill: .transform,
+                params: [
+                    "data": AnyCodable([
+                        "content": "fetch complete",
+                    ]),
+                    "mapping": AnyCodable([
+                        "content": "content",
+                    ]),
+                ],
+                outputKey: "textData"
+            ),
+        ],
+        returns: "textData",
+        ttl: 0,
+        prompt: "POST sample"
     )
 }

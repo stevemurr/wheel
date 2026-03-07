@@ -87,6 +87,7 @@ final class WidgetDashboardStore {
             WidgetRecord(
                 manifest: validated,
                 position: records.count,
+                lastAttemptedAt: nil,
                 lastLoadedAt: nil,
                 lastError: nil
             )
@@ -139,6 +140,7 @@ final class WidgetDashboardStore {
 
     func markLoaded(id: UUID) {
         guard let index = records.firstIndex(where: { $0.id == id }) else { return }
+        records[index].lastAttemptedAt = Date()
         records[index].lastLoadedAt = Date()
         records[index].lastError = nil
         pendingRefreshIDs.removeAll { $0 == id }
@@ -147,6 +149,7 @@ final class WidgetDashboardStore {
 
     func markError(id: UUID, message: String) {
         guard let index = records.firstIndex(where: { $0.id == id }) else { return }
+        records[index].lastAttemptedAt = Date()
         records[index].lastError = message
         pendingRefreshIDs.removeAll { $0 == id }
         persistIgnoringErrors()
@@ -165,10 +168,10 @@ final class WidgetDashboardStore {
         if record.manifest.ttl == 0 {
             return false
         }
-        guard let lastLoadedAt = record.lastLoadedAt else {
+        guard let lastAttemptedAt = record.lastAttemptedAt ?? record.lastLoadedAt else {
             return true
         }
-        return Date().timeIntervalSince(lastLoadedAt) >= TimeInterval(record.manifest.ttl)
+        return Date().timeIntervalSince(lastAttemptedAt) >= TimeInterval(record.manifest.ttl)
     }
 
     private func save() throws {

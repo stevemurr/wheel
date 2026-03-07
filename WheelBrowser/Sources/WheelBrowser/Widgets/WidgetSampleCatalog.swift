@@ -35,6 +35,14 @@ enum WidgetSampleCatalog {
             promptHint: "Create a markdown welcome note",
             buildManifest: welcomeNoteManifest
         ),
+        WidgetSampleDefinition(
+            id: "daily-agenda",
+            title: "Daily Agenda",
+            subtitle: "Local list widget with times, badges, and notes.",
+            badge: "Local",
+            promptHint: "Create an agenda list widget for my day",
+            buildManifest: dailyAgendaManifest
+        ),
     ]
 
     private static func bitcoinPriceManifest() -> WidgetManifest {
@@ -166,6 +174,75 @@ enum WidgetSampleCatalog {
             returns: "textData",
             ttl: 0,
             prompt: "Welcome sample"
+        )
+    }
+
+    private static func dailyAgendaManifest() -> WidgetManifest {
+        WidgetManifest(
+            widgetType: .list,
+            config: .list(
+                ListConfig(
+                    title: "Today",
+                    labelField: "title",
+                    valueField: "time",
+                    subtitleField: "location",
+                    badgeField: "status",
+                    captionField: "note",
+                    iconField: nil,
+                    linkField: nil,
+                    maxItems: 4,
+                    variant: .agenda
+                )
+            ),
+            skillChain: [
+                WidgetSkillStep(
+                    step: 1,
+                    skill: .transform,
+                    params: [
+                        "data": AnyCodable([
+                            [
+                                "title": "Product review",
+                                "time": "9:30 AM",
+                                "location": "Design Studio",
+                                "status": "Next",
+                                "note": "Finalize the dashboard launch checklist.",
+                            ],
+                            [
+                                "title": "Customer sync",
+                                "time": "11:00 AM",
+                                "location": "Zoom",
+                                "status": "Live",
+                                "note": "Capture requested list-widget workflows.",
+                            ],
+                            [
+                                "title": "Deep work",
+                                "time": "2:00 PM",
+                                "location": "Library",
+                                "status": "Focus",
+                                "note": "Refine manifest validation and renderer polish.",
+                            ],
+                            [
+                                "title": "Dinner",
+                                "time": "7:00 PM",
+                                "location": "Outer Sunset",
+                                "status": "Later",
+                                "note": "Take a break after shipping the widget fixes.",
+                            ],
+                        ]),
+                        "mapping": AnyCodable([
+                            "title": "title",
+                            "time": "time",
+                            "location": "location",
+                            "status": "status",
+                            "note": "note",
+                        ]),
+                    ],
+                    outputKey: "agendaItems"
+                ),
+            ],
+            returns: "agendaItems",
+            ttl: 0,
+            prompt: "Daily agenda sample"
         )
     }
 }

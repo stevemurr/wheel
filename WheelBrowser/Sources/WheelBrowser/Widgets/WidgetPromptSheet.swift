@@ -478,14 +478,25 @@ struct WidgetPromptSheet: View {
 
     private var generateButtonDisabled: Bool {
         let trimmed = prompt.trimmingCharacters(in: .whitespacesAndNewlines)
-        return trimmed.isEmpty || isWorking || availability == nil || availability?.isAvailable == false
+        return trimmed.isEmpty
+            || isWorking
+            || (!usesBuiltInTemplate && (availability == nil || availability?.isAvailable == false))
     }
 
     private var footerHint: String {
+        if usesBuiltInTemplate {
+            return "This prompt matches a built-in template, so it can still work without Apple Intelligence."
+        }
         if availability?.isAvailable == false {
             return "AI generation is unavailable right now. You can still add a quick-start widget."
         }
         return "Create from prompt, or add a quick-start widget that skips AI."
+    }
+
+    private var usesBuiltInTemplate: Bool {
+        let trimmed = prompt.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return false }
+        return WidgetPromptTemplateFactory.manifest(for: trimmed) != nil
     }
 
     private var creationSteps: [WidgetCreationStepDescriptor] {

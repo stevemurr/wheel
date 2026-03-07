@@ -54,15 +54,30 @@ enum GeneratedContentBridge {
     }
 
     static func dictionary(from content: GeneratedContent) throws -> [String: Any] {
-        guard case .structure(let properties, _) = content.kind else {
+        switch content.kind {
+        case .structure(let properties, _):
+            return properties.mapValues(any(from:))
+        case .string(let value):
+            guard let data = value.data(using: .utf8),
+                  let object = try JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+                throw GeneratedContentBridgeError.expectedStructure
+            }
+            return object
+        default:
             throw GeneratedContentBridgeError.expectedStructure
         }
-
-        return properties.mapValues(any(from:))
     }
 
     static func dictionaryArray(from content: GeneratedContent?) throws -> [[String: Any]]? {
         guard let content else { return nil }
+        if case .string(let value) = content.kind {
+            guard let data = value.data(using: .utf8),
+                  let array = try JSONSerialization.jsonObject(with: data) as? [[String: Any]] else {
+                throw GeneratedContentBridgeError.expectedArray
+            }
+            return array
+        }
+
         guard case .array(let elements) = content.kind else {
             throw GeneratedContentBridgeError.expectedArray
         }

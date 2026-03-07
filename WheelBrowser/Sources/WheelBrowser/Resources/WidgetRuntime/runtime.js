@@ -20,7 +20,11 @@ function notifyHeight() {
 }
 
 function manifestCacheKey(manifest) {
-  return `${manifest.id}:${stableStringify(manifest.skillChain)}`;
+  return `${manifest.id}:${stableStringify({
+    skillChain: manifest.skillChain,
+    returns: manifest.returns,
+    ttl: manifest.ttl,
+  })}`;
 }
 
 function stableStringify(value) {
@@ -33,6 +37,41 @@ function stableStringify(value) {
   }
 
   return JSON.stringify(value);
+}
+
+function base64EncodeUTF8(value) {
+  const bytes = new TextEncoder().encode(String(value));
+  let binary = '';
+  for (const byte of bytes) {
+    binary += String.fromCharCode(byte);
+  }
+  return btoa(binary);
+}
+
+function escapeHTML(value) {
+  return String(value ?? '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
+function escapeAttribute(value) {
+  return escapeHTML(value);
+}
+
+function safeURLString(value) {
+  if (typeof value !== 'string' || !value.trim()) return null;
+  try {
+    const url = new URL(value);
+    if (url.protocol !== 'http:' && url.protocol !== 'https:') {
+      return null;
+    }
+    return url.toString();
+  } catch {
+    return null;
+  }
 }
 
 function isCacheFresh(entry) {
@@ -573,7 +612,26 @@ function currentDateTime(params = {}) {
 
 async function fetchUrl(params, manifest, options = {}) {
   const remoteURL = params.url;
-  const proxied = `widget-fetch://request/${manifest.id}?url=${encodeURIComponent(remoteURL)}`;
+  const method = typeof params.method === 'string' && params.method.trim()
+    ? params.method.trim().toUpperCase()
+    : 'GET';
+  const headers = params.headers && typeof params.headers === 'object' && !Array.isArray(params.headers)
+    ? Object.fromEntries(
+      Object.entries(params.headers)
+        .filter(([key, value]) => typeof key === 'string' && typeof value === 'string')
+    )
+    : {};
+  const body = params.body == null
+    ? null
+    : (typeof params.body === 'string' ? params.body : JSON.stringify(params.body));
+  const query = new URLSearchParams({ url: remoteURL, method });
+  if (Object.keys(headers).length > 0) {
+    query.set('headers', base64EncodeUTF8(JSON.stringify(headers)));
+  }
+  if (method === 'POST' && body != null) {
+    query.set('body', base64EncodeUTF8(body));
+  }
+  const proxied = `widget-fetch://request/${manifest.id}?${query.toString()}`;
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), 10_000);
 
@@ -681,16 +739,65 @@ function formatValue(value, prefix = '', suffix = '') {
 }
 
 function renderMarkdown(content) {
-  const escaped = String(content)
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;');
+  const escaped = escapeHTML(content);
 
   return escaped
-    .replace(/\[(.+?)\]\((https?:\/\/.+?)\)/g, '<a href="$2">$1</a>')
+    .replace(/\[(.+?)\]\((https?:\/\/.+?)\)/g, (_, label, href) => {
+      const safeHref = safeURLString(href);
+      if (!safeHref) {
+        return label;
+      }
+      return `<a href="${escapeAttribute(safeHref)}">${label}</a>`;
+    })
     .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
     .replace(/\*(.+?)\*/g, '<em>$1</em>')
     .replace(/\n/g, '<br>');
+}
+
+function renderLinkOrText(label, href, className = '') {
+  const safeLabel = escapeHTML(label);
+  const safeHref = safeURLString(href);
+  if (!safeHref) {
+    return `<span class="${className}">${safeLabel}</span>`;
+  }
+  return `<a class="${className}" href="${escapeAttribute(safeHref)}">${safeLabel}</a>`;
+}
+
+function renderListItem(item, config, index) {
+  const label = item?.[config.labelField] ?? '';
+  const value = config.valueField ? item?.[config.valueField] : null;
+  const subtitle = config.subtitleField ? item?.[config.subtitleField] : null;
+  const badge = config.badgeField ? item?.[config.badgeField] : null;
+  const caption = config.captionField ? item?.[config.captionField] : null;
+  const icon = config.iconField ? item?.[config.iconField] : null;
+  const href = config.linkField ? item?.[config.linkField] : (item?.link || item?.url);
+  const variant = config.variant || 'compact';
+
+  const iconMarkup = icon != null ? `<span class="list-icon">${escapeHTML(icon)}</span>` : '';
+  const badgeMarkup = badge != null ? `<span class="list-badge">${escapeHTML(badge)}</span>` : '';
+  const valueMarkup = value != null ? `<div class="list-trailing">${escapeHTML(value)}</div>` : '';
+  const subtitleMarkup = subtitle != null ? `<div class="list-subtitle">${escapeHTML(subtitle)}</div>` : '';
+  const captionMarkup = caption != null ? `<div class="list-caption">${escapeHTML(caption)}</div>` : '';
+  const rankMarkup = variant === 'ranked' ? `<div class="list-rank">${index + 1}</div>` : '';
+  const labelMarkup = renderLinkOrText(label, href, 'list-link');
+
+  return `
+    <div class="list-item is-${escapeAttribute(variant)}">
+      ${rankMarkup}
+      <div class="list-main">
+        <div class="list-top">
+          <div class="list-title-row">
+            ${iconMarkup}
+            ${labelMarkup}
+            ${badgeMarkup}
+          </div>
+          ${valueMarkup}
+        </div>
+        ${subtitleMarkup}
+        ${captionMarkup}
+      </div>
+    </div>
+  `;
 }
 
 function renderBarChart(config, data) {
@@ -706,12 +813,12 @@ function renderBarChart(config, data) {
     const barHeight = ((height - padding * 2) * value) / max;
     const x = padding + index * barWidth + 8;
     const y = height - padding - barHeight;
-    return `<rect class="chart-bar" x="${x}" y="${y}" width="${Math.max(barWidth - 16, 12)}" height="${barHeight}" fill="${color}"></rect>`;
+    return `<rect class="chart-bar" x="${x}" y="${y}" width="${Math.max(barWidth - 16, 12)}" height="${barHeight}" fill="${escapeAttribute(color)}"></rect>`;
   }).join('');
 
   return `
     <div class="chart-wrap">
-      <svg class="chart-svg" viewBox="0 0 ${width} ${height}" role="img" aria-label="${config.title}">
+      <svg class="chart-svg" viewBox="0 0 ${width} ${height}" role="img" aria-label="${escapeAttribute(config.title)}">
         <line class="chart-axis" x1="${padding}" y1="${height - padding}" x2="${width - padding}" y2="${height - padding}"></line>
         <line class="chart-axis" x1="${padding}" y1="${padding}" x2="${padding}" y2="${height - padding}"></line>
         ${bars}
@@ -724,9 +831,11 @@ function renderLineChart(config, data) {
   const width = 600;
   const height = 220;
   const padding = 28;
-  const points = data.map((item, index) => ({ x: index, value: Number(item?.[config.series[0]?.field] ?? 0) }));
-  const max = Math.max(...points.map((point) => point.value), 1);
-  const xStep = points.length > 1 ? (width - padding * 2) / (points.length - 1) : 0;
+  const allValues = config.series
+    .flatMap((series) => data.map((item) => Number(item?.[series.field] ?? 0)))
+    .filter((value) => Number.isFinite(value));
+  const max = Math.max(...allValues, 1);
+  const xStep = data.length > 1 ? (width - padding * 2) / (data.length - 1) : 0;
 
   const paths = config.series.map((series, seriesIndex) => {
     const color = series.color || ['#0d8f73', '#c18550', '#4259b2'][seriesIndex % 3];
@@ -737,13 +846,13 @@ function renderLineChart(config, data) {
       return { x, y };
     });
     const path = coordinates.map((point, index) => `${index === 0 ? 'M' : 'L'} ${point.x} ${point.y}`).join(' ');
-    const dots = (config.showPoints ? coordinates.map((point) => `<circle class="chart-point" cx="${point.x}" cy="${point.y}" r="4" fill="${color}"></circle>`).join('') : '');
-    return `<path class="chart-line" d="${path}" stroke="${color}"></path>${dots}`;
+    const dots = (config.showPoints ? coordinates.map((point) => `<circle class="chart-point" cx="${point.x}" cy="${point.y}" r="4" fill="${escapeAttribute(color)}"></circle>`).join('') : '');
+    return `<path class="chart-line" d="${path}" stroke="${escapeAttribute(color)}"></path>${dots}`;
   }).join('');
 
   return `
     <div class="chart-wrap">
-      <svg class="chart-svg" viewBox="0 0 ${width} ${height}" role="img" aria-label="${config.title}">
+      <svg class="chart-svg" viewBox="0 0 ${width} ${height}" role="img" aria-label="${escapeAttribute(config.title)}">
         <line class="chart-axis" x1="${padding}" y1="${height - padding}" x2="${width - padding}" y2="${height - padding}"></line>
         <line class="chart-axis" x1="${padding}" y1="${padding}" x2="${padding}" y2="${height - padding}"></line>
         ${paths}
@@ -760,8 +869,8 @@ function renderWidgetContent(manifest, data) {
       const delta = config.changeField ? data?.[config.changeField] : null;
       return `
         <div class="stat-block">
-          <div class="stat-value">${formatValue(value, config.prefix || '', config.suffix || '')}</div>
-          ${delta != null ? `<div class="stat-delta">${config.changeIsPercent ? `${delta}%` : delta}</div>` : ''}
+          <div class="stat-value">${escapeHTML(formatValue(value, config.prefix || '', config.suffix || ''))}</div>
+          ${delta != null ? `<div class="stat-delta">${escapeHTML(config.changeIsPercent ? `${delta}%` : delta)}</div>` : ''}
         </div>
       `;
     }
@@ -770,37 +879,29 @@ function renderWidgetContent(manifest, data) {
       const deltaField = config.changePercentField || config.changeField;
       return `
         <div class="stat-block">
-          <div class="price-value">${formatValue(data?.[config.priceField], config.prefix || '')}</div>
-          ${deltaField ? `<div class="price-delta">${data?.[deltaField] ?? '—'}</div>` : ''}
-          ${config.footnote ? `<div class="footnote">${config.footnote}</div>` : ''}
+          <div class="price-value">${escapeHTML(formatValue(data?.[config.priceField], config.prefix || ''))}</div>
+          ${deltaField ? `<div class="price-delta">${escapeHTML(data?.[deltaField] ?? '—')}</div>` : ''}
+          ${config.footnote ? `<div class="footnote">${escapeHTML(config.footnote)}</div>` : ''}
         </div>
       `;
     }
     case 'list': {
       const config = manifest.config;
-      const items = Array.isArray(data) ? data.slice(0, config.maxItems || data.length) : [];
+      const items = Array.isArray(data) ? data.slice(0, config.maxItems ?? data.length) : [];
       return `
-        <div class="list">
-          ${items.map((item) => `
-            <div class="list-item">
-              <div class="list-label">
-                ${config.iconField && item?.[config.iconField] ? `<span>${item[config.iconField]}</span>` : ''}
-                ${item?.link || item?.url ? `<a href="${item.link || item.url}">${item?.[config.labelField] ?? ''}</a>` : `<span>${item?.[config.labelField] ?? ''}</span>`}
-              </div>
-              ${config.valueField && item?.[config.valueField] != null ? `<div class="list-meta">${item[config.valueField]}</div>` : ''}
-            </div>
-          `).join('')}
+        <div class="list is-${escapeAttribute(config.variant || 'compact')}">
+          ${items.map((item, index) => renderListItem(item, config, index)).join('')}
         </div>
       `;
     }
     case 'table': {
       const config = manifest.config;
-      const rows = Array.isArray(data) ? data.slice(0, config.maxRows || data.length) : [];
+      const rows = Array.isArray(data) ? data.slice(0, config.maxRows ?? data.length) : [];
       return `
         <div class="table-wrap">
           <table>
             <thead>
-              <tr>${config.columns.map((column) => `<th>${column.header}</th>`).join('')}</tr>
+              <tr>${config.columns.map((column) => `<th>${escapeHTML(column.header)}</th>`).join('')}</tr>
             </thead>
             <tbody>
               ${rows.map((row) => `
@@ -808,10 +909,11 @@ function renderWidgetContent(manifest, data) {
                   ${config.columns.map((column) => {
                     const raw = row?.[column.field];
                     const value = raw == null ? '—' : `${column.prefix || ''}${raw}`;
-                    if (typeof raw === 'string' && /^https?:\/\//.test(raw)) {
-                      return `<td><a href="${raw}">${raw}</a></td>`;
+                    const safeHref = typeof raw === 'string' ? safeURLString(raw) : null;
+                    if (safeHref) {
+                      return `<td><a href="${escapeAttribute(safeHref)}">${escapeHTML(raw)}</a></td>`;
                     }
-                    return `<td>${value}</td>`;
+                    return `<td>${escapeHTML(value)}</td>`;
                   }).join('')}
                 </tr>
               `).join('')}
@@ -825,7 +927,7 @@ function renderWidgetContent(manifest, data) {
       const content = data?.content ?? '';
       return config.markdown
         ? `<div class="markdown">${renderMarkdown(content)}</div>`
-        : `<div class="text-block">${String(content)}</div>`;
+        : `<div class="text-block">${escapeHTML(content)}</div>`;
     }
     case 'barChart':
       return renderBarChart(manifest.config, Array.isArray(data) ? data : []);
@@ -876,7 +978,7 @@ function renderCard(manifest) {
     })
     .catch((error) => {
       card.classList.remove('is-loading');
-      content.innerHTML = `<div class="widget-error">${error.message || String(error)}</div>`;
+      content.innerHTML = `<div class="widget-error">${escapeHTML(error.message || String(error))}</div>`;
       postMessage('widgetError', { id: manifest.id, message: error.message || String(error) });
       notifyHeight();
     });
@@ -933,7 +1035,7 @@ function refreshWidgetCard(manifest) {
     })
     .catch((error) => {
       const refreshed = dashboard.querySelector(`[data-widget-id="${manifest.id}"] .widget-content`);
-      if (refreshed) refreshed.innerHTML = `<div class="widget-error">${error.message || String(error)}</div>`;
+      if (refreshed) refreshed.innerHTML = `<div class="widget-error">${escapeHTML(error.message || String(error))}</div>`;
       card?.classList.remove('is-loading');
       postMessage('widgetError', { id: manifest.id, message: error.message || String(error) });
       notifyHeight();

@@ -205,12 +205,25 @@ struct TableConfig: Codable, Sendable {
     let maxRows: Int?
 }
 
+enum ListVariant: String, Codable, Sendable {
+    case compact
+    case ranked
+    case feed
+    case agenda
+    case cards
+}
+
 struct ListConfig: Codable, Sendable {
     let title: String
     let labelField: String
     let valueField: String?
+    let subtitleField: String?
+    let badgeField: String?
+    let captionField: String?
     let iconField: String?
+    let linkField: String?
     let maxItems: Int?
+    let variant: ListVariant?
 }
 
 struct TextConfig: Codable, Sendable {
@@ -230,6 +243,7 @@ struct PriceCardConfig: Codable, Sendable {
 struct WidgetRecord: Codable, Identifiable, Sendable {
     var manifest: WidgetManifest
     var position: Int
+    var lastAttemptedAt: Date?
     var lastLoadedAt: Date?
     var lastError: String?
 

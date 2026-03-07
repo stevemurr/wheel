@@ -91,8 +91,13 @@ enum WidgetPromptTemplateFactory {
                     title: multiClockTitle(for: locations),
                     labelField: "label",
                     valueField: "time",
+                    subtitleField: "timeZone",
+                    badgeField: nil,
+                    captionField: nil,
                     iconField: nil,
-                    maxItems: locations.count
+                    linkField: nil,
+                    maxItems: locations.count,
+                    variant: .compact
                 )
             ),
             skillChain: skillChain,

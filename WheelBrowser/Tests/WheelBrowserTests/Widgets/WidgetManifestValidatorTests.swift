@@ -108,6 +108,73 @@ struct WidgetManifestValidatorTests {
             try WidgetManifestValidator.validate(manifest)
         }
     }
+
+    @Test("Rejects missing required skill parameters")
+    func rejectsMissingSkillParameter() {
+        let manifest = WidgetManifest(
+            widgetType: .text,
+            config: .text(TextConfig(title: "Broken", markdown: false)),
+            skillChain: [
+                WidgetSkillStep(
+                    step: 1,
+                    skill: .parseJson,
+                    params: [:],
+                    outputKey: "json"
+                ),
+            ],
+            returns: "json",
+            ttl: 300,
+            prompt: "Broken"
+        )
+
+        #expect(throws: WidgetManifestValidationError.missingSkillParameter(.parseJson, "json")) {
+            try WidgetManifestValidator.validate(manifest)
+        }
+    }
+
+    @Test("Rejects unresolved references to later steps")
+    func rejectsUnresolvedReference() {
+        let manifest = WidgetManifest(
+            widgetType: .text,
+            config: .text(TextConfig(title: "Broken", markdown: false)),
+            skillChain: [
+                WidgetSkillStep(
+                    step: 1,
+                    skill: .transform,
+                    params: [
+                        "data": AnyCodable("$future.value"),
+                        "mapping": AnyCodable(["content": "content"]),
+                    ],
+                    outputKey: "textData"
+                ),
+                WidgetSkillStep(
+                    step: 2,
+                    skill: .transform,
+                    params: [
+                        "data": AnyCodable(["value": "Hello"]),
+                        "mapping": AnyCodable(["value": "value"]),
+                    ],
+                    outputKey: "future"
+                ),
+            ],
+            returns: "textData",
+            ttl: 300,
+            prompt: "Broken"
+        )
+
+        #expect(throws: WidgetManifestValidationError.unresolvedReference(step: 1, reference: "$future.value")) {
+            try WidgetManifestValidator.validate(manifest)
+        }
+    }
+
+    @Test("Rejects negative TTL values")
+    func rejectsNegativeTTL() {
+        let manifest = sampleFetchManifest(url: "https://api.example.com/prices", ttl: -1)
+
+        #expect(throws: WidgetManifestValidationError.invalidTTL(-1)) {
+            try WidgetManifestValidator.validate(manifest)
+        }
+    }
 }
 
 private func sampleFetchManifest(url: String, ttl: Int = 300) -> WidgetManifest {

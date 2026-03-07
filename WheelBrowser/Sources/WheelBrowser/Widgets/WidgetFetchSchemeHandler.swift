@@ -5,6 +5,9 @@ final class WidgetFetchSchemeHandler: NSObject, WKURLSchemeHandler {
     struct DecodedRequest: Equatable {
         let widgetID: UUID
         let remoteURL: URL
+        let method: String
+        let headers: [String: String]
+        let body: Data?
     }
 
     private let session: URLSession
@@ -36,6 +39,13 @@ final class WidgetFetchSchemeHandler: NSObject, WKURLSchemeHandler {
 
             var request = URLRequest(url: decoded.remoteURL)
             request.timeoutInterval = 10
+            request.httpMethod = decoded.method
+            if decoded.method == "POST" {
+                request.httpBody = decoded.body
+            }
+            for (header, value) in decoded.headers where !Self.isBlockedForwardHeader(header) {
+                request.setValue(value, forHTTPHeaderField: header)
+            }
 
             let task = session.dataTask(with: request) { [weak self] data, response, error in
                 self?.finish(
@@ -87,7 +97,43 @@ final class WidgetFetchSchemeHandler: NSObject, WKURLSchemeHandler {
             )
         }
 
-        return DecodedRequest(widgetID: widgetID, remoteURL: remoteURL)
+        let queryItems = components.queryItems ?? []
+        let method = (queryItems.first(where: { $0.name == "method" })?.value ?? "GET").uppercased()
+        guard method == "GET" || method == "POST" else {
+            throw WidgetManifestValidationError.invalidFetchURL(
+                url.absoluteString,
+                "Widget fetches only support GET and POST."
+            )
+        }
+
+        let headers: [String: String]
+        if let rawHeaders = queryItems.first(where: { $0.name == "headers" })?.value {
+            headers = try decodeHeaders(rawHeaders, requestURL: url)
+        } else {
+            headers = [:]
+        }
+
+        let body: Data?
+        if let rawBody = queryItems.first(where: { $0.name == "body" })?.value {
+            body = try decodeBody(rawBody, requestURL: url)
+        } else {
+            body = nil
+        }
+
+        if body != nil, method != "POST" {
+            throw WidgetManifestValidationError.invalidFetchURL(
+                url.absoluteString,
+                "Widget fetch bodies require POST."
+            )
+        }
+
+        return DecodedRequest(
+            widgetID: widgetID,
+            remoteURL: remoteURL,
+            method: method,
+            headers: headers,
+            body: body
+        )
     }
 
     private func validate(_ request: DecodedRequest) throws {
@@ -160,5 +206,46 @@ final class WidgetFetchSchemeHandler: NSObject, WKURLSchemeHandler {
         urlSchemeTask.didReceive(proxiedResponse)
         urlSchemeTask.didReceive(body)
         urlSchemeTask.didFinish()
+    }
+
+    private static func decodeHeaders(_ encoded: String, requestURL: URL) throws -> [String: String] {
+        guard let data = Data(base64Encoded: encoded),
+              let object = try JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+            throw WidgetManifestValidationError.invalidFetchURL(
+                requestURL.absoluteString,
+                "Malformed widget fetch headers payload."
+            )
+        }
+
+        var headers: [String: String] = [:]
+        for (key, value) in object {
+            guard let stringValue = value as? String else {
+                throw WidgetManifestValidationError.invalidFetchURL(
+                    requestURL.absoluteString,
+                    "Widget fetch headers must be string values."
+                )
+            }
+            headers[key] = stringValue
+        }
+        return headers
+    }
+
+    private static func decodeBody(_ encoded: String, requestURL: URL) throws -> Data {
+        guard let data = Data(base64Encoded: encoded) else {
+            throw WidgetManifestValidationError.invalidFetchURL(
+                requestURL.absoluteString,
+                "Malformed widget fetch body payload."
+            )
+        }
+        return data
+    }
+
+    private static func isBlockedForwardHeader(_ header: String) -> Bool {
+        switch header.lowercased() {
+        case "host", "origin", "content-length":
+            return true
+        default:
+            return false
+        }
     }
 }
