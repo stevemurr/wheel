@@ -6,6 +6,7 @@ private enum WidgetCreationSheetPhase {
     case generatingManifest
     case repairingManifest
     case validatingManifest
+    case preflightingWidget
     case savingWidget
     case completed
     case failed
@@ -20,6 +21,8 @@ private enum WidgetCreationSheetPhase {
             self = .repairingManifest
         case .validatingManifest:
             self = .validatingManifest
+        case .preflightingWidget:
+            self = .preflightingWidget
         }
     }
 
@@ -30,11 +33,13 @@ private enum WidgetCreationSheetPhase {
         case .checkingAvailability:
             return "Checking Apple Intelligence"
         case .generatingManifest:
-            return "Generating manifest"
+            return "Generating plan"
         case .repairingManifest:
-            return "Repairing manifest"
+            return "Repairing plan"
         case .validatingManifest:
-            return "Validating manifest"
+            return "Compiling and validating"
+        case .preflightingWidget:
+            return "Running hidden preflight"
         case .savingWidget:
             return "Adding widget"
         case .completed:
@@ -48,7 +53,7 @@ private enum WidgetCreationSheetPhase {
         switch self {
         case .idle:
             return "sparkles"
-        case .checkingAvailability, .generatingManifest, .repairingManifest, .validatingManifest, .savingWidget:
+        case .checkingAvailability, .generatingManifest, .repairingManifest, .validatingManifest, .preflightingWidget, .savingWidget:
             return "arrow.triangle.2.circlepath"
         case .completed:
             return "checkmark.circle.fill"
@@ -65,7 +70,7 @@ private enum WidgetCreationSheetPhase {
             return .red
         case .idle:
             return .accentColor
-        case .checkingAvailability, .generatingManifest, .repairingManifest, .validatingManifest, .savingWidget:
+        case .checkingAvailability, .generatingManifest, .repairingManifest, .validatingManifest, .preflightingWidget, .savingWidget:
             return .orange
         }
     }
@@ -78,7 +83,7 @@ private enum WidgetCreationSheetPhase {
             return 0
         case .generatingManifest:
             return 1
-        case .repairingManifest, .validatingManifest:
+        case .repairingManifest, .validatingManifest, .preflightingWidget:
             return 2
         case .savingWidget:
             return 3
@@ -91,7 +96,7 @@ private enum WidgetCreationSheetPhase {
             return 0
         case .generatingManifest:
             return 1
-        case .repairingManifest, .validatingManifest:
+        case .repairingManifest, .validatingManifest, .preflightingWidget:
             return 2
         case .savingWidget:
             return 3
@@ -102,7 +107,7 @@ private enum WidgetCreationSheetPhase {
 
     var showsSpinner: Bool {
         switch self {
-        case .checkingAvailability, .generatingManifest, .repairingManifest, .validatingManifest, .savingWidget:
+        case .checkingAvailability, .generatingManifest, .repairingManifest, .validatingManifest, .preflightingWidget, .savingWidget:
             return true
         case .idle, .completed, .failed:
             return false
@@ -485,7 +490,7 @@ struct WidgetPromptSheet: View {
 
     private var footerHint: String {
         if usesBuiltInTemplate {
-            return "This prompt matches a built-in template, so it can still work without Apple Intelligence."
+            return "This prompt matches a built-in widget shortcut, so it can still work without Apple Intelligence."
         }
         if availability?.isAvailable == false {
             return "AI generation is unavailable right now. You can still add a quick-start widget."
@@ -497,13 +502,14 @@ struct WidgetPromptSheet: View {
         let trimmed = prompt.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return false }
         return WidgetPromptTemplateFactory.manifest(for: trimmed) != nil
+            || WidgetPromptPlanFactory.plan(for: trimmed) != nil
     }
 
     private var creationSteps: [WidgetCreationStepDescriptor] {
         [
             .init(id: 0, title: "Check on-device model", detail: "Verify Apple Intelligence is ready."),
-            .init(id: 1, title: "Draft a manifest", detail: "Generate widget type, config, and skill chain."),
-            .init(id: 2, title: "Repair and validate", detail: "Normalize schema and retry once if needed."),
+            .init(id: 1, title: "Draft a plan", detail: "Generate a constrained widget plan from your prompt."),
+            .init(id: 2, title: "Compile and preflight", detail: "Compile the plan, run it once in a hidden runtime, and retry once if needed."),
             .init(id: 3, title: "Save to dashboard", detail: "Persist the widget and trigger its first render."),
         ]
     }
@@ -613,7 +619,16 @@ struct WidgetPromptSheet: View {
         Task {
             do {
                 let manifest = sample.buildManifest()
+                await MainActor.run {
+                    phase = .preflightingWidget
+                    lastActiveStepIndex = 2
+                    statusDetail = "Running the sample widget once in a hidden dashboard runtime."
+                }
+                try await WidgetManifestPreflightRunner.shared.preflight(manifest)
                 try await MainActor.run {
+                    phase = .savingWidget
+                    lastActiveStepIndex = 3
+                    statusDetail = "Saving the sample widget and sending it to the dashboard."
                     try onCreate(manifest)
                 }
                 await MainActor.run {
@@ -640,9 +655,11 @@ struct WidgetPromptSheet: View {
         case WidgetManifestGenerationError.llmFailed:
             return "The on-device model did not return a usable result."
         case WidgetManifestGenerationError.parseFailed:
-            return "The model responded, but the manifest still did not match the expected schema."
+            return "The model responded, but the widget response still did not match the expected structure."
         case WidgetManifestGenerationError.validationFailed:
-            return "The manifest was parsed, but validation rejected it before it reached the dashboard."
+            return "The widget plan compiled, but validation rejected it before it reached the dashboard."
+        case WidgetManifestGenerationError.preflightFailed:
+            return "The widget compiled, but the hidden preflight run failed before it could be saved."
         default:
             return "Widget creation stopped before the widget could be added."
         }

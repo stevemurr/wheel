@@ -5,174 +5,289 @@ import Testing
 
 @Suite("WidgetManifestGenerator")
 struct WidgetManifestGeneratorTests {
-    @Test("Generator converts structured response into validated manifest")
+    @Test("Generator compiles a structured plan into a validated manifest")
     func generatesManifest() async throws {
-        let generator = OnDeviceWidgetManifestGenerator { _, _ in
-            GeneratedWidgetManifest(
-                id: "22222222-2222-2222-2222-222222222222",
-                version: "1",
-                widgetType: "text",
-                config: GeneratedContent(GeneratedTextConfig(title: "Greeting", markdown: false)),
-                skillChain: [
-                    GeneratedWidgetSkillStep(
-                        step: 1,
-                        skill: "transform",
-                        params: GeneratedContent(
-                            GeneratedTransformParams(
-                                data: GeneratedTextData(content: "Hello"),
-                                mapping: GeneratedTextMapping(content: "content")
-                            )
-                        ),
-                        outputKey: "textData"
+        let preflight = PreflightRecorder()
+        let generator = OnDeviceWidgetManifestGenerator(
+            completionProvider: { _, _ in
+                GeneratedWidgetPlan(
+                    title: "Greeting",
+                    widgetType: "text",
+                    source: GeneratedWidgetSourcePlan(
+                        kind: "literalText",
+                        url: nil,
+                        jsonPath: nil,
+                        resultShape: nil,
+                        sortBy: nil,
+                        sortAscending: nil,
+                        limit: nil,
+                        timeZones: nil
                     ),
-                ],
-                returns: "textData",
-                ttl: 300,
-                prompt: "Show hello"
-            )
-        }
+                    refreshSeconds: 300,
+                    prompt: "Show hello",
+                    text: GeneratedWidgetTextPlan(
+                        contentField: nil,
+                        literalContent: "Hello",
+                        markdown: false,
+                        showTimeZone: nil,
+                        includeSeconds: nil
+                    ),
+                    metric: nil,
+                    list: nil,
+                    table: nil,
+                    chart: nil
+                )
+            },
+            preflightProvider: { manifest in
+                await preflight.record(manifest.id)
+            }
+        )
 
         let manifest = try await generator.generate(prompt: "Show hello")
-        #expect(manifest.id == UUID(uuidString: "22222222-2222-2222-2222-222222222222"))
-        #expect(manifest.widgetType == WidgetType.text)
+        #expect(manifest.widgetType == .text)
         #expect(manifest.returns == "textData")
-    }
+        #expect(manifest.skillChain.count == 1)
+        #expect(manifest.skillChain.first?.skill == .transform)
+        #expect(manifest.prompt == "Show hello")
 
-    @Test("Generator surfaces validation errors")
-    func validationFailure() async {
-        let generator = OnDeviceWidgetManifestGenerator { _, _ in
-            GeneratedWidgetManifest(
-                id: nil,
-                version: "1",
-                widgetType: "text",
-                config: GeneratedContent(GeneratedTextConfig(title: "Broken", markdown: false)),
-                skillChain: [
-                    GeneratedWidgetSkillStep(
-                        step: 1,
-                        skill: "transform",
-                        params: GeneratedContent(
-                            GeneratedTransformParams(
-                                data: GeneratedTextData(content: "Hello"),
-                                mapping: GeneratedTextMapping(content: "content")
-                            )
-                        ),
-                        outputKey: "textData"
-                    ),
-                ],
-                returns: "missing",
-                ttl: 300,
-                prompt: "Broken"
-            )
+        guard case .text(let config) = manifest.config else {
+            Issue.record("Expected text config")
+            return
         }
 
-        await #expect(throws: WidgetManifestGenerationError.validationFailed("Widget returns 'missing' does not match any skill output.")) {
+        #expect(config.title == "Greeting")
+        #expect(config.markdown == false)
+        #expect(await preflight.ids == [manifest.id])
+    }
+
+    @Test("Generator surfaces compilation errors from an invalid plan")
+    func validationFailure() async {
+        let generator = OnDeviceWidgetManifestGenerator(
+            completionProvider: { _, _ in
+                GeneratedWidgetPlan(
+                    title: "Broken",
+                    widgetType: "list",
+                    source: GeneratedWidgetSourcePlan(
+                        kind: "jsonAPI",
+                        url: "https://example.com/items.json",
+                        jsonPath: nil,
+                        resultShape: "collection",
+                        sortBy: nil,
+                        sortAscending: nil,
+                        limit: nil,
+                        timeZones: nil
+                    ),
+                    refreshSeconds: 300,
+                    prompt: "Broken",
+                    text: nil,
+                    metric: nil,
+                    list: nil,
+                    table: nil,
+                    chart: nil
+                )
+            },
+            preflightProvider: { _ in
+                Issue.record("Preflight should not run for an invalid compiled plan.")
+            }
+        )
+
+        await #expect(throws: WidgetManifestGenerationError.validationFailed("Widget plan is missing required 'list' details.")) {
             try await generator.generate(prompt: "Broken")
         }
     }
 
-    @Test("Generator normalizes common widget and skill aliases")
+    @Test("Generator canonicalizes plan aliases before compilation")
     func normalizesAliases() async throws {
-        let generator = OnDeviceWidgetManifestGenerator { _, _ in
-            GeneratedWidgetManifest(
-                id: nil,
-                version: "1",
-                widgetType: "stat_card",
-                config: GeneratedContent(
-                    GeneratedLooseStatCardConfig(
-                        heading: "Bitcoin",
-                        value: "price"
-                    )
-                ),
-                skillChain: [
-                    GeneratedWidgetSkillStep(
-                        step: 1,
-                        skill: "map",
-                        params: GeneratedContent(
-                            GeneratedLooseTransformParams(
-                                input: GeneratedLooseStatData(price: "45000"),
-                                map: GeneratedLooseStatMapping(value: "price")
-                            )
-                        ),
-                        outputKey: "cardData"
+        let generator = OnDeviceWidgetManifestGenerator(
+            completionProvider: { _, _ in
+                GeneratedWidgetPlan(
+                    title: "North Star",
+                    widgetType: "stat_card",
+                    source: GeneratedWidgetSourcePlan(
+                        kind: "api",
+                        url: "https://example.com/metric.json",
+                        jsonPath: nil,
+                        resultShape: "single",
+                        sortBy: nil,
+                        sortAscending: nil,
+                        limit: nil,
+                        timeZones: nil
                     ),
-                ],
-                returns: "cardData",
-                ttl: 300,
-                prompt: nil
-            )
-        }
+                    refreshSeconds: 300,
+                    prompt: nil,
+                    text: nil,
+                    metric: GeneratedWidgetMetricPlan(
+                        valueField: "active_users",
+                        changeField: "change",
+                        changePercentField: nil,
+                        changeIsPercent: nil,
+                        prefix: nil,
+                        suffix: nil,
+                        footnote: nil
+                    ),
+                    list: nil,
+                    table: nil,
+                    chart: nil
+                )
+            },
+            preflightProvider: { _ in }
+        )
 
-        let manifest = try await generator.generate(prompt: "Show me bitcoin price")
+        let manifest = try await generator.generate(prompt: "Show me the north star metric")
         #expect(manifest.widgetType == .statCard)
-        #expect(manifest.skillChain.first?.skill == .transform)
+        #expect(manifest.skillChain.map(\.skill) == [.fetchUrl, .parseJson, .transform])
+        #expect(manifest.prompt == "Show me the north star metric")
 
         guard case .statCard(let config) = manifest.config else {
             Issue.record("Expected statCard config")
             return
         }
 
-        #expect(config.title == "Bitcoin")
-        #expect(config.valueField == "price")
-        #expect(manifest.prompt == "Show me bitcoin price")
+        #expect(config.title == "North Star")
+        #expect(config.valueField == "value")
+        #expect(config.prefix == nil)
+        #expect(config.changeField == "change")
     }
 
-    @Test("Generator repairs an invalid first manifest")
-    func repairsInvalidManifest() async throws {
-        let sequence = ManifestSequence(responses: [
-            GeneratedWidgetManifest(
-                id: nil,
-                version: "2",
-                widgetType: "text",
-                config: GeneratedContent(GeneratedTextConfig(title: "Broken", markdown: false)),
-                skillChain: [
-                    GeneratedWidgetSkillStep(
-                        step: 1,
-                        skill: "transform",
-                        params: GeneratedContent(
-                            GeneratedTransformParams(
-                                data: GeneratedTextData(content: "Hello"),
-                                mapping: GeneratedTextMapping(content: "content")
-                            )
-                        ),
-                        outputKey: "textData"
-                    ),
-                ],
-                returns: "textData",
-                ttl: 300,
-                prompt: "Broken"
+    @Test("Generator repairs an invalid first plan")
+    func repairsInvalidPlan() async throws {
+        let sequence = PlanSequence(responses: [
+            GeneratedWidgetPlan(
+                title: "Broken",
+                widgetType: "priceCard",
+                source: GeneratedWidgetSourcePlan(
+                    kind: "jsonAPI",
+                    url: "https://example.com/quote.json",
+                    jsonPath: nil,
+                    resultShape: "single",
+                    sortBy: nil,
+                    sortAscending: nil,
+                    limit: nil,
+                    timeZones: nil
+                ),
+                refreshSeconds: 300,
+                prompt: "Broken",
+                text: nil,
+                metric: nil,
+                list: nil,
+                table: nil,
+                chart: nil
             ),
-            GeneratedWidgetManifest(
-                id: nil,
-                version: "1",
+            GeneratedWidgetPlan(
+                title: "Fixed",
                 widgetType: "text",
-                config: GeneratedContent(GeneratedTextConfig(title: "Fixed", markdown: false)),
-                skillChain: [
-                    GeneratedWidgetSkillStep(
-                        step: 1,
-                        skill: "transform",
-                        params: GeneratedContent(
-                            GeneratedTransformParams(
-                                data: GeneratedTextData(content: "Hello"),
-                                mapping: GeneratedTextMapping(content: "content")
-                            )
-                        ),
-                        outputKey: "textData"
-                    ),
-                ],
-                returns: "textData",
-                ttl: 300,
-                prompt: "Fixed"
+                source: GeneratedWidgetSourcePlan(
+                    kind: "literalText",
+                    url: nil,
+                    jsonPath: nil,
+                    resultShape: nil,
+                    sortBy: nil,
+                    sortAscending: nil,
+                    limit: nil,
+                    timeZones: nil
+                ),
+                refreshSeconds: 300,
+                prompt: "Fixed",
+                text: GeneratedWidgetTextPlan(
+                    contentField: nil,
+                    literalContent: "Hello",
+                    markdown: false,
+                    showTimeZone: nil,
+                    includeSeconds: nil
+                ),
+                metric: nil,
+                list: nil,
+                table: nil,
+                chart: nil
             ),
         ])
 
-        let generator = OnDeviceWidgetManifestGenerator { _, _ in
-            try await sequence.next()
-        }
+        let generator = OnDeviceWidgetManifestGenerator(
+            completionProvider: { _, _ in
+                try await sequence.next()
+            },
+            preflightProvider: { _ in }
+        )
 
         let manifest = try await generator.generate(prompt: "Show hello")
-        #expect(manifest.version == "1")
+        #expect(manifest.widgetType == .text)
         #expect(manifest.prompt == "Fixed")
         #expect(await sequence.callCount == 2)
+    }
+
+    @Test("Generator repairs when hidden preflight fails")
+    func repairsAfterPreflightFailure() async throws {
+        let sequence = PlanSequence(responses: [
+            GeneratedWidgetPlan(
+                title: "Broken",
+                widgetType: "text",
+                source: GeneratedWidgetSourcePlan(
+                    kind: "literalText",
+                    url: nil,
+                    jsonPath: nil,
+                    resultShape: nil,
+                    sortBy: nil,
+                    sortAscending: nil,
+                    limit: nil,
+                    timeZones: nil
+                ),
+                refreshSeconds: 300,
+                prompt: "Broken",
+                text: GeneratedWidgetTextPlan(
+                    contentField: nil,
+                    literalContent: "Broken",
+                    markdown: false,
+                    showTimeZone: nil,
+                    includeSeconds: nil
+                ),
+                metric: nil,
+                list: nil,
+                table: nil,
+                chart: nil
+            ),
+            GeneratedWidgetPlan(
+                title: "Fixed",
+                widgetType: "text",
+                source: GeneratedWidgetSourcePlan(
+                    kind: "literalText",
+                    url: nil,
+                    jsonPath: nil,
+                    resultShape: nil,
+                    sortBy: nil,
+                    sortAscending: nil,
+                    limit: nil,
+                    timeZones: nil
+                ),
+                refreshSeconds: 300,
+                prompt: "Fixed",
+                text: GeneratedWidgetTextPlan(
+                    contentField: nil,
+                    literalContent: "Fixed",
+                    markdown: false,
+                    showTimeZone: nil,
+                    includeSeconds: nil
+                ),
+                metric: nil,
+                list: nil,
+                table: nil,
+                chart: nil
+            ),
+        ])
+        let preflight = FailingOncePreflight()
+
+        let generator = OnDeviceWidgetManifestGenerator(
+            completionProvider: { _, _ in
+                try await sequence.next()
+            },
+            preflightProvider: { manifest in
+                try await preflight.run(for: manifest)
+            }
+        )
+
+        let manifest = try await generator.generate(prompt: "Show hello")
+        #expect(manifest.prompt == "Fixed")
+        #expect(await sequence.callCount == 2)
+        #expect(await preflight.callCount == 2)
     }
 
     @Test("Generator uses a built-in clock template for timezone prompts")
@@ -185,14 +300,15 @@ struct WidgetManifestGeneratorTests {
             availabilityProvider: {
                 Issue.record("Clock template should not check model availability.")
                 return .unavailable("Should not be called")
-            }
+            },
+            preflightProvider: { _ in }
         )
 
         let manifest = try await generator.generate(prompt: "Create a PST clock widget")
 
-        #expect(manifest.widgetType == WidgetType.text)
+        #expect(manifest.widgetType == .text)
         #expect(manifest.skillChain.count == 1)
-        #expect(manifest.skillChain.first?.skill == WidgetSkillName.currentDateTime)
+        #expect(manifest.skillChain.first?.skill == .currentDateTime)
         #expect(manifest.skillChain.first?.params["timeZone"]?.stringValue == "America/Los_Angeles")
         #expect(manifest.returns == "clock")
 
@@ -205,6 +321,74 @@ struct WidgetManifestGeneratorTests {
         #expect(config.markdown == false)
     }
 
+    @Test("Built-in templates still run hidden preflight")
+    func builtInTemplatePreflights() async throws {
+        let preflight = PreflightRecorder()
+        let generator = OnDeviceWidgetManifestGenerator(
+            completionProvider: { _, _ in
+                Issue.record("Clock template should bypass the language model.")
+                throw TestSequenceError.depleted
+            },
+            availabilityProvider: {
+                Issue.record("Clock template should not check model availability.")
+                return .unavailable("Should not be called")
+            },
+            preflightProvider: { manifest in
+                await preflight.record(manifest.id)
+            }
+        )
+
+        let manifest = try await generator.generate(prompt: "Create a PST clock widget")
+
+        #expect(manifest.widgetType == .text)
+        #expect(manifest.skillChain.count == 1)
+        #expect(manifest.skillChain.first?.skill == .currentDateTime)
+        #expect(manifest.skillChain.first?.params["timeZone"]?.stringValue == "America/Los_Angeles")
+        #expect(manifest.returns == "clock")
+
+        guard case .text(let config) = manifest.config else {
+            Issue.record("Expected text config")
+            return
+        }
+
+        #expect(config.title == "Pacific Clock")
+        #expect(config.markdown == false)
+        #expect(await preflight.ids == [manifest.id])
+    }
+
+    @Test("Generator uses a built-in finance planner for crypto watchlists")
+    func usesBuiltInFinancePlanner() async throws {
+        let generator = OnDeviceWidgetManifestGenerator(
+            completionProvider: { _, _ in
+                Issue.record("Finance planner should bypass the language model.")
+                throw TestSequenceError.depleted
+            },
+            availabilityProvider: {
+                Issue.record("Finance planner should not check model availability.")
+                return .unavailable("Should not be called")
+            },
+            preflightProvider: { _ in }
+        )
+
+        let manifest = try await generator.generate(prompt: "Show BTC, ETH, and SOL prices")
+
+        #expect(manifest.widgetType == .list)
+        #expect(manifest.skillChain.map(\.skill) == [.fetchUrl, .parseJson, .filterSort, .transform])
+        #expect(manifest.returns == "listData")
+
+        guard case .list(let config) = manifest.config else {
+            Issue.record("Expected list config")
+            return
+        }
+
+        #expect(config.title == "BTC • ETH • SOL Watchlist")
+        #expect(config.labelField == "label")
+        #expect(config.valueField == "value")
+        #expect(config.subtitleField == "subtitle")
+        #expect(config.badgeField == "badge")
+        #expect(config.variant == .compact)
+    }
+
     @Test("Generator builds multi-clock widgets from one prompt")
     func buildsMultiClockTemplate() async throws {
         let generator = OnDeviceWidgetManifestGenerator(
@@ -215,17 +399,18 @@ struct WidgetManifestGeneratorTests {
             availabilityProvider: {
                 Issue.record("Clock template should not check model availability.")
                 return .unavailable("Should not be called")
-            }
+            },
+            preflightProvider: { _ in }
         )
 
         let manifest = try await generator.generate(prompt: "Create a widget with PST and Beijing time")
 
-        #expect(manifest.widgetType == WidgetType.list)
+        #expect(manifest.widgetType == .list)
         #expect(manifest.skillChain.count == 3)
-        #expect(manifest.skillChain[0].skill == WidgetSkillName.currentDateTime)
+        #expect(manifest.skillChain[0].skill == .currentDateTime)
         #expect(manifest.skillChain[0].params["timeZone"]?.stringValue == "America/Los_Angeles")
         #expect(manifest.skillChain[1].params["timeZone"]?.stringValue == "Asia/Shanghai")
-        #expect(manifest.skillChain[2].skill == WidgetSkillName.transform)
+        #expect(manifest.skillChain[2].skill == .transform)
         #expect(manifest.returns == "clockList")
 
         guard case .list(let config) = manifest.config else {
@@ -239,136 +424,42 @@ struct WidgetManifestGeneratorTests {
         #expect(config.subtitleField == "timeZone")
         #expect(config.variant == .compact)
     }
-
-    @Test("Generator repairs placeholder output keys and refs")
-    func normalizesPlaceholderRefs() async throws {
-        let generator = OnDeviceWidgetManifestGenerator { _, _ in
-            GeneratedWidgetManifest(
-                id: nil,
-                version: "1",
-                widgetType: "text",
-                config: GeneratedContent(
-                    GeneratedBrokenTextConfig(
-                        title: "Clock",
-                        markdown: "false"
-                    )
-                ),
-                skillChain: [
-                    GeneratedWidgetSkillStep(
-                        step: 1,
-                        skill: "transform",
-                        params: GeneratedContent(
-                            GeneratedTransformParams(
-                                data: GeneratedTextData(content: "Hello"),
-                                mapping: GeneratedTextMapping(content: "content")
-                            )
-                        ),
-                        outputKey: "$outputKey.rawText"
-                    ),
-                    GeneratedWidgetSkillStep(
-                        step: 2,
-                        skill: "transform",
-                        params: GeneratedContent(
-                            GeneratedRefTransformParams(
-                                data: "$outputKey.rawText",
-                                mapping: GeneratedTextMapping(content: "content")
-                            )
-                        ),
-                        outputKey: "$outputKey.textData"
-                    ),
-                ],
-                returns: "$outputKey.textData",
-                ttl: 300,
-                prompt: "Show hello"
-            )
-        }
-
-        let manifest = try await generator.generate(prompt: "Show hello")
-
-        #expect(manifest.skillChain[0].outputKey == "rawText")
-        #expect(manifest.skillChain[1].outputKey == "textData")
-        #expect(manifest.skillChain[1].params["data"]?.stringValue == "$rawText")
-        #expect(manifest.returns == "textData")
-
-        guard case .text(let config) = manifest.config else {
-            Issue.record("Expected text config")
-            return
-        }
-
-        #expect(config.markdown == false)
-    }
 }
 
-@Generable(description: "Generated text config for widget tests.")
-private struct GeneratedTextConfig {
-    let title: String
-    let markdown: Bool
-}
-
-@Generable(description: "Generated transform params for widget tests.")
-private struct GeneratedTransformParams {
-    let data: GeneratedTextData
-    let mapping: GeneratedTextMapping
-}
-
-@Generable(description: "Generated text data for widget tests.")
-private struct GeneratedTextData {
-    let content: String
-}
-
-@Generable(description: "Generated text mapping for widget tests.")
-private struct GeneratedTextMapping {
-    let content: String
-}
-
-@Generable(description: "Broken text config that uses a string markdown field.")
-private struct GeneratedBrokenTextConfig {
-    let title: String
-    let markdown: String
-}
-
-@Generable(description: "Transform params with a string data ref.")
-private struct GeneratedRefTransformParams {
-    let data: String
-    let mapping: GeneratedTextMapping
-}
-
-@Generable(description: "Loose stat card config for alias normalization tests.")
-private struct GeneratedLooseStatCardConfig {
-    let heading: String
-    let value: String
-}
-
-@Generable(description: "Loose transform params for alias normalization tests.")
-private struct GeneratedLooseTransformParams {
-    let input: GeneratedLooseStatData
-    let map: GeneratedLooseStatMapping
-}
-
-@Generable(description: "Loose stat data for alias normalization tests.")
-private struct GeneratedLooseStatData {
-    let price: String
-}
-
-@Generable(description: "Loose stat mapping for alias normalization tests.")
-private struct GeneratedLooseStatMapping {
-    let value: String
-}
-
-private actor ManifestSequence {
-    private var responses: [GeneratedWidgetManifest]
+private actor PlanSequence {
+    private var responses: [GeneratedWidgetPlan]
     private(set) var callCount = 0
 
-    init(responses: [GeneratedWidgetManifest]) {
+    init(responses: [GeneratedWidgetPlan]) {
         self.responses = responses
     }
 
-    func next() throws -> GeneratedWidgetManifest {
+    func next() throws -> GeneratedWidgetPlan {
         callCount += 1
         guard !responses.isEmpty else {
             throw TestSequenceError.depleted
         }
         return responses.removeFirst()
+    }
+}
+
+private actor PreflightRecorder {
+    private(set) var ids: [UUID] = []
+
+    func record(_ id: UUID) {
+        ids.append(id)
+    }
+}
+
+private actor FailingOncePreflight {
+    private(set) var callCount = 0
+
+    func run(for manifest: WidgetManifest) throws {
+        callCount += 1
+        if callCount == 1 {
+            throw WidgetManifestPreflightError.widgetFailed("Missing content field")
+        }
+        _ = manifest
     }
 }
 
