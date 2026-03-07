@@ -6,32 +6,10 @@ import WebKit
 /// Extracts page content via JavaScript evaluation and sends it to
 /// `SemanticSearchManagerV2` for local embedding and storage.
 enum SemanticIndexingHandler {
+    private static let articleExtractionService = ArticleExtractionService()
 
     /// URL prefixes that should be skipped for indexing.
     private static let skipPrefixes = ["about:", "data:", "javascript:", "blob:", "chrome:", "file:"]
-
-    /// JavaScript that extracts the main text content from a web page,
-    /// stripping navigation, ads, and other non-content elements.
-    private static let extractionScript = """
-    (function() {
-        const removeSelectors = [
-            'script', 'style', 'noscript', 'iframe', 'svg',
-            'nav', 'header', 'footer', 'aside',
-            '[role="navigation"]', '[role="banner"]', '[role="contentinfo"]',
-            '.sidebar', '.nav', '.menu', '.advertisement', '.ad',
-            '.cookie-banner', '.popup', '.modal', '[aria-hidden="true"]'
-        ];
-        const doc = document.cloneNode(true);
-        removeSelectors.forEach(selector => {
-            doc.querySelectorAll(selector).forEach(el => el.remove());
-        });
-        const mainContent = doc.querySelector('main, article, [role="main"], .content, .post, .article');
-        const contentElement = mainContent || doc.body;
-        let text = contentElement ? contentElement.innerText : document.body.innerText;
-        text = text.replace(/\\s+/g, ' ').replace(/\\n\\s*\\n/g, '\\n').trim();
-        return text;
-    })();
-    """
 
     /// Index a page for semantic search. Skips non-indexable URLs and PDFs
     /// (PDFs are registered without content extraction).
@@ -70,28 +48,49 @@ enum SemanticIndexingHandler {
             return
         }
 
-        // Extract content via JavaScript
-        Log.Search.debug("indexPageForSemanticSearch: extracting content via JavaScript")
-        webView.evaluateJavaScript(extractionScript) { result, error in
-            if let error = error {
-                Log.Search.debug("Content extraction failed for \(urlString): \(error.localizedDescription)")
-                return
-            }
-            guard let content = result as? String, !content.isEmpty else {
+        Task { @MainActor in
+            guard let content = await extractIndexableContent(from: webView, url: url, title: title) else {
                 Log.Search.debug("Content extraction returned empty for \(urlString)")
                 return
             }
 
             Log.Search.debug("Content extracted successfully: \(content.count) chars for \(urlString)")
 
-            Task { @MainActor in
-                await SemanticSearchManagerV2.shared.indexPage(
-                    url: urlString,
-                    title: title,
-                    content: content,
-                    workspaceID: workspaceID
-                )
-            }
+            await SemanticSearchManagerV2.shared.indexPage(
+                url: urlString,
+                title: title,
+                content: content,
+                workspaceID: workspaceID
+            )
         }
+    }
+
+    @MainActor
+    static func extractIndexableContent(from webView: WKWebView, url: URL, title: String) async -> String? {
+        do {
+            let article = try await articleExtractionService.extract(from: webView)
+            return normalizedIndexableContent(from: article)
+        } catch {
+            Log.Search.debug("Content extraction failed for \(url.absoluteString): \(error.localizedDescription)")
+            return nil
+        }
+    }
+
+    static func extractIndexableContent(from html: String, url: URL?, title: String) async -> String? {
+        do {
+            let article = try await articleExtractionService.extract(from: html, url: url, title: title)
+            return normalizedIndexableContent(from: article)
+        } catch {
+            Log.Search.debug("Content extraction failed for \(url?.absoluteString ?? "about:blank"): \(error.localizedDescription)")
+            return nil
+        }
+    }
+
+    private static func normalizedIndexableContent(from article: ArticleExtractionResult?) -> String? {
+        guard let text = article?.textContent.trimmingCharacters(in: .whitespacesAndNewlines),
+              !text.isEmpty else {
+            return nil
+        }
+        return text
     }
 }

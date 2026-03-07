@@ -8,7 +8,7 @@ let package = Package(
     ],
     dependencies: [
         .package(url: "https://github.com/gonzalezreal/swift-markdown-ui", from: "2.3.0"),
-        .package(url: "https://github.com/scinfu/SwiftSoup", from: "2.6.0"),
+        .package(url: "https://github.com/Ryu0118/swift-readability", from: "0.3.0"),
         .package(url: "https://github.com/rryam/VecturaKit", from: "3.0.0"),
     ],
     targets: [
@@ -16,7 +16,7 @@ let package = Package(
             name: "WheelBrowser",
             dependencies: [
                 .product(name: "MarkdownUI", package: "swift-markdown-ui"),
-                .product(name: "SwiftSoup", package: "SwiftSoup"),
+                .product(name: "Readability", package: "swift-readability"),
                 .product(name: "VecturaKit", package: "VecturaKit"),
             ],
             path: "Sources/WheelBrowser",
@@ -42,7 +42,8 @@ let package = Package(
             dependencies: ["WheelBrowser"],
             path: "Tests/WheelBrowserTests",
             resources: [
-                .copy("Agent/Fixtures")
+                .copy("Agent/Fixtures"),
+                .copy("ExtractionFixtures")
             ],
             swiftSettings: [
                 .swiftLanguageMode(.v5)

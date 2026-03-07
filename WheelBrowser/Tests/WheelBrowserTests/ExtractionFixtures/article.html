@@ -1,0 +1,37 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Wheel Launches Reader Mode</title>
+</head>
+<body>
+    <header>
+        <nav>Home Products Pricing Sign in</nav>
+    </header>
+    <main>
+        <aside>
+            <p>Sponsored</p>
+            <p>Try the premium plan.</p>
+        </aside>
+        <article>
+            <h1>Wheel Launches Reader Mode</h1>
+            <p>By Riley Chen</p>
+            <p>Wheel has added a reader mode focused on stripping away navigation, banners, and other layout noise so long-form writing is easier to scan.</p>
+            <p>The first public preview includes a dedicated overlay view, a shared extraction service, and a typography treatment tuned for sustained reading instead of dense browser chrome.</p>
+            <p>Reader mode cuts away repeated navigation and sidebar modules, but it preserves headings, images, lists, code blocks, and links so technical posts and documentation still make sense in context.</p>
+            <p>The team also moved extraction into a shared service so features like semantic indexing and agent page reading can use the same article model instead of maintaining different heuristics.</p>
+            <p>That change matters most on script-heavy pages where content selection was previously inconsistent. The new implementation captures the rendered DOM first, then runs readability on the final page state.</p>
+            <blockquote>The goal is not just a prettier article view. It is one extraction path that stays useful everywhere else in the app.</blockquote>
+            <p>Future work includes better metadata handling, stronger fallback behavior on marketing pages, and additional regression fixtures for docs-heavy layouts.</p>
+        </article>
+        <section>
+            <h2>Related stories</h2>
+            <ul>
+                <li>How reader mode fits into the overlay workflow</li>
+                <li>Indexing readable content for semantic search</li>
+            </ul>
+        </section>
+    </main>
+    <footer>About Careers Contact</footer>
+</body>
+</html>

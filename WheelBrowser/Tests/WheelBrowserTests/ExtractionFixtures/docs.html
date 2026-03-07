@@ -1,0 +1,33 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Reader Mode API Guide</title>
+</head>
+<body>
+    <header>
+        <nav>Overview Guides Reference Blog</nav>
+    </header>
+    <main>
+        <nav>
+            <ul>
+                <li>Installation</li>
+                <li>Configuration</li>
+                <li>Examples</li>
+            </ul>
+        </nav>
+        <article>
+            <h1>Reader Mode API Guide</h1>
+            <p>The reader mode API exposes one shared extraction service that can operate on either a live web view or a raw HTML document.</p>
+            <h2>Usage</h2>
+            <p>Use the web view entry point when a page depends on client-side rendering, authenticated state, or runtime DOM mutations that are not present in the original response body.</p>
+            <p>Use the HTML entry point when you already fetched a document and only need a normalized article model for indexing, summarization, or offline analysis.</p>
+            <h2>Return Value</h2>
+            <p>The extractor returns canonical title, cleaned article HTML, plain text content, optional byline and excerpt, and the source URL when one is known.</p>
+            <pre><code>let extractor = ArticleExtractionService()
+let article = try await extractor.extract(from: html, url: url, title: title)</code></pre>
+            <p>Reader mode uses the cleaned article HTML for rendering, while semantic indexing and agent reading use the normalized plain text content.</p>
+        </article>
+    </main>
+</body>
+</html>

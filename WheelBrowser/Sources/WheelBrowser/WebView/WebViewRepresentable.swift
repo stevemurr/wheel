@@ -94,6 +94,10 @@ struct WebViewRepresentable: NSViewRepresentable {
             preferences: WKWebpagePreferences,
             decisionHandler: @escaping (WKNavigationActionPolicy, WKWebpagePreferences) -> Void
         ) {
+            if navigationAction.targetFrame?.isMainFrame != false,
+               let requestURL = navigationAction.request.url {
+                tab.url = requestURL
+            }
             navigationPolicyHandler.decidePolicy(for: navigationAction, preferences: preferences, decisionHandler: decisionHandler)
         }
 

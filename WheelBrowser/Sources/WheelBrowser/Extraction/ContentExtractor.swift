@@ -4,79 +4,36 @@ import WebKit
 @MainActor
 class ContentExtractor {
     private let maxContentLength = 4000
+    private let articleExtractionService: ArticleExtractionService
 
-    private let extractionScript = """
-    (function() {
-        // Remove script, style, and other non-content elements
-        const removeSelectors = [
-            'script', 'style', 'noscript', 'iframe', 'svg',
-            'nav', 'header', 'footer', 'aside',
-            '[role="navigation"]', '[role="banner"]', '[role="contentinfo"]',
-            '.sidebar', '.nav', '.menu', '.advertisement', '.ad'
-        ];
-
-        // Clone the document to avoid modifying the original
-        const doc = document.cloneNode(true);
-
-        // Remove unwanted elements
-        removeSelectors.forEach(selector => {
-            doc.querySelectorAll(selector).forEach(el => el.remove());
-        });
-
-        // Try to find main content
-        const mainContent = doc.querySelector('main, article, [role="main"], .content, .post, .article');
-        const contentElement = mainContent || doc.body;
-
-        // Extract text content
-        let text = contentElement ? contentElement.innerText : document.body.innerText;
-
-        // Clean up whitespace
-        text = text
-            .replace(/\\s+/g, ' ')
-            .replace(/\\n\\s*\\n/g, '\\n')
-            .trim();
-
-        return {
-            title: document.title,
-            url: window.location.href,
-            text: text
-        };
-    })();
-    """
+    init(articleExtractionService: ArticleExtractionService = ArticleExtractionService()) {
+        self.articleExtractionService = articleExtractionService
+    }
 
     func extractContent(from tab: Tab) async -> PageContext? {
         guard tab.url != nil else { return nil }
-
-        return await withCheckedContinuation { continuation in
-            tab.webView.evaluateJavaScript(extractionScript) { [weak self] result, error in
-                if let error = error {
-                    Log.Browser.error("Content extraction error", error: error)
-                    continuation.resume(returning: nil)
-                    return
-                }
-
-                guard let self = self else {
-                    continuation.resume(returning: nil)
-                    return
-                }
-
-                guard let dict = result as? [String: Any],
-                      let title = dict["title"] as? String,
-                      let url = dict["url"] as? String,
-                      let text = dict["text"] as? String else {
-                    continuation.resume(returning: nil)
-                    return
-                }
-
-                // Truncate content to fit within LLM context limits
-                let truncatedText = self.truncateContent(text)
-
-                continuation.resume(returning: PageContext(
-                    url: url,
-                    title: title,
-                    textContent: truncatedText
-                ))
+        do {
+            guard let article = try await articleExtractionService.extract(from: tab.webView) else {
+                return nil
             }
+
+            return pageContext(from: article)
+        } catch {
+            Log.Browser.error("Content extraction error", error: error)
+            return nil
+        }
+    }
+
+    func extractContent(from html: String, url: URL?, title: String?) async -> PageContext? {
+        do {
+            guard let article = try await articleExtractionService.extract(from: html, url: url, title: title) else {
+                return nil
+            }
+
+            return pageContext(from: article)
+        } catch {
+            Log.Browser.error("Content extraction error", error: error)
+            return nil
         }
     }
 
@@ -90,7 +47,7 @@ class ContentExtractor {
 
         // Find the last period followed by a space or end of string
         if let lastSentenceEnd = truncated.range(of: ". ", options: .backwards) {
-            return String(truncated[..<lastSentenceEnd.upperBound])
+            return String(truncated[..<lastSentenceEnd.upperBound]) + "..."
         }
 
         // Fall back to word boundary
@@ -99,5 +56,13 @@ class ContentExtractor {
         }
 
         return truncated + "..."
+    }
+
+    private func pageContext(from article: ArticleExtractionResult) -> PageContext {
+        PageContext(
+            url: article.url?.absoluteString ?? "about:blank",
+            title: article.title,
+            textContent: truncateContent(article.textContent)
+        )
     }
 }

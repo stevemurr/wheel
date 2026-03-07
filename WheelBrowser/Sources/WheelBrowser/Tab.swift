@@ -255,7 +255,7 @@ class Tab: Identifiable {
     func rebuildWebViewForConfigurationChange() {
         guard let webView = _webView else { return }
 
-        pendingReloadURL = webView.url ?? url
+        pendingReloadURL = url ?? webView.url
         cleanup()
         webView.navigationDelegate = nil
         webView.uiDelegate = nil
