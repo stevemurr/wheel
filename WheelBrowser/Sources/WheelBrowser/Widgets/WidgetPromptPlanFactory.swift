@@ -230,8 +230,10 @@ private struct SubredditPromptIntent {
         if prompt.range(of: #"\br/[A-Za-z0-9_]+\b"#, options: [.regularExpression, .caseInsensitive]) != nil {
             return true
         }
-        return normalizedPrompt.contains(" subreddit")
-            || normalizedPrompt.hasSuffix("subreddit")
+        return normalizedPrompt.range(
+            of: #"\bsub+redd?it\b"#,
+            options: .regularExpression
+        ) != nil
     }
 
     private static func containsStoryIntent(in prompt: String) -> Bool {
@@ -262,7 +264,7 @@ private struct SubredditPromptIntent {
         }
 
         if let match = normalizedPrompt.range(
-            of: #"\b([a-z0-9_]+)\s+subreddit\b"#,
+            of: #"\b([a-z0-9_]+)\s+sub+redd?it\b"#,
             options: .regularExpression
         ) {
             let words = normalizedPrompt[match]

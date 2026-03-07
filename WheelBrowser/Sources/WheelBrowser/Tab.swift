@@ -8,6 +8,7 @@ class Tab: Identifiable {
     var title: String = "New Tab"
     var url: URL?
     var isLoading: Bool = false
+    var isReaderMode: Bool = false
     var lastError: NavigationError?
     var canGoBack: Bool = false
     var canGoForward: Bool = false
@@ -54,6 +55,10 @@ class Tab: Identifiable {
     /// Lazy controllers backed by webView
     @ObservationIgnored private lazy var findController = FindInPageController(webView: webView)
     @ObservationIgnored private lazy var pipController = PictureInPictureController(webView: webView)
+    @ObservationIgnored private let articleExtractionService = ArticleExtractionService()
+    @ObservationIgnored private var originalDocumentHTML: String?
+    @ObservationIgnored private var originalDocumentURL: URL?
+    @ObservationIgnored private var originalDocumentTitle: String?
 
     /// Computed display title that handles empty/default titles gracefully
     /// Returns the URL host (without www.) if title is empty or "New Tab"
@@ -139,6 +144,111 @@ class Tab: Identifiable {
     func stopLoading() {
         guard hasWebView else { return }
         webView.stopLoading()
+    }
+
+    // MARK: - Reader Mode
+
+    func toggleReaderMode() {
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            await self.setReaderModeEnabled(!self.isReaderMode)
+        }
+    }
+
+    @MainActor
+    func setReaderModeEnabled(_ enabled: Bool) async {
+        guard !isChatTab, hasWebView else { return }
+
+        isReaderMode = enabled
+
+        guard !isLoading else { return }
+
+        if enabled {
+            _ = await applyReaderMode()
+        } else {
+            await disableReaderMode()
+        }
+    }
+
+    @MainActor
+    func handleReaderModeNavigationStarted() {
+        originalDocumentHTML = nil
+        originalDocumentURL = nil
+        originalDocumentTitle = nil
+    }
+
+    @MainActor
+    func handleReaderModeNavigationFinished() async {
+        guard isReaderMode, hasWebView else { return }
+        _ = await applyReaderMode()
+    }
+
+    @MainActor
+    @discardableResult
+    func applyReaderMode() async -> Bool {
+        guard hasWebView else { return false }
+
+        do {
+            if originalDocumentHTML == nil {
+                originalDocumentHTML = try await webView.evaluateJavaScript(
+                    "document.documentElement.outerHTML"
+                ) as? String
+                originalDocumentURL = webView.url
+                originalDocumentTitle = webView.title
+            }
+
+            guard let originalDocumentHTML else {
+                return handleReaderModeFailure()
+            }
+
+            guard let article = try await articleExtractionService.extract(
+                from: originalDocumentHTML,
+                url: originalDocumentURL ?? webView.url,
+                title: originalDocumentTitle ?? webView.title
+            ) else {
+                return handleReaderModeFailure()
+            }
+
+            let readerHTML = ReaderModeDocumentBuilder.document(for: article)
+            let script = Self.documentRewriteScript(for: readerHTML)
+
+            _ = try await webView.evaluateJavaScript(script)
+            title = article.title
+            return true
+        } catch {
+            Log.Browser.error("Reader mode extraction failed", error: error)
+            return handleReaderModeFailure()
+        }
+    }
+
+    @MainActor
+    func disableReaderMode() async {
+        guard hasWebView else { return }
+
+        let originalDocumentHTML = originalDocumentHTML
+        let restoredTitle = originalDocumentTitle?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let fallbackTitle = restoredTitle?.isEmpty == false
+            ? restoredTitle
+            : originalDocumentURL?.host ?? webView.url?.host ?? title
+
+        self.originalDocumentHTML = nil
+        self.originalDocumentURL = nil
+        self.originalDocumentTitle = nil
+
+        guard let originalDocumentHTML else {
+            webView.reload()
+            return
+        }
+
+        do {
+            _ = try await webView.evaluateJavaScript(Self.documentRewriteScript(for: originalDocumentHTML))
+            if let fallbackTitle {
+                title = fallbackTitle
+            }
+        } catch {
+            Log.Browser.error("Reader mode restore failed", error: error)
+            webView.reload()
+        }
     }
 
     // MARK: - Zoom Controls
@@ -265,5 +375,23 @@ class Tab: Identifiable {
 
     deinit {
         cleanup()
+    }
+
+    @MainActor
+    private func handleReaderModeFailure() -> Bool {
+        isReaderMode = false
+        originalDocumentHTML = nil
+        originalDocumentURL = nil
+        originalDocumentTitle = nil
+        return false
+    }
+
+    private static func documentRewriteScript(for html: String) -> String {
+        let escapedHTML = JavaScriptEscaper.escape(html)
+        return """
+        document.open();
+        document.write(`\(escapedHTML)`);
+        document.close();
+        """
     }
 }

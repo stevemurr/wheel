@@ -466,6 +466,91 @@ struct WidgetManifestGeneratorTests {
         #expect(config.maxItems == 5)
     }
 
+    @Test("Generator recognizes common subreddit typo prompts")
+    func usesBuiltInSubredditPlannerForTypos() async throws {
+        let generator = OnDeviceWidgetManifestGenerator(
+            completionProvider: { _, _ in
+                Issue.record("Subreddit planner should bypass the language model for typo prompts.")
+                throw TestSequenceError.depleted
+            },
+            availabilityProvider: {
+                Issue.record("Subreddit planner should not check model availability for typo prompts.")
+                return .unavailable("Should not be called")
+            },
+            preflightProvider: { _ in }
+        )
+
+        let manifest = try await generator.generate(prompt: "show me the top 5 aritcles from swift subbredit")
+
+        #expect(manifest.widgetType == .list)
+        #expect(manifest.skillChain.map(\.skill) == [.fetchUrl, .parseJson, .transform])
+        #expect(manifest.skillChain.first?.params["url"]?.stringValue?.contains("reddit.com/r/swift/top.json") == true)
+        #expect(manifest.skillChain.first?.params["url"]?.stringValue?.contains("t=day") == true)
+
+        guard case .list(let config) = manifest.config else {
+            Issue.record("Expected list config")
+            return
+        }
+
+        #expect(config.title == "Top 5 Posts on r/swift")
+        #expect(config.labelField == "label")
+        #expect(config.valueField == "value")
+        #expect(config.subtitleField == "subtitle")
+        #expect(config.linkField == "link")
+        #expect(config.variant == .ranked)
+    }
+
+    @Test("Generator repairs malformed Reddit child field paths from model plans")
+    func repairsMalformedRedditChildPlans() async throws {
+        let generator = OnDeviceWidgetManifestGenerator(
+            completionProvider: { _, _ in
+                GeneratedWidgetPlan(
+                    title: "Top 5 Posts in Swift Subreddit",
+                    widgetType: "list",
+                    source: GeneratedWidgetSourcePlan(
+                        kind: "jsonAPI",
+                        url: "https://www.reddit.com/r/swift/top.json?limit=5",
+                        jsonPath: "data.children",
+                        resultShape: "collection",
+                        sortBy: "score",
+                        sortAscending: false,
+                        limit: 5,
+                        timeZones: nil
+                    ),
+                    refreshSeconds: 60,
+                    prompt: "Show me a ranked list",
+                    text: nil,
+                    metric: nil,
+                    list: GeneratedWidgetListPlan(
+                        variant: "ranked",
+                        labelField: "title",
+                        valueField: "score",
+                        subtitleField: nil,
+                        badgeField: nil,
+                        captionField: nil,
+                        iconField: nil,
+                        linkField: nil,
+                        maxItems: 5
+                    ),
+                    table: nil,
+                    chart: nil
+                )
+            },
+            preflightProvider: { _ in }
+        )
+
+        let manifest = try await generator.generate(prompt: "Show me a ranked list")
+
+        #expect(manifest.skillChain.map(\.skill) == [.fetchUrl, .parseJson, .filterSort, .transform])
+        #expect(manifest.skillChain[0].params["url"]?.stringValue?.contains("raw_json=1") == true)
+        #expect(manifest.skillChain[0].params["url"]?.stringValue?.contains("t=day") == true)
+        #expect(manifest.skillChain[2].params["sortBy"]?.stringValue == "data.score")
+
+        let mapping = manifest.skillChain[3].params["mapping"]?.dictionaryValue
+        #expect(mapping?["label"] as? String == "data.title")
+        #expect(mapping?["value"] as? String == "data.score")
+    }
+
     @Test("Generator builds multi-clock widgets from one prompt")
     func buildsMultiClockTemplate() async throws {
         let generator = OnDeviceWidgetManifestGenerator(

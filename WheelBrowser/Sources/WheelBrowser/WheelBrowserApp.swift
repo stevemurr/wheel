@@ -132,7 +132,7 @@ struct WheelBrowserApp: App {
                 Button("Regenerate Response") {
                     NotificationCenter.default.post(name: .regenerateResponse, object: nil)
                 }
-                .keyboardShortcut("r", modifiers: [.command, .shift])
+                .keyboardShortcut("r", modifiers: [.command, .option])
 
                 Button("Edit Last Message") {
                     NotificationCenter.default.post(name: .editLastMessage, object: nil)
@@ -158,6 +158,11 @@ struct WheelBrowserApp: App {
                     NotificationCenter.default.post(name: .reloadPage, object: nil)
                 }
                 .keyboardShortcut("r", modifiers: .command)
+
+                Button("Toggle Reader Mode") {
+                    NotificationCenter.default.post(name: .toggleReaderMode, object: nil)
+                }
+                .keyboardShortcut("r", modifiers: [.command, .shift])
 
                 Button("Stop Loading") {
                     NotificationCenter.default.post(name: .escapePressed, object: nil)
@@ -290,6 +295,7 @@ extension Notification.Name {
     // Navigation
     static let focusAddressBar = Notification.Name("focusAddressBar")
     static let reloadPage = Notification.Name("reloadPage")
+    static let toggleReaderMode = Notification.Name("toggleReaderMode")
     static let goBack = Notification.Name("goBack")
     static let goForward = Notification.Name("goForward")
     static let stopLoading = Notification.Name("stopLoading")

@@ -73,8 +73,21 @@ final class WidgetDashboardStore {
         do {
             let data = try Data(contentsOf: storageURL)
             let decoded = try JSONDecoder().decode([WidgetRecord].self, from: data)
-            records = decoded.sorted { $0.position < $1.position }
+            var repairedExistingWidgets = false
+            let repaired = decoded.map { record -> WidgetRecord in
+                let result = WidgetManifestRepair.repair(record.manifest)
+                repairedExistingWidgets = repairedExistingWidgets || result.changed
+
+                var updated = record
+                updated.manifest = result.manifest
+                return updated
+            }
+
+            records = repaired.sorted { $0.position < $1.position }
             reindex()
+            if repairedExistingWidgets {
+                persistIgnoringErrors()
+            }
         } catch {
             records = []
             Log.Widgets.error("Failed to load widget dashboard", error: error)

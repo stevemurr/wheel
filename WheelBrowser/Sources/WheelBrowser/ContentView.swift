@@ -234,6 +234,9 @@ private struct NavigationNotificationModifier: ViewModifier {
             .onReceive(NotificationCenter.default.publisher(for: .stopLoading)) { _ in
                 state.activeTab?.stopLoading()
             }
+            .onReceive(NotificationCenter.default.publisher(for: .toggleReaderMode)) { _ in
+                state.activeTab?.toggleReaderMode()
+            }
             .onReceive(NotificationCenter.default.publisher(for: .openURL)) { notification in
                 if let url = notification.object as? URL,
                    state.activeTab?.isChatTab != true {

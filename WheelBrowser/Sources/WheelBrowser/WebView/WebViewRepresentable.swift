@@ -68,7 +68,7 @@ struct WebViewRepresentable: NSViewRepresentable {
 
         func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
             Task { @MainActor in
-                self.pageLifecycleHandler.didFinish(navigation: navigation, webView: webView) { webView, url, title, workspaceID in
+                await self.pageLifecycleHandler.didFinish(navigation: navigation, webView: webView) { webView, url, title, workspaceID in
                     SemanticIndexingHandler.indexPage(webView: webView, url: url, title: title, workspaceID: workspaceID)
                 }
             }

@@ -114,6 +114,42 @@ struct WidgetDashboardStoreTests {
 
         #expect(store.pendingRefreshIDs.isEmpty)
     }
+
+    @MainActor
+    @Test("Store repairs malformed Reddit widgets while loading persisted state")
+    func repairsPersistedRedditWidgets() throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        let storageURL = directory.appendingPathComponent("widgets.json")
+        let manifest = malformedRedditManifest()
+        let records = [
+            WidgetRecord(
+                manifest: manifest,
+                position: 0,
+                lastAttemptedAt: nil,
+                lastLoadedAt: nil,
+                lastError: nil
+            ),
+        ]
+
+        let encoder = JSONEncoder()
+        try encoder.encode(records).write(to: storageURL)
+
+        let store = WidgetDashboardStore(
+            storageURL: storageURL,
+            legacyCleanupPaths: [],
+            observeActivation: false
+        )
+
+        #expect(store.records.count == 1)
+        #expect(store.records[0].manifest.skillChain[0].params["url"]?.stringValue?.contains("raw_json=1") == true)
+        #expect(store.records[0].manifest.skillChain[0].params["url"]?.stringValue?.contains("t=day") == true)
+        #expect(store.records[0].manifest.skillChain[2].params["sortBy"]?.stringValue == "data.score")
+
+        let mapping = store.records[0].manifest.skillChain[3].params["mapping"]?.dictionaryValue
+        #expect(mapping?["label"] as? String == "data.title")
+        #expect(mapping?["value"] as? String == "data.score")
+    }
 }
 
 private func textManifest(title: String, content: String, ttl: Int = 300) -> WidgetManifest {
@@ -134,5 +170,70 @@ private func textManifest(title: String, content: String, ttl: Int = 300) -> Wid
         returns: "textData",
         ttl: ttl,
         prompt: title
+    )
+}
+
+private func malformedRedditManifest() -> WidgetManifest {
+    WidgetManifest(
+        widgetType: .list,
+        config: .list(
+            ListConfig(
+                title: "Top 5 Posts in Swift Subreddit",
+                labelField: "label",
+                valueField: "value",
+                subtitleField: nil,
+                badgeField: nil,
+                captionField: nil,
+                iconField: nil,
+                linkField: nil,
+                maxItems: 5,
+                variant: .ranked
+            )
+        ),
+        skillChain: [
+            WidgetSkillStep(
+                step: 1,
+                skill: .fetchUrl,
+                params: [
+                    "url": AnyCodable("https://www.reddit.com/r/swift/top.json?limit=5"),
+                ],
+                outputKey: "raw"
+            ),
+            WidgetSkillStep(
+                step: 2,
+                skill: .parseJson,
+                params: [
+                    "json": AnyCodable("$raw"),
+                    "path": AnyCodable("data.children"),
+                ],
+                outputKey: "sourceData"
+            ),
+            WidgetSkillStep(
+                step: 3,
+                skill: .filterSort,
+                params: [
+                    "data": AnyCodable("$sourceData"),
+                    "sortBy": AnyCodable("score"),
+                    "ascending": AnyCodable(false),
+                    "limit": AnyCodable(5),
+                ],
+                outputKey: "filteredData"
+            ),
+            WidgetSkillStep(
+                step: 4,
+                skill: .transform,
+                params: [
+                    "data": AnyCodable("$filteredData"),
+                    "mapping": AnyCodable([
+                        "label": "title",
+                        "value": "score",
+                    ]),
+                ],
+                outputKey: "listData"
+            ),
+        ],
+        returns: "listData",
+        ttl: 60,
+        prompt: "give me a list of the top 5 posts in the swift subbreddit"
     )
 }

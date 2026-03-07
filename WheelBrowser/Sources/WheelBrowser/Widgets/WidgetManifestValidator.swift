@@ -43,6 +43,8 @@ enum WidgetManifestValidationError: LocalizedError, Equatable {
 
 enum WidgetManifestValidator {
     static func validate(_ manifest: WidgetManifest) throws -> WidgetManifest {
+        let manifest = WidgetManifestRepair.repair(manifest).manifest
+
         guard manifest.version == "1" else {
             throw WidgetManifestValidationError.invalidVersion(manifest.version)
         }

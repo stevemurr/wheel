@@ -32,6 +32,7 @@ final class PageLifecycleHandler {
 
     func didStartProvisionalNavigation() {
         cancelBackgroundTasks()
+        tab.handleReaderModeNavigationStarted()
         tab.lastError = nil
         tab.isLoading = true
     }
@@ -39,7 +40,11 @@ final class PageLifecycleHandler {
     func didCommit(navigation: WKNavigation?, webView: WKWebView) {
     }
 
-    func didFinish(navigation: WKNavigation?, webView: WKWebView, indexPage: @escaping (WKWebView, URL, String, UUID?) -> Void) {
+    func didFinish(
+        navigation: WKNavigation?,
+        webView: WKWebView,
+        indexPage: @escaping (WKWebView, URL, String, UUID?) -> Void
+    ) async {
         tab.isLoading = false
         tab.title = webView.title ?? "Untitled"
         tab.url = webView.url
@@ -64,6 +69,8 @@ final class PageLifecycleHandler {
             await TabScreenshotManager.shared.captureScreenshot(for: captureTab)
         }
         trackBackgroundTask(screenshotTask)
+
+        await tab.handleReaderModeNavigationFinished()
     }
 
     // MARK: - Error Handling
