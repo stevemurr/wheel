@@ -19,10 +19,6 @@ enum ScriptMessageHandler {
         switch message.name {
         case "overlayWindow":
             handleOverlayWindow(type: type, body: body)
-        case "wheelModuleError", "wheelModuleMessage", "wheelModuleResult":
-            Task { @MainActor in
-                ModuleInjectionHandler.shared.handleScriptMessage(message)
-            }
         default:
             break
         }

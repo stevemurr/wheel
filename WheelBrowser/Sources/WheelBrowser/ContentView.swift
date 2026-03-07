@@ -11,7 +11,6 @@ private struct BrowserContentArea: View {
     var wheelState: TabWheelState
     var contextMenuState = ContextMenuState.shared
     let contentExtractor: ContentExtractor
-    var moduleStore: ModuleStore?
 
     var body: some View {
         GeometryReader { geometry in
@@ -25,7 +24,7 @@ private struct BrowserContentArea: View {
                             TabWebViewContainer(
                                 tab: tab,
                                 agentManager: agentManager,
-                                moduleStore: moduleStore,
+                                browserState: browserState,
                                 isActive: tab.id == browserState.activeTabId
                             )
                         }
@@ -91,7 +90,7 @@ private struct BrowserContentArea: View {
 private struct TabWebViewContainer: View {
     var tab: Tab
     var agentManager: AgentManager
-    var moduleStore: ModuleStore?
+    var browserState: BrowserState
     let isActive: Bool
 
     var body: some View {
@@ -100,7 +99,9 @@ private struct TabWebViewContainer: View {
                 if tab.url == nil && tab.isChatTab {
                     FullPageChatView(agentManager: agentManager)
                 } else if tab.url == nil {
-                    PipelineNewTabPageView(moduleStore: moduleStore)
+                    WidgetDashboardPageView { url in
+                        browserState.addTab(withURL: url)
+                    }
                 } else {
                     WebViewRepresentable(tab: tab, isActive: isActive)
                 }
@@ -272,9 +273,6 @@ struct ContentView: View {
     @State private var wheelState = TabWheelState.shared
     private let contentExtractor = ContentExtractor()
 
-    /// Module system store — manages all installed modules.
-    @State private var moduleStore = ModuleStore()
-
     init() {
         let browserState = BrowserState()
         let engine = AgentEngine(browserState: browserState, settings: AppSettings.shared)
@@ -306,8 +304,7 @@ struct ContentView: View {
                         settings: settings,
                         agentEngine: agentEngine,
                         wheelState: wheelState,
-                        contentExtractor: contentExtractor,
-                        moduleStore: moduleStore
+                        contentExtractor: contentExtractor
                     )
                 }
             }
@@ -370,9 +367,6 @@ struct ContentView: View {
                 state.bindToWorkspace(currentWorkspaceId)
             }
         }
-
-        // Initialize the module system
-        ModuleInjectionHandler.shared.configure(store: moduleStore)
     }
 }
 

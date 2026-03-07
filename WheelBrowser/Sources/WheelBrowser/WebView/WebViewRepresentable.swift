@@ -14,17 +14,6 @@ struct WebViewRepresentable: NSViewRepresentable {
         contentController.add(context.coordinator, name: "linkHover")
         contentController.add(context.coordinator, name: "overlayWindow")
 
-        // Register module system message handlers
-        ModuleInjectionHandler.shared.registerMessageHandlers(
-            on: contentController,
-            coordinator: context.coordinator
-        )
-
-        // Apply content rules (ad blockers) from installed modules
-        Task { @MainActor in
-            await ModuleInjectionHandler.shared.applyContentRules(to: tab.webView)
-        }
-
         return tab.webView
     }
 
@@ -37,9 +26,6 @@ struct WebViewRepresentable: NSViewRepresentable {
         let contentController = nsView.configuration.userContentController
         contentController.removeScriptMessageHandler(forName: "linkHover")
         contentController.removeScriptMessageHandler(forName: "overlayWindow")
-
-        // Unregister module system message handlers
-        ModuleInjectionHandler.shared.unregisterMessageHandlers(from: contentController)
 
         // Clear delegates to break retain cycles
         nsView.navigationDelegate = nil

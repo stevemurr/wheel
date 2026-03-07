@@ -1,0 +1,811 @@
+const dashboard = document.getElementById('dashboard');
+
+const state = {
+  widgets: [],
+  isEditing: false,
+  cache: new Map(),
+  inFlight: new Map(),
+};
+
+function postMessage(type, payload = {}) {
+  window.webkit?.messageHandlers?.widgetBridge?.postMessage({ type, payload });
+}
+
+function notifyHeight() {
+  requestAnimationFrame(() => {
+    postMessage('dashboardHeightChanged', {
+      height: Math.max(document.body.scrollHeight, document.documentElement.scrollHeight),
+    });
+  });
+}
+
+function manifestCacheKey(manifest) {
+  return `${manifest.id}:${stableStringify(manifest.skillChain)}`;
+}
+
+function stableStringify(value) {
+  if (Array.isArray(value)) {
+    return `[${value.map((item) => stableStringify(item)).join(',')}]`;
+  }
+
+  if (value && typeof value === 'object') {
+    return `{${Object.keys(value).sort().map((key) => `${JSON.stringify(key)}:${stableStringify(value[key])}`).join(',')}}`;
+  }
+
+  return JSON.stringify(value);
+}
+
+function isCacheFresh(entry) {
+  if (!entry) return false;
+  if (entry.ttl === 0) return false;
+  return Date.now() - entry.fetchedAt < entry.ttl * 1000;
+}
+
+function tokenizePath(path) {
+  if (!path) return [];
+  const tokens = [];
+  const regex = /([^[.\]]+)|\[(\*|\d+|".+?"|'.+?')\]/g;
+  let match;
+  while ((match = regex.exec(path)) !== null) {
+    const token = match[1] ?? match[2];
+    if (token === '*') {
+      tokens.push({ type: 'wildcard' });
+    } else if (/^\d+$/.test(token)) {
+      tokens.push({ type: 'index', value: Number(token) });
+    } else {
+      tokens.push({ type: 'field', value: token.replace(/^["']|["']$/g, '') });
+    }
+  }
+  return tokens;
+}
+
+function getPathValue(value, path) {
+  if (path == null || path === '') return value;
+
+  const tokens = tokenizePath(path);
+  const visit = (current, index) => {
+    if (index >= tokens.length) return current;
+    const token = tokens[index];
+
+    if (token.type === 'wildcard') {
+      if (!Array.isArray(current)) return [];
+      return current.map((item) => visit(item, index + 1)).flat();
+    }
+
+    if (current == null) return undefined;
+
+    if (token.type === 'index') {
+      if (!Array.isArray(current)) return undefined;
+      return visit(current[token.value], index + 1);
+    }
+
+    return visit(current[token.value], index + 1);
+  };
+
+  return visit(value, 0);
+}
+
+function resolveRef(value, context) {
+  if (typeof value === 'string' && value.startsWith('$')) {
+    const ref = value.slice(1);
+    const dotIndex = ref.indexOf('.');
+    if (dotIndex === -1) {
+      return context[ref];
+    }
+
+    const root = ref.slice(0, dotIndex);
+    const path = ref.slice(dotIndex + 1);
+    return getPathValue(context[root], path);
+  }
+
+  if (Array.isArray(value)) {
+    return value.map((item) => resolveRef(item, context));
+  }
+
+  if (value && typeof value === 'object') {
+    return Object.fromEntries(
+      Object.entries(value).map(([key, nested]) => [key, resolveRef(nested, context)])
+    );
+  }
+
+  return value;
+}
+
+function parseJsonPath(json, path) {
+  const value = typeof json === 'string' ? JSON.parse(json) : json;
+  return path ? getPathValue(value, path) : value;
+}
+
+function parseHtml({ html, selector, attribute, extractText = true, limit }) {
+  const doc = new DOMParser().parseFromString(html, 'text/html');
+  const nodes = Array.from(doc.querySelectorAll(selector));
+  const selected = typeof limit === 'number' ? nodes.slice(0, limit) : nodes;
+  return selected.map((node) => {
+    if (attribute) return node.getAttribute(attribute);
+    return extractText === false ? node.innerHTML : node.textContent.trim();
+  });
+}
+
+function extractWithRegex({ text, pattern, flags = 'g', group = 0 }) {
+  const regex = new RegExp(pattern, flags);
+  const matches = [];
+  for (const match of text.matchAll(regex)) {
+    matches.push(match[group] ?? '');
+  }
+  return matches;
+}
+
+function parseCsv({ csv, hasHeader = true, delimiter = ',' }) {
+  const rows = [];
+  let row = [];
+  let current = '';
+  let inQuotes = false;
+
+  for (let i = 0; i < csv.length; i += 1) {
+    const char = csv[i];
+    const next = csv[i + 1];
+
+    if (char === '"' && inQuotes && next === '"') {
+      current += '"';
+      i += 1;
+    } else if (char === '"') {
+      inQuotes = !inQuotes;
+    } else if (char === delimiter && !inQuotes) {
+      row.push(current);
+      current = '';
+    } else if ((char === '\n' || char === '\r') && !inQuotes) {
+      if (char === '\r' && next === '\n') i += 1;
+      row.push(current);
+      rows.push(row);
+      row = [];
+      current = '';
+    } else {
+      current += char;
+    }
+  }
+
+  if (current.length > 0 || row.length > 0) {
+    row.push(current);
+    rows.push(row);
+  }
+
+  if (!hasHeader) return rows;
+  const [header = [], ...body] = rows;
+  return body.map((values) =>
+    Object.fromEntries(header.map((key, index) => [key, values[index] ?? '']))
+  );
+}
+
+function tokenizeExpression(expression) {
+  const tokens = [];
+  let index = 0;
+  while (index < expression.length) {
+    const char = expression[index];
+    if (/\s/.test(char)) {
+      index += 1;
+      continue;
+    }
+    if ('+-*/()'.includes(char)) {
+      tokens.push({ type: char });
+      index += 1;
+      continue;
+    }
+    if (/\d|\./.test(char)) {
+      let end = index + 1;
+      while (end < expression.length && /[\d.]/.test(expression[end])) end += 1;
+      tokens.push({ type: 'number', value: Number(expression.slice(index, end)) });
+      index = end;
+      continue;
+    }
+    if (expression.startsWith('item', index)) {
+      let end = index + 4;
+      while (end < expression.length && /[A-Za-z0-9_.[\]'"]/.test(expression[end])) end += 1;
+      tokens.push({ type: 'itemPath', value: expression.slice(index, end) });
+      index = end;
+      continue;
+    }
+    throw new Error(`Unsupported transform expression token near '${expression.slice(index)}'`);
+  }
+  return tokens;
+}
+
+function evaluateArithmetic(expression, item) {
+  const tokens = tokenizeExpression(expression);
+  let index = 0;
+
+  function peek() {
+    return tokens[index];
+  }
+
+  function consume(type) {
+    const token = tokens[index];
+    if (!token || token.type !== type) {
+      throw new Error(`Expected token '${type}'.`);
+    }
+    index += 1;
+    return token;
+  }
+
+  function parsePrimary() {
+    const token = peek();
+    if (!token) throw new Error('Unexpected end of expression.');
+    if (token.type === 'number') {
+      index += 1;
+      return token.value;
+    }
+    if (token.type === 'itemPath') {
+      index += 1;
+      const path = token.value.replace(/^item\.?/, '');
+      const resolved = path ? getPathValue(item, path) : item;
+      return Number(resolved ?? 0);
+    }
+    if (token.type === '(') {
+      consume('(');
+      const value = parseExpression();
+      consume(')');
+      return value;
+    }
+    if (token.type === '-') {
+      consume('-');
+      return -parsePrimary();
+    }
+    throw new Error(`Unexpected token '${token.type}'.`);
+  }
+
+  function parseTerm() {
+    let value = parsePrimary();
+    while (peek() && (peek().type === '*' || peek().type === '/')) {
+      const operator = consume(peek().type).type;
+      const right = parsePrimary();
+      value = operator === '*' ? value * right : value / right;
+    }
+    return value;
+  }
+
+  function parseExpression() {
+    let value = parseTerm();
+    while (peek() && (peek().type === '+' || peek().type === '-')) {
+      const operator = consume(peek().type).type;
+      const right = parseTerm();
+      value = operator === '+' ? value + right : value - right;
+    }
+    return value;
+  }
+
+  const value = parseExpression();
+  if (index !== tokens.length) {
+    throw new Error('Unexpected trailing expression tokens.');
+  }
+  return value;
+}
+
+function evaluateTransformExpression(expression, item) {
+  const trimmed = expression.trim();
+
+  let match = trimmed.match(/^new Date\((.+)\)\.toLocaleDateString\(\)$/);
+  if (match) {
+    return new Date(resolveExpressionValue(match[1], item)).toLocaleDateString();
+  }
+
+  match = trimmed.match(/^Math\.round\((.+)\)$/);
+  if (match) {
+    return Math.round(Number(resolveExpressionValue(match[1], item)));
+  }
+
+  match = trimmed.match(/^(.+)\.toFixed\((\d+)\)$/);
+  if (match) {
+    return Number(resolveExpressionValue(match[1], item)).toFixed(Number(match[2]));
+  }
+
+  return evaluateArithmetic(trimmed, item);
+}
+
+function resolveExpressionValue(expression, item) {
+  const trimmed = expression.trim();
+  if (trimmed.startsWith('item')) {
+    const path = trimmed.replace(/^item\.?/, '');
+    return path ? getPathValue(item, path) : item;
+  }
+  if (/^\d+(\.\d+)?$/.test(trimmed)) {
+    return Number(trimmed);
+  }
+  return evaluateTransformExpression(trimmed, item);
+}
+
+function applyMapping(item, mapping) {
+  return Object.fromEntries(
+    Object.entries(mapping).map(([key, rule]) => {
+      if (typeof rule !== 'string') return [key, rule];
+      if (rule.startsWith('literal:')) return [key, rule.slice('literal:'.length)];
+      if (rule.startsWith('expr:')) return [key, evaluateTransformExpression(rule.slice('expr:'.length), item)];
+      return [key, getPathValue(item, rule)];
+    })
+  );
+}
+
+function transform({ data, mapping }) {
+  if (Array.isArray(data)) {
+    return data.map((item) => applyMapping(item, mapping));
+  }
+  return applyMapping(data, mapping);
+}
+
+function matchesFilter(item, filter = {}) {
+  return Object.entries(filter).every(([field, predicate]) => {
+    const value = getPathValue(item, field);
+    if (predicate == null || typeof predicate !== 'object' || Array.isArray(predicate)) {
+      return value === predicate;
+    }
+
+    return Object.entries(predicate).every(([operator, expected]) => {
+      switch (operator) {
+        case '$eq': return value === expected;
+        case '$ne': return value !== expected;
+        case '$gt': return value > expected;
+        case '$gte': return value >= expected;
+        case '$lt': return value < expected;
+        case '$lte': return value <= expected;
+        case '$in': return Array.isArray(expected) && expected.includes(value);
+        case '$contains': return String(value ?? '').includes(String(expected));
+        default: return false;
+      }
+    });
+  });
+}
+
+function filterSort({ data, filter = null, sortBy = null, ascending = true, limit = null }) {
+  let output = Array.isArray(data) ? [...data] : [];
+  if (filter) {
+    output = output.filter((item) => matchesFilter(item, filter));
+  }
+  if (sortBy) {
+    output.sort((left, right) => {
+      const a = getPathValue(left, sortBy);
+      const b = getPathValue(right, sortBy);
+      if (a == null && b == null) return 0;
+      if (a == null) return 1;
+      if (b == null) return -1;
+      if (a < b) return ascending ? -1 : 1;
+      if (a > b) return ascending ? 1 : -1;
+      return 0;
+    });
+  }
+  if (typeof limit === 'number') {
+    output = output.slice(0, limit);
+  }
+  return output;
+}
+
+function mergeArrays({ arrays, joinKey = null, label = null }) {
+  if (!Array.isArray(arrays)) return [];
+
+  if (!joinKey) {
+    return arrays.flatMap((array) => {
+      if (!Array.isArray(array)) return [];
+      if (!label) return array;
+      return array.map((item) => ({ label, ...item }));
+    });
+  }
+
+  const [base = [], ...rest] = arrays;
+  return base.map((item) => {
+    const merged = { ...item };
+    for (const array of rest) {
+      const match = Array.isArray(array)
+        ? array.find((candidate) => candidate?.[joinKey] === item?.[joinKey])
+        : null;
+      if (match) Object.assign(merged, match);
+    }
+    return merged;
+  });
+}
+
+function computeStats({ data, field, ops }) {
+  const values = (Array.isArray(data) ? data : [])
+    .map((item) => Number(getPathValue(item, field)))
+    .filter((value) => Number.isFinite(value));
+
+  const result = {};
+  for (const op of ops) {
+    switch (op) {
+      case 'avg':
+        result.avg = values.length ? values.reduce((sum, value) => sum + value, 0) / values.length : 0;
+        break;
+      case 'sum':
+        result.sum = values.reduce((sum, value) => sum + value, 0);
+        break;
+      case 'min':
+        result.min = values.length ? Math.min(...values) : null;
+        break;
+      case 'max':
+        result.max = values.length ? Math.max(...values) : null;
+        break;
+      case 'last':
+        result.last = values.length ? values[values.length - 1] : null;
+        break;
+      case 'first':
+        result.first = values.length ? values[0] : null;
+        break;
+      case 'count':
+        result.count = values.length;
+        break;
+      default:
+        break;
+    }
+  }
+  return result;
+}
+
+async function fetchUrl(params, manifest, options = {}) {
+  const remoteURL = params.url;
+  const proxied = `widget-fetch://request/${manifest.id}?url=${encodeURIComponent(remoteURL)}`;
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 10_000);
+
+  try {
+    const response = await fetch(proxied, { signal: controller.signal });
+    if (!response.ok) {
+      throw new Error(`HTTP ${response.status} ${response.statusText}`);
+    }
+    return await response.text();
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+const registry = {
+  fetchUrl,
+  parseHtml,
+  parseJson: ({ json, path }) => parseJsonPath(json, path),
+  extractWithRegex,
+  parseCsv,
+  transform,
+  filterSort,
+  mergeArrays,
+  computeStats,
+};
+
+async function executeSkillChain(manifest, { force = false } = {}) {
+  const cacheKey = manifestCacheKey(manifest);
+  const cached = state.cache.get(cacheKey);
+  if (!force && isCacheFresh(cached)) {
+    return cached.data;
+  }
+
+  if (!force && state.inFlight.has(cacheKey)) {
+    return state.inFlight.get(cacheKey);
+  }
+
+  const execution = (async () => {
+    const context = {};
+    for (const step of [...manifest.skillChain].sort((left, right) => left.step - right.step)) {
+      const skill = registry[step.skill];
+      if (!skill) throw new Error(`Unknown skill '${step.skill}'.`);
+      const params = resolveRef(step.params, context);
+      context[step.outputKey] = await skill(params, manifest);
+    }
+    const result = context[manifest.returns];
+    state.cache.set(cacheKey, {
+      data: result,
+      fetchedAt: Date.now(),
+      ttl: manifest.ttl,
+    });
+    return result;
+  })();
+
+  state.inFlight.set(cacheKey, execution);
+  try {
+    return await execution;
+  } finally {
+    state.inFlight.delete(cacheKey);
+  }
+}
+
+function createButton(label, action, extraClass = '') {
+  const button = document.createElement('button');
+  button.className = `widget-button ${extraClass}`.trim();
+  button.textContent = label;
+  button.addEventListener('click', (event) => {
+    event.preventDefault();
+    action();
+  });
+  return button;
+}
+
+function formatValue(value, prefix = '', suffix = '') {
+  if (value == null) return '—';
+  return `${prefix}${value}${suffix}`;
+}
+
+function renderMarkdown(content) {
+  const escaped = String(content)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;');
+
+  return escaped
+    .replace(/\[(.+?)\]\((https?:\/\/.+?)\)/g, '<a href="$2">$1</a>')
+    .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
+    .replace(/\*(.+?)\*/g, '<em>$1</em>')
+    .replace(/\n/g, '<br>');
+}
+
+function renderBarChart(config, data) {
+  const width = 600;
+  const height = 220;
+  const padding = 28;
+  const max = Math.max(...data.map((item) => Number(item?.[config.yField] ?? 0)), 1);
+  const barWidth = (width - padding * 2) / Math.max(data.length, 1);
+  const color = config.color || '#0d8f73';
+
+  const bars = data.map((item, index) => {
+    const value = Number(item?.[config.yField] ?? 0);
+    const barHeight = ((height - padding * 2) * value) / max;
+    const x = padding + index * barWidth + 8;
+    const y = height - padding - barHeight;
+    return `<rect class="chart-bar" x="${x}" y="${y}" width="${Math.max(barWidth - 16, 12)}" height="${barHeight}" fill="${color}"></rect>`;
+  }).join('');
+
+  return `
+    <div class="chart-wrap">
+      <svg class="chart-svg" viewBox="0 0 ${width} ${height}" role="img" aria-label="${config.title}">
+        <line class="chart-axis" x1="${padding}" y1="${height - padding}" x2="${width - padding}" y2="${height - padding}"></line>
+        <line class="chart-axis" x1="${padding}" y1="${padding}" x2="${padding}" y2="${height - padding}"></line>
+        ${bars}
+      </svg>
+    </div>
+  `;
+}
+
+function renderLineChart(config, data) {
+  const width = 600;
+  const height = 220;
+  const padding = 28;
+  const points = data.map((item, index) => ({ x: index, value: Number(item?.[config.series[0]?.field] ?? 0) }));
+  const max = Math.max(...points.map((point) => point.value), 1);
+  const xStep = points.length > 1 ? (width - padding * 2) / (points.length - 1) : 0;
+
+  const paths = config.series.map((series, seriesIndex) => {
+    const color = series.color || ['#0d8f73', '#c18550', '#4259b2'][seriesIndex % 3];
+    const coordinates = data.map((item, index) => {
+      const value = Number(item?.[series.field] ?? 0);
+      const x = padding + index * xStep;
+      const y = height - padding - ((height - padding * 2) * value) / max;
+      return { x, y };
+    });
+    const path = coordinates.map((point, index) => `${index === 0 ? 'M' : 'L'} ${point.x} ${point.y}`).join(' ');
+    const dots = (config.showPoints ? coordinates.map((point) => `<circle class="chart-point" cx="${point.x}" cy="${point.y}" r="4" fill="${color}"></circle>`).join('') : '');
+    return `<path class="chart-line" d="${path}" stroke="${color}"></path>${dots}`;
+  }).join('');
+
+  return `
+    <div class="chart-wrap">
+      <svg class="chart-svg" viewBox="0 0 ${width} ${height}" role="img" aria-label="${config.title}">
+        <line class="chart-axis" x1="${padding}" y1="${height - padding}" x2="${width - padding}" y2="${height - padding}"></line>
+        <line class="chart-axis" x1="${padding}" y1="${padding}" x2="${padding}" y2="${height - padding}"></line>
+        ${paths}
+      </svg>
+    </div>
+  `;
+}
+
+function renderWidgetContent(manifest, data) {
+  switch (manifest.widgetType) {
+    case 'statCard': {
+      const config = manifest.config;
+      const value = data?.[config.valueField];
+      const delta = config.changeField ? data?.[config.changeField] : null;
+      return `
+        <div class="stat-block">
+          <div class="stat-value">${formatValue(value, config.prefix || '', config.suffix || '')}</div>
+          ${delta != null ? `<div class="stat-delta">${config.changeIsPercent ? `${delta}%` : delta}</div>` : ''}
+        </div>
+      `;
+    }
+    case 'priceCard': {
+      const config = manifest.config;
+      const deltaField = config.changePercentField || config.changeField;
+      return `
+        <div class="stat-block">
+          <div class="price-value">${formatValue(data?.[config.priceField], config.prefix || '')}</div>
+          ${deltaField ? `<div class="price-delta">${data?.[deltaField] ?? '—'}</div>` : ''}
+          ${config.footnote ? `<div class="footnote">${config.footnote}</div>` : ''}
+        </div>
+      `;
+    }
+    case 'list': {
+      const config = manifest.config;
+      const items = Array.isArray(data) ? data.slice(0, config.maxItems || data.length) : [];
+      return `
+        <div class="list">
+          ${items.map((item) => `
+            <div class="list-item">
+              <div class="list-label">
+                ${config.iconField && item?.[config.iconField] ? `<span>${item[config.iconField]}</span>` : ''}
+                ${item?.link || item?.url ? `<a href="${item.link || item.url}">${item?.[config.labelField] ?? ''}</a>` : `<span>${item?.[config.labelField] ?? ''}</span>`}
+              </div>
+              ${config.valueField && item?.[config.valueField] != null ? `<div class="list-meta">${item[config.valueField]}</div>` : ''}
+            </div>
+          `).join('')}
+        </div>
+      `;
+    }
+    case 'table': {
+      const config = manifest.config;
+      const rows = Array.isArray(data) ? data.slice(0, config.maxRows || data.length) : [];
+      return `
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>${config.columns.map((column) => `<th>${column.header}</th>`).join('')}</tr>
+            </thead>
+            <tbody>
+              ${rows.map((row) => `
+                <tr>
+                  ${config.columns.map((column) => {
+                    const raw = row?.[column.field];
+                    const value = raw == null ? '—' : `${column.prefix || ''}${raw}`;
+                    if (typeof raw === 'string' && /^https?:\/\//.test(raw)) {
+                      return `<td><a href="${raw}">${raw}</a></td>`;
+                    }
+                    return `<td>${value}</td>`;
+                  }).join('')}
+                </tr>
+              `).join('')}
+            </tbody>
+          </table>
+        </div>
+      `;
+    }
+    case 'text': {
+      const config = manifest.config;
+      const content = data?.content ?? '';
+      return config.markdown
+        ? `<div class="markdown">${renderMarkdown(content)}</div>`
+        : `<div class="text-block">${String(content)}</div>`;
+    }
+    case 'barChart':
+      return renderBarChart(manifest.config, Array.isArray(data) ? data : []);
+    case 'lineChart':
+      return renderLineChart(manifest.config, Array.isArray(data) ? data : []);
+    default:
+      return `<div class="text-block">${JSON.stringify(data)}</div>`;
+  }
+}
+
+function renderCard(manifest) {
+  const card = document.createElement('section');
+  card.className = 'widget-card is-loading';
+  card.dataset.widgetId = manifest.id;
+
+  const header = document.createElement('header');
+  header.className = 'widget-header';
+  const title = document.createElement('h2');
+  title.className = 'widget-title';
+  title.textContent = manifest.config.title || manifest.prompt;
+
+  const actions = document.createElement('div');
+  actions.className = 'widget-actions';
+  actions.appendChild(createButton('Refresh', () => postMessage('widgetAction', { action: 'refresh', id: manifest.id })));
+
+  if (state.isEditing) {
+    actions.appendChild(createButton('Up', () => postMessage('widgetAction', { action: 'moveUp', id: manifest.id })));
+    actions.appendChild(createButton('Down', () => postMessage('widgetAction', { action: 'moveDown', id: manifest.id })));
+    actions.appendChild(createButton('Remove', () => postMessage('widgetAction', { action: 'remove', id: manifest.id }), 'danger'));
+  }
+
+  header.appendChild(title);
+  header.appendChild(actions);
+
+  const content = document.createElement('div');
+  content.className = 'widget-content';
+  content.innerHTML = '<div class="skeleton"></div>';
+
+  card.appendChild(header);
+  card.appendChild(content);
+
+  executeSkillChain(manifest)
+    .then((data) => {
+      card.classList.remove('is-loading');
+      content.innerHTML = renderWidgetContent(manifest, data);
+      postMessage('widgetLoaded', { id: manifest.id });
+      notifyHeight();
+    })
+    .catch((error) => {
+      card.classList.remove('is-loading');
+      content.innerHTML = `<div class="widget-error">${error.message || String(error)}</div>`;
+      postMessage('widgetError', { id: manifest.id, message: error.message || String(error) });
+      notifyHeight();
+    });
+
+  return card;
+}
+
+function renderDashboard() {
+  dashboard.innerHTML = '';
+  dashboard.classList.toggle('empty', state.widgets.length === 0);
+
+  if (state.widgets.length === 0) {
+    dashboard.innerHTML = `
+      <section class="empty-state">
+        <h2>No widgets yet</h2>
+        <p>Add a widget to start building a live dashboard.</p>
+      </section>
+    `;
+    notifyHeight();
+    return;
+  }
+
+  for (const manifest of state.widgets) {
+    dashboard.appendChild(renderCard(manifest));
+  }
+  notifyHeight();
+}
+
+function applyDashboardState(payload) {
+  state.widgets = payload.widgets || [];
+  state.isEditing = Boolean(payload.isEditing);
+  renderDashboard();
+}
+
+window.WidgetDashboard = {
+  receiveCommand(command, payload) {
+    try {
+      switch (command) {
+        case 'bootstrapDashboard':
+        case 'setDashboardState':
+          applyDashboardState(payload);
+          break;
+        case 'refreshWidget': {
+          const manifest = state.widgets.find((widget) => widget.id === payload.id);
+          if (!manifest) return;
+          const card = dashboard.querySelector(`[data-widget-id="${manifest.id}"]`);
+          if (card) {
+            card.classList.add('is-loading');
+            const content = card.querySelector('.widget-content');
+            if (content) content.innerHTML = '<div class="skeleton"></div>';
+          }
+          executeSkillChain(manifest, { force: true })
+            .then((data) => {
+              const refreshed = dashboard.querySelector(`[data-widget-id="${manifest.id}"] .widget-content`);
+              if (refreshed) refreshed.innerHTML = renderWidgetContent(manifest, data);
+              card?.classList.remove('is-loading');
+              postMessage('widgetLoaded', { id: manifest.id });
+              notifyHeight();
+            })
+            .catch((error) => {
+              const refreshed = dashboard.querySelector(`[data-widget-id="${manifest.id}"] .widget-content`);
+              if (refreshed) refreshed.innerHTML = `<div class="widget-error">${error.message || String(error)}</div>`;
+              card?.classList.remove('is-loading');
+              postMessage('widgetError', { id: manifest.id, message: error.message || String(error) });
+              notifyHeight();
+            });
+          break;
+        }
+        default:
+          break;
+      }
+    } catch (error) {
+      postMessage('runtimeError', { message: error.message || String(error) });
+    }
+  },
+};
+
+dashboard.addEventListener('click', (event) => {
+  const link = event.target.closest('a[href]');
+  if (!link) return;
+
+  event.preventDefault();
+  const card = event.target.closest('.widget-card');
+  const id = card?.dataset.widgetId;
+  if (!id) return;
+  postMessage('widgetAction', {
+    action: 'openLink',
+    id,
+    url: link.href,
+  });
+});
+
+new ResizeObserver(() => notifyHeight()).observe(document.body);
+window.addEventListener('load', () => notifyHeight());
+postMessage('ready', {});

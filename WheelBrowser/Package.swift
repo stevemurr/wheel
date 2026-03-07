@@ -22,7 +22,7 @@ let package = Package(
             path: "Sources/WheelBrowser",
             resources: [
                 .copy("Resources/AppIcon.icns"),
-                .copy("Resources/WidgetSystem"),
+                .copy("Resources/WidgetRuntime"),
             ],
             swiftSettings: [
                 .swiftLanguageMode(.v5)

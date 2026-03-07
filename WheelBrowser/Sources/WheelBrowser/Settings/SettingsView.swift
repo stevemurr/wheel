@@ -7,7 +7,6 @@ struct SettingsView: View {
             TabDockSettingsSection()
             LLMSettingsSection()
             SemanticSearchSettingsSection()
-            WidgetSettingsSection()
 
             Section("MCP Server") {
                 MCPSettingsView()
