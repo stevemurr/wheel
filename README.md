@@ -10,6 +10,8 @@ Wheel is a macOS browser with a built-in AI workflow layer: a multi-mode OmniBar
 ![Swift](https://img.shields.io/badge/Swift-6.2+-F05138?logo=swift&logoColor=white)
 ![License](https://img.shields.io/badge/License-MIT-blue)
 
+<img src="./hero.png" alt="Wheel screenshot" width="1100" />
+
 </div>
 
 ---
