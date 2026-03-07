@@ -90,18 +90,18 @@ struct OmniBarTextField: NSViewRepresentable {
         OmniBarTextInputConfigurator.configure(textView)
         textView.textContainerInset = NSSize(width: 0, height: OmniBarSingleLineLayout.verticalInset(for: textView))
         context.coordinator.updatePlaceholder()
-        requestFocusIfNeeded(for: textView, coordinator: context.coordinator)
+        requestFocusIfNeeded(for: textView)
     }
 
     func makeCoordinator() -> Coordinator {
         Coordinator(self)
     }
 
-    private func requestFocusIfNeeded(for textView: NSTextView, coordinator: Coordinator) {
-        guard isFocused, !coordinator.isEditing else { return }
+    private func requestFocusIfNeeded(for textView: NSTextView) {
+        guard isFocused else { return }
 
         guard let window = textView.window else {
-            scheduleFocusRetry(for: textView, coordinator: coordinator, reason: "single-line-delayed-focus-no-window")
+            scheduleFocusRetry(for: textView, reason: "single-line-delayed-focus-no-window")
             return
         }
 
@@ -109,13 +109,13 @@ struct OmniBarTextField: NSViewRepresentable {
 
         OmniBarWindowDiagnostics.shared.arm(reason: "single-line-programmatic-focus")
         if !window.makeFirstResponder(textView) {
-            scheduleFocusRetry(for: textView, coordinator: coordinator, reason: "single-line-delayed-focus-retry")
+            scheduleFocusRetry(for: textView, reason: "single-line-delayed-focus-retry")
         }
     }
 
-    private func scheduleFocusRetry(for textView: NSTextView, coordinator: Coordinator, reason: String) {
+    private func scheduleFocusRetry(for textView: NSTextView, reason: String) {
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
-            guard self.isFocused, !coordinator.isEditing else { return }
+            guard self.isFocused else { return }
             guard let window = textView.window, window.firstResponder !== textView else { return }
 
             OmniBarWindowDiagnostics.shared.arm(reason: reason)

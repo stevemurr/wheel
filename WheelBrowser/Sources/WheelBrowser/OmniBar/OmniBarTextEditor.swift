@@ -65,7 +65,7 @@ struct OmniBarTextEditor: NSViewRepresentable {
         OmniBarTextInputConfigurator.configure(textView)
 
         // Focus coordination (Rule 9: set focus before mode, Rule 11: no withAnimation on focus)
-        if isFocused && !context.coordinator.isEditing {
+        if isFocused {
             if let window = textView.window, window.firstResponder != textView {
                 OmniBarWindowDiagnostics.shared.arm(reason: "chat-programmatic-focus")
                 window.makeFirstResponder(textView)
@@ -75,7 +75,6 @@ struct OmniBarTextEditor: NSViewRepresentable {
                 let coordinator = context.coordinator
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) { [weak textView] in
                     guard coordinator.parent.isFocused,
-                          !coordinator.isEditing,
                           let textView = textView,
                           let window = textView.window,
                           window.firstResponder != textView else { return }
