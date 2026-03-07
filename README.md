@@ -4,7 +4,7 @@
 
 **A browser that thinks with you.**
 
-The macOS browser with an AI copilot, semantic memory, and workspaces built-in.
+Wheel is a macOS browser with a built-in AI workflow layer: a multi-mode OmniBar, on-device chat and agents, semantic history search, workspace-aware tab state, and a blank-tab widget dashboard.
 
 ![macOS](https://img.shields.io/badge/macOS-26+-000?logo=apple&logoColor=white)
 ![Swift](https://img.shields.io/badge/Swift-6.2+-F05138?logo=swift&logoColor=white)
@@ -14,121 +14,217 @@ The macOS browser with an AI copilot, semantic memory, and workspaces built-in.
 
 ---
 
-## Why Wheel?
+## What Wheel Does
 
-Most browsers treat AI as an afterthought—a sidebar you open sometimes. Wheel makes AI native to how you browse. Ask questions about any page, search your history by meaning, and let agents handle multi-step tasks across tabs.
+### OmniBar
 
----
-
-## The OmniBar
-
-One input. Five modes. Press **Tab** to cycle.
+Wheel centers around one bottom-docked OmniBar with five modes. Press `Tab` or `Shift+Tab` to cycle.
 
 | Mode | What it does |
 |------|--------------|
-| **Search** | URLs, fuzzy history search, open tabs |
-| **Chat** | AI assistant with full page context |
-| **Semantic** | Find pages by meaning, not keywords |
-| **Agent** | Autonomous tasks across your tabs |
-| **Reading List** | Save pages for later (Cmd+S) |
+| **Address** | Search, enter URLs, search history, and jump between tabs |
+| **Chat** | Ask questions about the current page with full page context |
+| **Semantic** | Search browsing history by meaning instead of keywords |
+| **Agent** | Run multi-step browser tasks |
+| **Reading List** | Search saved pages |
 
-The OmniBar floats at the bottom. It expands when focused, collapses when you're browsing.
+### Blank Tabs Become a Widget Dashboard
+
+Opening a blank tab shows the current widget dashboard, not a static new-tab page.
+
+- Widgets persist across launches
+- The dashboard runs inside a single embedded `WKWebView` runtime
+- Widget creation uses on-device generation plus deterministic templates for high-reliability cases like clocks
+- Widgets can render local data or fetch public HTTPS data through an app-managed fetch bridge
+
+### On-Device AI
+
+Wheel uses Apple Intelligence through `FoundationModels` for chat, agent flows, and widget generation.
+
+- No API keys required
+- Page-aware chat with mention support
+- Agent workflows integrated directly into browser state
+- AI features are local to the machine; widgets may still call external APIs when their manifests require it
+
+### Semantic Search
+
+Wheel indexes pages locally and lets you search by concept.
+
+- Powered by [VecturaKit](https://github.com/rryam/VecturaKit)
+- Background indexing while you browse
+- History, web, and reading-list context support
+
+### Workspaces and Browser Tools
+
+- Workspace-aware tab persistence and default agent configuration
+- Reading List and Downloads built into the main UI
+- Picture-in-Picture support
+- Link previews and overlay windows from the browsing surface
+- Tab wheel / middle-click panel for fast switching
+
+### MCP and Headless Automation
+
+Wheel can expose browser control over MCP and can also run headlessly.
+
+- Built-in MCP server inside the app
+- Separate `wheel-mcp-bridge` stdio target for MCP clients such as Claude Desktop
+- Headless mode with configurable initial URL, MCP port, and window size
 
 ---
 
-## Features
+## Run It
 
-### AI Chat
-Talk to any webpage. Wheel extracts the content and gives the AI full context.
+### Development
 
-- **Apple Intelligence** — Powered by the on-device language model via FoundationModels. No API keys, no servers, no data leaves your Mac.
-- **@mentions** — Pull in multiple tabs or history results
-- **Streaming** — Watch responses arrive in real-time
-- **Agent Studio** — Build custom agents with system prompts
+```bash
+git clone https://github.com/stevemurr/wheel.git
+cd wheel/WheelBrowser
+swift run WheelBrowser
+```
 
-### Semantic Search
-Every page you visit gets embedded locally. Search by concept, not exact text.
+### Build an App Bundle
 
-- Powered by [VecturaKit](https://github.com/rryam/VecturaKit) for on-device vector search
-- Automatic background indexing as you browse
-- Category filtering with `@Web`, `@History`, `@ReadingList` mentions
-- Fully local — no external server required
+```bash
+cd WheelBrowser
+make build
+```
 
-### Workspaces
-Keep contexts separate. Each workspace has its own tabs, color, and default agent.
+This produces:
 
-### Reading List
-Press **Cmd+S** to save any page. Press **Cmd+B** to browse your list. Search within it.
+```text
+.build/arm64-apple-macosx/release/Wheel Browser.app
+```
 
-### The Rest
-- **Downloads** — Progress tracking, auto-organized
-- **Picture-in-Picture** — Float videos (Cmd+Shift+P)
-- **Middle-click panel** — Quick tab switching and actions
+### Install to `/Applications`
+
+```bash
+cd WheelBrowser
+make install
+```
+
+### Headless Mode
+
+```bash
+cd WheelBrowser
+swift run WheelBrowser --headless --url https://example.com --port 8765 --window-size 1440x900
+```
+
+### MCP Bridge
+
+```bash
+cd WheelBrowser
+swift run wheel-mcp-bridge
+```
+
+The bridge forwards MCP tool calls to the app's local MCP server.
+
+---
+
+## Requirements
+
+- macOS 26+
+- Apple Silicon
+- Xcode 26+ / Swift 6.2 toolchain
+- Apple Intelligence for on-device chat, agent, and widget generation features
+
+The browser itself can still run without model availability, but AI-dependent features will be limited.
 
 ---
 
 ## Shortcuts
 
-**Navigation**
-| | |
-|--|--|
-| `Cmd+L` | Address bar |
-| `Cmd+K` | AI chat |
-| `Cmd+J` | Semantic search |
-| `Cmd+B` | Reading list |
-| `Tab` | Next OmniBar mode |
+### Core
 
-**Tabs**
-| | |
-|--|--|
+| Shortcut | Action |
+|----------|--------|
 | `Cmd+T` | New tab |
 | `Cmd+W` | Close tab |
-| `Cmd+1-9` | Jump to tab |
-| `Cmd+Shift+T` | Reopen closed |
+| `Cmd+Shift+S` | Toggle tab sidebar |
+| `Cmd+Option+H` | Toggle auto-hide tab dock |
+| `Cmd+L` | Focus address bar |
+| `Cmd+Option+F` | Alternate address-bar focus |
 
-**Actions**
-| | |
-|--|--|
-| `Cmd+S` | Save to reading list |
+### OmniBar and AI
+
+| Shortcut | Action |
+|----------|--------|
+| `Tab` / `Shift+Tab` | Cycle OmniBar mode |
+| `Cmd+K` | Focus AI chat |
+| `Cmd+J` | Open semantic search |
+| `Cmd+Shift+C` | Copy last response |
+| `Cmd+Shift+R` | Regenerate response |
+| `Cmd+Shift+E` | Edit last message |
+
+### Navigation
+
+| Shortcut | Action |
+|----------|--------|
+| `Cmd+R` | Reload |
+| `Esc` | Stop loading |
+| `Cmd+[` | Back |
+| `Cmd+]` | Forward |
 | `Cmd+F` | Find in page |
+| `Cmd++` / `Cmd+=` | Zoom in |
+| `Cmd+-` | Zoom out |
+| `Cmd+0` | Reset zoom |
+
+### Tabs and Tools
+
+| Shortcut | Action |
+|----------|--------|
+| `Cmd+Shift+[` | Previous tab |
+| `Cmd+Shift+]` | Next tab |
+| `Cmd+Shift+T` | Reopen closed tab |
+| `Cmd+1-9` | Switch to tab |
+| `Cmd+S` | Save to reading list |
+| `Cmd+B` | Show reading list |
 | `Cmd+D` | Downloads |
-| `Cmd+Shift+P` | Picture-in-Picture |
+| `Cmd+Shift+P` | Picture in Picture |
+| `Cmd+Option+O` | Close all overlays |
+| `Cmd+Option+W` | Show tab wheel |
 
 ---
 
-## Install
+## Tests
+
+Run the main suite:
 
 ```bash
-git clone https://github.com/stevemurr/wheel.git
-cd wheel/WheelBrowser
-make install
+cd WheelBrowser
+swift test
 ```
 
-Or run directly:
+Run the opt-in live agent tests:
 
 ```bash
-swift run WheelBrowser
+cd WheelBrowser
+WHEEL_RUN_LIVE_AGENT_TESTS=1 swift test --filter AgentLiveTests
 ```
-
-**Requirements:** macOS 26+, Apple Silicon, Xcode 26+, Apple Intelligence enabled
 
 ---
 
-## Architecture
+## Project Layout
 
-```
+The active architecture today is centered on these areas:
+
+```text
 WheelBrowser/
-├── OmniBar/          # The unified input system
-├── SemanticSearch/   # VecturaKit-powered on-device vector search
-├── Letta/            # AI agent integration
-├── Shared/LLM/      # Apple FoundationModels integration
-├── ModuleSystem/     # Extensible module architecture
-├── Workspaces/       # Context management
-├── RightClickPanel/  # Quick actions overlay
-└── Downloads/        # Download handling
+├── Sources/WheelBrowser/OmniBar/         # Multi-mode bottom command bar
+├── Sources/WheelBrowser/Widgets/         # Current blank-tab widget platform
+├── Sources/WheelBrowser/SemanticSearch/  # Local indexing and semantic retrieval
+├── Sources/WheelBrowser/Agent/           # Browser agent execution
+├── Sources/WheelBrowser/Shared/          # Shared infrastructure, including LLM integration
+├── Sources/WheelBrowser/TopDrawer/       # Workspace management
+├── Sources/WheelBrowser/MCP/             # In-app MCP server and settings
+├── Sources/WheelBrowser/Headless/        # Headless browser startup/config
+├── Sources/WheelBrowser/WebView/         # Web view container and browser plumbing
+├── Sources/WheelBrowser/OverlayWindow/   # Overlay browser windows
+├── Sources/WheelBrowser/LinkPreview/     # Hover/click preview system
+├── Sources/WheelBrowser/Downloads/       # Download UI and state
+└── Sources/WheelMCPBridge/               # MCP stdio bridge executable
 ```
 
-All AI features run entirely on-device using Apple Intelligence (FoundationModels) and VecturaKit. No external servers, API keys, or network calls required for AI functionality.
+There are still legacy `ModuleSystem/` and `WidgetSystem/` directories in the tree, but they are not the primary path for the current blank-tab widget dashboard.
 
 ---
 
