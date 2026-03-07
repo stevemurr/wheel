@@ -22,6 +22,7 @@ let package = Package(
             path: "Sources/WheelBrowser",
             resources: [
                 .copy("Resources/AppIcon.icns"),
+                .copy("Resources/Extensions"),
                 .copy("Resources/WidgetRuntime"),
             ],
             swiftSettings: [

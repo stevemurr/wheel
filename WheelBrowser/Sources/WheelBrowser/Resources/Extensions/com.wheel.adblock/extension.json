@@ -1,0 +1,63 @@
+{
+  "id": "com.wheel.adblock",
+  "name": "Wheel Ad Blocker",
+  "version": "1.0.0",
+  "defaultEnabled": true,
+  "capabilities": [
+    "contentBlocking",
+    "contentScripts"
+  ],
+  "contentBlockers": [
+    {
+      "id": "base",
+      "name": "Wheel Base Rules",
+      "sourceType": "local",
+      "path": "lists/base.txt",
+      "defaultEnabled": true
+    },
+    {
+      "id": "overrides",
+      "name": "Wheel Site Overrides",
+      "sourceType": "local",
+      "path": "lists/overrides.txt",
+      "defaultEnabled": true
+    },
+    {
+      "id": "easylist",
+      "name": "EasyList",
+      "sourceType": "remote",
+      "url": "https://easylist.to/easylist/easylist.txt",
+      "defaultEnabled": true
+    },
+    {
+      "id": "easyprivacy",
+      "name": "EasyPrivacy",
+      "sourceType": "remote",
+      "url": "https://easylist.to/easylist/easyprivacy.txt",
+      "defaultEnabled": false
+    },
+    {
+      "id": "fanboy-annoyances",
+      "name": "Fanboy Annoyances",
+      "sourceType": "remote",
+      "url": "https://easylist.to/easylist/fanboy-annoyance.txt",
+      "defaultEnabled": false
+    }
+  ],
+  "contentScripts": [
+    {
+      "id": "cookie-banners",
+      "matches": [
+        "http://*/*",
+        "https://*/*"
+      ],
+      "excludeMatches": [],
+      "js": [
+        "scripts/cookie-banners.js"
+      ],
+      "css": [],
+      "injectionTime": "documentEnd",
+      "allFrames": false
+    }
+  ]
+}

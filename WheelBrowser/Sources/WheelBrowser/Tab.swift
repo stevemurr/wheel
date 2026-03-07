@@ -32,12 +32,19 @@ class Tab: Identifiable {
     /// Backing storage for the lazily-created WKWebView.
     /// Chat tabs that never render web content avoid the ~30-50MB overhead.
     private var _webView: WKWebView?
+    @ObservationIgnored private var pendingReloadURL: URL?
+    var webViewRevision: UUID = UUID()
 
     /// The WKWebView backing this tab. Created lazily on first access.
     var webView: WKWebView {
         if let wv = _webView { return wv }
         let wv = Tab.createWebView()
+        wv.pageZoom = zoomLevel
         _webView = wv
+        if let pendingReloadURL {
+            self.pendingReloadURL = nil
+            wv.load(URLRequest(url: pendingReloadURL))
+        }
         return wv
     }
 
@@ -86,20 +93,7 @@ class Tab: Identifiable {
 
     /// Creates a fully-configured WKWebView for browsing.
     private static func createWebView() -> WKWebView {
-        let config = WKWebViewConfiguration()
-        config.preferences.isElementFullscreenEnabled = true
-
-        // Enable Picture-in-Picture using KVC (required on macOS, private API)
-        config.preferences.setValue(true, forKey: "allowsPictureInPictureMediaPlayback")
-
-        // Inject link hover detection script for link previews
-        config.userContentController.addUserScript(LinkHoverScripts.createUserScript())
-
-        // Inject anti-detection scripts in headless mode
-        if HeadlessConfig.current.enabled {
-            config.userContentController.addUserScript(AntiDetectionScripts.createUserScript())
-        }
-
+        let config = BrowserWebViewConfigurationFactory.shared.makeConfiguration(surface: .tab)
         let webView = BrowserWebView(frame: .zero, configuration: config)
         webView.allowsBackForwardNavigationGestures = true
 
@@ -256,6 +250,17 @@ class Tab: Identifiable {
         webView.evaluateJavaScript(script) { _, _ in
             // Ignore errors - cleanup is best-effort
         }
+    }
+
+    func rebuildWebViewForConfigurationChange() {
+        guard let webView = _webView else { return }
+
+        pendingReloadURL = webView.url ?? url
+        cleanup()
+        webView.navigationDelegate = nil
+        webView.uiDelegate = nil
+        _webView = nil
+        webViewRevision = UUID()
     }
 
     deinit {

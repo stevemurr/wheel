@@ -10,12 +10,7 @@ struct OverlayWebView: NSViewRepresentable {
     @Binding var isReaderMode: Bool
 
     func makeNSView(context: Context) -> WKWebView {
-        let config = WKWebViewConfiguration()
-        config.preferences.isElementFullscreenEnabled = true
-
-        // Enable Picture-in-Picture using KVC (required on macOS, private API)
-        config.preferences.setValue(true, forKey: "allowsPictureInPictureMediaPlayback")
-
+        let config = BrowserWebViewConfigurationFactory.shared.makeConfiguration(surface: .overlay)
         let webView = WKWebView(frame: .zero, configuration: config)
         webView.allowsBackForwardNavigationGestures = true
         webView.navigationDelegate = context.coordinator
@@ -75,6 +70,10 @@ struct OverlayWebView: NSViewRepresentable {
                     self.item.title = title
                 } else if let host = webView.url?.host {
                     self.item.title = host
+                }
+
+                if let currentURL = webView.url {
+                    self.item.url = currentURL
                 }
             }
         }

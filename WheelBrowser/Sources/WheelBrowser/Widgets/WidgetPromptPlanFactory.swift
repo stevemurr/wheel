@@ -5,6 +5,9 @@ enum WidgetPromptPlanFactory {
         if let intent = HackerNewsPromptIntent(prompt: prompt) {
             return intent.plan
         }
+        if let intent = SubredditPromptIntent(prompt: prompt) {
+            return intent.plan
+        }
         if let intent = CryptoPromptIntent(prompt: prompt) {
             return intent.plan
         }
@@ -115,6 +118,185 @@ private struct HackerNewsPromptIntent {
             .replacingOccurrences(of: "_", with: " ")
             .replacingOccurrences(
                 of: #"[^a-z0-9 ]+"#,
+                with: " ",
+                options: .regularExpression
+            )
+            .replacingOccurrences(of: #"\s+"#, with: " ", options: .regularExpression)
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+}
+
+private struct SubredditPromptIntent {
+    private enum Sort: String {
+        case hot
+        case new
+        case top
+    }
+
+    let prompt: String
+    let subreddit: String
+    let limit: Int
+    private let sort: Sort
+
+    init?(prompt: String) {
+        let trimmedPrompt = prompt.trimmingCharacters(in: .whitespacesAndNewlines)
+        let normalizedPrompt = Self.normalize(trimmedPrompt)
+
+        guard Self.referencesSubreddit(in: trimmedPrompt, normalizedPrompt: normalizedPrompt) else { return nil }
+        guard Self.containsStoryIntent(in: normalizedPrompt) else { return nil }
+        guard let subreddit = Self.extractSubreddit(from: trimmedPrompt, normalizedPrompt: normalizedPrompt) else { return nil }
+
+        self.prompt = trimmedPrompt
+        self.subreddit = subreddit
+        self.limit = Self.extractLimit(from: normalizedPrompt) ?? 5
+        self.sort = Self.resolveSort(from: normalizedPrompt)
+    }
+
+    var plan: GeneratedWidgetPlan {
+        GeneratedWidgetPlan(
+            title: Self.title(for: subreddit, limit: limit, sort: sort),
+            widgetType: "list",
+            source: GeneratedWidgetSourcePlan(
+                kind: "jsonAPI",
+                url: Self.redditListingURL(subreddit: subreddit, sort: sort, limit: limit),
+                jsonPath: "data.children",
+                resultShape: "collection",
+                sortBy: nil,
+                sortAscending: nil,
+                limit: nil,
+                timeZones: nil
+            ),
+            refreshSeconds: 900,
+            prompt: prompt,
+            text: nil,
+            metric: nil,
+            list: GeneratedWidgetListPlan(
+                variant: sort == .top ? "ranked" : "feed",
+                labelField: "data.title",
+                valueField: "data.score",
+                subtitleField: "data.author",
+                badgeField: nil,
+                captionField: nil,
+                iconField: nil,
+                linkField: "data.url",
+                maxItems: limit
+            ),
+            table: nil,
+            chart: nil
+        )
+    }
+
+    private static func redditListingURL(subreddit: String, sort: Sort, limit: Int) -> String {
+        var components = URLComponents(string: "https://www.reddit.com/r/\(subreddit)/\(sort.rawValue).json")!
+        var queryItems = [
+            URLQueryItem(name: "raw_json", value: "1"),
+            URLQueryItem(name: "limit", value: "\(max(1, min(limit, 25)))"),
+        ]
+        if sort == .top {
+            queryItems.append(URLQueryItem(name: "t", value: "day"))
+        }
+        components.queryItems = queryItems
+        return components.url!.absoluteString
+    }
+
+    private static func title(for subreddit: String, limit: Int, sort: Sort) -> String {
+        let noun = limit == 1 ? "Post" : "Posts"
+        switch sort {
+        case .top:
+            return "Top \(limit) \(noun) on r/\(subreddit)"
+        case .new:
+            return limit == 1 ? "Latest Post on r/\(subreddit)" : "Latest \(noun) on r/\(subreddit)"
+        case .hot:
+            return limit == 1 ? "Hot Post on r/\(subreddit)" : "Hot \(noun) on r/\(subreddit)"
+        }
+    }
+
+    private static func resolveSort(from prompt: String) -> Sort {
+        if containsWord("new", in: prompt)
+            || containsWord("latest", in: prompt)
+            || containsWord("recent", in: prompt)
+            || containsWord("fresh", in: prompt) {
+            return .new
+        }
+        if containsWord("hot", in: prompt)
+            || containsWord("trending", in: prompt)
+            || containsWord("popular", in: prompt) {
+            return .hot
+        }
+        return .top
+    }
+
+    private static func referencesSubreddit(in prompt: String, normalizedPrompt: String) -> Bool {
+        if prompt.range(of: #"\br/[A-Za-z0-9_]+\b"#, options: [.regularExpression, .caseInsensitive]) != nil {
+            return true
+        }
+        return normalizedPrompt.contains(" subreddit")
+            || normalizedPrompt.hasSuffix("subreddit")
+    }
+
+    private static func containsStoryIntent(in prompt: String) -> Bool {
+        prompt.contains("front page")
+            || containsWord("headline", in: prompt)
+            || containsWord("headlines", in: prompt)
+            || containsWord("story", in: prompt)
+            || containsWord("stories", in: prompt)
+            || containsWord("article", in: prompt)
+            || containsWord("articles", in: prompt)
+            || containsWord("post", in: prompt)
+            || containsWord("posts", in: prompt)
+            || containsWord("top", in: prompt)
+            || containsWord("best", in: prompt)
+            || containsWord("hot", in: prompt)
+            || containsWord("latest", in: prompt)
+            || containsWord("recent", in: prompt)
+            || containsWord("new", in: prompt)
+    }
+
+    private static func extractSubreddit(from prompt: String, normalizedPrompt: String) -> String? {
+        if let range = prompt.range(
+            of: #"\br/([A-Za-z0-9_]+)\b"#,
+            options: [.regularExpression, .caseInsensitive]
+        ) {
+            let value = String(prompt[range]).dropFirst(2)
+            return String(value).lowercased()
+        }
+
+        if let match = normalizedPrompt.range(
+            of: #"\b([a-z0-9_]+)\s+subreddit\b"#,
+            options: .regularExpression
+        ) {
+            let words = normalizedPrompt[match]
+                .split(separator: " ", omittingEmptySubsequences: true)
+            if let candidate = words.first, candidate != "the", candidate != "a", candidate != "an" {
+                return String(candidate).lowercased()
+            }
+        }
+
+        return nil
+    }
+
+    private static func extractLimit(from prompt: String) -> Int? {
+        guard let match = prompt.range(of: #"\b([1-9]|1[0-9]|2[0-5])\b"#, options: .regularExpression),
+              let value = Int(prompt[match]) else {
+            return nil
+        }
+        return value
+    }
+
+    private static func containsWord(_ word: String, in prompt: String) -> Bool {
+        prompt == word
+            || prompt.hasPrefix("\(word) ")
+            || prompt.hasSuffix(" \(word)")
+            || prompt.contains(" \(word) ")
+    }
+
+    private static func normalize(_ value: String) -> String {
+        value
+            .lowercased()
+            .replacingOccurrences(of: "-", with: " ")
+            .replacingOccurrences(of: "_", with: " ")
+            .replacingOccurrences(
+                of: #"[^a-z0-9/ ]+"#,
                 with: " ",
                 options: .regularExpression
             )

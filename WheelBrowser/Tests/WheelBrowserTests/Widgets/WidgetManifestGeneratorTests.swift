@@ -430,6 +430,42 @@ struct WidgetManifestGeneratorTests {
         #expect(config.maxItems == 5)
     }
 
+    @Test("Generator uses a built-in subreddit planner for subreddit post prompts")
+    func usesBuiltInSubredditPlanner() async throws {
+        let generator = OnDeviceWidgetManifestGenerator(
+            completionProvider: { _, _ in
+                Issue.record("Subreddit planner should bypass the language model.")
+                throw TestSequenceError.depleted
+            },
+            availabilityProvider: {
+                Issue.record("Subreddit planner should not check model availability.")
+                return .unavailable("Should not be called")
+            },
+            preflightProvider: { _ in }
+        )
+
+        let manifest = try await generator.generate(prompt: "Create a widget for the top 5 posts on the Swift subreddit")
+
+        #expect(manifest.widgetType == .list)
+        #expect(manifest.skillChain.map(\.skill) == [.fetchUrl, .parseJson, .transform])
+        #expect(manifest.skillChain.first?.params["url"]?.stringValue?.contains("reddit.com/r/swift/top.json") == true)
+        #expect(manifest.skillChain.first?.params["url"]?.stringValue?.contains("raw_json=1") == true)
+        #expect(manifest.returns == "listData")
+
+        guard case .list(let config) = manifest.config else {
+            Issue.record("Expected list config")
+            return
+        }
+
+        #expect(config.title == "Top 5 Posts on r/swift")
+        #expect(config.labelField == "label")
+        #expect(config.valueField == "value")
+        #expect(config.subtitleField == "subtitle")
+        #expect(config.linkField == "link")
+        #expect(config.variant == .ranked)
+        #expect(config.maxItems == 5)
+    }
+
     @Test("Generator builds multi-clock widgets from one prompt")
     func buildsMultiClockTemplate() async throws {
         let generator = OnDeviceWidgetManifestGenerator(

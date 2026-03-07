@@ -260,6 +260,12 @@ class BrowserState: BrowserBridgeProvider {
         }
     }
 
+    func rebuildAllWebViewsForConfigurationChange() {
+        for tab in tabs {
+            tab.rebuildWebViewForConfigurationChange()
+        }
+    }
+
     func selectTab(_ id: UUID) {
         captureScreenshotOfActiveTab()
         activeTabId = id

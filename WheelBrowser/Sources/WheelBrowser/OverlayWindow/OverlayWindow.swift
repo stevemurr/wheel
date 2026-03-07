@@ -55,6 +55,7 @@ struct OverlayWindow: View {
                 // WebView content area
                 ZStack {
                     OverlayWebView(url: item.url, item: item, isLoading: $isLoading, isReaderMode: $isReaderMode)
+                        .id(item.webViewRevision)
 
                     // Loading indicator
                     if isLoading {

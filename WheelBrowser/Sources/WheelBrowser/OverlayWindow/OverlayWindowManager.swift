@@ -5,13 +5,14 @@ import SwiftUI
 @Observable
 class OverlayWindowItem: Identifiable {
     let id = UUID()
-    let url: URL
+    var url: URL
     var title: String
     var position: CGPoint
     var size: CGSize
     var isMinimized: Bool = false
     var isMaximized: Bool = false
     var zIndex: Int
+    var webViewRevision: UUID = UUID()
     let createdAt: Date = Date()
 
     // Store pre-maximize state for restore
@@ -188,6 +189,12 @@ class OverlayWindowManager {
         // If resized while maximized, exit maximize mode
         if windows[idx].isMaximized {
             windows[idx].isMaximized = false
+        }
+    }
+
+    func rebuildAllWebViewsForConfigurationChange() {
+        for window in windows {
+            window.webViewRevision = UUID()
         }
     }
 }

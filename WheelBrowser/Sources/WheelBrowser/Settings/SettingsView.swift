@@ -7,6 +7,8 @@ struct SettingsView: View {
             TabDockSettingsSection()
             LLMSettingsSection()
             SemanticSearchSettingsSection()
+            ExtensionsSettingsSection()
+            AdBlockingSettingsSection()
 
             Section("MCP Server") {
                 MCPSettingsView()
@@ -15,7 +17,7 @@ struct SettingsView: View {
             DebugSection()
         }
         .formStyle(.grouped)
-        .frame(width: 500, height: 900)
+        .frame(width: 560, height: 980)
     }
 }
 

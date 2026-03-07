@@ -1,0 +1,5 @@
+! Wheel site overrides
+@@||accounts.google.com^$document
+@@||appleid.apple.com^$document
+@@||github.com/login^$document
+@@||stripe.com^$document

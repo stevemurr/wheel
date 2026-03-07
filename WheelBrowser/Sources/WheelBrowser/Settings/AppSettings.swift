@@ -65,6 +65,20 @@ class AppSettings: ObservableObject, @unchecked Sendable {
     /// Whether link previews are enabled (Wikipedia-style hover previews)
     @AppStorage("linkPreviewEnabled") var linkPreviewEnabled: Bool = true
 
+    /// Whether Wheel-native extensions should run in browser surfaces.
+    @AppStorage("extensionsEnabled") var extensionsEnabled: Bool = true
+
+    /// Master toggle for the first-party ad blocker extension.
+    @AppStorage("adBlockerEnabled") var adBlockerEnabled: Bool = true
+
+    /// Built-in subscription toggles for the first-party ad blocker.
+    @AppStorage("adBlockEasyListEnabled") var adBlockEasyListEnabled: Bool = true
+    @AppStorage("adBlockEasyPrivacyEnabled") var adBlockEasyPrivacyEnabled: Bool = false
+    @AppStorage("adBlockFanboyAnnoyancesEnabled") var adBlockFanboyAnnoyancesEnabled: Bool = false
+
+    /// Newline-delimited host suffixes where ad blocking should be disabled.
+    @AppStorage("adBlockDomainAllowlistRaw") var adBlockDomainAllowlistRaw: String = ""
+
     /// App appearance mode (system, light, or dark)
     @AppStorage("appearanceMode") var appearanceModeRaw: String = AppearanceMode.system.rawValue {
         didSet {
@@ -73,4 +87,19 @@ class AppSettings: ObservableObject, @unchecked Sendable {
     }
 
     private init() {}
+
+    var adBlockDomainAllowlist: [String] {
+        get {
+            adBlockDomainAllowlistRaw
+                .split(whereSeparator: \.isNewline)
+                .map { $0.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() }
+                .filter { !$0.isEmpty }
+        }
+        set {
+            adBlockDomainAllowlistRaw = newValue
+                .map { $0.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() }
+                .filter { !$0.isEmpty }
+                .joined(separator: "\n")
+        }
+    }
 }

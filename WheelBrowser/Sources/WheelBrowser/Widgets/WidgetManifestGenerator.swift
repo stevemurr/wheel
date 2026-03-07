@@ -231,6 +231,7 @@ final class OnDeviceWidgetManifestGenerator: @unchecked Sendable, WidgetManifest
         \(rawPlan)
 
         Keep the same intent, use only the allowed widget types, source kinds, and plan fields, and fill every required section exactly.
+        If the failure mentions an HTTP status or a broken URL, do not reuse that URL. Choose a canonical public endpoint instead of inventing a site-specific API path.
         """
 
         return [

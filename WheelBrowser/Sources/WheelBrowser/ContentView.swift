@@ -104,6 +104,7 @@ private struct TabWebViewContainer: View {
                     }
                 } else {
                     WebViewRepresentable(tab: tab, isActive: isActive)
+                        .id(tab.webViewRevision)
                 }
             }
 
@@ -356,6 +357,10 @@ struct ContentView: View {
                 // Show tab wheel at center of window
                 let initialIndex = state.activeTabIndex ?? 0
                 wheelState.show(at: .zero, initialIndex: initialIndex, tabCount: state.tabs.count)
+            }
+            .onReceive(NotificationCenter.default.publisher(for: .extensionRuntimeDidUpdate)) { _ in
+                state.rebuildAllWebViewsForConfigurationChange()
+                OverlayWindowManager.shared.rebuildAllWebViewsForConfigurationChange()
             }
     }
 

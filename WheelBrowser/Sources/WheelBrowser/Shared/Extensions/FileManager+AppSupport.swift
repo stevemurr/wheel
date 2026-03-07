@@ -14,4 +14,20 @@ extension FileManager {
         }
         return appDir
     }
+
+    static var extensionsDirectory: URL {
+        let directory = appSupportDirectory.appendingPathComponent("Extensions", isDirectory: true)
+        if !FileManager.default.fileExists(atPath: directory.path) {
+            try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        }
+        return directory
+    }
+
+    static var contentBlockerCacheDirectory: URL {
+        let directory = appSupportDirectory.appendingPathComponent("ContentBlockers", isDirectory: true)
+        if !FileManager.default.fileExists(atPath: directory.path) {
+            try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        }
+        return directory
+    }
 }

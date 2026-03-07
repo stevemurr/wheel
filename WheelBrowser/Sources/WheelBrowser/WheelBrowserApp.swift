@@ -19,6 +19,13 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         Log.addSink(ConsoleSink(minimumLevel: .debug))
         Log.addSink(OSLogSink())
 
+        Task { @MainActor in
+            await ExtensionRegistry.shared.reload()
+            await ContentBlockerManager.shared.refresh(force: false)
+            await ExtensionRegistry.shared.reload()
+            ContentBlockerManager.shared.startAutomaticRefresh()
+        }
+
         if HeadlessConfig.current.enabled {
             Log.MCP.info("Starting in headless mode")
 

@@ -1089,6 +1089,7 @@ enum WidgetPlanSystemPrompt {
         - Use currentDateTime for clocks and timezone widgets
         - Use jsonAPI for prices, exchange rates, weather, rankings, feeds, tables, and charts
         - Prefer free public JSON APIs and avoid scraping
+        - For subreddit post prompts, prefer canonical Reddit listing URLs like https://www.reddit.com/r/<subreddit>/top.json?raw_json=1&limit=5&t=day and parse posts from data.children
         - If widgetType is list, always fill the list section and always provide at least list.labelField
         - For lists, use compact for simple summaries, ranked for leaderboards/watchlists, feed for headlines/updates, agenda for schedules, and cards for richer multi-line items
         - For single-value widgets backed by collections, set resultShape to collection and use limit 1 or a jsonPath that narrows to one item
@@ -1099,6 +1100,7 @@ enum WidgetPlanSystemPrompt {
         - Output only the WidgetPlan
         - Use exact field names from the plan contract
         - Do not invent source kinds
+        - Do not invent undocumented API URL patterns
         - Do not emit skill names, output keys, or returns
         - prompt must echo the original user request
         """
