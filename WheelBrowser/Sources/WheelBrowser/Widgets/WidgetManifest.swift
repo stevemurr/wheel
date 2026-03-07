@@ -11,6 +11,7 @@ enum WidgetType: String, Codable, CaseIterable, Sendable {
 }
 
 enum WidgetSkillName: String, Codable, CaseIterable, Sendable {
+    case currentDateTime
     case fetchUrl
     case parseHtml
     case parseJson

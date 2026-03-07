@@ -81,21 +81,25 @@ final class WidgetDashboardStore {
         }
     }
 
-    func add(manifest: WidgetManifest) {
-        do {
-            let validated = try WidgetManifestValidator.validate(manifest)
-            records.append(
-                WidgetRecord(
-                    manifest: validated,
-                    position: records.count,
-                    lastLoadedAt: nil,
-                    lastError: nil
-                )
+    func add(manifest: WidgetManifest) throws {
+        let validated = try WidgetManifestValidator.validate(manifest)
+        records.append(
+            WidgetRecord(
+                manifest: validated,
+                position: records.count,
+                lastLoadedAt: nil,
+                lastError: nil
             )
-            save()
+        )
+
+        do {
+            try save()
             refresh(id: validated.id)
         } catch {
+            records.removeAll { $0.id == validated.id }
+            reindex()
             Log.Widgets.error("Failed to add widget", error: error)
+            throw error
         }
     }
 
@@ -103,7 +107,7 @@ final class WidgetDashboardStore {
         records.removeAll { $0.id == id }
         reindex()
         pendingRefreshIDs.removeAll { $0 == id }
-        save()
+        persistIgnoringErrors()
     }
 
     func move(from source: Int, to destination: Int) {
@@ -118,7 +122,7 @@ final class WidgetDashboardStore {
         let record = records.remove(at: source)
         records.insert(record, at: destination)
         reindex()
-        save()
+        persistIgnoringErrors()
     }
 
     func refresh(id: UUID) {
@@ -138,14 +142,14 @@ final class WidgetDashboardStore {
         records[index].lastLoadedAt = Date()
         records[index].lastError = nil
         pendingRefreshIDs.removeAll { $0 == id }
-        save()
+        persistIgnoringErrors()
     }
 
     func markError(id: UUID, message: String) {
         guard let index = records.firstIndex(where: { $0.id == id }) else { return }
         records[index].lastError = message
         pendingRefreshIDs.removeAll { $0 == id }
-        save()
+        persistIgnoringErrors()
     }
 
     func consumePendingRefreshes(_ ids: [UUID]) {
@@ -167,12 +171,16 @@ final class WidgetDashboardStore {
         return Date().timeIntervalSince(lastLoadedAt) >= TimeInterval(record.manifest.ttl)
     }
 
-    private func save() {
+    private func save() throws {
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+        let data = try encoder.encode(records)
+        try data.write(to: storageURL, options: .atomic)
+    }
+
+    private func persistIgnoringErrors() {
         do {
-            let encoder = JSONEncoder()
-            encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
-            let data = try encoder.encode(records)
-            try data.write(to: storageURL, options: .atomic)
+            try save()
         } catch {
             Log.Widgets.error("Failed to save widget dashboard", error: error)
         }

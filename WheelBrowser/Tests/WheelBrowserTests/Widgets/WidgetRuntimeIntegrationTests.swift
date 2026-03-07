@@ -52,6 +52,38 @@ struct WidgetRuntimeIntegrationTests {
     }
 
     @MainActor
+    @Test("Runtime renders local clock widgets")
+    func rendersLocalClockWidget() async throws {
+        let harness = try WidgetRuntimeHarness()
+        harness.load()
+        try await harness.waitUntilReady()
+
+        let manifest = clockWidgetManifest(title: "UTC Clock", timeZone: "UTC")
+        harness.bootstrap([manifest])
+        try await harness.waitUntilLoaded(id: manifest.id)
+
+        let rendered = try await harness.pageText()
+        #expect(rendered.contains("UTC Clock"))
+        #expect(rendered.contains("UTC"))
+    }
+
+    @MainActor
+    @Test("Runtime renders multi-clock list widgets")
+    func rendersMultiClockWidget() async throws {
+        let harness = try WidgetRuntimeHarness()
+        harness.load()
+        try await harness.waitUntilReady()
+
+        let manifest = multiClockWidgetManifest()
+        harness.bootstrap([manifest])
+        try await harness.waitUntilLoaded(id: manifest.id)
+
+        let rendered = try await harness.pageText()
+        #expect(rendered.contains("Pacific"))
+        #expect(rendered.contains("Beijing"))
+    }
+
+    @MainActor
     @Test("Runtime forwards open link actions")
     func forwardsOpenLinkActions() async throws {
         let harness = try WidgetRuntimeHarness()
@@ -81,6 +113,34 @@ struct WidgetRuntimeIntegrationTests {
 
         #expect(widgetID == manifest.id)
         #expect(url.host == "example.com")
+    }
+
+    @MainActor
+    @Test("Runtime emits remove actions and removes the card locally")
+    func emitsRemoveActions() async throws {
+        let harness = try WidgetRuntimeHarness()
+        harness.load()
+        try await harness.waitUntilReady()
+
+        let manifest = textWidgetManifest(title: "Removable", content: "Delete me")
+        harness.bridge.bootstrapDashboard(
+            records: [WidgetRecord(manifest: manifest, position: 0, lastLoadedAt: nil, lastError: nil)],
+            isEditing: true
+        )
+        try await harness.waitUntilLoaded(id: manifest.id)
+
+        _ = try await harness.webView.evaluateJavaScript(
+            "document.querySelector('[data-widget-action=\"remove\"]')?.click(); true;"
+        )
+
+        try await waitUntil {
+            harness.actions.contains(.remove(manifest.id))
+        }
+
+        let cardCount = try await harness.webView.evaluateJavaScript(
+            "document.querySelectorAll('.widget-card').length"
+        ) as? Int
+        #expect(cardCount == 0)
     }
 
     @MainActor
@@ -136,27 +196,10 @@ private final class WidgetRuntimeHarness {
 
     func load() {
         guard let baseURL = WidgetRuntimeResources.runtimeDirectoryURL(),
-              let scriptURL = WidgetRuntimeResources.runtimeScriptURL(),
-              let stylesURL = WidgetRuntimeResources.runtimeStylesURL(),
-              let script = try? String(contentsOf: scriptURL, encoding: .utf8),
-              let styles = try? String(contentsOf: stylesURL, encoding: .utf8) else {
+              let html = try? WidgetRuntimeResources.inlineRuntimeHTML() else {
             Issue.record("Missing widget runtime resource")
             return
         }
-        let html = """
-        <!doctype html>
-        <html lang="en">
-        <head>
-          <meta charset="utf-8">
-          <meta name="viewport" content="width=device-width, initial-scale=1">
-          <style>\(styles)</style>
-        </head>
-        <body>
-          <main id="dashboard" class="dashboard"></main>
-          <script>\(script)</script>
-        </body>
-        </html>
-        """
         webView.loadHTMLString(html, baseURL: baseURL)
     }
 
@@ -287,5 +330,81 @@ private func fetchWidgetManifest(url: String) -> WidgetManifest {
         returns: "cardData",
         ttl: 300,
         prompt: "Price"
+    )
+}
+
+private func clockWidgetManifest(title: String, timeZone: String) -> WidgetManifest {
+    WidgetManifest(
+        widgetType: .text,
+        config: .text(TextConfig(title: title, markdown: false)),
+        skillChain: [
+            WidgetSkillStep(
+                step: 1,
+                skill: .currentDateTime,
+                params: [
+                    "timeZone": AnyCodable(timeZone),
+                    "showTimeZone": AnyCodable(true),
+                    "includeSeconds": AnyCodable(true),
+                ],
+                outputKey: "clock"
+            ),
+        ],
+        returns: "clock",
+        ttl: 0,
+        prompt: title
+    )
+}
+
+private func multiClockWidgetManifest() -> WidgetManifest {
+    WidgetManifest(
+        widgetType: .list,
+        config: .list(
+            ListConfig(
+                title: "Pacific and Beijing",
+                labelField: "label",
+                valueField: "time",
+                iconField: nil,
+                maxItems: 2
+            )
+        ),
+        skillChain: [
+            WidgetSkillStep(
+                step: 1,
+                skill: .currentDateTime,
+                params: [
+                    "timeZone": AnyCodable("America/Los_Angeles"),
+                    "label": AnyCodable("Pacific"),
+                    "showTimeZone": AnyCodable(true),
+                    "includeSeconds": AnyCodable(true),
+                ],
+                outputKey: "pacificClock"
+            ),
+            WidgetSkillStep(
+                step: 2,
+                skill: .currentDateTime,
+                params: [
+                    "timeZone": AnyCodable("Asia/Shanghai"),
+                    "label": AnyCodable("Beijing"),
+                    "showTimeZone": AnyCodable(true),
+                    "includeSeconds": AnyCodable(true),
+                ],
+                outputKey: "beijingClock"
+            ),
+            WidgetSkillStep(
+                step: 3,
+                skill: .transform,
+                params: [
+                    "data": AnyCodable(["$pacificClock", "$beijingClock"]),
+                    "mapping": AnyCodable([
+                        "label": "label",
+                        "time": "formatted",
+                    ]),
+                ],
+                outputKey: "clockList"
+            ),
+        ],
+        returns: "clockList",
+        ttl: 0,
+        prompt: "Pacific and Beijing"
     )
 }

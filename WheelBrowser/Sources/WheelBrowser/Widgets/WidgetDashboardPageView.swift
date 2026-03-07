@@ -26,6 +26,7 @@ struct WidgetDashboardPageView: View {
                 .overlay(
                     RoundedRectangle(cornerRadius: 20)
                         .stroke(Color.primary.opacity(0.08), lineWidth: 1)
+                        .allowsHitTesting(false)
                 )
             }
             .padding(.horizontal, 24)
@@ -39,18 +40,14 @@ struct WidgetDashboardPageView: View {
                 .padding(24)
         }
         .sheet(isPresented: $showingPromptSheet) {
-            WidgetPromptSheet(store: store) {
+            WidgetPromptSheet(onCreate: addWidget) {
                 showingPromptSheet = false
             }
         }
         .onAppear(perform: configureBridge)
         .onChange(of: store.pendingRefreshIDs) { _, ids in
             guard !ids.isEmpty else { return }
-            let requested = ids
-            for id in requested {
-                bridge.refreshWidget(id: id)
-            }
-            store.consumePendingRefreshes(requested)
+            flushPendingRefreshes(ids)
         }
     }
 
@@ -73,6 +70,7 @@ struct WidgetDashboardPageView: View {
                 Button {
                     withAnimation(.easeInOut(duration: 0.2)) {
                         store.isEditing.toggle()
+                        syncDashboard()
                     }
                 } label: {
                     Label(store.isEditing ? "Done" : "Edit", systemImage: store.isEditing ? "checkmark" : "slider.horizontal.3")
@@ -83,6 +81,7 @@ struct WidgetDashboardPageView: View {
                     for record in store.records {
                         store.refresh(id: record.id)
                     }
+                    flushPendingRefreshes(store.pendingRefreshIDs)
                 } label: {
                     Label("Refresh All", systemImage: "arrow.clockwise")
                 }
@@ -110,9 +109,9 @@ struct WidgetDashboardPageView: View {
 
     private func configureBridge() {
         bridge.onReady = {
-            schemeHandler.updateAllowedHosts(for: store.manifests)
             bridge.bootstrapDashboard(records: store.records, isEditing: store.isEditing)
             store.refreshStale()
+            syncDashboard()
         }
         bridge.onWidgetLoaded = { id in
             store.markLoaded(id: id)
@@ -135,19 +134,46 @@ struct WidgetDashboardPageView: View {
         switch action {
         case .remove(let id):
             store.remove(id: id)
+            syncDashboard()
         case .moveUp(let id):
             if let index = store.index(of: id), index > 0 {
                 store.move(from: index, to: index - 1)
+                syncDashboard()
             }
         case .moveDown(let id):
             if let index = store.index(of: id), index < store.records.count - 1 {
                 store.move(from: index, to: index + 1)
+                syncDashboard()
             }
         case .refresh(let id):
             store.refresh(id: id)
+            flushPendingRefreshes(store.pendingRefreshIDs)
         case .openLink(_, let url):
             openLink(url)
         }
+    }
+
+    @MainActor
+    private func addWidget(_ manifest: WidgetManifest) throws {
+        try store.add(manifest: manifest)
+        syncDashboard()
+    }
+
+    @MainActor
+    private func syncDashboard() {
+        schemeHandler.updateAllowedHosts(for: store.manifests)
+        bridge.setDashboardState(records: store.records, isEditing: store.isEditing)
+        flushPendingRefreshes(store.pendingRefreshIDs)
+    }
+
+    @MainActor
+    private func flushPendingRefreshes(_ ids: [UUID]) {
+        guard !ids.isEmpty else { return }
+        let requested = ids
+        for id in requested {
+            bridge.refreshWidget(id: id)
+        }
+        store.consumePendingRefreshes(requested)
     }
 }
 
@@ -167,8 +193,9 @@ private struct WidgetDashboardWebView: NSViewRepresentable {
         webView.setValue(false, forKey: "drawsBackground")
         bridge.attach(to: webView)
 
-        if let htmlURL = WidgetRuntimeResources.runtimeHTMLURL() {
-            webView.loadFileURL(htmlURL, allowingReadAccessTo: htmlURL.deletingLastPathComponent())
+        if let baseURL = WidgetRuntimeResources.runtimeDirectoryURL(),
+           let html = try? WidgetRuntimeResources.inlineRuntimeHTML() {
+            webView.loadHTMLString(html, baseURL: baseURL)
         } else {
             webView.loadHTMLString("<html><body>Widget runtime not found.</body></html>", baseURL: nil)
         }
@@ -177,8 +204,9 @@ private struct WidgetDashboardWebView: NSViewRepresentable {
     }
 
     func updateNSView(_ nsView: WKWebView, context: Context) {
+        // Runtime state is synced explicitly from the parent view to avoid clobbering
+        // in-webview interactions during unrelated SwiftUI updates like height changes.
         schemeHandler.updateAllowedHosts(for: records.map(\.manifest))
-        bridge.setDashboardState(records: records, isEditing: isEditing)
     }
 
     static func dismantleNSView(_ nsView: WKWebView, coordinator: ()) {

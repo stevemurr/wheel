@@ -436,6 +436,141 @@ function computeStats({ data, field, ops }) {
   return result;
 }
 
+const COMMON_TIME_ZONES = {
+  pst: 'America/Los_Angeles',
+  pdt: 'America/Los_Angeles',
+  pt: 'America/Los_Angeles',
+  pacific: 'America/Los_Angeles',
+  pacifictime: 'America/Los_Angeles',
+  'us/pacific': 'America/Los_Angeles',
+  mst: 'America/Denver',
+  mdt: 'America/Denver',
+  mt: 'America/Denver',
+  mountain: 'America/Denver',
+  cst: 'America/Chicago',
+  cdt: 'America/Chicago',
+  ct: 'America/Chicago',
+  central: 'America/Chicago',
+  est: 'America/New_York',
+  edt: 'America/New_York',
+  et: 'America/New_York',
+  eastern: 'America/New_York',
+  utc: 'UTC',
+  gmt: 'UTC',
+  london: 'Europe/London',
+  paris: 'Europe/Paris',
+  cet: 'Europe/Paris',
+  cest: 'Europe/Paris',
+  tokyo: 'Asia/Tokyo',
+  jst: 'Asia/Tokyo',
+  sydney: 'Australia/Sydney',
+  aest: 'Australia/Sydney',
+  aedt: 'Australia/Sydney',
+};
+
+function normalizeDateTimeStyle(style, fallback = null) {
+  if (typeof style !== 'string') return fallback;
+  switch (style.trim().toLowerCase()) {
+    case 'none':
+      return null;
+    case 'short':
+    case 'medium':
+    case 'long':
+    case 'full':
+      return style.trim().toLowerCase();
+    default:
+      return fallback;
+  }
+}
+
+function normalizeTimeZoneIdentifier(value) {
+  const localTimeZone = Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC';
+  if (typeof value !== 'string' || !value.trim()) {
+    return localTimeZone;
+  }
+
+  const trimmed = value.trim();
+  const normalizedKey = trimmed.toLowerCase().replace(/\s+/g, '');
+  const candidate = COMMON_TIME_ZONES[trimmed.toLowerCase()] || COMMON_TIME_ZONES[normalizedKey] || trimmed;
+
+  try {
+    new Intl.DateTimeFormat('en-US', { timeZone: candidate }).format(new Date());
+    return candidate;
+  } catch {
+    throw new Error(`Unsupported time zone '${value}'.`);
+  }
+}
+
+function currentDateTime(params = {}) {
+  const now = new Date();
+  const locale = typeof params.locale === 'string' && params.locale.trim() ? params.locale.trim() : undefined;
+  const label = typeof params.label === 'string' && params.label.trim() ? params.label.trim() : null;
+  const timeZone = normalizeTimeZoneIdentifier(params.timeZone);
+  const showTimeZone = params.showTimeZone !== false;
+  const includeSeconds = Boolean(params.includeSeconds);
+  const hour12 = typeof params.hour12 === 'boolean' ? params.hour12 : undefined;
+  const dateStyle = normalizeDateTimeStyle(params.dateStyle, null);
+  const timeStyle = normalizeDateTimeStyle(params.timeStyle, includeSeconds ? 'medium' : 'short');
+
+  const timeOptions = {
+    timeZone,
+    hour: 'numeric',
+    minute: '2-digit',
+  };
+  if (includeSeconds) {
+    timeOptions.second = '2-digit';
+  }
+  if (hour12 !== undefined) {
+    timeOptions.hour12 = hour12;
+  }
+
+  const dateOptions = {
+    timeZone,
+    dateStyle: dateStyle || 'medium',
+  };
+  if (hour12 !== undefined) {
+    dateOptions.hour12 = hour12;
+  }
+
+  const formattedOptions = { timeZone };
+  if (dateStyle) {
+    formattedOptions.dateStyle = dateStyle;
+  }
+  if (timeStyle) {
+    formattedOptions.timeStyle = timeStyle;
+  }
+  if (!dateStyle && !timeStyle) {
+    formattedOptions.timeStyle = includeSeconds ? 'medium' : 'short';
+  }
+  if (hour12 !== undefined) {
+    formattedOptions.hour12 = hour12;
+  }
+
+  const time = new Intl.DateTimeFormat(locale, timeOptions).format(now);
+  const date = new Intl.DateTimeFormat(locale, dateOptions).format(now);
+  const timeZoneAbbreviation = new Intl.DateTimeFormat(locale, {
+    timeZone,
+    timeZoneName: 'short',
+  }).formatToParts(now).find((part) => part.type === 'timeZoneName')?.value || timeZone;
+
+  let formatted = new Intl.DateTimeFormat(locale, formattedOptions).format(now);
+  if (showTimeZone && !formatted.includes(timeZoneAbbreviation)) {
+    formatted = `${formatted} ${timeZoneAbbreviation}`;
+  }
+
+  return {
+    label,
+    content: formatted,
+    formatted,
+    date,
+    time,
+    timeZone,
+    timeZoneAbbreviation,
+    iso: now.toISOString(),
+    timestamp: now.getTime(),
+  };
+}
+
 async function fetchUrl(params, manifest, options = {}) {
   const remoteURL = params.url;
   const proxied = `widget-fetch://request/${manifest.id}?url=${encodeURIComponent(remoteURL)}`;
@@ -454,6 +589,7 @@ async function fetchUrl(params, manifest, options = {}) {
 }
 
 const registry = {
+  currentDateTime,
   fetchUrl,
   parseHtml,
   parseJson: ({ json, path }) => parseJsonPath(json, path),
@@ -501,14 +637,41 @@ async function executeSkillChain(manifest, { force = false } = {}) {
   }
 }
 
-function createButton(label, action, extraClass = '') {
+const ACTION_ICONS = {
+  refresh: `
+    <svg viewBox="0 0 24 24" aria-hidden="true">
+      <path d="M20 12a8 8 0 1 1-2.34-5.66"></path>
+      <path d="M20 4v6h-6"></path>
+    </svg>
+  `,
+  moveUp: `
+    <svg viewBox="0 0 24 24" aria-hidden="true">
+      <path d="M12 18V6"></path>
+      <path d="m7 11 5-5 5 5"></path>
+    </svg>
+  `,
+  moveDown: `
+    <svg viewBox="0 0 24 24" aria-hidden="true">
+      <path d="M12 6v12"></path>
+      <path d="m7 13 5 5 5-5"></path>
+    </svg>
+  `,
+  remove: `
+    <svg viewBox="0 0 24 24" aria-hidden="true">
+      <path d="M18 6 6 18"></path>
+      <path d="M6 6l12 12"></path>
+    </svg>
+  `,
+};
+
+function createIconButton({ label, action, extraClass = '' }) {
   const button = document.createElement('button');
-  button.className = `widget-button ${extraClass}`.trim();
-  button.textContent = label;
-  button.addEventListener('click', (event) => {
-    event.preventDefault();
-    action();
-  });
+  button.type = 'button';
+  button.className = `widget-button icon-button ${extraClass}`.trim();
+  button.dataset.widgetAction = action;
+  button.title = label;
+  button.setAttribute('aria-label', label);
+  button.innerHTML = `${ACTION_ICONS[action] || ''}<span class="sr-only">${label}</span>`;
   return button;
 }
 
@@ -686,12 +849,12 @@ function renderCard(manifest) {
 
   const actions = document.createElement('div');
   actions.className = 'widget-actions';
-  actions.appendChild(createButton('Refresh', () => postMessage('widgetAction', { action: 'refresh', id: manifest.id })));
+  actions.appendChild(createIconButton({ label: 'Refresh', action: 'refresh' }));
 
   if (state.isEditing) {
-    actions.appendChild(createButton('Up', () => postMessage('widgetAction', { action: 'moveUp', id: manifest.id })));
-    actions.appendChild(createButton('Down', () => postMessage('widgetAction', { action: 'moveDown', id: manifest.id })));
-    actions.appendChild(createButton('Remove', () => postMessage('widgetAction', { action: 'remove', id: manifest.id }), 'danger'));
+    actions.appendChild(createIconButton({ label: 'Move Up', action: 'moveUp' }));
+    actions.appendChild(createIconButton({ label: 'Move Down', action: 'moveDown' }));
+    actions.appendChild(createIconButton({ label: 'Remove', action: 'remove', extraClass: 'danger' }));
   }
 
   header.appendChild(title);
@@ -748,6 +911,73 @@ function applyDashboardState(payload) {
   renderDashboard();
 }
 
+function widgetIndexByID(id) {
+  return state.widgets.findIndex((widget) => widget.id === id);
+}
+
+function refreshWidgetCard(manifest) {
+  const card = dashboard.querySelector(`[data-widget-id="${manifest.id}"]`);
+  if (card) {
+    card.classList.add('is-loading');
+    const content = card.querySelector('.widget-content');
+    if (content) content.innerHTML = '<div class="skeleton"></div>';
+  }
+
+  executeSkillChain(manifest, { force: true })
+    .then((data) => {
+      const refreshed = dashboard.querySelector(`[data-widget-id="${manifest.id}"] .widget-content`);
+      if (refreshed) refreshed.innerHTML = renderWidgetContent(manifest, data);
+      card?.classList.remove('is-loading');
+      postMessage('widgetLoaded', { id: manifest.id });
+      notifyHeight();
+    })
+    .catch((error) => {
+      const refreshed = dashboard.querySelector(`[data-widget-id="${manifest.id}"] .widget-content`);
+      if (refreshed) refreshed.innerHTML = `<div class="widget-error">${error.message || String(error)}</div>`;
+      card?.classList.remove('is-loading');
+      postMessage('widgetError', { id: manifest.id, message: error.message || String(error) });
+      notifyHeight();
+    });
+}
+
+function handleWidgetAction(action, id) {
+  const index = widgetIndexByID(id);
+  if (index === -1) return;
+  const manifest = state.widgets[index];
+
+  switch (action) {
+    case 'refresh':
+      postMessage('widgetAction', { action, id });
+      refreshWidgetCard(manifest);
+      return;
+    case 'remove':
+      state.widgets = state.widgets.filter((widget) => widget.id !== id);
+      renderDashboard();
+      postMessage('widgetAction', { action, id });
+      return;
+    case 'moveUp':
+      if (index > 0) {
+        const reordered = [...state.widgets];
+        [reordered[index - 1], reordered[index]] = [reordered[index], reordered[index - 1]];
+        state.widgets = reordered;
+        renderDashboard();
+      }
+      postMessage('widgetAction', { action, id });
+      return;
+    case 'moveDown':
+      if (index < state.widgets.length - 1) {
+        const reordered = [...state.widgets];
+        [reordered[index], reordered[index + 1]] = [reordered[index + 1], reordered[index]];
+        state.widgets = reordered;
+        renderDashboard();
+      }
+      postMessage('widgetAction', { action, id });
+      return;
+    default:
+      return;
+  }
+}
+
 window.WidgetDashboard = {
   receiveCommand(command, payload) {
     try {
@@ -759,27 +989,7 @@ window.WidgetDashboard = {
         case 'refreshWidget': {
           const manifest = state.widgets.find((widget) => widget.id === payload.id);
           if (!manifest) return;
-          const card = dashboard.querySelector(`[data-widget-id="${manifest.id}"]`);
-          if (card) {
-            card.classList.add('is-loading');
-            const content = card.querySelector('.widget-content');
-            if (content) content.innerHTML = '<div class="skeleton"></div>';
-          }
-          executeSkillChain(manifest, { force: true })
-            .then((data) => {
-              const refreshed = dashboard.querySelector(`[data-widget-id="${manifest.id}"] .widget-content`);
-              if (refreshed) refreshed.innerHTML = renderWidgetContent(manifest, data);
-              card?.classList.remove('is-loading');
-              postMessage('widgetLoaded', { id: manifest.id });
-              notifyHeight();
-            })
-            .catch((error) => {
-              const refreshed = dashboard.querySelector(`[data-widget-id="${manifest.id}"] .widget-content`);
-              if (refreshed) refreshed.innerHTML = `<div class="widget-error">${error.message || String(error)}</div>`;
-              card?.classList.remove('is-loading');
-              postMessage('widgetError', { id: manifest.id, message: error.message || String(error) });
-              notifyHeight();
-            });
+          refreshWidgetCard(manifest);
           break;
         }
         default:
@@ -792,6 +1002,19 @@ window.WidgetDashboard = {
 };
 
 dashboard.addEventListener('click', (event) => {
+  const actionButton = event.target.closest('[data-widget-action]');
+  if (actionButton) {
+    event.preventDefault();
+    event.stopPropagation();
+    const card = actionButton.closest('.widget-card');
+    const id = card?.dataset.widgetId;
+    const action = actionButton.dataset.widgetAction;
+    if (id && action) {
+      handleWidgetAction(action, id);
+    }
+    return;
+  }
+
   const link = event.target.closest('a[href]');
   if (!link) return;
 

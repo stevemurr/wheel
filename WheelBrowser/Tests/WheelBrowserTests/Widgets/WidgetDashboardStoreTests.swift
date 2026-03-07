@@ -19,8 +19,8 @@ struct WidgetDashboardStoreTests {
         let first = textManifest(title: "First", content: "Hello")
         let second = textManifest(title: "Second", content: "World")
 
-        store.add(manifest: first)
-        store.add(manifest: second)
+        try store.add(manifest: first)
+        try store.add(manifest: second)
         store.move(from: 1, to: 0)
 
         let reloaded = WidgetDashboardStore(
