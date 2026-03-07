@@ -154,6 +154,18 @@ enum WidgetPlanCompiler {
         }
     }
 
+    private struct ResolvedListPresentation {
+        let variant: ListVariant
+        let labelField: String
+        let valueField: String?
+        let subtitleField: String?
+        let badgeField: String?
+        let captionField: String?
+        let iconField: String?
+        let linkField: String?
+        let maxItems: Int?
+    }
+
     static func compile(_ plan: GeneratedWidgetPlan, fallbackPrompt: String) throws -> WidgetManifest {
         let prompt = plan.prompt?.nonEmptyTrimmed ?? fallbackPrompt
         let title = plan.title.nonEmptyTrimmed ?? prompt
@@ -400,7 +412,7 @@ enum WidgetPlanCompiler {
         )
 
         if shape == .collection,
-           plan.source.sortBy?.nonEmptyTrimmed != nil || plan.source.limit != nil {
+           (plan.source.sortBy?.nonEmptyTrimmed != nil || plan.source.limit != nil) {
             var filterParams: [String: AnyCodable] = [
                 "data": AnyCodable("$\(currentKey)"),
                 "ascending": AnyCodable(plan.source.sortAscending ?? true),
@@ -608,32 +620,27 @@ enum WidgetPlanCompiler {
         steps: [WidgetSkillStep],
         dataKey: String
     ) throws -> WidgetManifest {
-        guard let list = plan.list else {
-            throw WidgetPlanCompilationError.missingPlanSection("list")
-        }
-        guard let labelField = list.labelField.nonEmptyTrimmed else {
-            throw WidgetPlanCompilationError.invalidField("list.labelField")
-        }
+        let list = try resolveListPresentation(plan, title: title, prompt: prompt)
 
         var mapping: [String: String] = [
-            "label": labelField,
+            "label": list.labelField,
         ]
-        if let valueField = list.valueField?.nonEmptyTrimmed {
+        if let valueField = list.valueField {
             mapping["value"] = valueField
         }
-        if let subtitleField = list.subtitleField?.nonEmptyTrimmed {
+        if let subtitleField = list.subtitleField {
             mapping["subtitle"] = subtitleField
         }
-        if let badgeField = list.badgeField?.nonEmptyTrimmed {
+        if let badgeField = list.badgeField {
             mapping["badge"] = badgeField
         }
-        if let captionField = list.captionField?.nonEmptyTrimmed {
+        if let captionField = list.captionField {
             mapping["caption"] = captionField
         }
-        if let iconField = list.iconField?.nonEmptyTrimmed {
+        if let iconField = list.iconField {
             mapping["icon"] = iconField
         }
-        if let linkField = list.linkField?.nonEmptyTrimmed {
+        if let linkField = list.linkField {
             mapping["link"] = linkField
         }
 
@@ -659,14 +666,42 @@ enum WidgetPlanCompiler {
                     captionField: mapping["caption"] == nil ? nil : "caption",
                     iconField: mapping["icon"] == nil ? nil : "icon",
                     linkField: mapping["link"] == nil ? nil : "link",
-                    maxItems: list.maxItems ?? plan.source.limit,
-                    variant: canonicalListVariant(list.variant) ?? .compact
+                    maxItems: list.maxItems,
+                    variant: list.variant
                 )
             ),
             skillChain: steps + [finalStep],
             returns: "listData",
             ttl: ttl,
             prompt: prompt
+        )
+    }
+
+    private static func resolveListPresentation(
+        _ plan: GeneratedWidgetPlan,
+        title: String,
+        prompt: String
+    ) throws -> ResolvedListPresentation {
+        let raw = plan.list
+        let hints = listInferenceHints(title: title, prompt: prompt, url: plan.source.url)
+
+        guard let labelField = raw?.labelField.nonEmptyTrimmed ?? inferredListLabelField(from: hints) else {
+            throw WidgetPlanCompilationError.missingPlanSection("list")
+        }
+
+        let valueField = raw?.valueField?.nonEmptyTrimmed ?? inferredListValueField(from: plan, hints: hints)
+        let badgeField = raw?.badgeField?.nonEmptyTrimmed ?? inferredListBadgeField(from: plan)
+
+        return ResolvedListPresentation(
+            variant: canonicalListVariant(raw?.variant) ?? inferredListVariant(from: hints),
+            labelField: labelField,
+            valueField: valueField,
+            subtitleField: raw?.subtitleField?.nonEmptyTrimmed ?? inferredListSubtitleField(from: hints),
+            badgeField: badgeField,
+            captionField: raw?.captionField?.nonEmptyTrimmed,
+            iconField: raw?.iconField?.nonEmptyTrimmed,
+            linkField: raw?.linkField?.nonEmptyTrimmed ?? inferredListLinkField(from: hints),
+            maxItems: raw?.maxItems ?? plan.source.limit
         )
     }
 
@@ -857,6 +892,80 @@ enum WidgetPlanCompiler {
         return []
     }
 
+    private static func listInferenceHints(title: String, prompt: String, url: String?) -> String {
+        [title, prompt, url ?? ""]
+            .joined(separator: " ")
+            .lowercased()
+    }
+
+    private static func inferredListVariant(from hints: String) -> ListVariant {
+        if containsAny(["headline", "headlines", "news", "story", "stories", "article", "articles", "feed", "front page", "hacker news", "hackernews"], in: hints) {
+            return .feed
+        }
+        if containsAny(["agenda", "schedule", "timeline", "events", "calendar"], in: hints) {
+            return .agenda
+        }
+        if containsAny(["leaderboard", "ranking", "ranked", "watchlist", "top ", "best "], in: hints) {
+            return .ranked
+        }
+        if containsAny(["cards", "card view", "rich"], in: hints) {
+            return .cards
+        }
+        return .compact
+    }
+
+    private static func inferredListLabelField(from hints: String) -> String? {
+        if containsAny(["crypto", "coin", "token", "stock", "ticker", "watchlist", "market"], in: hints) {
+            return "name"
+        }
+        if containsAny(["headline", "headlines", "news", "story", "stories", "article", "articles", "feed", "front page", "hacker news", "hackernews"], in: hints) {
+            return "title"
+        }
+        if containsAny(["agenda", "schedule", "event", "events"], in: hints) {
+            return "title"
+        }
+        return "title"
+    }
+
+    private static func inferredListValueField(from plan: GeneratedWidgetPlan, hints: String) -> String? {
+        guard let sortField = plan.source.sortBy?.nonEmptyTrimmed else {
+            return containsAny(["price", "quote", "quotes"], in: hints) ? "price" : nil
+        }
+
+        if containsAny(["rank", "position"], in: sortField.lowercased()) {
+            return nil
+        }
+        return sortField
+    }
+
+    private static func inferredListBadgeField(from plan: GeneratedWidgetPlan) -> String? {
+        guard let sortField = plan.source.sortBy?.nonEmptyTrimmed else { return nil }
+        if containsAny(["rank", "position"], in: sortField.lowercased()) {
+            return sortField
+        }
+        return nil
+    }
+
+    private static func inferredListSubtitleField(from hints: String) -> String? {
+        if containsAny(["headline", "headlines", "news", "story", "stories", "article", "articles", "feed", "front page", "hacker news", "hackernews"], in: hints) {
+            return "author"
+        }
+        if containsAny(["crypto", "coin", "token", "stock", "ticker", "watchlist", "market"], in: hints) {
+            return "symbol"
+        }
+        if containsAny(["agenda", "schedule", "event", "events"], in: hints) {
+            return "time"
+        }
+        return nil
+    }
+
+    private static func inferredListLinkField(from hints: String) -> String? {
+        if containsAny(["headline", "headlines", "news", "story", "stories", "article", "articles", "feed", "front page", "hacker news", "hackernews"], in: hints) {
+            return "url"
+        }
+        return nil
+    }
+
     private static func canonicalWidgetType(_ rawValue: String) throws -> WidgetType {
         if let exact = WidgetType(rawValue: rawValue) {
             return exact
@@ -936,6 +1045,10 @@ enum WidgetPlanCompiler {
     private static func normalizedIdentifier(_ value: String) -> String {
         value.lowercased().filter { $0.isLetter || $0.isNumber }
     }
+
+    private static func containsAny(_ needles: [String], in haystack: String) -> Bool {
+        needles.contains { haystack.contains($0) }
+    }
 }
 
 enum WidgetPlanSystemPrompt {
@@ -976,8 +1089,10 @@ enum WidgetPlanSystemPrompt {
         - Use currentDateTime for clocks and timezone widgets
         - Use jsonAPI for prices, exchange rates, weather, rankings, feeds, tables, and charts
         - Prefer free public JSON APIs and avoid scraping
+        - If widgetType is list, always fill the list section and always provide at least list.labelField
         - For lists, use compact for simple summaries, ranked for leaderboards/watchlists, feed for headlines/updates, agenda for schedules, and cards for richer multi-line items
         - For single-value widgets backed by collections, set resultShape to collection and use limit 1 or a jsonPath that narrows to one item
+        - For Hacker News or front-page headline prompts, prefer https://hn.algolia.com/api/v1/search?tags=front_page with jsonPath "hits" and fields like title, url, points, and author
         - For charts, prefer clean field names and explicit series labels
 
         Hard rules:

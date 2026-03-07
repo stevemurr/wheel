@@ -144,6 +144,62 @@ struct WidgetRuntimeIntegrationTests {
     }
 
     @MainActor
+    @Test("Runtime promotes a mixed three-widget dashboard into a hero layout")
+    func promotesMixedThreeWidgetLayout() async throws {
+        let harness = try WidgetRuntimeHarness()
+        harness.load()
+        try await harness.waitUntilReady()
+
+        let compactLead = textWidgetManifest(title: "Quick Note", content: "Small card")
+        let heroCandidate = textWidgetManifest(
+            title: "Longform Brief",
+            content: "A markdown card that should become the lead layout treatment.",
+            markdown: true
+        )
+        let compactTail = textWidgetManifest(title: "Status", content: "Nominal")
+
+        harness.bootstrap([compactLead, heroCandidate, compactTail])
+        try await waitUntil {
+            let heroTitle = try? await harness.webView.evaluateJavaScript(
+                "document.querySelector('.widget-card--hero .widget-title')?.textContent"
+            ) as? String
+            return heroTitle == "Longform Brief"
+        }
+
+        let className = try await harness.webView.evaluateJavaScript(
+            "document.getElementById('dashboard')?.className"
+        ) as? String
+        #expect(className?.contains("dashboard--count-3") == true)
+        #expect(className?.contains("dashboard--mixed") == true)
+    }
+
+    @MainActor
+    @Test("Runtime keeps three compact widgets in the compact layout")
+    func keepsThreeCompactWidgetsCompact() async throws {
+        let harness = try WidgetRuntimeHarness()
+        harness.load()
+        try await harness.waitUntilReady()
+
+        harness.bootstrap([
+            textWidgetManifest(title: "One", content: "First"),
+            textWidgetManifest(title: "Two", content: "Second"),
+            textWidgetManifest(title: "Three", content: "Third"),
+        ])
+
+        try await waitUntil {
+            let className = try? await harness.webView.evaluateJavaScript(
+                "document.getElementById('dashboard')?.className"
+            ) as? String
+            return className?.contains("dashboard--all-compact") == true
+        }
+
+        let heroCount = try await harness.webView.evaluateJavaScript(
+            "document.querySelectorAll('.widget-card--hero').length"
+        ) as? Int
+        #expect(heroCount == 0)
+    }
+
+    @MainActor
     @Test("Runtime cache avoids repeated fetches within TTL")
     func cacheAvoidsRepeatedFetches() async throws {
         MockWidgetURLProtocol.requestCount = 0
@@ -277,7 +333,7 @@ private final class WidgetRuntimeHarness {
     }
 
     func pageText() async throws -> String {
-        let result = try await webView.evaluateJavaScript("document.body.innerText") as? String
+        let result = try await webView.evaluateJavaScript("document.getElementById('dashboard')?.textContent") as? String
         return result ?? ""
     }
 }
@@ -289,7 +345,7 @@ private enum WidgetTestError: Error {
 private func waitUntil(
     timeout: TimeInterval = 2.0,
     interval: TimeInterval = 0.02,
-    condition: @escaping @MainActor () -> Bool
+    condition: @escaping @MainActor () async -> Bool
 ) async throws {
     let deadline = Date().addingTimeInterval(timeout)
     while Date() < deadline {

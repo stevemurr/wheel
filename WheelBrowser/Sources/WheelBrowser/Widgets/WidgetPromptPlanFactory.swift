@@ -2,6 +2,9 @@ import Foundation
 
 enum WidgetPromptPlanFactory {
     static func plan(for prompt: String) -> GeneratedWidgetPlan? {
+        if let intent = HackerNewsPromptIntent(prompt: prompt) {
+            return intent.plan
+        }
         if let intent = CryptoPromptIntent(prompt: prompt) {
             return intent.plan
         }
@@ -9,6 +12,114 @@ enum WidgetPromptPlanFactory {
             return intent.plan
         }
         return nil
+    }
+}
+
+private struct HackerNewsPromptIntent {
+    let prompt: String
+    let limit: Int
+
+    init?(prompt: String) {
+        let trimmedPrompt = prompt.trimmingCharacters(in: .whitespacesAndNewlines)
+        let normalizedPrompt = Self.normalize(trimmedPrompt)
+
+        guard Self.referencesHackerNews(in: normalizedPrompt) else { return nil }
+        guard Self.containsStoryIntent(in: normalizedPrompt) else { return nil }
+
+        self.prompt = trimmedPrompt
+        self.limit = Self.extractLimit(from: normalizedPrompt) ?? 5
+    }
+
+    var plan: GeneratedWidgetPlan {
+        GeneratedWidgetPlan(
+            title: limit == 1 ? "Hacker News Story" : "Top \(limit) Hacker News Stories",
+            widgetType: "list",
+            source: GeneratedWidgetSourcePlan(
+                kind: "jsonAPI",
+                url: Self.algoliaFrontPageURL(limit: limit),
+                jsonPath: "hits",
+                resultShape: "collection",
+                sortBy: nil,
+                sortAscending: nil,
+                limit: nil,
+                timeZones: nil
+            ),
+            refreshSeconds: 900,
+            prompt: prompt,
+            text: nil,
+            metric: nil,
+            list: GeneratedWidgetListPlan(
+                variant: "feed",
+                labelField: "title",
+                valueField: "points",
+                subtitleField: "author",
+                badgeField: nil,
+                captionField: nil,
+                iconField: nil,
+                linkField: "url",
+                maxItems: limit
+            ),
+            table: nil,
+            chart: nil
+        )
+    }
+
+    private static func algoliaFrontPageURL(limit: Int) -> String {
+        var components = URLComponents(string: "https://hn.algolia.com/api/v1/search")!
+        components.queryItems = [
+            URLQueryItem(name: "tags", value: "front_page"),
+            URLQueryItem(name: "hitsPerPage", value: "\(max(1, min(limit, 20)))"),
+        ]
+        return components.url!.absoluteString
+    }
+
+    private static func referencesHackerNews(in prompt: String) -> Bool {
+        prompt.contains("hacker news")
+            || prompt.contains("hackernews")
+            || containsWord("hn", in: prompt)
+    }
+
+    private static func containsStoryIntent(in prompt: String) -> Bool {
+        prompt.contains("front page")
+            || containsWord("headline", in: prompt)
+            || containsWord("headlines", in: prompt)
+            || containsWord("story", in: prompt)
+            || containsWord("stories", in: prompt)
+            || containsWord("article", in: prompt)
+            || containsWord("articles", in: prompt)
+            || containsWord("post", in: prompt)
+            || containsWord("posts", in: prompt)
+            || containsWord("top", in: prompt)
+            || containsWord("best", in: prompt)
+    }
+
+    private static func extractLimit(from prompt: String) -> Int? {
+        guard let match = prompt.range(of: #"\b([1-9]|1[0-9]|20)\b"#, options: .regularExpression),
+              let value = Int(prompt[match]) else {
+            return nil
+        }
+        return value
+    }
+
+    private static func containsWord(_ word: String, in prompt: String) -> Bool {
+        prompt == word
+            || prompt.hasPrefix("\(word) ")
+            || prompt.hasSuffix(" \(word)")
+            || prompt.contains(" \(word) ")
+    }
+
+    private static func normalize(_ value: String) -> String {
+        value
+            .lowercased()
+            .replacingOccurrences(of: "-", with: " ")
+            .replacingOccurrences(of: "_", with: " ")
+            .replacingOccurrences(
+                of: #"[^a-z0-9 ]+"#,
+                with: " ",
+                options: .regularExpression
+            )
+            .replacingOccurrences(of: #"\s+"#, with: " ", options: .regularExpression)
+            .trimmingCharacters(in: .whitespacesAndNewlines)
     }
 }
 

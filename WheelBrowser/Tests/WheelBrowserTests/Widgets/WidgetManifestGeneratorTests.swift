@@ -68,10 +68,10 @@ struct WidgetManifestGeneratorTests {
                     title: "Broken",
                     widgetType: "list",
                     source: GeneratedWidgetSourcePlan(
-                        kind: "jsonAPI",
-                        url: "https://example.com/items.json",
+                        kind: "literalText",
+                        url: nil,
                         jsonPath: nil,
-                        resultShape: "collection",
+                        resultShape: nil,
                         sortBy: nil,
                         sortAscending: nil,
                         limit: nil,
@@ -79,7 +79,13 @@ struct WidgetManifestGeneratorTests {
                     ),
                     refreshSeconds: 300,
                     prompt: "Broken",
-                    text: nil,
+                    text: GeneratedWidgetTextPlan(
+                        contentField: nil,
+                        literalContent: "Broken",
+                        markdown: false,
+                        showTimeZone: nil,
+                        includeSeconds: nil
+                    ),
                     metric: nil,
                     list: nil,
                     table: nil,
@@ -91,7 +97,7 @@ struct WidgetManifestGeneratorTests {
             }
         )
 
-        await #expect(throws: WidgetManifestGenerationError.validationFailed("Widget plan is missing required 'list' details.")) {
+        await #expect(throws: WidgetManifestGenerationError.validationFailed("Widget type 'list' is not supported with source kind 'literalText'.")) {
             try await generator.generate(prompt: "Broken")
         }
     }
@@ -387,6 +393,41 @@ struct WidgetManifestGeneratorTests {
         #expect(config.subtitleField == "subtitle")
         #expect(config.badgeField == "badge")
         #expect(config.variant == .compact)
+    }
+
+    @Test("Generator uses a built-in Hacker News planner for headline prompts")
+    func usesBuiltInHackerNewsPlanner() async throws {
+        let generator = OnDeviceWidgetManifestGenerator(
+            completionProvider: { _, _ in
+                Issue.record("Hacker News planner should bypass the language model.")
+                throw TestSequenceError.depleted
+            },
+            availabilityProvider: {
+                Issue.record("Hacker News planner should not check model availability.")
+                return .unavailable("Should not be called")
+            },
+            preflightProvider: { _ in }
+        )
+
+        let manifest = try await generator.generate(prompt: "Create a widget for the top 5 Hacker News articles")
+
+        #expect(manifest.widgetType == .list)
+        #expect(manifest.skillChain.map(\.skill) == [.fetchUrl, .parseJson, .transform])
+        #expect(manifest.skillChain.first?.params["url"]?.stringValue?.contains("hn.algolia.com") == true)
+        #expect(manifest.returns == "listData")
+
+        guard case .list(let config) = manifest.config else {
+            Issue.record("Expected list config")
+            return
+        }
+
+        #expect(config.title == "Top 5 Hacker News Stories")
+        #expect(config.labelField == "label")
+        #expect(config.valueField == "value")
+        #expect(config.subtitleField == "subtitle")
+        #expect(config.linkField == "link")
+        #expect(config.variant == .feed)
+        #expect(config.maxItems == 5)
     }
 
     @Test("Generator builds multi-clock widgets from one prompt")

@@ -121,6 +121,86 @@ struct WidgetPlanCompilerTests {
         #expect(config.variant == .ranked)
     }
 
+    @Test("Compiler infers list defaults for partial headline plans")
+    func infersListDefaults() throws {
+        let plan = GeneratedWidgetPlan(
+            title: "Top Stories",
+            widgetType: "list",
+            source: GeneratedWidgetSourcePlan(
+                kind: "jsonAPI",
+                url: "https://example.com/front-page.json",
+                jsonPath: "$.items",
+                resultShape: "collection",
+                sortBy: "points",
+                sortAscending: false,
+                limit: 5,
+                timeZones: nil
+            ),
+            refreshSeconds: 900,
+            prompt: "Show the top stories",
+            text: nil,
+            metric: nil,
+            list: nil,
+            table: nil,
+            chart: nil
+        )
+
+        let manifest = try WidgetPlanCompiler.compile(plan, fallbackPrompt: "Fallback")
+
+        #expect(manifest.widgetType == .list)
+        #expect(manifest.skillChain.map(\.skill) == [.fetchUrl, .parseJson, .filterSort, .transform])
+
+        guard case .list(let config) = manifest.config else {
+            Issue.record("Expected list config")
+            return
+        }
+
+        #expect(config.title == "Top Stories")
+        #expect(config.labelField == "label")
+        #expect(config.valueField == "value")
+        #expect(config.subtitleField == "subtitle")
+        #expect(config.linkField == "link")
+        #expect(config.variant == .feed)
+        #expect(config.maxItems == 5)
+    }
+
+    @Test("Compiler skips filterSort for single JSON widgets even when a limit is present")
+    func skipsFilterSortForSingleShape() throws {
+        let plan = GeneratedWidgetPlan(
+            title: "FX",
+            widgetType: "statCard",
+            source: GeneratedWidgetSourcePlan(
+                kind: "jsonAPI",
+                url: "https://example.com/fx.json",
+                jsonPath: nil,
+                resultShape: "single",
+                sortBy: nil,
+                sortAscending: nil,
+                limit: 1,
+                timeZones: nil
+            ),
+            refreshSeconds: 300,
+            prompt: "Show FX",
+            text: nil,
+            metric: GeneratedWidgetMetricPlan(
+                valueField: "rates.EUR",
+                changeField: nil,
+                changePercentField: nil,
+                changeIsPercent: nil,
+                prefix: nil,
+                suffix: " EUR",
+                footnote: nil
+            ),
+            list: nil,
+            table: nil,
+            chart: nil
+        )
+
+        let manifest = try WidgetPlanCompiler.compile(plan, fallbackPrompt: "Fallback")
+
+        #expect(manifest.skillChain.map(\.skill) == [.fetchUrl, .parseJson, .transform])
+    }
+
     @Test("Compiler rejects line charts without a y field or series")
     func rejectsIncompleteLineChartPlan() {
         let plan = GeneratedWidgetPlan(

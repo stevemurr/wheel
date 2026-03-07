@@ -76,6 +76,7 @@ class OmniBarState {
     var mentions: [Mention] = [.currentPage]
     var showMentionDropdown: Bool = false
     var mentionSearchText: String = ""
+    private var suppressedAutomaticMention: Mention?
 
     /// Switch to the next mode (Tab key).
     /// See setMode() for why this must NOT use withAnimation.
@@ -118,32 +119,50 @@ class OmniBarState {
     func addMention(_ mention: Mention) {
         // Don't add duplicates
         guard !mentions.contains(mention) else { return }
+        if suppressedAutomaticMention == mention {
+            suppressedAutomaticMention = nil
+        }
         mentions.append(mention)
     }
 
     /// Remove a mention from the list
-    func removeMention(_ mention: Mention) {
+    func removeMention(_ mention: Mention, userInitiated: Bool = true) {
         mentions.removeAll { $0 == mention }
+        if userInitiated && mention.isAutomaticDefaultContext {
+            suppressedAutomaticMention = mention
+        }
     }
 
     /// Reset mentions to default state, preserving persistent search context mentions (@web, @history, etc.)
     /// - Parameter includeCurrentPage: Whether to include the current page mention. Set to false when on new tab page (no URL).
     func resetMentions(includeCurrentPage: Bool = true) {
         let persistent = mentions.filter { $0.isPersistent }
-        if includeCurrentPage {
-            // If overlay windows are open, use the most recent one as default instead of current page
-            if let mostRecentOverlay = OverlayWindowManager.shared.windows.sorted(by: { $0.createdAt > $1.createdAt }).first {
-                mentions = [.overlay(
-                    id: mostRecentOverlay.id,
-                    title: mostRecentOverlay.title,
-                    url: mostRecentOverlay.url.absoluteString
-                )] + persistent
-            } else {
-                mentions = [.currentPage] + persistent
-            }
-        } else {
+        guard let automaticMention = automaticMention(includeCurrentPage: includeCurrentPage) else {
             mentions = persistent
+            return
         }
+
+        if suppressedAutomaticMention == automaticMention {
+            mentions = persistent
+        } else {
+            mentions = [automaticMention] + persistent
+        }
+    }
+
+    func clearAutomaticMentionSuppression() {
+        suppressedAutomaticMention = nil
+    }
+
+    private func automaticMention(includeCurrentPage: Bool) -> Mention? {
+        guard includeCurrentPage else { return nil }
+        if let mostRecentOverlay = OverlayWindowManager.shared.windows.sorted(by: { $0.createdAt > $1.createdAt }).first {
+            return .overlay(
+                id: mostRecentOverlay.id,
+                title: mostRecentOverlay.title,
+                url: mostRecentOverlay.url.absoluteString
+            )
+        }
+        return .currentPage
     }
 
     /// Open the mention dropdown

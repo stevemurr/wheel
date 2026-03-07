@@ -138,6 +138,16 @@ enum Mention: Identifiable, Equatable, Hashable {
         }
     }
 
+    /// Whether this mention can be automatically inserted as the default chat context.
+    var isAutomaticDefaultContext: Bool {
+        switch self {
+        case .currentPage, .overlay:
+            return true
+        case .tab, .semanticResult, .history, .web, .readingList, .domain:
+            return false
+        }
+    }
+
     /// Returns the embedding category for this mention type, if applicable
     var embeddingCategory: EmbeddingCategory? {
         switch self {

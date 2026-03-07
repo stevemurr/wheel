@@ -48,6 +48,7 @@ extension OmniBar {
 
     func handleURLChange(_ newURL: URL?) {
         updateFullPageChatState()
+        omniState.clearAutomaticMentionSuppression()
         if !isInputFocused && omniState.mode == .address {
             omniState.inputText = newURL?.absoluteString ?? ""
         }
@@ -160,7 +161,7 @@ extension OmniBar {
             // Non-animated state changes first
             if !isFocusGain {
                 if tab.url == nil {
-                    omniState.removeMention(.currentPage)
+                    omniState.removeMention(.currentPage, userInitiated: false)
                 }
             }
             // Show panel last (animated)

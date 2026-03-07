@@ -733,6 +733,59 @@ function createIconButton({ label, action, extraClass = '' }) {
   return button;
 }
 
+function widgetChromeLabel(manifest) {
+  switch (manifest.widgetType) {
+    case 'statCard':
+      return 'Metric';
+    case 'priceCard':
+      return 'Live Price';
+    case 'list':
+      return manifest.config?.variant === 'ranked' ? 'Ranked List' : 'Live List';
+    case 'table':
+      return 'Table';
+    case 'text':
+      return manifest.config?.markdown ? 'Rich Text' : 'Text';
+    case 'barChart':
+    case 'lineChart':
+      return 'Chart';
+    default:
+      return 'Widget';
+  }
+}
+
+function widgetLayoutDensity(manifest) {
+  switch (manifest.widgetType) {
+    case 'statCard':
+    case 'priceCard':
+      return 'compact';
+    case 'text':
+      return manifest.config?.markdown ? 'regular' : 'compact';
+    case 'table':
+    case 'barChart':
+    case 'lineChart':
+      return 'wide';
+    case 'list':
+      return manifest.config?.variant === 'compact' || manifest.config?.variant === 'ranked'
+        ? 'regular'
+        : 'wide';
+    default:
+      return 'regular';
+  }
+}
+
+function dashboardLayoutClasses(widgets) {
+  const count = widgets.length;
+  const countClass = count === 0 ? 'dashboard--empty' : count <= 4 ? `dashboard--count-${count}` : 'dashboard--count-many';
+  const densities = widgets.map(widgetLayoutDensity);
+  const allCompact = densities.length > 0 && densities.every((density) => density === 'compact');
+  const hasWide = densities.some((density) => density === 'wide');
+
+  return {
+    classNames: ['dashboard', countClass, allCompact ? 'dashboard--all-compact' : 'dashboard--mixed', hasWide ? 'dashboard--has-wide' : 'dashboard--no-wide'],
+    heroIndex: count === 3 && !allCompact ? Math.max(densities.findIndex((density) => density !== 'compact'), 0) : -1,
+  };
+}
+
 function formatValue(value, prefix = '', suffix = '') {
   if (value == null) return '—';
   return `${prefix}${value}${suffix}`;
@@ -938,13 +991,23 @@ function renderWidgetContent(manifest, data) {
   }
 }
 
-function renderCard(manifest) {
+function renderCard(manifest, options = {}) {
   const card = document.createElement('section');
-  card.className = 'widget-card is-loading';
+  card.className = `widget-card widget-card--${manifest.widgetType} is-loading`;
   card.dataset.widgetId = manifest.id;
+  card.dataset.widgetType = manifest.widgetType;
+  card.dataset.density = widgetLayoutDensity(manifest);
+  if (options.isHero) {
+    card.classList.add('widget-card--hero');
+  }
 
   const header = document.createElement('header');
   header.className = 'widget-header';
+  const titleGroup = document.createElement('div');
+  titleGroup.className = 'widget-title-group';
+  const kicker = document.createElement('div');
+  kicker.className = 'widget-kicker';
+  kicker.textContent = widgetChromeLabel(manifest);
   const title = document.createElement('h2');
   title.className = 'widget-title';
   title.textContent = manifest.config.title || manifest.prompt;
@@ -959,11 +1022,13 @@ function renderCard(manifest) {
     actions.appendChild(createIconButton({ label: 'Remove', action: 'remove', extraClass: 'danger' }));
   }
 
-  header.appendChild(title);
+  titleGroup.appendChild(kicker);
+  titleGroup.appendChild(title);
+  header.appendChild(titleGroup);
   header.appendChild(actions);
 
   const content = document.createElement('div');
-  content.className = 'widget-content';
+  content.className = `widget-content widget-content--${manifest.widgetType}`;
   content.innerHTML = '<div class="skeleton"></div>';
 
   card.appendChild(header);
@@ -988,6 +1053,8 @@ function renderCard(manifest) {
 
 function renderDashboard() {
   dashboard.innerHTML = '';
+  const layout = dashboardLayoutClasses(state.widgets);
+  dashboard.className = layout.classNames.join(' ');
   dashboard.classList.toggle('empty', state.widgets.length === 0);
 
   if (state.widgets.length === 0) {
@@ -1001,8 +1068,8 @@ function renderDashboard() {
     return;
   }
 
-  for (const manifest of state.widgets) {
-    dashboard.appendChild(renderCard(manifest));
+  for (const [index, manifest] of state.widgets.entries()) {
+    dashboard.appendChild(renderCard(manifest, { isHero: index === layout.heroIndex }));
   }
   notifyHeight();
 }

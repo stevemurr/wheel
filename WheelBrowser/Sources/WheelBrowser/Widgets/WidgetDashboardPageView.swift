@@ -2,6 +2,9 @@ import SwiftUI
 import WebKit
 
 struct WidgetDashboardPageView: View {
+    private let layoutMaxWidth: CGFloat = 920
+    private let textMaxWidth: CGFloat = 640
+
     @State private var store = WidgetDashboardStore()
     @State private var bridge = WidgetRuntimeBridge()
     @State private var schemeHandler = WidgetFetchSchemeHandler()
@@ -10,34 +13,44 @@ struct WidgetDashboardPageView: View {
     let openLink: (URL) -> Void
 
     var body: some View {
-        ScrollView {
-            VStack(spacing: 24) {
-                greeting
+        GeometryReader { geometry in
+            ScrollView(.vertical, showsIndicators: false) {
+                VStack(spacing: 0) {
+                    Spacer(minLength: 58)
 
-                WidgetDashboardWebView(
-                    records: store.records,
-                    isEditing: store.isEditing,
-                    bridge: bridge,
-                    schemeHandler: schemeHandler
-                )
+                    VStack(spacing: 30) {
+                        headerPanel
+                        widgetStage
+                    }
+                    .frame(maxWidth: layoutMaxWidth)
+
+                    Spacer(minLength: 220)
+                }
                 .frame(maxWidth: .infinity)
-                .frame(height: max(runtimeHeight, 260))
-                .clipShape(RoundedRectangle(cornerRadius: 20))
-                .overlay(
-                    RoundedRectangle(cornerRadius: 20)
-                        .stroke(Color.primary.opacity(0.08), lineWidth: 1)
-                        .allowsHitTesting(false)
-                )
+                .frame(minHeight: geometry.size.height)
+                .padding(.horizontal, 24)
             }
-            .padding(.horizontal, 24)
-            .padding(.top, 40)
-            .padding(.bottom, 80)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background(Color(nsColor: .windowBackgroundColor))
-        .overlay(alignment: .bottomTrailing) {
-            controls
-                .padding(24)
+        .background {
+            ZStack(alignment: .top) {
+                Color(nsColor: .windowBackgroundColor)
+
+                RadialGradient(
+                    colors: [
+                        Color.accentColor.opacity(0.08),
+                        Color.accentColor.opacity(0.025),
+                        .clear,
+                    ],
+                    center: .top,
+                    startRadius: 12,
+                    endRadius: 500
+                )
+                .frame(height: 360)
+                .offset(y: -110)
+                .allowsHitTesting(false)
+            }
+            .ignoresSafeArea()
         }
         .sheet(isPresented: $showingPromptSheet) {
             WidgetPromptSheet(onCreate: addWidget) {
@@ -51,17 +64,53 @@ struct WidgetDashboardPageView: View {
         }
     }
 
+    private var headerPanel: some View {
+        VStack(spacing: 22) {
+            controls
+            greeting
+        }
+        .padding(.top, 8)
+        .frame(maxWidth: .infinity)
+    }
+
     private var greeting: some View {
-        VStack(spacing: 8) {
+        VStack(spacing: 10) {
+            Text(headerEyebrowText)
+                .font(.system(size: 11, weight: .semibold, design: .rounded))
+                .tracking(1.2)
+                .foregroundStyle(.secondary)
+
             Text(greetingText)
-                .font(.system(size: 28, weight: .bold, design: .rounded))
-                .frame(maxWidth: .infinity, alignment: .leading)
+                .font(.system(size: 36, weight: .bold, design: .rounded))
+                .multilineTextAlignment(.center)
 
             Text("Live widgets run in a single sandboxed dashboard runtime and persist across launches.")
-                .font(.system(size: 14))
+                .font(.system(size: 14, weight: .medium, design: .rounded))
                 .foregroundStyle(.secondary)
-                .frame(maxWidth: .infinity, alignment: .leading)
+                .multilineTextAlignment(.center)
+                .lineSpacing(1)
         }
+        .frame(maxWidth: textMaxWidth)
+        .frame(maxWidth: .infinity)
+    }
+
+    private var widgetStage: some View {
+        WidgetDashboardWebView(
+            records: store.records,
+            isEditing: store.isEditing,
+            bridge: bridge,
+            schemeHandler: schemeHandler
+        )
+        .frame(maxWidth: layoutMaxWidth)
+        .frame(height: max(runtimeHeight, 280))
+        .clipShape(RoundedRectangle(cornerRadius: 24, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: 24, style: .continuous)
+                .strokeBorder(Color.primary.opacity(0.06), lineWidth: 1)
+                .allowsHitTesting(false)
+        )
+        .shadow(color: Color.black.opacity(0.035), radius: 16, y: 8)
+        .frame(maxWidth: .infinity)
     }
 
     private var controls: some View {
@@ -75,8 +124,17 @@ struct WidgetDashboardPageView: View {
                 } label: {
                     Label(store.isEditing ? "Done" : "Edit", systemImage: store.isEditing ? "checkmark" : "slider.horizontal.3")
                 }
-                .buttonStyle(.bordered)
+                .buttonStyle(DashboardActionButtonStyle())
+            }
 
+            Button {
+                showingPromptSheet = true
+            } label: {
+                Label("Add Widget", systemImage: "plus")
+            }
+            .buttonStyle(DashboardPrimaryActionButtonStyle())
+
+            if !store.records.isEmpty {
                 Button {
                     for record in store.records {
                         store.refresh(id: record.id)
@@ -85,16 +143,31 @@ struct WidgetDashboardPageView: View {
                 } label: {
                     Label("Refresh All", systemImage: "arrow.clockwise")
                 }
-                .buttonStyle(.bordered)
+                .buttonStyle(DashboardActionButtonStyle())
             }
-
-            Button {
-                showingPromptSheet = true
-            } label: {
-                Label("Add Widget", systemImage: "plus")
-            }
-            .buttonStyle(.borderedProminent)
         }
+        .padding(6)
+        .background(
+            Capsule(style: .continuous)
+                .fill(Color.primary.opacity(0.04))
+        )
+        .overlay(
+            Capsule(style: .continuous)
+                .stroke(Color.primary.opacity(0.06), lineWidth: 1)
+        )
+        .shadow(color: Color.black.opacity(0.02), radius: 10, y: 4)
+        .fixedSize(horizontal: true, vertical: true)
+        .frame(maxWidth: .infinity)
+    }
+
+    private var headerEyebrowText: String {
+        Date.now.formatted(
+            .dateTime
+            .weekday(.wide)
+            .month(.abbreviated)
+            .day()
+        )
+        .uppercased()
     }
 
     private var greetingText: String {
@@ -174,6 +247,41 @@ struct WidgetDashboardPageView: View {
             bridge.refreshWidget(id: id)
         }
         store.consumePendingRefreshes(requested)
+    }
+}
+
+private struct DashboardActionButtonStyle: ButtonStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .font(.system(size: 13, weight: .semibold, design: .rounded))
+            .foregroundStyle(Color.primary.opacity(configuration.isPressed ? 0.72 : 0.86))
+            .padding(.horizontal, 16)
+            .frame(height: 38)
+            .background(
+                RoundedRectangle(cornerRadius: 14, style: .continuous)
+                    .fill(Color.primary.opacity(configuration.isPressed ? 0.08 : 0.05))
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 14, style: .continuous)
+                    .stroke(Color.primary.opacity(configuration.isPressed ? 0.09 : 0.06), lineWidth: 1)
+            )
+            .animation(.easeOut(duration: 0.14), value: configuration.isPressed)
+    }
+}
+
+private struct DashboardPrimaryActionButtonStyle: ButtonStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .font(.system(size: 13, weight: .semibold, design: .rounded))
+            .foregroundStyle(.white.opacity(configuration.isPressed ? 0.92 : 1))
+            .padding(.horizontal, 18)
+            .frame(height: 38)
+            .background(
+                RoundedRectangle(cornerRadius: 14, style: .continuous)
+                    .fill(Color.accentColor.opacity(configuration.isPressed ? 0.84 : 0.96))
+            )
+            .shadow(color: Color.accentColor.opacity(0.18), radius: 10, y: 4)
+            .animation(.easeOut(duration: 0.14), value: configuration.isPressed)
     }
 }
 
