@@ -6,9 +6,11 @@ private struct BrowserContentArea: View {
     var activeTab: Tab
     var agentManager: AgentManager
     var browserState: BrowserState
+    var noteStore: NoteStore
     @ObservedObject var settings: AppSettings
     var agentEngine: AgentEngine
     var wheelState: TabWheelState
+    var noteWindowState: NoteWindowState
     var contextMenuState = ContextMenuState.shared
     let contentExtractor: ContentExtractor
 
@@ -68,6 +70,12 @@ private struct BrowserContentArea: View {
                 // Overlay windows (Cmd+Click links)
                 OverlayWindowContainer(
                     manager: OverlayWindowManager.shared,
+                    containerSize: geometry.size
+                )
+
+                NoteWindowContainer(
+                    noteStore: noteStore,
+                    noteWindowState: noteWindowState,
                     containerSize: geometry.size
                 )
             }
@@ -279,6 +287,8 @@ struct ContentView: View {
     @ObservedObject private var settings = AppSettings.shared
     private var downloadManager = DownloadManager.shared
     @State private var wheelState = TabWheelState.shared
+    @State private var noteStore = NoteStore()
+    @State private var noteWindowState = NoteWindowState()
     private let contentExtractor = ContentExtractor()
 
     init() {
@@ -302,16 +312,18 @@ struct ContentView: View {
 
     @ViewBuilder
     private var mainContent: some View {
-        ZStack(alignment: .leading) {
+        ZStack {
             VStack(spacing: 0) {
                 if let activeTab = state.activeTab {
                     BrowserContentArea(
                         activeTab: activeTab,
                         agentManager: agentManager,
                         browserState: state,
+                        noteStore: noteStore,
                         settings: settings,
                         agentEngine: agentEngine,
                         wheelState: wheelState,
+                        noteWindowState: noteWindowState,
                         contentExtractor: contentExtractor
                     )
                 }
@@ -322,6 +334,15 @@ struct ContentView: View {
                 browserState: state,
                 screenshotManager: TabScreenshotManager.shared
             )
+            .frame(maxWidth: .infinity, alignment: .leading)
+
+            NotesStrip(
+                noteStore: noteStore,
+                onOpenNote: openNote,
+                onOpenToday: openTodayNoteFromCurrentPage,
+                onCreateNote: createNoteFromCurrentPage
+            )
+            .frame(maxWidth: .infinity, alignment: .trailing)
         }
         .overlay {
             if state.activeTab?.hasActiveAgent == true {
@@ -346,6 +367,8 @@ struct ContentView: View {
                 if let workspaceId = notification.userInfo?["newWorkspaceID"] as? UUID {
                     Task { @MainActor in
                         state.bindToWorkspace(workspaceId)
+                        noteStore.bindToWorkspace(workspaceId)
+                        noteWindowState.close()
                     }
                 }
             }
@@ -374,6 +397,12 @@ struct ContentView: View {
                 state.rebuildAllWebViewsForConfigurationChange()
                 OverlayWindowManager.shared.rebuildAllWebViewsForConfigurationChange()
             }
+            .onReceive(NotificationCenter.default.publisher(for: .openTodayNote)) { _ in
+                openTodayNoteFromCurrentPage()
+            }
+            .onReceive(NotificationCenter.default.publisher(for: .newNoteFromPage)) { _ in
+                createNoteFromCurrentPage()
+            }
     }
 
     // MARK: - Handlers
@@ -382,8 +411,51 @@ struct ContentView: View {
         if let currentWorkspaceId = workspaceManager.currentWorkspaceID {
             Task { @MainActor in
                 state.bindToWorkspace(currentWorkspaceId)
+                noteStore.bindToWorkspace(currentWorkspaceId)
             }
         }
+    }
+
+    @MainActor
+    private func openTodayNoteFromCurrentPage() {
+        guard let workspaceID = workspaceManager.currentWorkspaceID else { return }
+        noteStore.bindToWorkspace(workspaceID)
+
+        let note = noteStore.ensureDailyNote()
+        if let source = currentPageSource() {
+            noteStore.insertPageSource(id: note.id, source: source)
+        }
+        openNote(noteStore.note(with: note.id) ?? note)
+    }
+
+    @MainActor
+    private func createNoteFromCurrentPage() {
+        guard let workspaceID = workspaceManager.currentWorkspaceID else { return }
+        noteStore.bindToWorkspace(workspaceID)
+
+        let proposedTitle = currentPageSource()?.title ?? "Untitled Note"
+        let note = noteStore.createAdHocNote(title: proposedTitle)
+        if let source = currentPageSource() {
+            noteStore.insertPageSource(id: note.id, source: source)
+        }
+        openNote(noteStore.note(with: note.id) ?? note)
+    }
+
+    @MainActor
+    private func openNote(_ note: NoteRecord) {
+        noteWindowState.open(note: note)
+    }
+
+    private func currentPageSource() -> NotePageSource? {
+        guard let tab = state.activeTab,
+              let url = tab.url else {
+            return nil
+        }
+
+        return NotePageSource(
+            title: tab.displayTitle,
+            url: url.absoluteString
+        )
     }
 }
 

@@ -127,6 +127,22 @@ enum ContextMenuBuilder {
             ]))
         }
 
+        // --- Note capture ---
+        if !hitTest.pageURL.isEmpty {
+            sections.append(ContextMenuSection(items: [
+                ContextMenuItem(
+                    title: "Open Today's Note",
+                    systemImage: "calendar.badge.plus",
+                    action: .openTodayNote
+                ),
+                ContextMenuItem(
+                    title: "New Note From Page",
+                    systemImage: "note.text.badge.plus",
+                    action: .newNoteFromPage
+                ),
+            ]))
+        }
+
         return sections
     }
 }

@@ -2,10 +2,21 @@ APP_NAME = Wheel Browser
 BUNDLE_NAME = Wheel Browser.app
 BUILD_DIR = .build/arm64-apple-macosx/release
 BUNDLE_DIR = $(BUILD_DIR)/$(BUNDLE_NAME)
+NOTE_EDITOR_DIR = ../NoteEditorWeb
 
-.PHONY: build install clean
+.PHONY: build build-note-editor install clean
 
-build:
+build-note-editor:
+	@if [ -d "$(NOTE_EDITOR_DIR)/node_modules" ]; then \
+		npm --prefix "$(NOTE_EDITOR_DIR)" run build; \
+	elif [ -f "Sources/WheelBrowser/Resources/NoteEditor/index.html" ]; then \
+		echo "Using existing NoteEditor bundle. Run 'npm --prefix $(NOTE_EDITOR_DIR) install && npm --prefix $(NOTE_EDITOR_DIR) run build' to refresh it."; \
+	else \
+		echo "NoteEditor bundle missing. Run 'npm --prefix $(NOTE_EDITOR_DIR) install && npm --prefix $(NOTE_EDITOR_DIR) run build' first."; \
+		exit 1; \
+	fi
+
+build: build-note-editor
 	swift build -c release
 	@echo "Creating app bundle..."
 	@rm -rf "$(BUNDLE_DIR)"
