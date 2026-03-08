@@ -88,6 +88,22 @@ struct NativeSearchIntegrationTests {
         try? FileManager.default.removeItem(at: path)
     }
 
+    private func makeLongTopicDocument(topic: String, uniqueToken: String, paragraphs: Int = 60) -> String {
+        let sentence = """
+        \(topic) \(uniqueToken) explains production app development, code organization, and language design patterns in detail.
+        """
+        let paragraph = Array(repeating: sentence, count: 16).joined(separator: " ")
+        let body = (0..<paragraphs)
+            .map { index in "\(paragraph) Section \(index) \(uniqueToken)." }
+            .joined(separator: "\n\n")
+
+        return """
+        # \(uniqueToken.capitalized) Guide
+
+        \(body)
+        """
+    }
+
     // MARK: - Tests
 
     @Test("Index a page and verify stats")
@@ -104,8 +120,8 @@ struct NativeSearchIntegrationTests {
         )
 
         let stats = try await service.getStats()
-        #expect(stats.totalDocuments == 1)
-        #expect(stats.totalChunks > 0)
+        #expect(stats.pageCount == 1)
+        #expect(stats.chunkCount > 0)
     }
 
     @Test("Search returns relevant results ranked correctly")
@@ -166,8 +182,8 @@ struct NativeSearchIntegrationTests {
         )
 
         let stats2 = try await service.getStats()
-        #expect(stats2.totalDocuments == stats1.totalDocuments)
-        #expect(stats2.totalChunks == stats1.totalChunks)
+        #expect(stats2.pageCount == stats1.pageCount)
+        #expect(stats2.chunkCount == stats1.chunkCount)
     }
 
     @Test("Content change re-indexes the document")
@@ -184,7 +200,7 @@ struct NativeSearchIntegrationTests {
         )
 
         let stats1 = try await service.getStats()
-        #expect(stats1.totalDocuments == 1)
+        #expect(stats1.pageCount == 1)
 
         // Update with different content
         try await service.indexPage(
@@ -195,7 +211,7 @@ struct NativeSearchIntegrationTests {
         )
 
         let stats2 = try await service.getStats()
-        #expect(stats2.totalDocuments == 1)
+        #expect(stats2.pageCount == 1)
 
         // Search should find the new content
         let results = try await service.search(query: "cooking recipes food")
@@ -253,6 +269,76 @@ struct NativeSearchIntegrationTests {
         }
     }
 
+    @Test("Adaptive candidate expansion returns diverse page results")
+    func adaptiveCandidateExpansionReturnsUniquePages() async throws {
+        let tempDir = makeTempDir()
+        defer { cleanup(tempDir) }
+        let service = makeService(tempDir: tempDir)
+
+        try await service.indexPage(
+            url: URL(string: "https://example.com/long-a")!,
+            title: "Long Swift Guide A",
+            content: makeLongTopicDocument(topic: "swift programming code", uniqueToken: "alpha"),
+            categories: [.web]
+        )
+        try await service.indexPage(
+            url: URL(string: "https://example.com/long-b")!,
+            title: "Long Swift Guide B",
+            content: makeLongTopicDocument(topic: "swift programming code", uniqueToken: "beta"),
+            categories: [.web]
+        )
+
+        for idx in 1...3 {
+            try await service.indexPage(
+                url: URL(string: "https://example.com/short-\(idx)")!,
+                title: "Short Swift Note \(idx)",
+                content: "Swift programming code note \(idx) for app development and clean code practices.",
+                categories: [.web]
+            )
+        }
+
+        let results = try await service.search(query: "swift programming code", limit: 5)
+        #expect(results.count == 5)
+        #expect(Set(results.map(\.url)).count == 5)
+    }
+
+    @Test("Adaptive candidate expansion respects category filtering")
+    func adaptiveCandidateExpansionWithCategoryFiltering() async throws {
+        let tempDir = makeTempDir()
+        defer { cleanup(tempDir) }
+        let service = makeService(tempDir: tempDir)
+
+        try await service.indexPage(
+            url: URL(string: "https://example.com/web-a")!,
+            title: "Web Swift Guide A",
+            content: makeLongTopicDocument(topic: "swift programming code", uniqueToken: "webalpha"),
+            categories: [.web]
+        )
+        try await service.indexPage(
+            url: URL(string: "https://example.com/web-b")!,
+            title: "Web Swift Guide B",
+            content: makeLongTopicDocument(topic: "swift programming code", uniqueToken: "webbeta"),
+            categories: [.web]
+        )
+
+        for idx in 1...3 {
+            try await service.indexPage(
+                url: URL(string: "https://example.com/history-\(idx)")!,
+                title: "History Swift Note \(idx)",
+                content: "Swift programming code history result \(idx) for app development and language patterns.",
+                categories: [.history]
+            )
+        }
+
+        let results = try await service.search(
+            query: "swift programming code",
+            categories: [.history],
+            limit: 3
+        )
+        #expect(results.count == 3)
+        #expect(results.allSatisfy { $0.url.contains("/history-") })
+    }
+
     @Test("clearAll removes all data")
     func clearAllRemovesEverything() async throws {
         let tempDir = makeTempDir()
@@ -273,13 +359,13 @@ struct NativeSearchIntegrationTests {
         )
 
         let before = try await service.getStats()
-        #expect(before.totalDocuments == 2)
-        #expect(before.totalChunks > 0)
+        #expect(before.pageCount == 2)
+        #expect(before.chunkCount > 0)
 
         try await service.clearAll()
 
         let after = try await service.getStats()
-        #expect(after.totalDocuments == 0)
-        #expect(after.totalChunks == 0)
+        #expect(after.pageCount == 0)
+        #expect(after.chunkCount == 0)
     }
 }

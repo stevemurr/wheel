@@ -46,6 +46,7 @@ class AppSettings: ObservableObject, @unchecked Sendable {
 
     /// Whether on-device semantic search is enabled (indexes pages locally via CoreML embeddings)
     @AppStorage("semanticSearchEnabled") var semanticSearchEnabled: Bool = true
+    @AppStorage("semanticSearchIndexVersion") var semanticSearchIndexVersion: Int = 0
 
     /// Whether the left tab sidebar is expanded (showing full tab names) or collapsed (icons only)
     @AppStorage("tabSidebarExpanded") var tabSidebarExpanded: Bool = true

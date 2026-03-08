@@ -68,17 +68,7 @@ struct DebugSection: View {
             Button("Cancel", role: .cancel) { }
             Button("Clear", role: .destructive) {
                 Task {
-                    do {
-                        // Clear local SearchDatabase
-                        let database = SearchDatabase.shared
-                        try await database.initialize()
-                        try await database.clearAllData()
-
-                        // Clear native semantic search index
-                        await SemanticSearchManagerV2.shared.clearIndex()
-                    } catch {
-                        Log.Settings.error("Failed to clear semantic index: \(error.localizedDescription)")
-                    }
+                    await SemanticSearchManagerV2.shared.clearIndex()
                 }
             }
         } message: {

@@ -37,8 +37,10 @@ actor SearchDatabase {
     /// Whether the database is running in degraded mode (in-memory fallback)
     private(set) var isDegraded: Bool = false
 
-    init() throws {
-        self.dbPath = FileManager.appSupportDirectory.appendingPathComponent("semantic_search.db")
+    init(
+        dbPath: URL = FileManager.appSupportDirectory.appendingPathComponent("semantic_search.db")
+    ) throws {
+        self.dbPath = dbPath
     }
 
     /// Creates an in-memory database as a last-resort fallback
@@ -107,6 +109,9 @@ actor SearchDatabase {
     // MARK: - Setup
 
     private func openDatabase() throws {
+        let directory = dbPath.deletingLastPathComponent()
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+
         let flags = SQLITE_OPEN_READWRITE | SQLITE_OPEN_CREATE | SQLITE_OPEN_FULLMUTEX
 
         if sqlite3_open_v2(dbPath.path, &db, flags, nil) != SQLITE_OK {

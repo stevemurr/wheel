@@ -6,7 +6,7 @@ import VecturaKit
 ///
 /// Coordinates text chunking, metadata tracking, and hybrid search
 /// (vector + BM25) entirely on-device via VecturaKit.
-actor NativeSearchService {
+actor NativeSearchService: SemanticSearchBackend {
     private var vecturaDB: VecturaKit?
     private let metadataDB: ChunkMetadataDB
     private let embedder: any VecturaEmbedder
@@ -128,15 +128,97 @@ actor NativeSearchService {
     ) async throws -> [NativeSearchResult] {
         try await ensureInitialized()
         guard let vectura = vecturaDB else { return [] }
+        guard limit > 0 else { return [] }
 
         let queryTerms = query.lowercased()
             .components(separatedBy: .whitespacesAndNewlines)
             .filter { !$0.isEmpty }
+        let totalChunks = try await metadataDB.getChunkCount()
+        guard totalChunks > 0 else { return [] }
 
-        // VecturaKit handles hybrid search (vector + BM25)
-        let vecturaResults = try await vectura.search(query: .text(query), numResults: 100)
-        guard !vecturaResults.isEmpty else { return [] }
+        let categoryFilter: Set<String>?
+        if let categories, !categories.isEmpty {
+            categoryFilter = Set(categories.map { $0.rawValue })
+        } else {
+            categoryFilter = nil
+        }
 
+        let maxCandidateCount = min(totalChunks, 1_000)
+        var candidateCount = min(max(limit * 8, 100), maxCandidateCount)
+        var assembledResults: SearchAssembly?
+
+        while true {
+            let vecturaResults = try await vectura.search(query: .text(query), numResults: candidateCount)
+            guard !vecturaResults.isEmpty else { return [] }
+
+            let assembly = try await assembleResults(
+                from: vecturaResults,
+                queryTerms: queryTerms,
+                categoryFilter: categoryFilter
+            )
+
+            Log.Search.debug(
+                """
+                NativeSearchService.search query='\(query)' fetchedChunks=\(vecturaResults.count) \
+                candidates=\(candidateCount) uniquePages=\(assembly.uniquePagesBeforeFilter) \
+                filteredPages=\(assembly.uniquePagesAfterFilter) returned=\(min(limit, assembly.results.count))
+                """
+            )
+
+            assembledResults = assembly
+
+            let hasEnoughPages = assembly.uniquePagesAfterFilter >= limit
+            let exhaustedResults = vecturaResults.count < candidateCount
+            let exhaustedCandidates = candidateCount >= maxCandidateCount
+
+            if hasEnoughPages || exhaustedResults || exhaustedCandidates {
+                break
+            }
+
+            candidateCount = min(candidateCount * 2, maxCandidateCount)
+        }
+
+        guard let assembledResults else { return [] }
+        return Array(assembledResults.results.prefix(limit))
+    }
+
+    // MARK: - Stats
+
+    func getStats() async throws -> SemanticSearchBackendStats {
+        try await ensureInitialized()
+        let chunks = try await metadataDB.getChunkCount()
+        let docs = try await metadataDB.getPageCount()
+        return SemanticSearchBackendStats(pageCount: docs, chunkCount: chunks)
+    }
+
+    // MARK: - Maintenance
+
+    func clearAll() async throws {
+        try await ensureInitialized()
+        guard let vectura = vecturaDB else { return }
+        try await vectura.reset()
+        try await metadataDB.clearAll()
+    }
+
+    /// Always healthy — we're local
+    func checkHealth() -> Bool { true }
+
+    private struct GroupEntry {
+        var best: (id: UUID, text: String, score: Float, meta: ChunkMeta)
+        var additional: [(id: UUID, text: String, score: Float, meta: ChunkMeta)]
+    }
+
+    private struct SearchAssembly {
+        let uniquePagesBeforeFilter: Int
+        let uniquePagesAfterFilter: Int
+        let results: [NativeSearchResult]
+    }
+
+    private func assembleResults(
+        from vecturaResults: [VecturaSearchResult],
+        queryTerms: [String],
+        categoryFilter: Set<String>?
+    ) async throws -> SearchAssembly {
         // Enrich with metadata
         let vecturaIds = vecturaResults.map { $0.id }
         let chunkMetas = try await metadataDB.getChunkMetadata(vecturaIds: vecturaIds)
@@ -146,10 +228,6 @@ actor NativeSearchService {
         let pageMetas = try await metadataDB.getPageMetadata(urls: pageURLs)
 
         // Group chunks by page URL — best chunk + up to 4 additional
-        struct GroupEntry {
-            var best: (id: UUID, text: String, score: Float, meta: ChunkMeta)
-            var additional: [(id: UUID, text: String, score: Float, meta: ChunkMeta)]
-        }
         var groups: [String: GroupEntry] = [:]
 
         for result in vecturaResults {
@@ -162,17 +240,11 @@ actor NativeSearchService {
                 groups[meta.pageURL]!.additional.append(entry)
             }
         }
-
-        // Apply category filter if specified
-        let categoryFilter: Set<String>?
-        if let categories, !categories.isEmpty {
-            categoryFilter = Set(categories.map { $0.rawValue })
-        } else {
-            categoryFilter = nil
-        }
+        let uniquePagesBeforeFilter = groups.count
 
         // Build results
         var results: [NativeSearchResult] = []
+        var uniquePagesAfterFilter = 0
 
         for (pageURL, group) in groups {
             // Category filter
@@ -198,6 +270,7 @@ actor NativeSearchService {
                     relevanceScore: item.score
                 )
             }
+            uniquePagesAfterFilter += 1
 
             results.append(NativeSearchResult(
                 url: pageURL,
@@ -215,29 +288,12 @@ actor NativeSearchService {
 
         // Sort by score descending, limit
         results.sort { $0.score > $1.score }
-        return Array(results.prefix(limit))
+        return SearchAssembly(
+            uniquePagesBeforeFilter: uniquePagesBeforeFilter,
+            uniquePagesAfterFilter: uniquePagesAfterFilter,
+            results: results
+        )
     }
-
-    // MARK: - Stats
-
-    func getStats() async throws -> (totalChunks: Int, totalDocuments: Int) {
-        try await ensureInitialized()
-        let chunks = try await metadataDB.getChunkCount()
-        let docs = try await metadataDB.getPageCount()
-        return (chunks, docs)
-    }
-
-    // MARK: - Maintenance
-
-    func clearAll() async throws {
-        try await ensureInitialized()
-        guard let vectura = vecturaDB else { return }
-        try await vectura.reset()
-        try await metadataDB.clearAll()
-    }
-
-    /// Always healthy — we're local
-    func checkHealth() -> Bool { true }
 }
 
 // MARK: - Result Types

@@ -68,7 +68,11 @@ struct SemanticSearchPanelContent: View {
 
             // Index stats
             HStack(spacing: 16) {
-                Label("\(searchManager.indexedCount) pages indexed", systemImage: "doc.text")
+                Label("\(searchManager.stats.pageCount) pages indexed", systemImage: "doc.text")
+                    .font(.system(size: 10))
+                    .foregroundColor(.secondary)
+
+                Text("\(searchManager.stats.chunkCount) chunks")
                     .font(.system(size: 10))
                     .foregroundColor(.secondary)
 

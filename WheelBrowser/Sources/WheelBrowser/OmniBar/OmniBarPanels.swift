@@ -261,7 +261,7 @@ fileprivate struct SemanticSearchOmniPanel: View {
         } else if !semanticSearchVM.results.isEmpty {
             return "\(semanticSearchVM.results.count) results"
         }
-        return "\(searchManager.indexedCount) pages indexed"
+        return "\(searchManager.stats.pageCount) pages indexed"
     }
 
     var body: some View {

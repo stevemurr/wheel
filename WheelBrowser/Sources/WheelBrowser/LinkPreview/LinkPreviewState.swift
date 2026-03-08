@@ -5,37 +5,6 @@ import SwiftUI
 class LinkPreviewState {
     static let shared = LinkPreviewState()
 
-    // MARK: - Cached Regexes (compiled once)
-
-    @ObservationIgnored private static let titleRegex = try? NSRegularExpression(
-        pattern: "<title[^>]*>([^<]+)</title>",
-        options: .caseInsensitive
-    )
-    @ObservationIgnored private static let metaPropertyRegex = try? NSRegularExpression(
-        pattern: "<meta[^>]*property=[\"']og:title[\"'][^>]*content=[\"']([^\"']+)[\"']",
-        options: .caseInsensitive
-    )
-    @ObservationIgnored private static let metaPropertyAltRegex = try? NSRegularExpression(
-        pattern: "<meta[^>]*content=[\"']([^\"']+)[\"'][^>]*property=[\"']og:title[\"']",
-        options: .caseInsensitive
-    )
-    @ObservationIgnored private static let scriptRegex = try? NSRegularExpression(
-        pattern: "<script[^>]*>[\\s\\S]*?</script>",
-        options: []
-    )
-    @ObservationIgnored private static let styleRegex = try? NSRegularExpression(
-        pattern: "<style[^>]*>[\\s\\S]*?</style>",
-        options: []
-    )
-    @ObservationIgnored private static let tagRegex = try? NSRegularExpression(
-        pattern: "<[^>]+>",
-        options: []
-    )
-    @ObservationIgnored private static let whitespaceRegex = try? NSRegularExpression(
-        pattern: "\\s+",
-        options: []
-    )
-
     var isVisible: Bool = false
     var position: CGPoint = .zero
     var linkURL: URL?
@@ -46,6 +15,7 @@ class LinkPreviewState {
     var error: String?
 
     @ObservationIgnored private var fetchTask: Task<Void, Never>?
+    @ObservationIgnored private let articleExtractionService = ArticleExtractionService()
 
     private init() {}
 
@@ -203,77 +173,7 @@ class LinkPreviewState {
             throw URLError(.badServerResponse)
         }
 
-        let title = extractTitle(from: html)
-        let content = extractContent(from: html)
-
-        return (title, content)
-    }
-
-    private func extractTitle(from html: String) -> String? {
-        // Try og:title first
-        if let ogTitle = extractOgTitle(from: html) {
-            return ogTitle
-        }
-
-        // Fall back to <title> tag
-        if let regex = Self.titleRegex,
-           let match = regex.firstMatch(in: html, range: NSRange(html.startIndex..., in: html)),
-           let range = Range(match.range(at: 1), in: html) {
-            return String(html[range]).trimmingCharacters(in: .whitespacesAndNewlines)
-        }
-
-        return nil
-    }
-
-    private func extractOgTitle(from html: String) -> String? {
-        let range = NSRange(html.startIndex..., in: html)
-
-        // Try property before content
-        if let regex = Self.metaPropertyRegex,
-           let match = regex.firstMatch(in: html, range: range),
-           let captureRange = Range(match.range(at: 1), in: html) {
-            return String(html[captureRange])
-        }
-
-        // Try content before property
-        if let regex = Self.metaPropertyAltRegex,
-           let match = regex.firstMatch(in: html, range: range),
-           let captureRange = Range(match.range(at: 1), in: html) {
-            return String(html[captureRange])
-        }
-
-        return nil
-    }
-
-    private func extractContent(from html: String) -> String? {
-        var text = html
-
-        // Remove script and style content using cached regexes
-        if let scriptRegex = Self.scriptRegex {
-            text = scriptRegex.stringByReplacingMatches(in: text, range: NSRange(text.startIndex..., in: text), withTemplate: "")
-        }
-        if let styleRegex = Self.styleRegex {
-            text = styleRegex.stringByReplacingMatches(in: text, range: NSRange(text.startIndex..., in: text), withTemplate: "")
-        }
-
-        // Remove HTML tags
-        if let tagRegex = Self.tagRegex {
-            text = tagRegex.stringByReplacingMatches(in: text, range: NSRange(text.startIndex..., in: text), withTemplate: " ")
-        }
-
-        // Decode common HTML entities
-        text = text.replacingOccurrences(of: "&nbsp;", with: " ")
-        text = text.replacingOccurrences(of: "&amp;", with: "&")
-        text = text.replacingOccurrences(of: "&lt;", with: "<")
-        text = text.replacingOccurrences(of: "&gt;", with: ">")
-        text = text.replacingOccurrences(of: "&quot;", with: "\"")
-        text = text.replacingOccurrences(of: "&#39;", with: "'")
-
-        // Clean up whitespace
-        if let whitespaceRegex = Self.whitespaceRegex {
-            text = whitespaceRegex.stringByReplacingMatches(in: text, range: NSRange(text.startIndex..., in: text), withTemplate: " ")
-        }
-
-        return text.trimmingCharacters(in: .whitespacesAndNewlines)
+        let article = try await articleExtractionService.extract(from: html, url: url, title: nil)
+        return (article?.title, article?.textContent)
     }
 }

@@ -35,6 +35,7 @@ struct TextChunkerTests {
         #expect(chunks.count == 1)
         #expect(chunks[0].content.contains("First paragraph"))
         #expect(chunks[0].content.contains("Second paragraph"))
+        #expect(chunks[0].content.contains("\n\n"))
     }
 
     @Test("Two large paragraphs produce separate chunks")

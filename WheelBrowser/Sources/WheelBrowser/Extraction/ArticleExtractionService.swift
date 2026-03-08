@@ -60,11 +60,11 @@ final class ArticleExtractionService {
         fallbackURL: URL?,
         fallbackTitle: String?
     ) -> ArticleExtractionResult? {
-        var normalizedText = nonEmpty(textContent).map(normalizePlainText)
+        var normalizedText = nonEmpty(textContent).map(normalizeStructuredPlainText)
         var normalizedHTML = nonEmpty(contentHTML).map(normalizeHTML)
 
         if normalizedText == nil, let normalizedHTML {
-            normalizedText = normalizePlainText(plainText(fromHTML: normalizedHTML))
+            normalizedText = normalizeStructuredPlainText(plainText(fromHTML: normalizedHTML))
         }
 
         if normalizedHTML == nil, let normalizedText {
@@ -103,7 +103,7 @@ final class ArticleExtractionService {
     }
 
     private static func makeFallbackResult(from html: String, url: URL?, title: String?) -> ArticleExtractionResult? {
-        let text = normalizePlainText(plainText(fromHTML: html))
+        let text = normalizeStructuredPlainText(plainText(fromHTML: html))
         guard let finalText = nonEmpty(text) else {
             return nil
         }
@@ -167,7 +167,7 @@ final class ArticleExtractionService {
         let rawTitle = String(html[titleRange])
             .replacingOccurrences(of: "(?is)</?title[^>]*>", with: "", options: .regularExpression)
 
-        return nonEmpty(normalizePlainText(plainText(fromHTML: rawTitle)))
+        return nonEmpty(normalizeStructuredPlainText(plainText(fromHTML: rawTitle)))
     }
 
     private static func preferredTitle(
@@ -218,7 +218,7 @@ final class ArticleExtractionService {
             ("(?is)<script\\b[^>]*>.*?</script>", " "),
             ("(?is)<style\\b[^>]*>.*?</style>", " "),
             ("(?is)<noscript\\b[^>]*>.*?</noscript>", " "),
-            ("(?i)</(p|div|section|article|main|aside|header|footer|li|ul|ol|blockquote|pre|h1|h2|h3|h4|h5|h6)>", "\n"),
+            ("(?i)</(p|div|section|article|main|aside|header|footer|li|ul|ol|blockquote|pre|h1|h2|h3|h4|h5|h6)>", "\n\n"),
             ("(?i)<br\\s*/?>", "\n"),
             ("(?is)<[^>]+>", " ")
         ]
@@ -243,10 +243,47 @@ final class ArticleExtractionService {
         return text
     }
 
-    private static func normalizePlainText(_ text: String) -> String {
-        text
-            .replacingOccurrences(of: "\\s+", with: " ", options: .regularExpression)
-            .trimmingCharacters(in: .whitespacesAndNewlines)
+    private static func normalizeStructuredPlainText(_ text: String) -> String {
+        let normalizedNewlines = text
+            .replacingOccurrences(of: "\r\n", with: "\n")
+            .replacingOccurrences(of: "\r", with: "\n")
+
+        var lines: [String] = []
+        lines.reserveCapacity(normalizedNewlines.count / 40)
+
+        var lastWasBlank = true
+        for rawLine in normalizedNewlines.components(separatedBy: "\n") {
+            let line = rawLine
+                .replacingOccurrences(of: "[ \\t\\u{00A0}]+", with: " ", options: .regularExpression)
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+
+            if line.isEmpty {
+                if !lastWasBlank {
+                    lines.append("")
+                    lastWasBlank = true
+                }
+                continue
+            }
+
+            lines.append(line)
+            lastWasBlank = false
+        }
+
+        while lines.first?.isEmpty == true {
+            lines.removeFirst()
+        }
+        while lines.last?.isEmpty == true {
+            lines.removeLast()
+        }
+
+        let joined = lines.joined(separator: "\n")
+        if joined.contains("\n\n") {
+            return joined
+        }
+
+        // Readability often emits one logical block per line with no blank lines.
+        // Promote those separators to paragraph breaks so chunking can preserve structure.
+        return joined.replacingOccurrences(of: "\n", with: "\n\n")
     }
 
     private static func normalizeComparison(_ text: String) -> String {

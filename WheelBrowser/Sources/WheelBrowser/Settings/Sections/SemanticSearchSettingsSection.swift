@@ -20,7 +20,9 @@ struct SemanticSearchSettingsSection: View {
                     if semanticSearch.isAvailable {
                         Image(systemName: "checkmark.circle.fill")
                             .foregroundColor(.green)
-                        Text("Active — \(semanticSearch.indexedCount) chunks indexed")
+                        Text(
+                            "Active — \(semanticSearch.stats.pageCount) pages / \(semanticSearch.stats.chunkCount) chunks indexed"
+                        )
                             .font(.caption)
                             .foregroundColor(.secondary)
                     } else if let error = semanticSearch.lastError {
