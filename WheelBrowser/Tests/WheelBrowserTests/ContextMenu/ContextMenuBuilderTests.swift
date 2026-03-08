@@ -23,8 +23,7 @@ struct ContextMenuBuilderTests {
             .flatMap(\.items)
             .map(\.title)
 
-        #expect(titles.contains("Open Today's Note"))
-        #expect(titles.contains("New Note From Page"))
+        #expect(titles.contains("New Note"))
     }
 
     @Test("Omits note actions when page context is unavailable")
@@ -33,7 +32,6 @@ struct ContextMenuBuilderTests {
             .flatMap(\.items)
             .map(\.title)
 
-        #expect(!titles.contains("Open Today's Note"))
-        #expect(!titles.contains("New Note From Page"))
+        #expect(!titles.contains("New Note"))
     }
 }

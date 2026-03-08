@@ -78,27 +78,19 @@ private struct NoteWindow: View {
         }
         .onChange(of: note.displayTitle) { _, newValue in
             noteWindowState.updateTitle(newValue)
-            if note.kind == .adhoc {
-                draftTitle = note.title
-            }
+            draftTitle = note.title
         }
     }
 
     private var header: some View {
         VStack(alignment: .leading, spacing: 6) {
-            if note.kind == .daily {
-                Text(note.displayTitle)
-                    .font(.system(size: 18, weight: .semibold, design: .rounded))
-                    .foregroundStyle(.primary)
-            } else {
-                TextField("Untitled Note", text: $draftTitle)
-                    .textFieldStyle(.plain)
-                    .font(.system(size: 18, weight: .semibold, design: .rounded))
-                    .onChange(of: draftTitle) { _, newValue in
-                        noteStore.renameAdHocNote(id: note.id, title: newValue)
-                        noteWindowState.updateTitle(newValue.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "Untitled Note" : newValue)
-                    }
-            }
+            TextField("Untitled Note", text: $draftTitle)
+                .textFieldStyle(.plain)
+                .font(.system(size: 18, weight: .semibold, design: .rounded))
+                .onChange(of: draftTitle) { _, newValue in
+                    noteStore.renameNote(id: note.id, title: newValue)
+                    noteWindowState.updateTitle(newValue.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "Untitled Note" : newValue)
+                }
 
             HStack(spacing: 8) {
                 noteTypeBadge
@@ -114,14 +106,14 @@ private struct NoteWindow: View {
     }
 
     private var noteTypeBadge: some View {
-        Text(note.kind == .daily ? "Daily Note" : "Note")
+        Text("Note")
             .font(.system(size: 9, weight: .semibold))
-            .foregroundStyle(note.kind == .daily ? Color.accentColor : Color.orange)
+            .foregroundStyle(Color.accentColor)
             .padding(.horizontal, 7)
             .padding(.vertical, 3)
             .background(
                 Capsule(style: .continuous)
-                    .fill((note.kind == .daily ? Color.accentColor : Color.orange).opacity(0.12))
+                    .fill(Color.accentColor.opacity(0.12))
             )
     }
 
@@ -144,7 +136,7 @@ private struct NoteWindow: View {
         editorBridge.activate(noteID: note.id)
         editorBridge.loadDocumentIfNeeded(note.document, force: false)
         noteWindowState.updateTitle(note.displayTitle)
-        if note.kind == .adhoc, draftTitle != note.title {
+        if draftTitle != note.title {
             draftTitle = note.title
         }
     }

@@ -339,8 +339,7 @@ struct ContentView: View {
             NotesStrip(
                 noteStore: noteStore,
                 onOpenNote: openNote,
-                onOpenToday: openTodayNoteFromCurrentPage,
-                onCreateNote: createNoteFromCurrentPage
+                onCreateNote: createNote
             )
             .frame(maxWidth: .infinity, alignment: .trailing)
         }
@@ -397,11 +396,8 @@ struct ContentView: View {
                 state.rebuildAllWebViewsForConfigurationChange()
                 OverlayWindowManager.shared.rebuildAllWebViewsForConfigurationChange()
             }
-            .onReceive(NotificationCenter.default.publisher(for: .openTodayNote)) { _ in
-                openTodayNoteFromCurrentPage()
-            }
-            .onReceive(NotificationCenter.default.publisher(for: .newNoteFromPage)) { _ in
-                createNoteFromCurrentPage()
+            .onReceive(NotificationCenter.default.publisher(for: .newNote)) { _ in
+                createNote()
             }
     }
 
@@ -417,45 +413,17 @@ struct ContentView: View {
     }
 
     @MainActor
-    private func openTodayNoteFromCurrentPage() {
+    private func createNote() {
         guard let workspaceID = workspaceManager.currentWorkspaceID else { return }
         noteStore.bindToWorkspace(workspaceID)
 
-        let note = noteStore.ensureDailyNote()
-        if let source = currentPageSource() {
-            noteStore.insertPageSource(id: note.id, source: source)
-        }
-        openNote(noteStore.note(with: note.id) ?? note)
-    }
-
-    @MainActor
-    private func createNoteFromCurrentPage() {
-        guard let workspaceID = workspaceManager.currentWorkspaceID else { return }
-        noteStore.bindToWorkspace(workspaceID)
-
-        let proposedTitle = currentPageSource()?.title ?? "Untitled Note"
-        let note = noteStore.createAdHocNote(title: proposedTitle)
-        if let source = currentPageSource() {
-            noteStore.insertPageSource(id: note.id, source: source)
-        }
+        let note = noteStore.createNote()
         openNote(noteStore.note(with: note.id) ?? note)
     }
 
     @MainActor
     private func openNote(_ note: NoteRecord) {
         noteWindowState.open(note: note)
-    }
-
-    private func currentPageSource() -> NotePageSource? {
-        guard let tab = state.activeTab,
-              let url = tab.url else {
-            return nil
-        }
-
-        return NotePageSource(
-            title: tab.displayTitle,
-            url: url.absoluteString
-        )
     }
 }
 

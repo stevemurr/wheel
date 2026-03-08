@@ -31,7 +31,7 @@ struct NoteWindowStateTests {
         let state = NoteWindowState()
         state.containerSize = CGSize(width: 1200, height: 800)
 
-        let note = makeNote(title: "Today")
+        let note = makeNote(title: "Meeting Notes")
         state.open(note: note)
         state.updatePosition(CGPoint(x: 80, y: 40))
         state.updateSize(CGSize(width: 580, height: 700))

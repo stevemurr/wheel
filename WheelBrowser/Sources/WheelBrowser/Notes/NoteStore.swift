@@ -25,14 +25,7 @@ final class NoteStore {
     }
 
     var orderedNotes: [NoteRecord] {
-        let todayIdentifier = Self.dayIdentifier(for: Date())
         return notes.sorted { lhs, rhs in
-            if lhs.kind == .daily, lhs.dayIdentifier == todayIdentifier {
-                return !(rhs.kind == .daily && rhs.dayIdentifier == todayIdentifier)
-            }
-            if rhs.kind == .daily, rhs.dayIdentifier == todayIdentifier {
-                return false
-            }
             if lhs.updatedAt != rhs.updatedAt {
                 return lhs.updatedAt > rhs.updatedAt
             }
@@ -54,27 +47,7 @@ final class NoteStore {
     }
 
     @discardableResult
-    func ensureDailyNote(for date: Date = Date()) -> NoteRecord {
-        preconditionWorkspace()
-
-        let identifier = Self.dayIdentifier(for: date)
-        if let existing = notes.first(where: { $0.kind == .daily && $0.dayIdentifier == identifier }) {
-            return existing
-        }
-
-        let note = NoteRecord(
-            workspaceID: currentWorkspaceID!,
-            kind: .daily,
-            title: NoteRecord.displayDateFormatter.string(from: date),
-            dayIdentifier: identifier
-        )
-        insert(note)
-        persistNoteImmediately(note)
-        return note
-    }
-
-    @discardableResult
-    func createAdHocNote(title: String = "Untitled Note") -> NoteRecord {
+    func createNote(title: String = "Untitled Note") -> NoteRecord {
         preconditionWorkspace()
 
         let note = NoteRecord(
@@ -87,11 +60,8 @@ final class NoteStore {
         return note
     }
 
-    func renameAdHocNote(id: UUID, title: String) {
-        guard let index = notes.firstIndex(where: { $0.id == id }),
-              notes[index].kind == .adhoc else {
-            return
-        }
+    func renameNote(id: UUID, title: String) {
+        guard let index = notes.firstIndex(where: { $0.id == id }) else { return }
 
         notes[index].title = title.trimmingCharacters(in: .whitespacesAndNewlines)
         notes[index].updatedAt = Date()
@@ -201,9 +171,5 @@ final class NoteStore {
 
     private func preconditionWorkspace() {
         precondition(currentWorkspaceID != nil, "NoteStore must bind to a workspace before note operations")
-    }
-
-    static func dayIdentifier(for date: Date) -> String {
-        NoteRecord.dayFormatter.string(from: date)
     }
 }

@@ -131,14 +131,9 @@ enum ContextMenuBuilder {
         if !hitTest.pageURL.isEmpty {
             sections.append(ContextMenuSection(items: [
                 ContextMenuItem(
-                    title: "Open Today's Note",
-                    systemImage: "calendar.badge.plus",
-                    action: .openTodayNote
-                ),
-                ContextMenuItem(
-                    title: "New Note From Page",
-                    systemImage: "note.text.badge.plus",
-                    action: .newNoteFromPage
+                    title: "New Note",
+                    systemImage: "square.and.pencil",
+                    action: .newNote
                 ),
             ]))
         }

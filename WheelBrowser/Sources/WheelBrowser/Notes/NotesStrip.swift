@@ -3,7 +3,6 @@ import SwiftUI
 struct NotesStrip: View {
     var noteStore: NoteStore
     let onOpenNote: (NoteRecord) -> Void
-    let onOpenToday: () -> Void
     let onCreateNote: () -> Void
 
     @AppStorage(AppSettings.hiddenTabScaleKey)
@@ -33,7 +32,7 @@ struct NotesStrip: View {
     }
 
     private var expandedDockWidth: CGFloat {
-        226 * shownScale
+        StageManagerThumbnail.baseThumbnailWidth * shownScale + 12
     }
 
     private var shownScale: CGFloat {
@@ -45,7 +44,7 @@ struct NotesStrip: View {
     }
 
     private var expandedCardHeight: CGFloat {
-        86 * max(0.9, shownScale)
+        76 * max(0.9, shownScale)
     }
 
     private var expandedSpacing: CGFloat {
@@ -53,7 +52,7 @@ struct NotesStrip: View {
     }
 
     private var collapsedPeekMaxWidth: CGFloat {
-        14 * hiddenScale
+        12 * hiddenScale
     }
 
     private var collapsedPeekHeight: CGFloat {
@@ -65,7 +64,7 @@ struct NotesStrip: View {
     }
 
     private var expandedStackHeight: CGFloat {
-        stackHeight(itemHeight: expandedCardHeight, spacing: expandedSpacing, verticalPadding: 86)
+        stackHeight(itemHeight: expandedCardHeight, spacing: expandedSpacing, verticalPadding: 64)
     }
 
     private var collapsedStackHeight: CGFloat {
@@ -119,19 +118,11 @@ struct NotesStrip: View {
     }
 
     private var actionRow: some View {
-        HStack(spacing: 10) {
-            Button(action: onOpenToday) {
-                Label("Today", systemImage: "calendar")
-                    .frame(maxWidth: .infinity)
-            }
-            .buttonStyle(NotesStripActionButtonStyle(isPrimary: true))
-
-            Button(action: onCreateNote) {
-                Label("New", systemImage: "square.and.pencil")
-                    .frame(maxWidth: .infinity)
-            }
-            .buttonStyle(NotesStripActionButtonStyle(isPrimary: false))
+        Button(action: onCreateNote) {
+            Label("New Note", systemImage: "square.and.pencil")
+                .frame(maxWidth: .infinity)
         }
+        .buttonStyle(NotesStripActionButtonStyle(isPrimary: true))
         .frame(maxWidth: .infinity)
     }
 
@@ -141,7 +132,7 @@ struct NotesStrip: View {
 
             VStack(spacing: collapsedSpacing) {
                 if noteStore.orderedNotes.isEmpty {
-                    EmptyNotesPeek(sizeScale: hiddenScale, onSelect: onOpenToday)
+                    EmptyNotesPeek(sizeScale: hiddenScale, onSelect: onCreateNote)
                 } else {
                     ForEach(noteStore.orderedNotes) { note in
                         NotePeek(
@@ -197,49 +188,49 @@ private struct NotePreviewCard: View {
 
     @State private var isHovered = false
 
-    private var cornerRadius: CGFloat { 16 * sizeScale }
+    private var cornerRadius: CGFloat { 12 * sizeScale }
+    private var cardWidth: CGFloat { StageManagerThumbnail.baseThumbnailWidth * sizeScale }
+    private var cardHeight: CGFloat { 76 * sizeScale }
 
     var body: some View {
         Button(action: onSelect) {
-            VStack(alignment: .leading, spacing: 10 * sizeScale) {
-                HStack(spacing: 8) {
-                    Circle()
-                        .fill(accentColor)
-                        .frame(width: 10 * sizeScale, height: 10 * sizeScale)
-
-                    Text(note.kind == .daily ? "Daily Note" : "Ad Hoc")
-                        .font(.system(size: 10 * sizeScale, weight: .semibold))
-                        .foregroundStyle(accentColor)
-
-                    Spacer()
-
-                    Text(note.shortUpdatedText)
-                        .font(.system(size: 10 * sizeScale, weight: .medium))
-                        .foregroundStyle(.secondary)
-                }
-
+            VStack(alignment: .leading, spacing: 6 * sizeScale) {
                 Text(note.displayTitle)
-                    .font(.system(size: 14 * sizeScale, weight: .semibold))
+                    .font(.system(size: 11.5 * sizeScale, weight: .semibold))
                     .foregroundStyle(.primary)
                     .lineLimit(2)
                     .multilineTextAlignment(.leading)
 
                 Text(note.excerpt.isEmpty ? emptyStateText : note.excerpt)
-                    .font(.system(size: 11 * sizeScale))
+                    .font(.system(size: 9 * sizeScale))
                     .foregroundStyle(note.excerpt.isEmpty ? .tertiary : .secondary)
-                    .lineLimit(3)
+                    .lineLimit(2)
                     .multilineTextAlignment(.leading)
                     .frame(maxWidth: .infinity, alignment: .leading)
+
+                Spacer(minLength: 0)
+
+                HStack(spacing: 6 * sizeScale) {
+                    Image(systemName: "note.text")
+                        .font(.system(size: 8.5 * sizeScale, weight: .semibold))
+                        .foregroundStyle(Color.accentColor)
+
+                    Text(note.shortUpdatedText)
+                        .font(.system(size: 8.5 * sizeScale, weight: .medium))
+                        .foregroundStyle(.secondary)
+
+                    Spacer(minLength: 0)
+                }
             }
-            .padding(14 * sizeScale)
-            .frame(maxWidth: .infinity, minHeight: 84 * sizeScale, alignment: .leading)
+            .padding(10 * sizeScale)
+            .frame(width: cardWidth, height: cardHeight, alignment: .topLeading)
             .background(cardBackground)
             .overlay(
                 RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
-                    .stroke(accentColor.opacity(isHovered ? 0.35 : 0.14), lineWidth: isHovered ? 1.2 : 1)
+                    .stroke(Color.accentColor.opacity(isHovered ? 0.30 : 0.12), lineWidth: isHovered ? 1.1 : 0.9)
             )
             .clipShape(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
-            .shadow(color: Color.black.opacity(isHovered ? 0.18 : 0.10), radius: isHovered ? 16 : 10, y: 6)
+            .shadow(color: Color.black.opacity(isHovered ? 0.18 : 0.10), radius: isHovered ? 14 : 9, y: 5)
             .scaleEffect(isHovered ? 1.02 : 1)
         }
         .buttonStyle(.plain)
@@ -248,22 +239,19 @@ private struct NotePreviewCard: View {
                 isHovered = hovering
             }
         }
-    }
-
-    private var accentColor: Color {
-        note.kind == .daily ? .accentColor : .orange
+        .help(note.displayTitle)
     }
 
     private var cardBackground: some View {
         ZStack {
             RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
-                .fill(Color(nsColor: .windowBackgroundColor).opacity(0.92))
+                .fill(Color(nsColor: .windowBackgroundColor).opacity(0.94))
             RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
                 .fill(
                     LinearGradient(
                         colors: [
-                            accentColor.opacity(isHovered ? 0.14 : 0.08),
-                            Color(nsColor: .windowBackgroundColor).opacity(0.0),
+                            Color.accentColor.opacity(isHovered ? 0.14 : 0.08),
+                            Color(nsColor: .windowBackgroundColor).opacity(0.02),
                         ],
                         startPoint: .topLeading,
                         endPoint: .bottomTrailing
@@ -273,7 +261,7 @@ private struct NotePreviewCard: View {
     }
 
     private var emptyStateText: String {
-        note.kind == .daily ? "Open today’s thread of thought." : "Start capturing ideas, references, and snippets."
+        "Start writing."
     }
 }
 
@@ -285,8 +273,7 @@ private struct NotePeek: View {
     @State private var isHovered = false
 
     private var peekWidth: CGFloat {
-        let baseWidth = note.kind == .daily ? 14.0 : 10.0
-        return (isHovered ? baseWidth + 4 : baseWidth) * sizeScale
+        (isHovered ? 12.0 : 8.0) * sizeScale
     }
 
     private var peekHeight: CGFloat { 32 * sizeScale }
@@ -302,7 +289,7 @@ private struct NotePeek: View {
             ),
             style: .continuous
         )
-        .fill(note.kind == .daily ? Color.accentColor : Color.orange)
+        .fill(Color.accentColor)
         .frame(width: peekWidth, height: peekHeight)
         .overlay(alignment: .leading) {
             UnevenRoundedRectangle(
@@ -359,7 +346,7 @@ private struct EmptyNotesPeek: View {
             LinearGradient(
                 colors: [
                     Color.accentColor.opacity(0.96),
-                    Color.orange.opacity(0.92),
+                    Color.accentColor.opacity(0.82),
                 ],
                 startPoint: .topLeading,
                 endPoint: .bottomTrailing
@@ -398,7 +385,7 @@ private struct EmptyNotesPeek: View {
                 isHovered = hovering
             }
         }
-        .help("Open Today's Note")
+        .help("Create New Note")
     }
 }
 

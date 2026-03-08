@@ -201,15 +201,7 @@ struct NoteRecord: Codable, Identifiable, Sendable {
     }
 
     var displayTitle: String {
-        switch kind {
-        case .daily:
-            if let dayIdentifier {
-                return Self.displayDateFormatter.string(from: NoteRecord.dayFormatter.date(from: dayIdentifier) ?? createdAt)
-            }
-            return title
-        case .adhoc:
-            return title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "Untitled Note" : title
-        }
+        title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "Untitled Note" : title
     }
 
     var shortUpdatedText: String {

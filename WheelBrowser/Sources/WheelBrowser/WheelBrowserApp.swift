@@ -112,15 +112,10 @@ struct WheelBrowserApp: App {
 
                 Divider()
 
-                Button("Open Today's Note") {
-                    NotificationCenter.default.post(name: .openTodayNote, object: nil)
+                Button("New Note") {
+                    NotificationCenter.default.post(name: .newNote, object: nil)
                 }
                 .keyboardShortcut("n", modifiers: [.command, .option])
-
-                Button("New Note From Page") {
-                    NotificationCenter.default.post(name: .newNoteFromPage, object: nil)
-                }
-                .keyboardShortcut("n", modifiers: [.command, .option, .shift])
 
                 Divider()
 
@@ -303,8 +298,7 @@ extension Notification.Name {
     static let newTab = Notification.Name("newTab")
     static let closeTab = Notification.Name("closeTab")
     static let toggleTabSidebar = Notification.Name("toggleTabSidebar")
-    static let openTodayNote = Notification.Name("openTodayNote")
-    static let newNoteFromPage = Notification.Name("newNoteFromPage")
+    static let newNote = Notification.Name("newNote")
 
     // Navigation
     static let focusAddressBar = Notification.Name("focusAddressBar")

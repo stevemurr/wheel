@@ -156,11 +156,8 @@ class BrowserWebView: WKWebView {
                   let url = URL(string: "https://www.google.com/search?q=\(encoded)") else { return }
             NotificationCenter.default.post(name: .openLinkInNewTab, object: url)
 
-        case .openTodayNote:
-            NotificationCenter.default.post(name: .openTodayNote, object: nil)
-
-        case .newNoteFromPage:
-            NotificationCenter.default.post(name: .newNoteFromPage, object: nil)
+        case .newNote:
+            NotificationCenter.default.post(name: .newNote, object: nil)
 
         case .goBack:
             goBack()

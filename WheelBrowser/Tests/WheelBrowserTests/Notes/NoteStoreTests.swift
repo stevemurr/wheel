@@ -5,31 +5,30 @@ import Testing
 @Suite("NoteStore", .serialized)
 @MainActor
 struct NoteStoreTests {
-    @Test("Daily notes are deduplicated by day within a workspace")
-    func deduplicatesDailyNotes() throws {
+    @Test("Creating notes yields distinct records")
+    func createsDistinctNotes() {
         let store = makeStore()
         let workspaceID = UUID()
         store.bindToWorkspace(workspaceID)
-        let date = try #require(NoteRecord.dayFormatter.date(from: "2026-03-08"))
 
-        let first = store.ensureDailyNote(for: date)
-        let second = store.ensureDailyNote(for: date)
+        let first = store.createNote(title: "First")
+        let second = store.createNote(title: "Second")
 
-        #expect(first.id == second.id)
-        #expect(store.notes.count == 1)
+        #expect(first.id != second.id)
+        #expect(store.notes.count == 2)
     }
 
-    @Test("Ad hoc notes and daily notes persist and reload")
+    @Test("Notes persist and reload")
     func persistsAndReloadsNotes() throws {
         let root = tempDirectory()
         let workspaceID = UUID()
 
         let store = NoteStore(storageRoot: root, saveDebounceInterval: .seconds(60))
         store.bindToWorkspace(workspaceID)
-        let daily = store.ensureDailyNote(for: try #require(NoteRecord.dayFormatter.date(from: "2026-03-08")))
-        let adhoc = store.createAdHocNote(title: "Ideas")
+        let first = store.createNote(title: "Ideas")
+        let second = store.createNote(title: "Research")
         store.updateDocument(
-            id: adhoc.id,
+            id: second.id,
             document: NoteDocument(
                 root: [
                     "type": AnyCodable("doc"),
@@ -53,9 +52,9 @@ struct NoteStoreTests {
         reloaded.bindToWorkspace(workspaceID)
 
         #expect(reloaded.notes.count == 2)
-        #expect(reloaded.note(with: daily.id) != nil)
-        let savedAdhoc = try #require(reloaded.note(with: adhoc.id))
-        #expect(savedAdhoc.excerpt.contains("Track launch notes"))
+        #expect(reloaded.note(with: first.id) != nil)
+        let savedSecond = try #require(reloaded.note(with: second.id))
+        #expect(savedSecond.excerpt.contains("Track launch notes"))
     }
 
     @Test("Workspace binding isolates note collections")
@@ -65,11 +64,11 @@ struct NoteStoreTests {
         let workspaceB = UUID()
 
         store.bindToWorkspace(workspaceA)
-        let noteA = store.createAdHocNote(title: "A")
+        let noteA = store.createNote(title: "A")
         store.flushPendingSaves()
 
         store.bindToWorkspace(workspaceB)
-        _ = store.createAdHocNote(title: "B")
+        _ = store.createNote(title: "B")
         store.flushPendingSaves()
 
         store.bindToWorkspace(workspaceA)
@@ -84,7 +83,7 @@ struct NoteStoreTests {
         let store = NoteStore(storageRoot: root, saveDebounceInterval: .seconds(60))
         let workspaceID = UUID()
         store.bindToWorkspace(workspaceID)
-        let note = store.createAdHocNote(title: "Research")
+        let note = store.createNote(title: "Research")
 
         store.insertPageSource(
             id: note.id,
@@ -100,17 +99,16 @@ struct NoteStoreTests {
         #expect(updated.excerpt.contains("https://example.com/docs"))
     }
 
-    @Test("Ordered notes keep today's daily note first")
-    func ordersNotesWithTodayFirst() {
+    @Test("Ordered notes prioritize the most recently updated note")
+    func ordersNotesByRecentActivity() {
         let store = makeStore()
         let workspaceID = UUID()
         store.bindToWorkspace(workspaceID)
 
-        let oldDailyDate = Calendar.current.date(byAdding: .day, value: -1, to: Date())!
-        _ = store.ensureDailyNote(for: oldDailyDate)
-        let adhoc = store.createAdHocNote(title: "Newest")
+        let older = store.createNote(title: "Older")
+        let newer = store.createNote(title: "Newer")
         store.updateDocument(
-            id: adhoc.id,
+            id: older.id,
             document: NoteDocument(
                 root: [
                     "type": AnyCodable("doc"),
@@ -128,11 +126,10 @@ struct NoteStoreTests {
                 ]
             )
         )
-        let today = store.ensureDailyNote(for: Date())
 
         let ordered = store.orderedNotes
-        #expect(ordered.first?.id == today.id)
-        #expect(ordered.contains { $0.id == adhoc.id })
+        #expect(ordered.first?.id == older.id)
+        #expect(ordered.contains { $0.id == newer.id })
     }
 
     private func makeStore() -> NoteStore {
