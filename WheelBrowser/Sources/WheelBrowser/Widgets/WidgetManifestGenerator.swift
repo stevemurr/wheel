@@ -28,33 +28,30 @@ extension WidgetManifestGenerator {
 
 final class OnDeviceWidgetManifestGenerator: @unchecked Sendable, WidgetManifestGenerator {
     typealias CompletionProvider = @Sendable ([ChatMessage], String) async throws -> GeneratedWidgetPlan
-    typealias AvailabilityProvider = @Sendable () async -> OnDeviceLLM.AvailabilityStatus
+    typealias AvailabilityProvider = @Sendable () async -> LMAvailabilityStatus
     typealias PreflightProvider = @Sendable (WidgetManifest) async throws -> Void
 
-    private let completionProvider: CompletionProvider
+    private let completionProvider: CompletionProvider?
     private let availabilityProvider: AvailabilityProvider?
     private let preflightProvider: PreflightProvider
+    private let contextService: any WheelModelContextServing
 
     init(
         completionProvider: CompletionProvider? = nil,
         availabilityProvider: AvailabilityProvider? = nil,
-        preflightProvider: PreflightProvider? = nil
+        preflightProvider: PreflightProvider? = nil,
+        contextService: any WheelModelContextServing = WheelModelContextService.shared
     ) {
-        self.completionProvider = completionProvider ?? { messages, instructions in
-            try await OnDeviceLLM.shared.complete(
-                messages: messages,
-                instructions: instructions,
-                generating: GeneratedWidgetPlan.self
-            )
-        }
+        self.completionProvider = completionProvider
         self.preflightProvider = preflightProvider ?? { manifest in
             try await WidgetManifestPreflightRunner.shared.preflight(manifest)
         }
+        self.contextService = contextService
         if let availabilityProvider {
             self.availabilityProvider = availabilityProvider
         } else if completionProvider == nil {
             self.availabilityProvider = {
-                await OnDeviceLLM.shared.availabilityStatus()
+                await contextService.availabilityStatus()
             }
         } else {
             self.availabilityProvider = nil
@@ -107,6 +104,16 @@ final class OnDeviceWidgetManifestGenerator: @unchecked Sendable, WidgetManifest
         }
 
         let instructions = WidgetPlanSystemPrompt.build()
+        let requestID = UUID()
+        let usingContextService = completionProvider == nil
+        let widgetThreadID = WheelModelContextService.widgetThreadID(for: requestID)
+        defer {
+            if usingContextService {
+                Task {
+                    try? await contextService.resetThread(threadID: widgetThreadID)
+                }
+            }
+        }
 
         await report(
             .generatingManifest,
@@ -115,7 +122,8 @@ final class OnDeviceWidgetManifestGenerator: @unchecked Sendable, WidgetManifest
         )
         let response = try await requestPlan(
             messages: [.user(prompt)],
-            instructions: instructions
+            instructions: instructions,
+            requestID: requestID
         )
 
         do {
@@ -142,7 +150,8 @@ final class OnDeviceWidgetManifestGenerator: @unchecked Sendable, WidgetManifest
                         response: response,
                         failure: error
                     ),
-                    instructions: instructions
+                    instructions: instructions,
+                    requestID: requestID
                 )
                 await report(
                     .validatingManifest,
@@ -163,10 +172,24 @@ final class OnDeviceWidgetManifestGenerator: @unchecked Sendable, WidgetManifest
 
     private func requestPlan(
         messages: [ChatMessage],
-        instructions: String
+        instructions: String,
+        requestID: UUID
     ) async throws -> GeneratedWidgetPlan {
         do {
-            return try await completionProvider(messages, instructions)
+            if let completionProvider {
+                return try await completionProvider(messages, instructions)
+            }
+
+            let prompt = messages.last(where: { $0.role == .user })?.content ?? ""
+            let response = try await contextService.generateWidgetPlan(
+                requestID: requestID,
+                prompt: prompt,
+                instructions: instructions,
+                transcriptRenderer: { response in
+                    self.rawPlanDebugString(from: response)
+                }
+            )
+            return response.content
         } catch {
             throw WidgetManifestGenerationError.llmFailed(error.localizedDescription)
         }

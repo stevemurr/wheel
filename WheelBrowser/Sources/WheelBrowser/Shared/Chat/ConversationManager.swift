@@ -62,6 +62,50 @@ class ConversationManager {
         return conversation
     }
 
+    @discardableResult
+    func activateConversation(
+        id: UUID,
+        workspaceId: UUID? = nil,
+        tabUrl: String? = nil
+    ) -> Conversation {
+        if let currentConversation, currentConversation.id == id {
+            return currentConversation
+        }
+
+        if let conversation = conversation(with: id) {
+            currentConversation = conversation
+            savedConversations.removeAll { $0.id == id }
+            return conversation
+        }
+
+        let conversation = Conversation(
+            id: id,
+            workspaceId: workspaceId,
+            associatedTabUrl: tabUrl
+        )
+        currentConversation = conversation
+        return conversation
+    }
+
+    func conversation(with id: UUID) -> Conversation? {
+        if let currentConversation, currentConversation.id == id {
+            return currentConversation
+        }
+
+        if let savedConversation = savedConversations.first(where: { $0.id == id }) {
+            return savedConversation
+        }
+
+        let fileURL = conversationsDirectory.appendingPathComponent("\(id.uuidString).json")
+        guard let data = try? Data(contentsOf: fileURL) else {
+            return nil
+        }
+
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+        return try? decoder.decode(Conversation.self, from: data)
+    }
+
     /// Add a message to the current conversation, creating one if needed
     func addMessage(_ message: ChatMessage) {
         if currentConversation == nil {
@@ -78,6 +122,22 @@ class ConversationManager {
             currentConversation?.title = title.count < message.content.count ? title + "..." : title
         }
 
+        scheduleDebouncedSave()
+    }
+
+    func replaceMessages(_ messages: [ChatMessage], conversationID: UUID) {
+        let existing = activateConversation(id: conversationID)
+        var updated = existing
+        updated.messages = messages
+        updated.updatedAt = Date()
+        if updated.title == "New Conversation",
+           let firstUserMessage = messages.first(where: { $0.role == .user }) {
+            let title = String(firstUserMessage.content.prefix(50))
+            updated.title = title.count < firstUserMessage.content.count ? title + "..." : title
+        }
+
+        currentConversation = updated
+        savedConversations.removeAll { $0.id == conversationID }
         scheduleDebouncedSave()
     }
 

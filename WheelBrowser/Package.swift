@@ -10,6 +10,10 @@ let package = Package(
         .package(url: "https://github.com/gonzalezreal/swift-markdown-ui", from: "2.3.0"),
         .package(url: "https://github.com/Ryu0118/swift-readability", from: "0.3.0"),
         .package(url: "https://github.com/rryam/VecturaKit", from: "3.0.0"),
+        .package(
+            url: "https://github.com/stevemurr/LanguageModelContextKit.git",
+            revision: "136ee8ec1c3e95b7cb3e39c116ac940d64ae96c2"
+        ),
     ],
     targets: [
         .executableTarget(
@@ -18,6 +22,7 @@ let package = Package(
                 .product(name: "MarkdownUI", package: "swift-markdown-ui"),
                 .product(name: "Readability", package: "swift-readability"),
                 .product(name: "VecturaKit", package: "VecturaKit"),
+                .product(name: "LanguageModelContextKit", package: "LanguageModelContextKit"),
             ],
             path: "Sources/WheelBrowser",
             resources: [

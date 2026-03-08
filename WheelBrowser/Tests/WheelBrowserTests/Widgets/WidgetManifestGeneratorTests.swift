@@ -44,10 +44,10 @@ struct WidgetManifestGeneratorTests {
         )
 
         let manifest = try await generator.generate(prompt: "Show hello")
-        #expect(manifest.widgetType == .text)
+        #expect(manifest.widgetType == WidgetType.text)
         #expect(manifest.returns == "textData")
         #expect(manifest.skillChain.count == 1)
-        #expect(manifest.skillChain.first?.skill == .transform)
+        #expect(manifest.skillChain.first?.skill == WidgetSkillName.transform)
         #expect(manifest.prompt == "Show hello")
 
         guard case .text(let config) = manifest.config else {
@@ -140,8 +140,8 @@ struct WidgetManifestGeneratorTests {
         )
 
         let manifest = try await generator.generate(prompt: "Show me the north star metric")
-        #expect(manifest.widgetType == .statCard)
-        #expect(manifest.skillChain.map(\.skill) == [.fetchUrl, .parseJson, .transform])
+        #expect(manifest.widgetType == WidgetType.statCard)
+        #expect(manifest.skillChain.map(\.skill) == [WidgetSkillName.fetchUrl, WidgetSkillName.parseJson, WidgetSkillName.transform])
         #expect(manifest.prompt == "Show me the north star metric")
 
         guard case .statCard(let config) = manifest.config else {
@@ -194,8 +194,8 @@ struct WidgetManifestGeneratorTests {
 
         let manifest = try await generator.generate(prompt: "show me revenue over the last 30 days")
 
-        #expect(manifest.widgetType == .lineChart)
-        #expect(manifest.skillChain.map(\.skill) == [.fetchUrl, .parseJson, .filterSort, .transform])
+        #expect(manifest.widgetType == WidgetType.lineChart)
+        #expect(manifest.skillChain.map(\.skill) == [WidgetSkillName.fetchUrl, WidgetSkillName.parseJson, WidgetSkillName.filterSort, WidgetSkillName.transform])
     }
 
     @Test("Generator infers stock chart defaults when chart details are omitted")
@@ -231,8 +231,8 @@ struct WidgetManifestGeneratorTests {
 
         let manifest = try await generator.generate(prompt: "show me the 30 day series")
 
-        #expect(manifest.widgetType == .lineChart)
-        #expect(manifest.skillChain.map(\.skill) == [.fetchUrl, .parseJson, .filterSort, .transform])
+        #expect(manifest.widgetType == WidgetType.lineChart)
+        #expect(manifest.skillChain.map(\.skill) == [WidgetSkillName.fetchUrl, WidgetSkillName.parseJson, WidgetSkillName.filterSort, WidgetSkillName.transform])
 
         guard case .lineChart(let config) = manifest.config else {
             Issue.record("Expected lineChart config")
@@ -252,14 +252,14 @@ struct WidgetManifestGeneratorTests {
             },
             availabilityProvider: {
                 Issue.record("Compact stock range prompt should not check model availability.")
-                return .unavailable("Should not be called")
+                return .unavailable(reason: "Should not be called")
             },
             preflightProvider: { _ in }
         )
 
         let manifest = try await generator.generate(prompt: "show me the apple stock price over 30d")
 
-        #expect(manifest.widgetType == .lineChart)
+        #expect(manifest.widgetType == WidgetType.lineChart)
         #expect(manifest.skillChain.first?.params["url"]?.stringValue == "https://www.pocketportfolio.app/api/tickers/AAPL/json")
         #expect(manifest.skillChain[1].params["path"]?.stringValue == "data")
 
@@ -333,7 +333,7 @@ struct WidgetManifestGeneratorTests {
         )
 
         let manifest = try await generator.generate(prompt: "Show hello")
-        #expect(manifest.widgetType == .text)
+        #expect(manifest.widgetType == WidgetType.text)
         #expect(manifest.prompt == "Fixed")
         #expect(await sequence.callCount == 2)
     }
@@ -422,16 +422,16 @@ struct WidgetManifestGeneratorTests {
             },
             availabilityProvider: {
                 Issue.record("Clock template should not check model availability.")
-                return .unavailable("Should not be called")
+                return .unavailable(reason: "Should not be called")
             },
             preflightProvider: { _ in }
         )
 
         let manifest = try await generator.generate(prompt: "Create a PST clock widget")
 
-        #expect(manifest.widgetType == .text)
+        #expect(manifest.widgetType == WidgetType.text)
         #expect(manifest.skillChain.count == 1)
-        #expect(manifest.skillChain.first?.skill == .currentDateTime)
+        #expect(manifest.skillChain.first?.skill == WidgetSkillName.currentDateTime)
         #expect(manifest.skillChain.first?.params["timeZone"]?.stringValue == "America/Los_Angeles")
         #expect(manifest.returns == "clock")
 
@@ -454,7 +454,7 @@ struct WidgetManifestGeneratorTests {
             },
             availabilityProvider: {
                 Issue.record("Clock template should not check model availability.")
-                return .unavailable("Should not be called")
+                return .unavailable(reason: "Should not be called")
             },
             preflightProvider: { manifest in
                 await preflight.record(manifest.id)
@@ -463,9 +463,9 @@ struct WidgetManifestGeneratorTests {
 
         let manifest = try await generator.generate(prompt: "Create a PST clock widget")
 
-        #expect(manifest.widgetType == .text)
+        #expect(manifest.widgetType == WidgetType.text)
         #expect(manifest.skillChain.count == 1)
-        #expect(manifest.skillChain.first?.skill == .currentDateTime)
+        #expect(manifest.skillChain.first?.skill == WidgetSkillName.currentDateTime)
         #expect(manifest.skillChain.first?.params["timeZone"]?.stringValue == "America/Los_Angeles")
         #expect(manifest.returns == "clock")
 
@@ -488,7 +488,7 @@ struct WidgetManifestGeneratorTests {
             },
             availabilityProvider: {
                 Issue.record("Stock trend template should not check model availability.")
-                return .unavailable("Should not be called")
+                return .unavailable(reason: "Should not be called")
             },
             preflightProvider: { _ in }
         )
@@ -497,8 +497,8 @@ struct WidgetManifestGeneratorTests {
             prompt: "Create a widget with AMD stock price over the last 30 days as a line chart"
         )
 
-        #expect(manifest.widgetType == .lineChart)
-        #expect(manifest.skillChain.map(\.skill) == [.fetchUrl, .parseJson, .filterSort, .filterSort, .transform])
+        #expect(manifest.widgetType == WidgetType.lineChart)
+        #expect(manifest.skillChain.map(\.skill) == [WidgetSkillName.fetchUrl, WidgetSkillName.parseJson, WidgetSkillName.filterSort, WidgetSkillName.filterSort, WidgetSkillName.transform])
         #expect(manifest.skillChain.first?.params["url"]?.stringValue == "https://www.pocketportfolio.app/api/tickers/AMD/json")
         #expect(manifest.skillChain[1].params["path"]?.stringValue == "data")
         #expect(manifest.returns == "chartData")
@@ -525,15 +525,15 @@ struct WidgetManifestGeneratorTests {
             },
             availabilityProvider: {
                 Issue.record("Finance planner should not check model availability.")
-                return .unavailable("Should not be called")
+                return .unavailable(reason: "Should not be called")
             },
             preflightProvider: { _ in }
         )
 
         let manifest = try await generator.generate(prompt: "Show BTC, ETH, and SOL prices")
 
-        #expect(manifest.widgetType == .list)
-        #expect(manifest.skillChain.map(\.skill) == [.fetchUrl, .parseJson, .filterSort, .transform])
+        #expect(manifest.widgetType == WidgetType.list)
+        #expect(manifest.skillChain.map(\.skill) == [WidgetSkillName.fetchUrl, WidgetSkillName.parseJson, WidgetSkillName.filterSort, WidgetSkillName.transform])
         #expect(manifest.returns == "listData")
 
         guard case .list(let config) = manifest.config else {
@@ -546,7 +546,7 @@ struct WidgetManifestGeneratorTests {
         #expect(config.valueField == "value")
         #expect(config.subtitleField == "subtitle")
         #expect(config.badgeField == "badge")
-        #expect(config.variant == .compact)
+        #expect(config.variant == ListVariant.compact)
     }
 
     @Test("Generator uses a built-in Hacker News planner for headline prompts")
@@ -558,15 +558,15 @@ struct WidgetManifestGeneratorTests {
             },
             availabilityProvider: {
                 Issue.record("Hacker News planner should not check model availability.")
-                return .unavailable("Should not be called")
+                return .unavailable(reason: "Should not be called")
             },
             preflightProvider: { _ in }
         )
 
         let manifest = try await generator.generate(prompt: "Create a widget for the top 5 Hacker News articles")
 
-        #expect(manifest.widgetType == .list)
-        #expect(manifest.skillChain.map(\.skill) == [.fetchUrl, .parseJson, .transform])
+        #expect(manifest.widgetType == WidgetType.list)
+        #expect(manifest.skillChain.map(\.skill) == [WidgetSkillName.fetchUrl, WidgetSkillName.parseJson, WidgetSkillName.transform])
         #expect(manifest.skillChain.first?.params["url"]?.stringValue?.contains("hn.algolia.com") == true)
         #expect(manifest.returns == "listData")
 
@@ -580,7 +580,7 @@ struct WidgetManifestGeneratorTests {
         #expect(config.valueField == "value")
         #expect(config.subtitleField == "subtitle")
         #expect(config.linkField == "link")
-        #expect(config.variant == .feed)
+        #expect(config.variant == ListVariant.feed)
         #expect(config.maxItems == 5)
     }
 
@@ -593,15 +593,15 @@ struct WidgetManifestGeneratorTests {
             },
             availabilityProvider: {
                 Issue.record("Subreddit planner should not check model availability.")
-                return .unavailable("Should not be called")
+                return .unavailable(reason: "Should not be called")
             },
             preflightProvider: { _ in }
         )
 
         let manifest = try await generator.generate(prompt: "Create a widget for the top 5 posts on the Swift subreddit")
 
-        #expect(manifest.widgetType == .list)
-        #expect(manifest.skillChain.map(\.skill) == [.fetchUrl, .parseJson, .transform])
+        #expect(manifest.widgetType == WidgetType.list)
+        #expect(manifest.skillChain.map(\.skill) == [WidgetSkillName.fetchUrl, WidgetSkillName.parseJson, WidgetSkillName.transform])
         #expect(manifest.skillChain.first?.params["url"]?.stringValue?.contains("reddit.com/r/swift/top.json") == true)
         #expect(manifest.skillChain.first?.params["url"]?.stringValue?.contains("raw_json=1") == true)
         #expect(manifest.returns == "listData")
@@ -616,7 +616,7 @@ struct WidgetManifestGeneratorTests {
         #expect(config.valueField == "value")
         #expect(config.subtitleField == "subtitle")
         #expect(config.linkField == "link")
-        #expect(config.variant == .ranked)
+        #expect(config.variant == ListVariant.ranked)
         #expect(config.maxItems == 5)
     }
 
@@ -629,15 +629,15 @@ struct WidgetManifestGeneratorTests {
             },
             availabilityProvider: {
                 Issue.record("Subreddit planner should not check model availability for typo prompts.")
-                return .unavailable("Should not be called")
+                return .unavailable(reason: "Should not be called")
             },
             preflightProvider: { _ in }
         )
 
         let manifest = try await generator.generate(prompt: "show me the top 5 aritcles from swift subbredit")
 
-        #expect(manifest.widgetType == .list)
-        #expect(manifest.skillChain.map(\.skill) == [.fetchUrl, .parseJson, .transform])
+        #expect(manifest.widgetType == WidgetType.list)
+        #expect(manifest.skillChain.map(\.skill) == [WidgetSkillName.fetchUrl, WidgetSkillName.parseJson, WidgetSkillName.transform])
         #expect(manifest.skillChain.first?.params["url"]?.stringValue?.contains("reddit.com/r/swift/top.json") == true)
         #expect(manifest.skillChain.first?.params["url"]?.stringValue?.contains("t=day") == true)
 
@@ -651,7 +651,7 @@ struct WidgetManifestGeneratorTests {
         #expect(config.valueField == "value")
         #expect(config.subtitleField == "subtitle")
         #expect(config.linkField == "link")
-        #expect(config.variant == .ranked)
+        #expect(config.variant == ListVariant.ranked)
     }
 
     @Test("Generator repairs malformed Reddit child field paths from model plans")
@@ -695,7 +695,7 @@ struct WidgetManifestGeneratorTests {
 
         let manifest = try await generator.generate(prompt: "Show me a ranked list")
 
-        #expect(manifest.skillChain.map(\.skill) == [.fetchUrl, .parseJson, .filterSort, .transform])
+        #expect(manifest.skillChain.map(\.skill) == [WidgetSkillName.fetchUrl, WidgetSkillName.parseJson, WidgetSkillName.filterSort, WidgetSkillName.transform])
         #expect(manifest.skillChain[0].params["url"]?.stringValue?.contains("raw_json=1") == true)
         #expect(manifest.skillChain[0].params["url"]?.stringValue?.contains("t=day") == true)
         #expect(manifest.skillChain[2].params["sortBy"]?.stringValue == "data.score")
@@ -714,19 +714,19 @@ struct WidgetManifestGeneratorTests {
             },
             availabilityProvider: {
                 Issue.record("Clock template should not check model availability.")
-                return .unavailable("Should not be called")
+                return .unavailable(reason: "Should not be called")
             },
             preflightProvider: { _ in }
         )
 
         let manifest = try await generator.generate(prompt: "Create a widget with PST and Beijing time")
 
-        #expect(manifest.widgetType == .list)
+        #expect(manifest.widgetType == WidgetType.list)
         #expect(manifest.skillChain.count == 3)
-        #expect(manifest.skillChain[0].skill == .currentDateTime)
+        #expect(manifest.skillChain[0].skill == WidgetSkillName.currentDateTime)
         #expect(manifest.skillChain[0].params["timeZone"]?.stringValue == "America/Los_Angeles")
         #expect(manifest.skillChain[1].params["timeZone"]?.stringValue == "Asia/Shanghai")
-        #expect(manifest.skillChain[2].skill == .transform)
+        #expect(manifest.skillChain[2].skill == WidgetSkillName.transform)
         #expect(manifest.returns == "clockList")
 
         guard case .list(let config) = manifest.config else {
@@ -738,7 +738,7 @@ struct WidgetManifestGeneratorTests {
         #expect(config.labelField == "label")
         #expect(config.valueField == "time")
         #expect(config.subtitleField == "timeZone")
-        #expect(config.variant == .compact)
+        #expect(config.variant == ListVariant.compact)
     }
 }
 

@@ -52,6 +52,9 @@ struct NormalizedAction: Hashable {
         case .readLinks:
             self.type = "readLinks"
             self.target = ""
+        case .collectLinks:
+            self.type = "collectLinks"
+            self.target = ""
         }
     }
 }

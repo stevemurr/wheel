@@ -1,7 +1,7 @@
 import SwiftUI
 
 struct LLMSettingsSection: View {
-    @State private var availability: OnDeviceLLM.AvailabilityStatus?
+    @State private var availability: LMAvailabilityStatus?
 
     var body: some View {
         Section("AI Model") {
@@ -36,7 +36,7 @@ struct LLMSettingsSection: View {
                 .foregroundColor(.secondary)
         }
         .task {
-            availability = await OnDeviceLLM.shared.availabilityStatus()
+            availability = await WheelModelContextService.shared.availabilityStatus()
         }
     }
 }

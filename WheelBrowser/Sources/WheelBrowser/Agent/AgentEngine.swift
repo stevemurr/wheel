@@ -19,11 +19,51 @@ struct AgentStep: Identifiable {
     }
 }
 
+private extension AgentAction {
+    var analyticsTag: String {
+        switch self {
+        case .click:
+            return "click"
+        case .type:
+            return "type"
+        case .pressEnter:
+            return "press_enter"
+        case .scroll:
+            return "scroll"
+        case .navigate:
+            return "navigate"
+        case .back:
+            return "back"
+        case .waitForUser:
+            return "wait_for_user"
+        case .wait:
+            return "wait"
+        case .readText:
+            return "read_text"
+        case .newTab:
+            return "new_tab"
+        case .openTab:
+            return "open_tab"
+        case .switchTab:
+            return "switch_tab"
+        case .extractContent:
+            return "extract_content"
+        case .readLinks:
+            return "read_links"
+        case .collectLinks:
+            return "collect_links"
+        case .done:
+            return "done"
+        }
+    }
+}
+
 /// The result of an agent task
 struct AgentResult {
     let success: Bool
     let summary: String
     let steps: [AgentStep]
+    let artifacts: [ChatArtifact]
 }
 
 /// Modifier keys that can be held during a click action
@@ -71,6 +111,7 @@ enum AgentAction: Equatable {
     case switchTab(index: Int)
     case extractContent
     case readLinks
+    case collectLinks
     case done(summary: String)
 
     enum ScrollDirection: String {
@@ -127,12 +168,16 @@ class AgentEngine {
 
     @ObservationIgnored private let browserState: BrowserState
     @ObservationIgnored private let settings: AppSettings
-    @ObservationIgnored private let llmClient: any AgentLLMProvider
+    @ObservationIgnored private let contextService: any WheelModelContextServing
     @ObservationIgnored private let bridgeProvider: any BrowserBridgeProvider
     @ObservationIgnored private let loopDetector = AgentLoopDetector()
     @ObservationIgnored private var currentTaskHandle: Task<AgentResult, Never>?
     @ObservationIgnored private weak var boundTab: Tab?
     @ObservationIgnored private var tabClosureObserverTask: Task<Void, Never>?
+    @ObservationIgnored private var currentRunID: UUID?
+    @ObservationIgnored private var currentThreadID: String?
+    @ObservationIgnored private var taskIntent: AgentTaskIntent = AgentTaskIntent(kind: .general, allowedHosts: [], pageLimit: nil, requiresUniqueURLs: true)
+    @ObservationIgnored private var collectionAccumulator = AgentCollectionAccumulator()
 
     // MARK: - Configuration (excluded from observation)
 
@@ -161,15 +206,19 @@ class AgentEngine {
     init(browserState: BrowserState, settings: AppSettings) {
         self.browserState = browserState
         self.settings = settings
-        self.llmClient = OnDeviceLLM.shared
+        self.contextService = WheelModelContextService.shared
         self.bridgeProvider = browserState
     }
 
     /// Test initializer allowing injection of mock dependencies
-    init(browserState: BrowserState, llmClient: any AgentLLMProvider, bridgeProvider: any BrowserBridgeProvider) {
+    init(
+        browserState: BrowserState,
+        contextService: any WheelModelContextServing,
+        bridgeProvider: any BrowserBridgeProvider
+    ) {
         self.browserState = browserState
         self.settings = AppSettings.shared
-        self.llmClient = llmClient
+        self.contextService = contextService
         self.bridgeProvider = bridgeProvider
     }
 
@@ -189,11 +238,11 @@ class AgentEngine {
     /// Run an agent task
     func run(task: String) async -> AgentResult {
         guard !isRunning else {
-            return AgentResult(success: false, summary: "Agent is already running", steps: [])
+            return AgentResult(success: false, summary: "Agent is already running", steps: [], artifacts: [])
         }
 
         guard let activeTab = browserState.activeTab else {
-            return AgentResult(success: false, summary: "No active tab", steps: [])
+            return AgentResult(success: false, summary: "No active tab", steps: [], artifacts: [])
         }
 
         boundTabId = activeTab.id
@@ -208,6 +257,9 @@ class AgentEngine {
         steps = []
         error = nil
         progress = "Starting..."
+        taskIntent = AgentTaskIntent.parse(task: task)
+        collectionAccumulator = AgentCollectionAccumulator()
+        currentRunID = UUID()
 
         let taskHandle = Task { () -> AgentResult in
             defer { self.resetState() }
@@ -221,7 +273,12 @@ class AgentEngine {
                     self.steps.append(errorStep)
                     self.error = error.localizedDescription
                 }
-                return AgentResult(success: false, summary: error.localizedDescription, steps: self.steps)
+                return AgentResult(
+                    success: false,
+                    summary: error.localizedDescription,
+                    steps: self.steps,
+                    artifacts: self.collectionAccumulator.artifacts(title: "Collected")
+                )
             }
         }
 
@@ -244,11 +301,20 @@ class AgentEngine {
 
     /// Atomically reset all mutable state after a task completes
     private func resetState() {
+        if let threadID = currentThreadID {
+            Task {
+                try? await contextService.resetThread(threadID: threadID)
+            }
+        }
         cleanupTabBinding()
         isRunning = false
         guardrailWarning = nil
         streamingThought = nil
         currentStepCount = 0
+        currentRunID = nil
+        currentThreadID = nil
+        taskIntent = AgentTaskIntent(kind: .general, allowedHosts: [], pageLimit: nil, requiresUniqueURLs: true)
+        collectionAccumulator = AgentCollectionAccumulator()
         loopDetector.reset()
     }
 
@@ -298,39 +364,33 @@ class AgentEngine {
     // MARK: - Streaming LLM
 
     /// Call the LLM with streaming, providing real-time thought feedback.
-    /// Falls back to non-streaming structured completion on stream error.
-    private func callLLMWithStreaming(prompt: String, systemPrompt: String) async throws -> GeneratedAgentDecision {
-        do {
-            var latestRawContent: GeneratedContent?
-
-            defer { streamingThought = nil }
-
-            for try await rawContent in llmClient.stream(
-                prompt: prompt,
-                systemPrompt: systemPrompt,
-                generating: GeneratedAgentDecision.self
-            ) {
-                latestRawContent = rawContent
-
-                if let thought = try? rawContent.value(String.self, forProperty: "thought") {
-                    streamingThought = thought.trimmingCharacters(in: .whitespacesAndNewlines)
-                }
-            }
-
-            guard let latestRawContent else {
-                throw AgentError.invalidLLMResponse("Empty streaming response")
-            }
-
-            return try latestRawContent.value(GeneratedAgentDecision.self)
-        } catch {
-            Log.Agent.warning("Streaming failed, falling back to non-streaming: \(error.localizedDescription)")
-            streamingThought = nil
-            return try await llmClient.complete(
-                prompt: prompt,
-                systemPrompt: systemPrompt,
-                generating: GeneratedAgentDecision.self
-            )
+    private func callLLMWithStreaming(prompt: String) async throws -> GeneratedAgentDecision {
+        guard let threadID = currentThreadID else {
+            throw AgentError.invalidLLMResponse("Agent LM context thread was not initialized")
         }
+
+        defer { streamingThought = nil }
+
+        let stream = try await contextService.streamAgentDecision(
+            prompt: prompt,
+            threadID: threadID
+        )
+        var completedResponse: LMManagedStructuredResponse<GeneratedAgentDecision>?
+
+        for try await event in stream {
+            switch event {
+            case .partialThought(let thought):
+                streamingThought = thought.trimmingCharacters(in: .whitespacesAndNewlines)
+            case .completed(let response):
+                completedResponse = response
+            }
+        }
+
+        guard let completedResponse else {
+            throw AgentError.invalidLLMResponse("Empty streaming response")
+        }
+
+        return completedResponse.content
     }
 
     // MARK: - Task Execution
@@ -360,6 +420,16 @@ class AgentEngine {
         guard let tabId = boundTabId else {
             throw AgentError.webViewUnavailable
         }
+
+        guard let runID = currentRunID else {
+            throw AgentError.invalidLLMResponse("Agent run ID was not initialized")
+        }
+
+        currentThreadID = try await contextService.openAgentThread(
+            tabId: tabId,
+            runId: runID,
+            instructions: AgentPromptBuilder.threadInstructions
+        )
 
         while iteration < maxSteps {
             // Check wall-clock timeout
@@ -399,28 +469,36 @@ class AgentEngine {
                 throw AgentError.webViewUnavailable
             }
 
-            let snapshot = try await bridge.snapshot()
+            let observation = try await bridge.snapshot(request: taskIntent.snapshotRequest)
 
             // Track URL for progress detection
-            loopDetector.recordURL(snapshot.url)
+            loopDetector.recordURL(observation.url)
 
             let observationStep = AgentStep(
                 type: .observation,
-                content: "Page: \(snapshot.title)\nURL: \(snapshot.url)\n\(snapshot.elements.count) interactive elements",
+                content: observation.textRepresentation,
                 timestamp: Date()
             )
             steps.append(observationStep)
 
             // 2. Think - Ask LLM for next action
-            let prompt = AgentPromptBuilder.buildPrompt(task: task, snapshot: snapshot, previousSteps: steps)
             let recentErrors = steps.suffix(6).filter { $0.type == .error }.count
-            let dynamicSystemPrompt = AgentPromptBuilder.buildSystemPrompt(
-                stepsRemaining: stepsRemaining,
+            let runtimeStatus = AgentRuntimeStatus(
+                iteration: iteration,
                 maxSteps: maxSteps,
-                recentErrors: recentErrors
+                recentErrorCount: recentErrors,
+                guardrailWarning: guardrailWarning,
+                pageProgress: collectionProgressNote()
+            )
+            let prompt = AgentPromptBuilder.buildPrompt(
+                task: task,
+                intent: taskIntent,
+                observation: observation,
+                runtimeStatus: runtimeStatus,
+                accumulatorSummary: taskIntent.isLinkCollection ? collectionAccumulator.summaryText() : nil
             )
             Log.Agent.debug("Sending prompt to LLM (length: \(prompt.count) chars)")
-            let llmDecision = try await callLLMWithStreaming(prompt: prompt, systemPrompt: dynamicSystemPrompt)
+            let llmDecision = try await callLLMWithStreaming(prompt: prompt)
 
             // Decode the structured decision into the domain action model
             let thought: String
@@ -445,6 +523,10 @@ class AgentEngine {
 
                 let errorStep = AgentStep(type: .error, content: "Failed to parse LLM response (retrying after \(Int(backoffSeconds))s backoff...)", timestamp: Date())
                 steps.append(errorStep)
+                await appendAgentExternalTurn(
+                    text: errorStep.content,
+                    tags: ["parse-error", "retry"]
+                )
                 continue
             }
 
@@ -455,7 +537,7 @@ class AgentEngine {
             steps.append(thoughtStep)
 
             // Build element ID map for O(1) lookup (needed for descriptive action labels and loop detection)
-            let elementById = Dictionary(uniqueKeysWithValues: snapshot.elements.map { ($0.id, $0) })
+            let elementById = Dictionary(uniqueKeysWithValues: observation.interactiveElements.map { ($0.id, $0) })
 
             let actionDescription = describeAction(action, elementById: elementById)
             let actionStep = AgentStep(type: .action, content: actionDescription, timestamp: Date())
@@ -498,6 +580,10 @@ class AgentEngine {
 
                         let resultStep = AgentStep(type: .result, content: "Navigated back after loop detection", timestamp: Date())
                         steps.append(resultStep)
+                        await appendAgentExternalTurn(
+                            text: resultStep.content,
+                            tags: ["loop-recovery", "back"]
+                        )
 
                         try await Task.sleep(nanoseconds: 300_000_000)
                         continue
@@ -511,6 +597,10 @@ class AgentEngine {
 
                         let resultStep = AgentStep(type: .result, content: "Scrolled down after loop detection to reveal new elements", timestamp: Date())
                         steps.append(resultStep)
+                        await appendAgentExternalTurn(
+                            text: resultStep.content,
+                            tags: ["loop-recovery", "scroll"]
+                        )
 
                         try await Task.sleep(nanoseconds: 300_000_000)
                         continue
@@ -525,7 +615,12 @@ class AgentEngine {
                 Log.Agent.warning("Stuck loop detected (\(loopType)) - forcing completion")
                 let doneStep = AgentStep(type: .done, content: "Task ended: \(loopType)", timestamp: Date())
                 steps.append(doneStep)
-                return AgentResult(success: false, summary: "Agent got stuck: \(loopType)", steps: steps)
+                return AgentResult(
+                    success: false,
+                    summary: "Agent got stuck: \(loopType)",
+                    steps: steps,
+                    artifacts: currentArtifacts()
+                )
             }
 
             // 3. Act - Execute the action
@@ -540,6 +635,10 @@ class AgentEngine {
                             Log.Agent.warning("done() rejected (\(doneRejections)/\(maxDoneRejections)): \(rejection)")
                             let correctionStep = AgentStep(type: .error, content: "Verification failed: \(rejection) Do NOT call done() again immediately. Instead, take a corrective action (navigate, scroll, click, or try a different approach). If the task truly cannot be completed, call done(\"Unable to complete: \(rejection)\").", timestamp: Date())
                             steps.append(correctionStep)
+                            await appendAgentExternalTurn(
+                                text: correctionStep.content,
+                                tags: ["verification-error"]
+                            )
                             continue
                         }
                     }
@@ -547,11 +646,20 @@ class AgentEngine {
                     Log.Agent.info("Task completed successfully: \(summary)")
                     let doneStep = AgentStep(type: .done, content: summary, timestamp: Date())
                     steps.append(doneStep)
-                    return AgentResult(success: true, summary: summary, steps: steps)
+                    return AgentResult(
+                        success: true,
+                        summary: summary,
+                        steps: steps,
+                        artifacts: currentArtifacts()
+                    )
                 }
 
                 let resultStep = AgentStep(type: .result, content: actionResult.message, timestamp: Date())
                 steps.append(resultStep)
+                await appendAgentExternalTurn(
+                    text: actionResult.message,
+                    tags: ["action-result", action.analyticsTag]
+                )
 
                 // Adaptive delay based on what changed
                 if let delta = actionResult.delta {
@@ -570,6 +678,10 @@ class AgentEngine {
                 let mappedMessage = ActionErrorMapper.mapError(error, action: action)
                 let errorStep = AgentStep(type: .error, content: mappedMessage, timestamp: Date())
                 steps.append(errorStep)
+                await appendAgentExternalTurn(
+                    text: mappedMessage,
+                    tags: ["action-error", action.analyticsTag]
+                )
             }
         }
 
@@ -577,6 +689,50 @@ class AgentEngine {
         let errorStep = AgentStep(type: .error, content: "Task stopped: reached maximum of \(maxSteps) steps", timestamp: Date())
         steps.append(errorStep)
         throw AgentError.maxIterationsReached
+    }
+
+    private func collectionProgressNote() -> String? {
+        guard taskIntent.isLinkCollection else {
+            return nil
+        }
+
+        var parts = ["Collected \(collectionAccumulator.totalUniqueCount) unique links so far."]
+        if let pageLimit = taskIntent.pageLimit {
+            parts.append("Target: up to \(pageLimit) pages.")
+        }
+        if !taskIntent.allowedHosts.isEmpty {
+            parts.append("Relevant host filter: \(taskIntent.allowedHosts.joined(separator: ", ")).")
+        }
+        return parts.joined(separator: " ")
+    }
+
+    private func currentArtifacts() -> [ChatArtifact] {
+        guard taskIntent.isLinkCollection, collectionAccumulator.totalUniqueCount > 0 else {
+            return []
+        }
+
+        let title = taskIntent.allowedHosts.first ?? "Collected"
+        return collectionAccumulator.artifacts(title: title)
+    }
+
+    private func appendAgentExternalTurn(text: String, tags: [String]) async {
+        guard let threadID = currentThreadID else {
+            return
+        }
+
+        guard let state = try? await contextService.threadState(threadID: threadID) else {
+            return
+        }
+
+        let turn = LMNormalizedTurn(
+            role: .tool,
+            text: text,
+            priority: 700,
+            tags: tags,
+            windowIndex: state.activeWindowIndex
+        )
+
+        try? await contextService.appendAgentTurns([turn], threadID: threadID)
     }
 
     // MARK: - Action Execution
@@ -631,6 +787,8 @@ class AgentEngine {
             return "Extracting full page content"
         case .readLinks:
             return "Reading all links on page"
+        case .collectLinks:
+            return "Collecting matching links from the page"
         case .done(let summary):
             return "Done: \(summary)"
         }
@@ -788,10 +946,13 @@ class AgentEngine {
             let extractor = ContentExtractor()
             if let pageContext = await extractor.extractContent(from: tab) {
                 var text = pageContext.textContent
-                if text.count > 4000 {
-                    text = String(text.prefix(4000)) + "... (truncated)"
+                if text.count > 1200 {
+                    text = String(text.prefix(1200)) + "... (truncated)"
                 }
-                return ActionResult(message: "Page content (\(pageContext.title)):\n\(text)", delta: nil)
+                return ActionResult(
+                    message: "Page content preview (\(pageContext.title)):\n\(text)",
+                    delta: nil
+                )
             }
             return ActionResult(message: "Could not extract page content.", delta: nil)
 
@@ -800,18 +961,36 @@ class AgentEngine {
             if links.isEmpty {
                 return ActionResult(message: "No links found on this page.", delta: nil)
             }
-            // Truncate to last complete line within 3000 chars to keep prompt manageable
-            var linksText = links
-            if linksText.count > 3000 {
-                let truncated = String(linksText.prefix(3000))
-                if let lastNewline = truncated.lastIndex(of: "\n") {
-                    linksText = String(truncated[...lastNewline])
-                } else {
-                    linksText = truncated
-                }
-                linksText += "... (more links on page)"
+            var lines = links.split(separator: "\n").map(String.init)
+            let total = lines.count
+            if lines.count > 10 {
+                lines = Array(lines.prefix(10))
             }
-            return ActionResult(message: "Links on page:\n\(linksText)", delta: nil)
+            let preview = lines.joined(separator: "\n")
+            let suffix = total > lines.count ? "\n... (\(total - lines.count) more links omitted)" : ""
+            return ActionResult(
+                message: "Links on page (sample):\n\(preview)\(suffix)",
+                delta: nil
+            )
+
+        case .collectLinks:
+            let request = taskIntent.linkCollectionRequest ?? LinkCollectionRequest(
+                allowedHosts: taskIntent.allowedHosts,
+                includePaginationLinks: true,
+                maxMatches: 250
+            )
+            let result = try await bridge.collectLinks(request)
+            let delta = collectionAccumulator.absorb(result)
+            if delta.added.isEmpty && delta.duplicateCount == 0 {
+                return ActionResult(
+                    message: "No matching links found on this page. Scanned \(result.totalLinksScanned) links.",
+                    delta: nil
+                )
+            }
+            return ActionResult(
+                message: "Collected links from this page: \(delta.message)",
+                delta: nil
+            )
 
         case .done(let summary):
             return ActionResult(message: summary, delta: nil)

@@ -5,6 +5,7 @@ public struct ChatMessage: Identifiable, Equatable, Hashable, Codable {
     public let id: UUID
     public let role: MessageRole
     public var content: String
+    public var modelContent: String?
     public let timestamp: Date
     public var isStreaming: Bool
 
@@ -63,6 +64,7 @@ public struct ChatMessage: Identifiable, Equatable, Hashable, Codable {
         id: UUID = UUID(),
         role: MessageRole,
         content: String,
+        modelContent: String? = nil,
         timestamp: Date = Date(),
         isStreaming: Bool = false,
         tokens: Int? = nil,
@@ -82,6 +84,7 @@ public struct ChatMessage: Identifiable, Equatable, Hashable, Codable {
         self.id = id
         self.role = role
         self.content = content
+        self.modelContent = modelContent
         self.timestamp = timestamp
         self.isStreaming = isStreaming
         self.tokens = tokens
@@ -126,6 +129,7 @@ public struct ChatMessage: Identifiable, Equatable, Hashable, Codable {
     public static func == (lhs: ChatMessage, rhs: ChatMessage) -> Bool {
         lhs.id == rhs.id &&
         lhs.content == rhs.content &&
+        lhs.modelContent == rhs.modelContent &&
         lhs.isStreaming == rhs.isStreaming &&
         lhs.isFailed == rhs.isFailed &&
         lhs.contextBadges == rhs.contextBadges
@@ -136,6 +140,7 @@ public struct ChatMessage: Identifiable, Equatable, Hashable, Codable {
     public func hash(into hasher: inout Hasher) {
         hasher.combine(id)
         hasher.combine(content)
+        hasher.combine(modelContent)
         hasher.combine(isStreaming)
         hasher.combine(isFailed)
         hasher.combine(contextBadges)

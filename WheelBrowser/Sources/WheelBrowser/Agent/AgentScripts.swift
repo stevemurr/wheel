@@ -529,6 +529,93 @@ enum AgentScripts {
     })();
     """
 
+    static func collectLinks(allowedHostsJSON: String, maxMatches: Int, includePaginationLinks: Bool) -> String {
+        let includePagination = includePaginationLinks ? "true" : "false"
+        return """
+        (function() {
+            const allowedHosts = new Set(\(allowedHostsJSON));
+            const includePaginationLinks = \(includePagination);
+            const maxMatches = \(maxMatches);
+            const seen = new Set();
+            const matches = [];
+            const paginationLinks = [];
+            let totalLinksScannedRef = { value: 0 };
+            const filteredOutCountRef = { value: 0 };
+
+            const isPaginationLabel = (text) => {
+                const normalized = (text || '').toLowerCase();
+                return normalized.includes('next')
+                    || normalized.includes('more')
+                    || normalized.includes('older')
+                    || normalized.includes('page ');
+            };
+
+            const normalizeHost = (href) => {
+                try {
+                    const url = new URL(href, window.location.href);
+                    return url.host.replace(/^www\\./, '').toLowerCase();
+                } catch {
+                    return '';
+                }
+            };
+
+            const normalizeText = (anchor) => {
+                let text = (anchor.innerText || anchor.textContent || '').trim().replace(/\\s+/g, ' ');
+                if (text.length > 120) {
+                    text = text.substring(0, 120) + '...';
+                }
+                if (!text) {
+                    text = anchor.getAttribute('aria-label') || anchor.title || '';
+                }
+                return text;
+            };
+
+            document.querySelectorAll('a[href]').forEach(anchor => {
+                const href = anchor.href;
+                if (!href || href.startsWith('javascript:') || href === '#') {
+                    return;
+                }
+                totalLinksScannedRef.value += 1;
+                if (seen.has(href)) {
+                    return;
+                }
+                seen.add(href);
+
+                const text = normalizeText(anchor);
+                const isPagination = isPaginationLabel(text);
+                const host = normalizeHost(href);
+                const matchesHost = allowedHosts.size === 0 || allowedHosts.has(host);
+
+                if (isPagination && includePaginationLinks) {
+                    paginationLinks.push({ text, url: href, isPaginationControl: true });
+                }
+
+                if (!matchesHost || isPagination) {
+                    filteredOutCountRef.value += 1;
+                    return;
+                }
+
+                if (matches.length < maxMatches) {
+                    matches.push({
+                        text,
+                        url: href,
+                        sourcePageURL: window.location.href
+                    });
+                } else {
+                    filteredOutCountRef.value += 1;
+                }
+            });
+
+            return {
+                matches,
+                paginationLinks,
+                totalLinksScanned: totalLinksScannedRef.value,
+                filteredOutCount: filteredOutCountRef.value
+            };
+        })();
+        """
+    }
+
     // MARK: - Page Text
 
     static let pageText = """

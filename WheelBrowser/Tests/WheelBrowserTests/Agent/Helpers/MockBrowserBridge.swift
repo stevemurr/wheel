@@ -45,6 +45,13 @@ final class MockBrowserBridge: BrowserBridge {
         return snap
     }
 
+    func snapshot(request: SnapshotRequest) async throws -> ReducedPageObservation {
+        ReducedPageObservation(
+            snapshot: try await snapshot(),
+            request: request
+        )
+    }
+
     func click(elementId: Int, modifiers: ClickModifiers) async throws {
         recordedActions.append(.click(elementId: elementId, modifiers: modifiers))
     }
@@ -85,6 +92,43 @@ final class MockBrowserBridge: BrowserBridge {
 
     func getPageLinks() async throws -> String {
         return "Example Link -> https://example.com\nAnother Link -> https://example.com/page2"
+    }
+
+    func collectLinks(_ request: LinkCollectionRequest) async throws -> LinkCollectionResult {
+        let allLinks = [
+            LinkCollectionMatch(
+                text: "Example Link",
+                url: "https://example.com",
+                sourcePageURL: currentURL
+            ),
+            LinkCollectionMatch(
+                text: "Another Link",
+                url: "https://example.com/page2",
+                sourcePageURL: currentURL
+            ),
+        ]
+
+        let filtered = request.allowedHosts.isEmpty
+            ? allLinks
+            : allLinks.filter { match in
+                guard let host = URL(string: match.url)?.host?.replacingOccurrences(
+                    of: "^www\\.",
+                    with: "",
+                    options: .regularExpression
+                ) else {
+                    return false
+                }
+                return request.allowedHosts.contains(host)
+            }
+
+        return LinkCollectionResult(
+            matches: Array(filtered.prefix(request.maxMatches)),
+            paginationLinks: request.includePaginationLinks
+                ? [PageLink(text: "More", url: "https://example.com/page/2", isPaginationControl: true)]
+                : [],
+            totalLinksScanned: allLinks.count,
+            filteredOutCount: max(0, allLinks.count - filtered.count)
+        )
     }
 
     func capturePreActionState() async -> PreActionState {

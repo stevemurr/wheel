@@ -7,10 +7,13 @@ actor SummaryGenerator {
 
     private let maxSummaryLength = 500  // Generous limit, rely on prompt to enforce length
     private var isBackfilling = false
+    private let contextService: any WheelModelContextServing
 
     private static let instructions = "You are a concise summarizer. Provide brief, clear summaries in 2-3 sentences. Keep summaries under 100 words."
 
-    private init() {}
+    init(contextService: any WheelModelContextServing = WheelModelContextService.shared) {
+        self.contextService = contextService
+    }
 
     // MARK: - Summary Generation (Streaming)
 
@@ -19,25 +22,35 @@ actor SummaryGenerator {
     func generateSummaryStream(content: String) -> AsyncThrowingStream<String, Error> {
         let truncatedContent = String(content.prefix(3000))
         let prompt = "Summarize the following text:\n\n\(truncatedContent)"
+        let requestID = UUID()
+        let threadID = WheelModelContextService.summaryThreadID(for: requestID)
+        let contextService = self.contextService
 
-        Log.Services.info("Starting on-device streaming summary generation")
+        Log.Services.info("Starting LMCK streaming summary generation")
         return AsyncThrowingStream { continuation in
             let task = Task {
                 do {
                     var previousSummary = ""
-
-                    for try await rawContent in OnDeviceLLM.shared.stream(
+                    let stream = try await contextService.streamSummary(
+                        requestID: requestID,
                         prompt: prompt,
-                        instructions: Self.instructions,
-                        generating: GeneratedSummaryResponse.self
-                    ) {
-                        guard let currentSummary = try? rawContent.value(String.self, forProperty: "summary") else {
-                            continue
-                        }
+                        instructions: Self.instructions
+                    )
 
-                        if currentSummary.count > previousSummary.count {
+                    for try await event in stream {
+                        switch event {
+                        case .partial(let currentSummary):
+                            guard currentSummary.count > previousSummary.count else {
+                                continue
+                            }
                             let delta = String(currentSummary.dropFirst(previousSummary.count))
                             continuation.yield(delta)
+                            previousSummary = currentSummary
+                        case .completed(let response):
+                            let currentSummary = response.content.summary
+                            if currentSummary.count > previousSummary.count {
+                                continuation.yield(String(currentSummary.dropFirst(previousSummary.count)))
+                            }
                             previousSummary = currentSummary
                         }
                     }
@@ -46,9 +59,16 @@ actor SummaryGenerator {
                 } catch {
                     continuation.finish(throwing: error)
                 }
+
+                try? await contextService.resetThread(threadID: threadID)
             }
 
-            continuation.onTermination = { _ in task.cancel() }
+            continuation.onTermination = { _ in
+                task.cancel()
+                Task {
+                    try? await contextService.resetThread(threadID: threadID)
+                }
+            }
         }
     }
 
@@ -63,15 +83,22 @@ actor SummaryGenerator {
     func generateSummary(content: String) async -> String? {
         let truncatedContent = String(content.prefix(3000))
         let prompt = "Summarize the following text:\n\n\(truncatedContent)"
+        let requestID = UUID()
+        let threadID = WheelModelContextService.summaryThreadID(for: requestID)
+        defer {
+            Task {
+                try? await contextService.resetThread(threadID: threadID)
+            }
+        }
 
         do {
-            let result = try await OnDeviceLLM.shared.complete(
+            let result = try await contextService.generateSummary(
+                requestID: requestID,
                 prompt: prompt,
-                instructions: Self.instructions,
-                generating: GeneratedSummaryResponse.self
+                instructions: Self.instructions
             )
 
-            let summary = result.summary
+            let summary = result.content.summary
                 .trimmingCharacters(in: .whitespacesAndNewlines)
                 .replacingOccurrences(of: "\n", with: " ")
                 .replacingOccurrences(of: "\\s+", with: " ", options: .regularExpression)

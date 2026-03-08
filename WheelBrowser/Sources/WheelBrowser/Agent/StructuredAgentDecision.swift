@@ -13,6 +13,10 @@ struct GeneratedAgentDecision: Sendable {
         self.action = action
     }
 
+    var transcriptSummary: String {
+        action.transcriptSummary
+    }
+
     func toDecision() throws -> (thought: String, action: AgentAction) {
         let normalizedThought = thought.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !normalizedThought.isEmpty else {
@@ -25,7 +29,7 @@ struct GeneratedAgentDecision: Sendable {
 
 @Generable(description: "A single browser action with typed parameters.")
 struct GeneratedAgentAction: Sendable {
-    @Guide(description: "One of: click, type, press_enter, scroll, navigate, back, wait_for_user, wait, read_text, new_tab, open_tab, switch_tab, extract_content, read_links, done")
+    @Guide(description: "One of: click, type, press_enter, scroll, navigate, back, wait_for_user, wait, read_text, new_tab, open_tab, switch_tab, extract_content, read_links, collect_links, done")
     let actionType: String
 
     @Guide(description: "Element ID for click, type, or read_text actions.")
@@ -151,6 +155,9 @@ struct GeneratedAgentAction: Sendable {
         case "read_links":
             return .readLinks
 
+        case "collect_links":
+            return .collectLinks
+
         case "done":
             return .done(summary: summary ?? "Task completed")
 
@@ -207,8 +214,49 @@ struct GeneratedAgentAction: Sendable {
             self.init(actionType: "extract_content", elementId: nil, text: nil, url: nil, scrollDirection: nil, modifiers: nil, tabIndex: nil, reason: nil, waitSeconds: nil, summary: nil)
         case .readLinks:
             self.init(actionType: "read_links", elementId: nil, text: nil, url: nil, scrollDirection: nil, modifiers: nil, tabIndex: nil, reason: nil, waitSeconds: nil, summary: nil)
+        case .collectLinks:
+            self.init(actionType: "collect_links", elementId: nil, text: nil, url: nil, scrollDirection: nil, modifiers: nil, tabIndex: nil, reason: nil, waitSeconds: nil, summary: nil)
         case .done(let summary):
             self.init(actionType: "done", elementId: nil, text: nil, url: nil, scrollDirection: nil, modifiers: nil, tabIndex: nil, reason: nil, waitSeconds: nil, summary: summary)
+        }
+    }
+
+    var transcriptSummary: String {
+        switch actionType.lowercased() {
+        case "click":
+            return elementId.map { "Action: click #\($0)" } ?? "Action: click"
+        case "type":
+            return elementId.map { "Action: type into #\($0)" } ?? "Action: type"
+        case "press_enter":
+            return "Action: press_enter"
+        case "scroll":
+            return "Action: scroll \(scrollDirection ?? "down")"
+        case "navigate":
+            return "Action: navigate \(url ?? "")".trimmingCharacters(in: .whitespaces)
+        case "back":
+            return "Action: back"
+        case "wait_for_user":
+            return "Action: wait_for_user"
+        case "wait":
+            return "Action: wait \(waitSeconds ?? 0)"
+        case "read_text":
+            return elementId.map { "Action: read_text #\($0)" } ?? "Action: read_text"
+        case "new_tab":
+            return "Action: new_tab"
+        case "open_tab":
+            return "Action: open_tab \(url ?? "")".trimmingCharacters(in: .whitespaces)
+        case "switch_tab":
+            return tabIndex.map { "Action: switch_tab #\($0)" } ?? "Action: switch_tab"
+        case "extract_content":
+            return "Action: extract_content"
+        case "read_links":
+            return "Action: read_links"
+        case "collect_links":
+            return "Action: collect_links"
+        case "done":
+            return "Action: done \(summary ?? "Task completed")"
+        default:
+            return "Action: \(actionType)"
         }
     }
 }

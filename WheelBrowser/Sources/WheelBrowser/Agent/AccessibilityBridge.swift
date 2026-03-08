@@ -38,6 +38,25 @@ class AccessibilityBridge: BrowserBridge {
         }
     }
 
+    func snapshot(request: SnapshotRequest) async throws -> ReducedPageObservation {
+        let pageSnapshot = try await snapshot()
+        let linkRequest = LinkCollectionRequest(
+            allowedHosts: request.relevantHosts,
+            includePaginationLinks: request.includePaginationControls,
+            maxMatches: max(request.maxRelevantLinks * 3, request.maxRelevantLinks)
+        )
+        let linkResult = try await collectLinks(linkRequest)
+        return ReducedPageObservation(
+            snapshot: pageSnapshot,
+            request: request,
+            relevantLinks: linkResult.matches.map {
+                PageLink(text: $0.text, url: $0.url, isPaginationControl: false)
+            },
+            paginationLinks: request.includePaginationControls ? linkResult.paginationLinks : [],
+            totalPageLinkCount: linkResult.totalLinksScanned
+        )
+    }
+
     // MARK: - Element Re-validation
 
     /// Validate that an element still exists and is visible. If not, attempt to re-find by text/tag match.
@@ -125,6 +144,32 @@ class AccessibilityBridge: BrowserBridge {
                 throw AgentError.javascriptError("getPageLinks: Expected String but got \(Swift.type(of: result))")
             }
             return links
+        } catch let error as AgentError {
+            throw error
+        } catch {
+            throw AgentError.javascriptError(error.localizedDescription)
+        }
+    }
+
+    func collectLinks(_ request: LinkCollectionRequest) async throws -> LinkCollectionResult {
+        guard let webView = webView else {
+            throw AgentError.webViewUnavailable
+        }
+
+        do {
+            let jsonData = try JSONEncoder().encode(request.allowedHosts)
+            let allowedHostsJSON = String(data: jsonData, encoding: .utf8) ?? "[]"
+            let script = AgentScripts.collectLinks(
+                allowedHostsJSON: allowedHostsJSON,
+                maxMatches: request.maxMatches,
+                includePaginationLinks: request.includePaginationLinks
+            )
+            let result = try await webView.evaluateJavaScript(script)
+            guard let dict = result as? [String: Any] else {
+                throw AgentError.javascriptError("collectLinks: Invalid response format")
+            }
+            let responseData = try JSONSerialization.data(withJSONObject: dict)
+            return try JSONDecoder().decode(LinkCollectionResult.self, from: responseData)
         } catch let error as AgentError {
             throw error
         } catch {

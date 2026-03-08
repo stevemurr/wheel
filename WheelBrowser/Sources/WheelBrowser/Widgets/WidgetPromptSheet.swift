@@ -136,7 +136,7 @@ struct WidgetPromptSheet: View {
     @State private var prompt = ""
     @State private var isWorking = false
     @State private var error: String?
-    @State private var availability: OnDeviceLLM.AvailabilityStatus?
+    @State private var availability: LMAvailabilityStatus?
     @State private var phase: WidgetCreationSheetPhase = .idle
     @State private var statusDetail = "Describe a live widget or start with a quick sample."
     @State private var lastActiveStepIndex: Int?
@@ -170,7 +170,7 @@ struct WidgetPromptSheet: View {
         .frame(minWidth: 860, minHeight: 600)
         .task {
             guard availability == nil else { return }
-            availability = await OnDeviceLLM.shared.availabilityStatus()
+            availability = await WheelModelContextService.shared.availabilityStatus()
         }
         .onChange(of: prompt) { _, _ in
             guard !isWorking else { return }

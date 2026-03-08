@@ -49,7 +49,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         // Log startup configuration
         let settings = AppSettings.shared
         Task.detached(priority: .utility) {
-            let availability = await OnDeviceLLM.shared.availabilityStatus()
+            let availability = await WheelModelContextService.shared.availabilityStatus()
             if availability.isAvailable {
                 Log.Services.info("On-device AI model: available")
             } else {
