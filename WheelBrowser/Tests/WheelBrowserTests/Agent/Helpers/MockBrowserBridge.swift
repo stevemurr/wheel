@@ -73,10 +73,18 @@ final class MockBrowserBridge: BrowserBridge {
             targetHosts: request.relevantHosts,
             includePaginationLinks: request.includePaginationControls,
             maxMatches: max(request.maxRelevantLinks * 3, request.maxRelevantLinks),
-            canonicalizationStrategy: request.canonicalizationStrategy
+            canonicalizationStrategy: request.canonicalizationStrategy,
+            collectionStrategy: request.collectionStrategy
         )
         let filteredMatches = links.filter { link in
             guard !link.isPaginationControl else {
+                return false
+            }
+            if requestForLinks.collectionStrategy == .hackerNewsStoryLinks,
+               URL(string: pageSnapshot.url)?.normalizedAgentHost == "news.ycombinator.com",
+               let path = URLComponents(string: pageSnapshot.url)?.path,
+               path == "/news" || path == "/news/",
+               link.host == "news.ycombinator.com" {
                 return false
             }
             if requestForLinks.targetHosts.isEmpty {
@@ -184,15 +192,18 @@ final class MockBrowserBridge: BrowserBridge {
                 }
                 return request.targetHosts.contains(host)
             }
+        let strategyFiltered = request.collectionStrategy == .hackerNewsStoryLinks && currentURL.contains("news.ycombinator.com/news")
+            ? filtered.filter { URL(string: $0.url)?.normalizedAgentHost != "news.ycombinator.com" }
+            : filtered
 
         return LinkCollectionCanonicalizer.apply(
             to: LinkCollectionResult(
-                matches: Array(filtered.prefix(request.maxMatches)),
+                matches: Array(strategyFiltered.prefix(request.maxMatches)),
                 paginationCandidates: request.includePaginationLinks
                     ? [PaginationCandidate(text: "More", url: "https://example.com/page/2")]
                     : [],
                 totalLinksScanned: allLinks.count,
-                filteredOutCount: max(0, allLinks.count - filtered.count),
+                filteredOutCount: max(0, allLinks.count - strategyFiltered.count),
                 pageURL: currentURL,
                 pageHost: URL(string: currentURL)?.normalizedAgentHost ?? ""
             ),

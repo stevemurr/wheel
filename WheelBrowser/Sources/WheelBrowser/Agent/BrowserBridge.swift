@@ -31,7 +31,8 @@ extension BrowserBridge {
             targetHosts: request.relevantHosts,
             includePaginationLinks: request.includePaginationControls,
             maxMatches: max(request.maxRelevantLinks * 3, request.maxRelevantLinks),
-            canonicalizationStrategy: request.canonicalizationStrategy
+            canonicalizationStrategy: request.canonicalizationStrategy,
+            collectionStrategy: request.collectionStrategy
         )
         let linkResult = try await collectLinks(linkRequest)
         return ReducedPageObservation(
@@ -59,6 +60,11 @@ extension BrowserBridge {
 
     func collectLinks(_ request: LinkCollectionRequest) async throws -> LinkCollectionResult {
         let currentURL = try await snapshot().url
+        if request.collectionStrategy == .hackerNewsStoryLinks,
+           let specialized = try await collectHackerNewsStoryLinks(currentURL: currentURL, request: request) {
+            return specialized
+        }
+
         let rawLinks = try await getPageLinks()
         let lines = rawLinks
             .split(separator: "\n")
@@ -101,6 +107,69 @@ extension BrowserBridge {
                 paginationCandidates: paginationCandidates,
                 totalLinksScanned: parsedLinks.count,
                 filteredOutCount: max(0, parsedLinks.count - matches.count),
+                pageURL: currentURL,
+                pageHost: URL(string: currentURL)?.normalizedAgentHost ?? ""
+            ),
+            request: request
+        )
+    }
+
+    private func collectHackerNewsStoryLinks(
+        currentURL: String,
+        request: LinkCollectionRequest
+    ) async throws -> LinkCollectionResult? {
+        guard let components = URLComponents(string: currentURL),
+              components.host?.replacingOccurrences(of: "^www\\.", with: "", options: .regularExpression) == "news.ycombinator.com",
+              components.path == "/news" || components.path == "/news/" else {
+            return nil
+        }
+
+        let rawLinks = try await getPageLinks()
+        let lines = rawLinks.split(separator: "\n").map(String.init)
+        var matches: [LinkCollectionMatch] = []
+        var paginationCandidates: [PaginationCandidate] = []
+        var filteredOutCount = 0
+
+        for line in lines {
+            guard let separatorRange = line.range(of: " -> ") else {
+                continue
+            }
+            let text = String(line[..<separatorRange.lowerBound]).trimmingCharacters(in: .whitespacesAndNewlines)
+            let url = String(line[separatorRange.upperBound...]).trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !url.isEmpty else {
+                continue
+            }
+
+            if PageLinkParser.isPaginationLabel(text) {
+                if request.includePaginationLinks {
+                    paginationCandidates.append(PaginationCandidate(text: text, url: url))
+                }
+                continue
+            }
+
+            let host = URL(string: url)?.normalizedAgentHost ?? ""
+            guard host != "news.ycombinator.com" else {
+                filteredOutCount += 1
+                continue
+            }
+            if !request.targetHosts.isEmpty && !request.targetHosts.contains(host) {
+                filteredOutCount += 1
+                continue
+            }
+
+            if matches.count < request.maxMatches {
+                matches.append(LinkCollectionMatch(text: text, url: url, sourcePageURL: currentURL))
+            } else {
+                filteredOutCount += 1
+            }
+        }
+
+        return LinkCollectionCanonicalizer.apply(
+            to: LinkCollectionResult(
+                matches: matches,
+                paginationCandidates: paginationCandidates,
+                totalLinksScanned: lines.count,
+                filteredOutCount: filteredOutCount,
                 pageURL: currentURL,
                 pageHost: URL(string: currentURL)?.normalizedAgentHost ?? ""
             ),

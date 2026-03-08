@@ -28,6 +28,11 @@ struct TabPreviewCard: View {
                 thumbnailView
                     .frame(width: cardWidth, height: thumbnailHeight)
                     .clipShape(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
+                    .overlay {
+                        if tab.hasActiveAgent {
+                            AgentRoundedGlow(cornerRadius: cornerRadius, lineWidth: 2.2, fillOpacity: 0.03)
+                        }
+                    }
 
                 // Close button overlay
                 if showClose && canClose && !tab.hasActiveAgent {
@@ -62,7 +67,7 @@ struct TabPreviewCard: View {
         .onHover { hovering in
             showClose = hovering
         }
-        .help(tab.title)
+        .help(tab.hasActiveAgent ? "\(tab.title) (Agent running)" : tab.title)
     }
 
     // MARK: - Thumbnail View
@@ -102,7 +107,7 @@ struct TabPreviewCard: View {
 
     private var borderColor: Color {
         if tab.hasActiveAgent {
-            return .green
+            return .green.opacity(0.9)
         } else if isActive {
             return Color(nsColor: .controlAccentColor)
         } else {

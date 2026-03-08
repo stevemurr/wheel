@@ -116,6 +116,11 @@ private struct TabWebViewContainer: View {
                     }
                 }
             }
+
+            if tab.hasActiveAgent {
+                AgentControlledTabOverlay(progress: tab.agentProgress)
+                    .padding(12)
+            }
         }
         // Keep inactive tabs in hierarchy but hidden
         // Using opacity instead of removing from hierarchy preserves JS execution

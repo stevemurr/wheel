@@ -44,7 +44,8 @@ class AccessibilityBridge: BrowserBridge {
             targetHosts: request.relevantHosts,
             includePaginationLinks: request.includePaginationControls,
             maxMatches: max(request.maxRelevantLinks * 3, request.maxRelevantLinks),
-            canonicalizationStrategy: request.canonicalizationStrategy
+            canonicalizationStrategy: request.canonicalizationStrategy,
+            collectionStrategy: request.collectionStrategy
         )
         let linkResult = try await collectLinks(linkRequest)
         return ReducedPageObservation(
@@ -163,7 +164,8 @@ class AccessibilityBridge: BrowserBridge {
             let script = AgentScripts.collectLinks(
                 targetHostsJSON: targetHostsJSON,
                 maxMatches: request.maxMatches,
-                includePaginationLinks: request.includePaginationLinks
+                includePaginationLinks: request.includePaginationLinks,
+                collectionStrategy: request.collectionStrategy.rawValue
             )
             let result = try await webView.evaluateJavaScript(script)
             guard let dict = result as? [String: Any] else {

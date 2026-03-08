@@ -4,6 +4,11 @@ import Foundation
 /// Keeps JS out of AccessibilityBridge so that file focuses on Swift dispatch logic.
 enum AgentScripts {
 
+    private static func jsonStringLiteral(_ value: String) -> String {
+        let data = try? JSONEncoder().encode(value)
+        return data.flatMap { String(data: $0, encoding: .utf8) } ?? "\"\""
+    }
+
     // MARK: - Snapshot
 
     static let snapshot = """
@@ -529,13 +534,14 @@ enum AgentScripts {
     })();
     """
 
-    static func collectLinks(targetHostsJSON: String, maxMatches: Int, includePaginationLinks: Bool) -> String {
+    static func collectLinks(targetHostsJSON: String, maxMatches: Int, includePaginationLinks: Bool, collectionStrategy: String) -> String {
         let includePagination = includePaginationLinks ? "true" : "false"
         return """
         (function() {
             const targetHosts = new Set(\(targetHostsJSON));
             const includePaginationLinks = \(includePagination);
             const maxMatches = \(maxMatches);
+            const collectionStrategy = \(jsonStringLiteral(collectionStrategy));
             const seen = new Set();
             const matches = [];
             const paginationCandidates = [];
@@ -569,6 +575,64 @@ enum AgentScripts {
                 }
                 return text;
             };
+
+            const normalizedCurrentHost = window.location.host.replace(/^www\\./, '').toLowerCase();
+            const isHackerNewsListing = normalizedCurrentHost === 'news.ycombinator.com'
+                && (window.location.pathname === '/news' || window.location.pathname === '/news/');
+
+            if (collectionStrategy === 'hackerNewsStoryLinks' && isHackerNewsListing) {
+                document.querySelectorAll('.athing .titleline > a[href]').forEach(anchor => {
+                    const href = anchor.href;
+                    if (!href || seen.has(href)) {
+                        return;
+                    }
+                    seen.add(href);
+                    totalLinksScannedRef.value += 1;
+
+                    const host = normalizeHost(href);
+                    if (!host || host === 'news.ycombinator.com') {
+                        filteredOutCountRef.value += 1;
+                        return;
+                    }
+                    if (targetHosts.size > 0 && !targetHosts.has(host)) {
+                        filteredOutCountRef.value += 1;
+                        return;
+                    }
+
+                    if (matches.length < maxMatches) {
+                        matches.push({
+                            text: normalizeText(anchor),
+                            url: href,
+                            sourcePageURL: window.location.href
+                        });
+                    } else {
+                        filteredOutCountRef.value += 1;
+                    }
+                });
+
+                if (includePaginationLinks) {
+                    document.querySelectorAll('a.morelink[href]').forEach(anchor => {
+                        const href = anchor.href;
+                        if (!href) {
+                            return;
+                        }
+                        paginationCandidates.push({
+                            text: normalizeText(anchor),
+                            url: href,
+                            identity: href.replace(/#.*$/, '').toLowerCase()
+                        });
+                    });
+                }
+
+                return {
+                    matches,
+                    paginationCandidates,
+                    totalLinksScanned: totalLinksScannedRef.value,
+                    filteredOutCount: filteredOutCountRef.value,
+                    pageURL: window.location.href,
+                    pageHost: normalizedCurrentHost
+                };
+            }
 
             document.querySelectorAll('a[href]').forEach(anchor => {
                 const href = anchor.href;

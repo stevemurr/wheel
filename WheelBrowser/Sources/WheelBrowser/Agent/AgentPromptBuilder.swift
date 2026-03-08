@@ -64,6 +64,12 @@ enum AgentPromptBuilder {
         if let pageLimit = intent.pageLimit {
             lines.append("Requested page limit: \(pageLimit)")
         }
+        if let outputLimit = intent.outputLimit {
+            lines.append("Desired output size: up to \(outputLimit) \(intent.requiresPerItemSummaries ? "items" : "links")")
+        }
+        if intent.requiresPerItemSummaries {
+            lines.append("Final output must include a summary for each selected item.")
+        }
         if !intent.sourceHosts.isEmpty {
             lines.append("Source hosts: \(intent.sourceHosts.joined(separator: ", "))")
         }
@@ -93,6 +99,13 @@ enum AgentPromptBuilder {
         if intent.isLinkCollection {
             lines.append("TASK HINT:")
             lines.append("This is a link-collection task. Collection happens automatically once per newly observed crawl page. Prefer pagination/navigation actions over reading large raw content, and use `collect_links` only if you need to retry collection on the current page.")
+            if intent.requiresPerItemSummaries {
+                lines.append("This task is not complete after collecting links. After selecting the requested items, open them and gather enough content to produce a concise summary for each one.")
+                lines.append("When you call `done`, return a markdown list where each item includes the title, URL, and a short summary.")
+            }
+            if intent.collectionStrategy == .hackerNewsStoryLinks {
+                lines.append("On Hacker News feed pages, only top-level story links are collected. Internal HN discussion and user links are excluded.")
+            }
             lines.append("")
         }
 

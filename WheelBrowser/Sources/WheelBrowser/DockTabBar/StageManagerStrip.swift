@@ -210,7 +210,12 @@ private struct BinderTabPeek: View {
     @State private var isHovered = false
 
     private var peekWidth: CGFloat {
-        let baseWidth = isActive ? 14.0 : (isHovered ? 12.0 : 8.0)
+        let baseWidth: CGFloat
+        if tab.hasActiveAgent {
+            baseWidth = isHovered ? 16.0 : 13.0
+        } else {
+            baseWidth = isActive ? 14.0 : (isHovered ? 12.0 : 8.0)
+        }
         return baseWidth * sizeScale
     }
 
@@ -223,39 +228,72 @@ private struct BinderTabPeek: View {
     }
 
     var body: some View {
-        // The tab shape: left edge is flush/straight, right edge is rounded
-        UnevenRoundedRectangle(
-            cornerRadii: .init(
-                topLeading: 0,
-                bottomLeading: 0,
-                bottomTrailing: peekCornerRadius,
-                topTrailing: peekCornerRadius
-            ),
-            style: .continuous
-        )
-        .fill(tabColor)
-        .frame(width: peekWidth, height: peekHeight)
-        .overlay(alignment: .trailing) {
-            // Accent stripe on the right edge for the active tab
-            if isActive {
-                UnevenRoundedRectangle(
-                    cornerRadii: .init(
-                        topLeading: 0,
-                        bottomLeading: 0,
-                        bottomTrailing: peekCornerRadius,
-                        topTrailing: peekCornerRadius
-                    ),
-                    style: .continuous
-                )
-                .strokeBorder(Color(nsColor: .controlAccentColor), lineWidth: max(1, 1.5 * sizeScale))
+        TimelineView(.animation(minimumInterval: 1.0 / 24.0, paused: false)) { context in
+            let glowPhase = glowPulse(for: context.date)
+
+            UnevenRoundedRectangle(
+                cornerRadii: .init(
+                    topLeading: 0,
+                    bottomLeading: 0,
+                    bottomTrailing: peekCornerRadius,
+                    topTrailing: peekCornerRadius
+                ),
+                style: .continuous
+            )
+            .fill(tabColor)
+            .frame(width: peekWidth, height: peekHeight)
+            .overlay {
+                if tab.hasActiveAgent {
+                    UnevenRoundedRectangle(
+                        cornerRadii: .init(
+                            topLeading: 0,
+                            bottomLeading: 0,
+                            bottomTrailing: peekCornerRadius,
+                            topTrailing: peekCornerRadius
+                        ),
+                        style: .continuous
+                    )
+                    .stroke(Color.green.opacity(0.2 + (0.12 * glowPhase)), lineWidth: max(2, 3 * sizeScale))
+                    .blur(radius: 4 + (3 * glowPhase))
+                }
             }
+            .overlay(alignment: .trailing) {
+                if tab.hasActiveAgent {
+                    AgentAutomationOrb(size: max(4, 5 * sizeScale))
+                        .offset(x: 4 * sizeScale)
+                }
+
+                if tab.hasActiveAgent || isActive {
+                    UnevenRoundedRectangle(
+                        cornerRadii: .init(
+                            topLeading: 0,
+                            bottomLeading: 0,
+                            bottomTrailing: peekCornerRadius,
+                            topTrailing: peekCornerRadius
+                        ),
+                        style: .continuous
+                    )
+                    .strokeBorder(
+                        tab.hasActiveAgent ? Color.green.opacity(0.82 + (0.12 * glowPhase)) : Color(nsColor: .controlAccentColor),
+                        lineWidth: max(1, 1.5 * sizeScale)
+                    )
+                }
+            }
+            .shadow(
+                color: tab.hasActiveAgent
+                    ? Color.green.opacity(0.28 + (0.16 * glowPhase))
+                    : .black.opacity(0.25),
+                radius: tab.hasActiveAgent ? (8 * sizeScale) + (3 * sizeScale * glowPhase) : 2 * sizeScale,
+                x: sizeScale,
+                y: sizeScale
+            )
         }
-        .shadow(color: .black.opacity(0.25), radius: 2 * sizeScale, x: sizeScale, y: sizeScale)
         .animation(AppAnimation.hoverSpring, value: isHovered)
         .animation(AppAnimation.hoverSpring, value: isActive)
+        .animation(AppAnimation.hoverSpring, value: tab.hasActiveAgent)
         .onTapGesture(perform: onSelect)
         .onHover { isHovered = $0 }
-        .help(tab.displayTitle)
+        .help(tab.hasActiveAgent ? "\(tab.displayTitle) (Agent running)" : tab.displayTitle)
     }
 
     private var tabColor: Color {
@@ -266,6 +304,12 @@ private struct BinderTabPeek: View {
             return .purple.opacity(0.7)
         }
         return DomainGradient.solidColor(for: tab.url?.host)
+    }
+
+    private func glowPulse(for date: Date) -> Double {
+        let cycle = 1.2
+        let time = date.timeIntervalSinceReferenceDate.truncatingRemainder(dividingBy: cycle)
+        return (sin((time / cycle) * (.pi * 2)) + 1) / 2
     }
 }
 

@@ -28,17 +28,6 @@ struct AgentPanelContent: View {
                             )
                         }
 
-                        if let result = agentEngine.lastResult {
-                            AgentResultCard(
-                                result: result,
-                                onSelectArtifact: { artifact in
-                                    withAnimation(AppAnimation.standard) {
-                                        selectedArtifact = artifact
-                                    }
-                                }
-                            )
-                        }
-
                         // Guardrail warning
                         if let warning = agentEngine.guardrailWarning {
                             GuardrailWarningRow(message: warning)
@@ -56,12 +45,26 @@ struct AgentPanelContent: View {
                                 .id("streaming-thought")
                         }
 
+                        if let result = agentEngine.lastResult {
+                            AgentResultCard(
+                                result: result,
+                                onSelectArtifact: { artifact in
+                                    withAnimation(AppAnimation.standard) {
+                                        selectedArtifact = artifact
+                                    }
+                                }
+                            )
+                            .id("agent-result-card")
+                            .padding(.top, 8)
+                        }
+
                         if let selectedArtifact {
                             ArtifactPanelView(artifact: selectedArtifact) {
                                 withAnimation(AppAnimation.standard) {
                                     self.selectedArtifact = nil
                                 }
                             }
+                            .id("agent-selected-artifact")
                             .frame(minHeight: 220)
                             .clipShape(RoundedRectangle(cornerRadius: 8))
                             .padding(.top, 8)
@@ -93,13 +96,42 @@ struct AgentPanelContent: View {
                     proxy.scrollTo("streaming-thought", anchor: .bottom)
                 }
             }
+            .onChange(of: agentEngine.lastResult?.artifacts) { _, _ in
+                withAnimation(AppAnimation.standard) {
+                    selectedArtifact = preferredArtifact(from: agentEngine.lastResult)
+                }
+
+                guard selectedArtifact != nil else {
+                    return
+                }
+
+                Task { @MainActor in
+                    try? await Task.sleep(nanoseconds: 50_000_000)
+                    withAnimation(AppAnimation.standard) {
+                        proxy.scrollTo("agent-selected-artifact", anchor: .bottom)
+                    }
+                }
+            }
         }
+    }
+
+    private func preferredArtifact(from result: AgentResult?) -> ChatArtifact? {
+        guard let result else {
+            return nil
+        }
+
+        return result.artifacts.first(where: { $0.type == .markdown }) ?? result.artifacts.first
     }
 }
 
 private struct AgentResultCard: View {
     let result: AgentResult
     var onSelectArtifact: (ChatArtifact) -> Void
+    @State private var showCopied = false
+
+    private var markdownArtifact: ChatArtifact? {
+        result.artifacts.first(where: { $0.type == .markdown })
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
@@ -137,6 +169,39 @@ private struct AgentResultCard: View {
                 }
             }
 
+            if let markdownArtifact {
+                VStack(alignment: .leading, spacing: 8) {
+                    HStack(spacing: 8) {
+                        Text(markdownArtifact.title)
+                            .font(.system(size: 11, weight: .semibold))
+                            .foregroundColor(.secondary)
+
+                        Spacer()
+
+                        Button(action: copyMarkdown) {
+                            Label(showCopied ? "Copied" : "Copy Markdown", systemImage: showCopied ? "checkmark" : "doc.on.doc")
+                                .font(.system(size: 11, weight: .medium))
+                                .foregroundColor(showCopied ? .green : .secondary)
+                        }
+                        .buttonStyle(.plain)
+                    }
+
+                    ScrollView(.vertical, showsIndicators: true) {
+                        Text(markdownArtifact.content)
+                            .font(.system(size: 11, design: .monospaced))
+                            .foregroundColor(.primary)
+                            .textSelection(.enabled)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                    }
+                    .frame(minHeight: 90, maxHeight: 180)
+                    .padding(10)
+                    .background(
+                        RoundedRectangle(cornerRadius: 6)
+                            .fill(Color(nsColor: .textBackgroundColor).opacity(0.9))
+                    )
+                }
+            }
+
             if !result.artifacts.isEmpty {
                 ScrollView(.horizontal, showsIndicators: false) {
                     HStack(spacing: 6) {
@@ -155,6 +220,19 @@ private struct AgentResultCard: View {
             RoundedRectangle(cornerRadius: 8)
                 .fill(Color(nsColor: .controlBackgroundColor).opacity(0.35))
         )
+    }
+
+    private func copyMarkdown() {
+        guard let markdownArtifact else {
+            return
+        }
+
+        PasteboardHelper.copy(markdownArtifact.content)
+        showCopied = true
+        Task {
+            try? await Task.sleep(for: .seconds(2))
+            showCopied = false
+        }
     }
 }
 
@@ -187,28 +265,7 @@ private struct BoundTabIndicator: View {
 
     var body: some View {
         HStack(spacing: 8) {
-            Image(systemName: "arrow.left.arrow.right")
-                .font(.system(size: 10, weight: .medium))
-                .foregroundColor(.green)
-
-            Text("Running on:")
-                .font(.system(size: 11))
-                .foregroundColor(.secondary)
-
-            Text(tabTitle)
-                .font(.system(size: 11, weight: .medium))
-                .foregroundColor(.primary)
-                .lineLimit(1)
-
-            Text("(background)")
-                .font(.system(size: 10))
-                .foregroundColor(.green)
-                .padding(.horizontal, 6)
-                .padding(.vertical, 2)
-                .background(
-                    Capsule()
-                        .fill(Color.green.opacity(0.15))
-                )
+            AgentAutomationBadge(title: "Running on \(tabTitle)", subtitle: "You can browse other tabs while this runs.")
 
             Spacer()
         }
@@ -216,7 +273,7 @@ private struct BoundTabIndicator: View {
         .padding(.vertical, 6)
         .background(
             RoundedRectangle(cornerRadius: 6)
-                .fill(Color.green.opacity(0.1))
+                .fill(Color.green.opacity(0.08))
         )
     }
 }

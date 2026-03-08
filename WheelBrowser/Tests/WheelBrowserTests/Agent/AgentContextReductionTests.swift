@@ -4,21 +4,87 @@ import Testing
 
 @Suite("Agent Context Reduction")
 struct AgentContextReductionTests {
-    @Test("Task intent parser extracts collection constraints")
-    func parsesCollectionIntent() {
-        let intent = AgentTaskIntent.parse(
-            task: "On Hacker News, scan the first 10 pages and create a list of all the arxiv links with unique URLs."
-        )
+    @Test("Generated task intent converts collection constraints")
+    func convertsCollectionIntent() throws {
+        let intent = try makeIntent(
+            seedURL: "https://news.ycombinator.com/news",
+            sourceHosts: ["news.ycombinator.com"],
+            targetHosts: ["arxiv.org"],
+            pageLimit: 10,
+            outputLimit: nil,
+            requiresUniqueURLs: true,
+            requiresPerItemSummaries: false,
+            collectionMode: "paginated_links",
+            canonicalizationStrategy: "arxiv",
+            collectionStrategy: "hacker_news_story_links",
+            sourcePageIdentityStrategy: "hacker_news_news_pages"
+        ).toTaskIntent()
 
         #expect(intent.collectionMode == .paginatedLinks)
         #expect(intent.seedURL == "https://news.ycombinator.com/news")
         #expect(intent.sourceHosts == ["news.ycombinator.com"])
         #expect(intent.targetHosts == ["arxiv.org"])
         #expect(intent.pageLimit == 10)
+        #expect(intent.outputLimit == nil)
         #expect(intent.requiresUniqueURLs)
         #expect(intent.canonicalizationStrategy == .arxiv)
+        #expect(intent.collectionStrategy == .hackerNewsStoryLinks)
+        #expect(intent.sourcePageIdentityStrategy == .hackerNewsNewsPages)
         #expect(intent.snapshotRequest.relevantHosts == ["arxiv.org"])
         #expect(intent.linkCollectionRequest?.targetHosts == ["arxiv.org"])
+    }
+
+    @Test("Generated task intent preserves Hacker News best-links settings")
+    func convertsHackerNewsBestLinksIntent() throws {
+        let intent = try makeIntent(
+            seedURL: "https://news.ycombinator.com/news",
+            sourceHosts: ["news.ycombinator.com"],
+            targetHosts: [],
+            pageLimit: 5,
+            outputLimit: 10,
+            requiresUniqueURLs: true,
+            requiresPerItemSummaries: false,
+            collectionMode: "paginated_links",
+            canonicalizationStrategy: "none",
+            collectionStrategy: "hacker_news_story_links",
+            sourcePageIdentityStrategy: "hacker_news_news_pages"
+        ).toTaskIntent()
+
+        #expect(intent.collectionMode == .paginatedLinks)
+        #expect(intent.seedURL == "https://news.ycombinator.com/news")
+        #expect(intent.pageLimit == 5)
+        #expect(intent.outputLimit == 10)
+        #expect(intent.targetHosts.isEmpty)
+        #expect(intent.collectionStrategy == .hackerNewsStoryLinks)
+        #expect(intent.sourcePageIdentityStrategy == .hackerNewsNewsPages)
+    }
+
+    @Test("Generated task intent can require per-item summaries")
+    func convertsSummaryEnrichedIntent() throws {
+        let intent = try makeIntent(
+            seedURL: "https://news.ycombinator.com/news",
+            sourceHosts: ["news.ycombinator.com"],
+            targetHosts: [],
+            pageLimit: 5,
+            outputLimit: 3,
+            requiresUniqueURLs: true,
+            requiresPerItemSummaries: true,
+            collectionMode: "paginated_links",
+            canonicalizationStrategy: "none",
+            collectionStrategy: "hacker_news_story_links",
+            sourcePageIdentityStrategy: "hacker_news_news_pages"
+        ).toTaskIntent()
+
+        #expect(intent.collectionMode == .paginatedLinks)
+        #expect(intent.seedURL == "https://news.ycombinator.com/news")
+        #expect(intent.pageLimit == 5)
+        #expect(intent.outputLimit == 3)
+        #expect(intent.requiresPerItemSummaries)
+        #expect(intent.targetHosts.isEmpty)
+        #expect(intent.collectionStrategy == .hackerNewsStoryLinks)
+        #expect(intent.sourcePageIdentityStrategy == .hackerNewsNewsPages)
+        #expect(intent.snapshotRequest.includeContentSummary)
+        #expect(intent.snapshotRequest.includeHeadings)
     }
 
     @Test("Reduced observation keeps relevant links and pagination while omitting irrelevant content")
@@ -91,7 +157,8 @@ struct AgentContextReductionTests {
                 includePaginationControls: true,
                 relevantHosts: ["arxiv.org"],
                 maxRelevantLinks: 1,
-                canonicalizationStrategy: .arxiv
+                canonicalizationStrategy: .arxiv,
+                collectionStrategy: .generic
             ),
             relevantLinks: [
                 PageLink(text: "Paper 1", url: "https://arxiv.org/abs/1234.5678", isPaginationControl: false),
@@ -128,7 +195,8 @@ struct AgentContextReductionTests {
             targetHosts: ["arxiv.org"],
             includePaginationLinks: true,
             maxMatches: 10,
-            canonicalizationStrategy: .arxiv
+            canonicalizationStrategy: .arxiv,
+            collectionStrategy: .generic
         )
         let raw = LinkCollectionResult(
             matches: [
@@ -158,10 +226,20 @@ struct AgentContextReductionTests {
     }
 
     @Test("Crawl session rejects revisiting the same pagination target")
-    func rejectsRepeatedPaginationVisit() {
-        let intent = AgentTaskIntent.parse(
-            task: "On Hacker News, scan the first 5 pages and create a list of all the arxiv links."
-        )
+    func rejectsRepeatedPaginationVisit() throws {
+        let intent = try makeIntent(
+            seedURL: "https://news.ycombinator.com/news",
+            sourceHosts: ["news.ycombinator.com"],
+            targetHosts: ["arxiv.org"],
+            pageLimit: 5,
+            outputLimit: nil,
+            requiresUniqueURLs: true,
+            requiresPerItemSummaries: false,
+            collectionMode: "paginated_links",
+            canonicalizationStrategy: "arxiv",
+            collectionStrategy: "hacker_news_story_links",
+            sourcePageIdentityStrategy: "hacker_news_news_pages"
+        ).toTaskIntent()
         var session = AgentCrawlSession(intent: intent)
         session.observePage(
             url: "https://news.ycombinator.com/news",
@@ -174,6 +252,44 @@ struct AgentContextReductionTests {
         let secondVisit = session.registerPaginationVisit(candidate!)
         #expect(firstVisit)
         #expect(!secondVisit)
+    }
+
+    @Test("Hacker News crawl session tracks actual feed page numbers")
+    func tracksHackerNewsFeedPageNumbers() throws {
+        let intent = try makeIntent(
+            seedURL: "https://news.ycombinator.com/news",
+            sourceHosts: ["news.ycombinator.com"],
+            targetHosts: [],
+            pageLimit: 5,
+            outputLimit: 10,
+            requiresUniqueURLs: true,
+            requiresPerItemSummaries: false,
+            collectionMode: "paginated_links",
+            canonicalizationStrategy: "none",
+            collectionStrategy: "hacker_news_story_links",
+            sourcePageIdentityStrategy: "hacker_news_news_pages"
+        ).toTaskIntent()
+        var session = AgentCrawlSession(intent: intent)
+
+        session.observePage(
+            url: "https://news.ycombinator.com/news?p=4",
+            paginationCandidates: [PaginationCandidate(text: "More", url: "https://news.ycombinator.com/news?p=5")]
+        )
+        #expect(session.pagesScanned == 4)
+        #expect(session.currentPageIndex == 4)
+
+        session.observePage(
+            url: "https://news.ycombinator.com/item?id=123",
+            paginationCandidates: []
+        )
+        #expect(session.pagesScanned == 4)
+
+        session.observePage(
+            url: "https://news.ycombinator.com/news?p=11",
+            paginationCandidates: []
+        )
+        #expect(session.pagesScanned == 11)
+        #expect(session.pageBudgetReached)
     }
 
     @Test("Collection accumulator deduplicates and emits artifacts")
@@ -253,5 +369,38 @@ struct AgentContextReductionTests {
 
         let decoded = try JSONDecoder().decode([LinkCollectionMatch].self, from: Data(artifacts[1].content.utf8))
         #expect(decoded.count == 3)
+
+        let limitedArtifacts = accumulator.artifacts(title: "arXiv", outputLimit: 2)
+        let limitedDecoded = try JSONDecoder().decode([LinkCollectionMatch].self, from: Data(limitedArtifacts[1].content.utf8))
+        #expect(limitedDecoded.count == 2)
+        #expect(accumulator.summaryText(outputLimit: 2).contains("Showing top 2 by source order."))
     }
+}
+
+private func makeIntent(
+    seedURL: String?,
+    sourceHosts: [String],
+    targetHosts: [String],
+    pageLimit: Int?,
+    outputLimit: Int?,
+    requiresUniqueURLs: Bool,
+    requiresPerItemSummaries: Bool,
+    collectionMode: String,
+    canonicalizationStrategy: String,
+    collectionStrategy: String,
+    sourcePageIdentityStrategy: String
+) -> GeneratedAgentTaskIntent {
+    GeneratedAgentTaskIntent(
+        seedURL: seedURL,
+        sourceHosts: sourceHosts,
+        targetHosts: targetHosts,
+        pageLimit: pageLimit,
+        outputLimit: outputLimit,
+        requiresUniqueURLs: requiresUniqueURLs,
+        requiresPerItemSummaries: requiresPerItemSummaries,
+        collectionMode: collectionMode,
+        canonicalizationStrategy: canonicalizationStrategy,
+        collectionStrategy: collectionStrategy,
+        sourcePageIdentityStrategy: sourcePageIdentityStrategy
+    )
 }

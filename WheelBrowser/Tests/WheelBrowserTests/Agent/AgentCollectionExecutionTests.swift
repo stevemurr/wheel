@@ -5,6 +5,54 @@ import Testing
 
 @Suite("Agent Collection Execution")
 struct AgentCollectionExecutionTests {
+    @Test("Engine limits best-links output to the requested top slice")
+    @MainActor
+    func limitsBestLinksOutput() async {
+        let browserState = BrowserState()
+        let bridge = MockBrowserBridge(
+            snapshots: [
+                pageSnapshot(url: "https://news.ycombinator.com/news", nextPageURL: "https://news.ycombinator.com/news?p=2"),
+                pageSnapshot(url: "https://news.ycombinator.com/news?p=2", nextPageURL: "https://news.ycombinator.com/news?p=3"),
+                pageSnapshot(url: "https://news.ycombinator.com/news?p=3", nextPageURL: "https://news.ycombinator.com/news?p=4"),
+                pageSnapshot(url: "https://news.ycombinator.com/news?p=4", nextPageURL: "https://news.ycombinator.com/news?p=5"),
+                pageSnapshot(url: "https://news.ycombinator.com/news?p=5", nextPageURL: nil),
+            ],
+            initialURL: "about:blank",
+            initialTitle: "Blank",
+            queuedCollectionResults: [
+                multiLinkResult(pageURL: "https://news.ycombinator.com/news", pageIndex: 1, range: 1...3, nextPageURL: "https://news.ycombinator.com/news?p=2"),
+                multiLinkResult(pageURL: "https://news.ycombinator.com/news?p=2", pageIndex: 2, range: 4...6, nextPageURL: "https://news.ycombinator.com/news?p=3"),
+                multiLinkResult(pageURL: "https://news.ycombinator.com/news?p=3", pageIndex: 3, range: 7...8, nextPageURL: "https://news.ycombinator.com/news?p=4"),
+                multiLinkResult(pageURL: "https://news.ycombinator.com/news?p=4", pageIndex: 4, range: 9...10, nextPageURL: "https://news.ycombinator.com/news?p=5"),
+                multiLinkResult(pageURL: "https://news.ycombinator.com/news?p=5", pageIndex: 5, range: 11...12, nextPageURL: nil),
+            ]
+        )
+        let contextService = MockWheelModelContextService(
+            intent: hackerNewsIntent(pageLimit: 5, outputLimit: 10),
+            decisions: [
+                decision(thought: "Move to page 2.", action: .advancePagination(url: nil)),
+                decision(thought: "Move to page 3.", action: .advancePagination(url: nil)),
+                decision(thought: "Move to page 4.", action: .advancePagination(url: nil)),
+                decision(thought: "Move to page 5.", action: .advancePagination(url: nil)),
+            ]
+        )
+        let engine = AgentEngine(
+            browserState: browserState,
+            contextService: contextService,
+            bridgeProvider: MockBrowserBridgeProvider(bridge: bridge)
+        )
+        engine.maxSteps = 12
+
+        let result = await engine.run(task: "Create a list of the best links from the first 5 pages of Hacker News.")
+
+        #expect(result.success)
+        #expect(result.collection?.pagesScanned == 5)
+        #expect(result.collection?.totalUniqueCount == 12)
+        #expect(result.collection?.items.count == 10)
+        #expect(result.summary.contains("top 10 links from 12 candidates"))
+        #expect(result.artifacts.first?.content.components(separatedBy: "\n").count == 10)
+    }
+
     @Test("Engine auto-collects and stops at the requested page budget without explicit collect or done actions")
     @MainActor
     func autoCollectsAndStopsAtRequestedPageBudget() async {
@@ -78,6 +126,7 @@ struct AgentCollectionExecutionTests {
             ]
         )
         let contextService = MockWheelModelContextService(
+            intent: hackerNewsIntent(pageLimit: 5, outputLimit: 5),
             decisions: [
                 decision(thought: "Move to page 2.", action: .advancePagination(url: nil)),
                 decision(thought: "Move to page 3.", action: .advancePagination(url: nil)),
@@ -103,6 +152,252 @@ struct AgentCollectionExecutionTests {
         #expect(!result.artifacts.isEmpty)
         #expect(result.summary.contains("5 requested pages"))
         #expect(await contextService.servedDecisionCount() == 4)
+    }
+
+    @Test("Engine keeps automating the original tab after the user switches tabs")
+    @MainActor
+    func continuesRunningAfterManualTabSwitch() async {
+        let browserState = BrowserState()
+        let agentTab = browserState.activeTab!
+        browserState.addTab(withURL: URL(string: "https://example.com/docs")!, activate: false)
+        let backgroundTab = browserState.tabs.last!
+
+        let bridge = MockBrowserBridge(
+            snapshots: [
+                pageSnapshot(url: "https://news.ycombinator.com/news", nextPageURL: "https://news.ycombinator.com/news?p=2"),
+                pageSnapshot(url: "https://news.ycombinator.com/news?p=2", nextPageURL: "https://news.ycombinator.com/news?p=3"),
+                pageSnapshot(url: "https://news.ycombinator.com/news?p=3", nextPageURL: nil),
+            ],
+            initialURL: "about:blank",
+            initialTitle: "Blank",
+            queuedCollectionResults: [
+                linkResult(
+                    pageURL: "https://news.ycombinator.com/news",
+                    matches: [
+                        LinkCollectionMatch(
+                            text: "Interesting Link 1",
+                            url: "https://example.com/story-1",
+                            sourcePageURL: "https://news.ycombinator.com/news"
+                        ),
+                    ],
+                    paginationCandidates: [PaginationCandidate(text: "More", url: "https://news.ycombinator.com/news?p=2")]
+                ),
+                linkResult(
+                    pageURL: "https://news.ycombinator.com/news?p=2",
+                    matches: [
+                        LinkCollectionMatch(
+                            text: "Interesting Link 2",
+                            url: "https://example.com/story-2",
+                            sourcePageURL: "https://news.ycombinator.com/news?p=2"
+                        ),
+                    ],
+                    paginationCandidates: [PaginationCandidate(text: "More", url: "https://news.ycombinator.com/news?p=3")]
+                ),
+                linkResult(
+                    pageURL: "https://news.ycombinator.com/news?p=3",
+                    matches: [
+                        LinkCollectionMatch(
+                            text: "Interesting Link 3",
+                            url: "https://example.com/story-3",
+                            sourcePageURL: "https://news.ycombinator.com/news?p=3"
+                        ),
+                    ],
+                    paginationCandidates: []
+                ),
+            ]
+        )
+        let contextService = MockWheelModelContextService(
+            intent: hackerNewsIntent(pageLimit: 3, outputLimit: 3),
+            decisions: [
+                decision(thought: "Advance to page 2.", action: .advancePagination(url: nil)),
+                decision(thought: "Advance to page 3.", action: .advancePagination(url: nil)),
+            ],
+            onDecisionServed: { decisionIndex in
+                if decisionIndex == 1 {
+                    browserState.selectTab(backgroundTab.id)
+                }
+            }
+        )
+        let engine = AgentEngine(
+            browserState: browserState,
+            contextService: contextService,
+            bridgeProvider: MockBrowserBridgeProvider(bridge: bridge)
+        )
+        engine.maxSteps = 8
+
+        let result = await engine.run(task: "go to hacker news and create a list of the most interesting links from the first 3 pages")
+
+        #expect(result.success)
+        #expect(result.collection?.pagesScanned == 3)
+        #expect(result.collection?.items.count == 3)
+        #expect(browserState.activeTabId == backgroundTab.id)
+        #expect(agentTab.hasActiveAgent == false)
+        #expect(await contextService.servedDecisionCount() == 2)
+    }
+
+    @Test("Engine treats Hacker News top-articles requests as paginated collection tasks")
+    @MainActor
+    func autoCollectsTopArticlesAcrossRequestedPages() async {
+        let browserState = BrowserState()
+        let bridge = MockBrowserBridge(
+            snapshots: [
+                pageSnapshot(url: "https://news.ycombinator.com/news", nextPageURL: "https://news.ycombinator.com/news?p=2"),
+                pageSnapshot(url: "https://news.ycombinator.com/news?p=2", nextPageURL: "https://news.ycombinator.com/news?p=3"),
+                pageSnapshot(url: "https://news.ycombinator.com/news?p=3", nextPageURL: "https://news.ycombinator.com/news?p=4"),
+                pageSnapshot(url: "https://news.ycombinator.com/news?p=4", nextPageURL: "https://news.ycombinator.com/news?p=5"),
+                pageSnapshot(url: "https://news.ycombinator.com/news?p=5", nextPageURL: nil),
+            ],
+            initialURL: "about:blank",
+            initialTitle: "Blank",
+            queuedCollectionResults: [
+                linkResult(
+                    pageURL: "https://news.ycombinator.com/news",
+                    matches: [
+                        LinkCollectionMatch(
+                            text: "Top Article 1",
+                            url: "https://example.com/article-1",
+                            sourcePageURL: "https://news.ycombinator.com/news"
+                        ),
+                    ],
+                    paginationCandidates: [PaginationCandidate(text: "More", url: "https://news.ycombinator.com/news?p=2")]
+                ),
+                linkResult(
+                    pageURL: "https://news.ycombinator.com/news?p=2",
+                    matches: [
+                        LinkCollectionMatch(
+                            text: "Top Article 2",
+                            url: "https://example.com/article-2",
+                            sourcePageURL: "https://news.ycombinator.com/news?p=2"
+                        ),
+                    ],
+                    paginationCandidates: [PaginationCandidate(text: "More", url: "https://news.ycombinator.com/news?p=3")]
+                ),
+                linkResult(
+                    pageURL: "https://news.ycombinator.com/news?p=3",
+                    matches: [
+                        LinkCollectionMatch(
+                            text: "Top Article 3",
+                            url: "https://example.com/article-3",
+                            sourcePageURL: "https://news.ycombinator.com/news?p=3"
+                        ),
+                    ],
+                    paginationCandidates: [PaginationCandidate(text: "More", url: "https://news.ycombinator.com/news?p=4")]
+                ),
+                linkResult(
+                    pageURL: "https://news.ycombinator.com/news?p=4",
+                    matches: [
+                        LinkCollectionMatch(
+                            text: "Top Article 4",
+                            url: "https://example.com/article-4",
+                            sourcePageURL: "https://news.ycombinator.com/news?p=4"
+                        ),
+                    ],
+                    paginationCandidates: [PaginationCandidate(text: "More", url: "https://news.ycombinator.com/news?p=5")]
+                ),
+                linkResult(
+                    pageURL: "https://news.ycombinator.com/news?p=5",
+                    matches: [
+                        LinkCollectionMatch(
+                            text: "Top Article 5",
+                            url: "https://example.com/article-5",
+                            sourcePageURL: "https://news.ycombinator.com/news?p=5"
+                        ),
+                    ],
+                    paginationCandidates: []
+                ),
+            ]
+        )
+        let contextService = MockWheelModelContextService(
+            intent: hackerNewsIntent(pageLimit: 5, outputLimit: 5),
+            decisions: [
+                decision(thought: "Advance to page 2.", action: .advancePagination(url: nil)),
+                decision(thought: "Advance to page 3.", action: .advancePagination(url: nil)),
+                decision(thought: "Advance to page 4.", action: .advancePagination(url: nil)),
+                decision(thought: "Advance to page 5.", action: .advancePagination(url: nil)),
+            ]
+        )
+        let engine = AgentEngine(
+            browserState: browserState,
+            contextService: contextService,
+            bridgeProvider: MockBrowserBridgeProvider(bridge: bridge)
+        )
+        engine.maxSteps = 12
+
+        let result = await engine.run(task: "Create a list of the top articles from the first 5 pages of Hacker News.")
+
+        #expect(result.success)
+        #expect(result.collection?.pagesScanned == 5)
+        #expect(result.collection?.pageLimit == 5)
+        #expect(result.collection?.totalUniqueCount == 5)
+        #expect(result.collection?.items.count == 5)
+        #expect(!result.artifacts.isEmpty)
+        #expect(await contextService.servedDecisionCount() == 4)
+    }
+
+    @Test("Summary-enriched collection tasks do not auto-complete at the raw link stage")
+    @MainActor
+    func summaryTasksRequireModelDrivenCompletion() async {
+        let browserState = BrowserState()
+        let bridge = MockBrowserBridge(
+            snapshots: [
+                pageSnapshot(url: "https://news.ycombinator.com/news", nextPageURL: "https://news.ycombinator.com/news?p=2"),
+                pageSnapshot(url: "https://news.ycombinator.com/news?p=2", nextPageURL: nil),
+            ],
+            initialURL: "about:blank",
+            initialTitle: "Blank",
+            queuedCollectionResults: [
+                linkResult(
+                    pageURL: "https://news.ycombinator.com/news",
+                    matches: [
+                        LinkCollectionMatch(
+                            text: "Article 1",
+                            url: "https://example.com/article-1",
+                            sourcePageURL: "https://news.ycombinator.com/news"
+                        ),
+                    ],
+                    paginationCandidates: [PaginationCandidate(text: "More", url: "https://news.ycombinator.com/news?p=2")]
+                ),
+                linkResult(
+                    pageURL: "https://news.ycombinator.com/news?p=2",
+                    matches: [
+                        LinkCollectionMatch(
+                            text: "Article 2",
+                            url: "https://example.com/article-2",
+                            sourcePageURL: "https://news.ycombinator.com/news?p=2"
+                        ),
+                    ],
+                    paginationCandidates: []
+                ),
+            ]
+        )
+        let contextService = MockWheelModelContextService(
+            intent: hackerNewsIntent(pageLimit: 2, outputLimit: 2, requiresPerItemSummaries: true),
+            decisions: [
+                decision(thought: "Advance to page 2 first.", action: .advancePagination(url: nil)),
+                decision(
+                    thought: "Now return the requested summarized items.",
+                    action: .done(summary: """
+                    - [Article 1](https://example.com/article-1): Summary one.
+                    - [Article 2](https://example.com/article-2): Summary two.
+                    """)
+                ),
+            ]
+        )
+        let engine = AgentEngine(
+            browserState: browserState,
+            contextService: contextService,
+            bridgeProvider: MockBrowserBridgeProvider(bridge: bridge)
+        )
+        engine.maxSteps = 8
+
+        let result = await engine.run(task: "Look through the first 2 pages of Hacker News, pull out 2 articles, and add a summary for each.")
+
+        #expect(result.success)
+        #expect(result.collection?.pagesScanned == 2)
+        #expect(result.summary.contains("Summary one."))
+        #expect(result.artifacts.first?.title == "Final Answer")
+        #expect(result.artifacts.first?.content.contains("Summary two.") == true)
+        #expect(await contextService.servedDecisionCount() == 2)
     }
 
     @Test("Engine collects canonicalized links across paginated pages")
@@ -154,6 +449,7 @@ struct AgentCollectionExecutionTests {
             ]
         )
         let contextService = MockWheelModelContextService(
+            intent: hackerNewsIntent(pageLimit: 2, targetHosts: ["arxiv.org"], outputLimit: nil, canonicalizationStrategy: "arxiv"),
             decisions: [
                 decision(thought: "Collect the first page of results.", action: .collectLinks),
                 decision(thought: "Advance to the next page.", action: .advancePagination(url: nil)),
@@ -226,6 +522,7 @@ struct AgentCollectionExecutionTests {
             ]
         )
         let contextService = MockWheelModelContextService(
+            intent: hackerNewsIntent(pageLimit: 2, targetHosts: ["arxiv.org"], outputLimit: nil, canonicalizationStrategy: "arxiv"),
             decisions: [
                 decision(thought: "Collect the first page.", action: .collectLinks),
                 decision(thought: "We have enough.", action: .done(summary: "Done early")),
@@ -293,11 +590,19 @@ struct AgentCollectionExecutionTests {
 }
 
 private actor MockWheelModelContextService: WheelModelContextServing {
+    private let intent: GeneratedAgentTaskIntent
     private var decisions: [GeneratedAgentDecision]
     private var servedDecisions = 0
+    private let onDecisionServed: (@Sendable @MainActor (Int) -> Void)?
 
-    init(decisions: [GeneratedAgentDecision]) {
+    init(
+        intent: GeneratedAgentTaskIntent,
+        decisions: [GeneratedAgentDecision],
+        onDecisionServed: (@Sendable @MainActor (Int) -> Void)? = nil
+    ) {
+        self.intent = intent
         self.decisions = decisions
+        self.onDecisionServed = onDecisionServed
     }
 
     func availabilityStatus() async -> LMAvailabilityStatus {
@@ -327,11 +632,37 @@ private actor MockWheelModelContextService: WheelModelContextServing {
         WheelModelContextService.agentThreadID(tabId: tabId, runId: runId)
     }
 
+    func generateAgentTaskIntent(
+        requestID: UUID,
+        task: String,
+        instructions: String
+    ) async throws -> LMManagedStructuredResponse<GeneratedAgentTaskIntent> {
+        LMManagedStructuredResponse(
+            content: intent,
+            transcriptText: "Intent extracted",
+            budget: BudgetReport(
+                accuracy: .exact,
+                contextWindowTokens: 4096,
+                estimatedInputTokens: 0,
+                reservedOutputTokens: 0,
+                projectedTotalTokens: 0,
+                softLimitTokens: 4096,
+                emergencyLimitTokens: 4096,
+                breakdown: [:]
+            ),
+            compaction: nil,
+            bridge: nil
+        )
+    }
+
     func streamAgentDecision(
         prompt: String,
         threadID: String
     ) async throws -> AsyncThrowingStream<WheelAgentDecisionStreamEvent, Error> {
         servedDecisions += 1
+        if let onDecisionServed {
+            await onDecisionServed(servedDecisions)
+        }
         let nextDecision = decisions.isEmpty
             ? decision(thought: "Stop after exhausting test decisions.", action: .done(summary: "No more decisions"))
             : decisions.removeFirst()
@@ -400,6 +731,28 @@ private func decision(thought: String, action: AgentAction) -> GeneratedAgentDec
     GeneratedAgentDecision(
         thought: thought,
         action: GeneratedAgentAction(from: action)
+    )
+}
+
+private func hackerNewsIntent(
+    pageLimit: Int,
+    targetHosts: [String] = [],
+    outputLimit: Int?,
+    canonicalizationStrategy: String = "none",
+    requiresPerItemSummaries: Bool = false
+) -> GeneratedAgentTaskIntent {
+    GeneratedAgentTaskIntent(
+        seedURL: "https://news.ycombinator.com/news",
+        sourceHosts: ["news.ycombinator.com"],
+        targetHosts: targetHosts,
+        pageLimit: pageLimit,
+        outputLimit: outputLimit,
+        requiresUniqueURLs: true,
+        requiresPerItemSummaries: requiresPerItemSummaries,
+        collectionMode: "paginated_links",
+        canonicalizationStrategy: canonicalizationStrategy,
+        collectionStrategy: "hacker_news_story_links",
+        sourcePageIdentityStrategy: "hacker_news_news_pages"
     )
 }
 
@@ -495,5 +848,25 @@ private func linkResult(
         filteredOutCount: 0,
         pageURL: pageURL,
         pageHost: URL(string: pageURL)?.normalizedAgentHost ?? ""
+    )
+}
+
+private func multiLinkResult(
+    pageURL: String,
+    pageIndex: Int,
+    range: ClosedRange<Int>,
+    nextPageURL: String?
+) -> LinkCollectionResult {
+    linkResult(
+        pageURL: pageURL,
+        matches: range.map { index in
+            LinkCollectionMatch(
+                text: "Interesting Link \(index)",
+                url: "https://example.com/story-\(index)",
+                sourcePageURL: pageURL,
+                pageIndex: pageIndex
+            )
+        },
+        paginationCandidates: nextPageURL.map { [PaginationCandidate(text: "More", url: $0)] } ?? []
     )
 }

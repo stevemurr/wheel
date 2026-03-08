@@ -181,15 +181,7 @@ class AgentEngine {
     @ObservationIgnored private var tabClosureObserverTask: Task<Void, Never>?
     @ObservationIgnored private var currentRunID: UUID?
     @ObservationIgnored private var currentThreadID: String?
-    @ObservationIgnored private var taskIntent = AgentTaskIntent(
-        seedURL: nil,
-        sourceHosts: [],
-        targetHosts: [],
-        pageLimit: nil,
-        requiresUniqueURLs: true,
-        collectionMode: .none,
-        canonicalizationStrategy: .none
-    )
+    @ObservationIgnored private var taskIntent = AgentTaskIntent.empty
     @ObservationIgnored private var collectionAccumulator = AgentCollectionAccumulator()
     @ObservationIgnored private var crawlSession: AgentCrawlSession?
     @ObservationIgnored private var lastCollectionDelta: CollectionDelta?
@@ -239,7 +231,7 @@ class AgentEngine {
 
     /// Returns the title of the bound tab, if any
     var boundTabTitle: String? {
-        boundTab?.title
+        boundTab?.displayTitle
     }
 
     /// Returns whether the agent is running on a background tab (not the active tab)
@@ -271,10 +263,10 @@ class AgentEngine {
         currentTask = task
         steps = []
         error = nil
-        progress = "Starting..."
-        taskIntent = AgentTaskIntent.parse(task: task)
+        progress = "Understanding request..."
+        taskIntent = .empty
         collectionAccumulator = AgentCollectionAccumulator()
-        crawlSession = taskIntent.isLinkCollection ? AgentCrawlSession(intent: taskIntent) : nil
+        crawlSession = nil
         lastCollectionDelta = nil
         lastResult = nil
         currentRunID = UUID()
@@ -282,6 +274,18 @@ class AgentEngine {
         let taskHandle = Task { () -> AgentResult in
             defer { self.resetState() }
             do {
+                guard let runID = self.currentRunID else {
+                    throw AgentError.invalidLLMResponse("Agent run ID was not initialized")
+                }
+
+                let resolvedIntent = try await self.resolveTaskIntent(task: task, runID: runID)
+                self.taskIntent = resolvedIntent
+                self.collectionAccumulator = AgentCollectionAccumulator()
+                self.crawlSession = resolvedIntent.isLinkCollection ? AgentCrawlSession(intent: resolvedIntent) : nil
+                self.lastCollectionDelta = nil
+                self.progress = "Starting..."
+                self.boundTab?.agentProgress = "Starting..."
+
                 let result = try await executeTask(task)
                 await MainActor.run {
                     self.lastResult = result
@@ -346,19 +350,22 @@ class AgentEngine {
         currentStepCount = 0
         currentRunID = nil
         currentThreadID = nil
-        taskIntent = AgentTaskIntent(
-            seedURL: nil,
-            sourceHosts: [],
-            targetHosts: [],
-            pageLimit: nil,
-            requiresUniqueURLs: true,
-            collectionMode: .none,
-            canonicalizationStrategy: .none
-        )
+        taskIntent = .empty
         collectionAccumulator = AgentCollectionAccumulator()
         crawlSession = nil
         lastCollectionDelta = nil
         loopDetector.reset()
+    }
+
+    private func resolveTaskIntent(task: String, runID: UUID) async throws -> AgentTaskIntent {
+        let response = try await contextService.generateAgentTaskIntent(
+            requestID: runID,
+            task: task,
+            instructions: AgentTaskIntentExtractionPrompt.instructions
+        )
+        let intent = try response.content.toTaskIntent()
+        Log.Agent.info("Resolved agent task intent: \(intent)")
+        return intent
     }
 
     /// Set up observer to detect when the bound tab is closed
@@ -552,7 +559,9 @@ class AgentEngine {
                 intent: taskIntent,
                 observation: observation,
                 runtimeStatus: runtimeStatus,
-                accumulatorSummary: taskIntent.isLinkCollection ? collectionAccumulator.summaryText() : nil
+                accumulatorSummary: taskIntent.isLinkCollection
+                    ? collectionAccumulator.summaryText(outputLimit: taskIntent.outputLimit)
+                    : nil
             )
             Log.Agent.debug("Sending prompt to LLM (length: \(prompt.count) chars)")
             let llmDecision = try await callLLMWithStreaming(prompt: prompt)
@@ -778,6 +787,16 @@ class AgentEngine {
         if !taskIntent.targetHosts.isEmpty {
             parts.append("Target host filter: \(taskIntent.targetHosts.joined(separator: ", ")).")
         }
+        if let outputLimit = taskIntent.outputLimit {
+            if taskIntent.requiresPerItemSummaries {
+                parts.append("Return at most \(outputLimit) summarized items.")
+            } else {
+                parts.append("Return at most \(outputLimit) links.")
+            }
+        }
+        if taskIntent.requiresPerItemSummaries {
+            parts.append("Each final item must include its own summary.")
+        }
         return parts.joined(separator: " ")
     }
 
@@ -788,7 +807,7 @@ class AgentEngine {
         }
 
         let title = taskIntent.targetHosts.first ?? "Collected"
-        return collectionAccumulator.artifacts(title: title)
+        return collectionAccumulator.artifacts(title: title, outputLimit: taskIntent.outputLimit)
     }
 
     private func currentCollectionSummary() -> AgentCollectionSummary? {
@@ -804,45 +823,72 @@ class AgentEngine {
             sourceHosts: taskIntent.sourceHosts,
             targetHosts: taskIntent.targetHosts,
             totalUniqueCount: collectionAccumulator.totalUniqueCount,
-            items: collectionAccumulator.sortedMatches
+            items: collectionAccumulator.selectedMatches(limit: taskIntent.outputLimit)
         )
     }
 
     private func buildResult(success: Bool, summary: String) -> AgentResult {
-        AgentResult(
+        let collectionArtifacts = currentArtifacts()
+        return AgentResult(
             success: success,
             summary: summary,
             steps: steps,
-            artifacts: currentArtifacts(),
+            artifacts: finalAnswerArtifacts(summary: summary, success: success) + collectionArtifacts,
             collection: currentCollectionSummary()
         )
     }
 
     private func collectionAutoCompletionSummary() -> String? {
         guard taskIntent.isLinkCollection,
+              !taskIntent.requiresPerItemSummaries,
               let crawlSession,
               crawlSession.hasMaterializedCollectionResult else {
             return nil
         }
 
         let total = collectionAccumulator.totalUniqueCount
+        let displayedCount = min(taskIntent.outputLimit ?? total, total)
+        let selectionPrefix = displayedCount < total
+            ? "Selected top \(displayedCount) links from \(total) candidates"
+            : (displayedCount == 1 ? "Collected 1 unique link" : "Collected \(displayedCount) unique links")
         if crawlSession.pageBudgetReached {
-            if total == 1 {
-                return "Collected 1 unique link from \(crawlSession.pagesScanned) requested pages."
-            }
-            return "Collected \(total) unique links from \(crawlSession.pagesScanned) requested pages."
+            return "\(selectionPrefix) across \(crawlSession.pagesScanned) requested pages."
         }
 
         if let pageLimit = crawlSession.pageLimit,
            crawlSession.pagesScanned > 0,
            !crawlSession.hasAvailablePaginationCandidate {
-            if total == 1 {
-                return "Collected 1 unique link after scanning \(crawlSession.pagesScanned) of \(pageLimit) requested pages because no additional pagination targets were available."
-            }
-            return "Collected \(total) unique links after scanning \(crawlSession.pagesScanned) of \(pageLimit) requested pages because no additional pagination targets were available."
+            return "\(selectionPrefix) after scanning \(crawlSession.pagesScanned) of \(pageLimit) requested pages because no additional pagination targets were available."
         }
 
         return nil
+    }
+
+    private func finalAnswerArtifacts(summary: String, success: Bool) -> [ChatArtifact] {
+        guard success else {
+            return []
+        }
+
+        let trimmed = summary.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else {
+            return []
+        }
+
+        let shouldRenderAsArtifact = taskIntent.requiresPerItemSummaries
+            || trimmed.contains("\n- ")
+            || trimmed.contains("\n1. ")
+        guard shouldRenderAsArtifact else {
+            return []
+        }
+
+        return [
+            ChatArtifact(
+                title: "Final Answer",
+                language: "md",
+                content: trimmed,
+                type: .markdown
+            )
+        ]
     }
 
     private func completionSummary(for requestedSummary: String) -> String {
@@ -896,7 +942,8 @@ class AgentEngine {
             targetHosts: taskIntent.targetHosts,
             includePaginationLinks: true,
             maxMatches: 250,
-            canonicalizationStrategy: taskIntent.canonicalizationStrategy
+            canonicalizationStrategy: taskIntent.canonicalizationStrategy,
+            collectionStrategy: taskIntent.collectionStrategy
         )
 
         let actionStep = AgentStep(
@@ -1231,7 +1278,8 @@ class AgentEngine {
                 targetHosts: taskIntent.targetHosts,
                 includePaginationLinks: true,
                 maxMatches: 250,
-                canonicalizationStrategy: taskIntent.canonicalizationStrategy
+                canonicalizationStrategy: taskIntent.canonicalizationStrategy,
+                collectionStrategy: taskIntent.collectionStrategy
             )
             let result = try await bridge.collectLinks(request)
             let pageIndex = max(1, crawlSession?.currentPageIndex ?? 1)

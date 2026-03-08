@@ -335,27 +335,56 @@ private struct AgentActionButton: View {
     var agentEngine: AgentEngine
     var inputText: String
     var onSubmit: () -> Void
+    @State private var isAnimating = false
 
     var body: some View {
         Button(action: onSubmit) {
             ZStack {
-                if agentEngine.isRunning {
-                    ProgressView()
-                        .scaleEffect(0.5)
-                } else {
-                    Image(systemName: "play.fill")
-                        .font(.system(size: 10, weight: .bold))
-                        .foregroundColor(inputText.isEmpty ? .secondary : .white)
-                }
+                Circle()
+                    .stroke(Color.green.opacity(agentEngine.isRunning ? 0.35 : 0), lineWidth: 1.5)
+                    .scaleEffect(agentEngine.isRunning && isAnimating ? 1.28 : 0.9)
+                    .opacity(agentEngine.isRunning ? (isAnimating ? 0.15 : 0.35) : 0)
+
+                Image(systemName: "play.fill")
+                    .font(.system(size: 10, weight: .bold))
+                    .foregroundColor(inputText.isEmpty && !agentEngine.isRunning ? .secondary : .white)
+                    .scaleEffect(agentEngine.isRunning && isAnimating ? 1.08 : 1.0)
+                    .offset(x: agentEngine.isRunning ? 0.5 : 0)
             }
             .frame(width: 22, height: 22)
             .background(
                 Circle()
-                    .fill(inputText.isEmpty ? Color.secondary.opacity(0.2) : Color.green)
+                    .fill(buttonColor)
             )
         }
         .buttonStyle(.plain)
         .disabled(inputText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || agentEngine.isRunning)
+        .scaleEffect(agentEngine.isRunning && isAnimating ? 1.03 : 1.0)
+        .animation(.easeInOut(duration: 0.9), value: isAnimating)
+        .onAppear {
+            updateAnimationState()
+        }
+        .onChange(of: agentEngine.isRunning) { _, _ in
+            updateAnimationState()
+        }
+    }
+
+    private var buttonColor: Color {
+        if agentEngine.isRunning {
+            return Color.green
+        }
+        return inputText.isEmpty ? Color.secondary.opacity(0.2) : Color.green
+    }
+
+    private func updateAnimationState() {
+        if agentEngine.isRunning {
+            guard !isAnimating else { return }
+            withAnimation(.easeInOut(duration: 0.9).repeatForever(autoreverses: true)) {
+                isAnimating = true
+            }
+        } else {
+            isAnimating = false
+        }
     }
 }
 

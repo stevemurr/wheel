@@ -38,10 +38,14 @@ struct StageManagerThumbnail: View {
                 .overlay(alignment: .bottom) {
                     titleOverlay
                 }
-                .overlay(
-                    RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
-                        .strokeBorder(borderColor, lineWidth: borderWidth)
-                )
+                .overlay {
+                    if tab.hasActiveAgent {
+                        AgentRoundedGlow(cornerRadius: cornerRadius, lineWidth: 2.2, fillOpacity: 0.028)
+                    } else {
+                        RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+                            .strokeBorder(borderColor, lineWidth: borderWidth)
+                    }
+                }
                 .overlay {
                     if tab.isLoading && !tab.hasActiveAgent {
                         loadingIndicator
@@ -71,8 +75,10 @@ struct StageManagerThumbnail: View {
         .animation(AppAnimation.hoverSpring, value: isHovered)
         // Floating shadow — stronger for active tab
         .shadow(
-            color: .black.opacity(isActive ? 0.45 : 0.3),
-            radius: isActive ? 8 : 5,
+            color: tab.hasActiveAgent
+                ? Color.green.opacity(isActive ? 0.45 : 0.3)
+                : .black.opacity(isActive ? 0.45 : 0.3),
+            radius: tab.hasActiveAgent ? (isActive ? 14 : 10) : (isActive ? 8 : 5),
             x: isActive ? 3 : 2,
             y: isActive ? 3 : 2
         )
@@ -173,7 +179,7 @@ struct StageManagerThumbnail: View {
 
     private var borderColor: Color {
         if tab.hasActiveAgent {
-            return .green
+            return Color.green.opacity(0.9)
         } else if isActive {
             return Color(nsColor: .controlAccentColor)
         } else {

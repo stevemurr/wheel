@@ -45,6 +45,11 @@ protocol WheelModelContextServing: Sendable {
         prompt: String
     ) async throws -> AsyncThrowingStream<WheelChatStreamEvent, Error>
     func openAgentThread(tabId: UUID, runId: UUID, instructions: String) async throws -> String
+    func generateAgentTaskIntent(
+        requestID: UUID,
+        task: String,
+        instructions: String
+    ) async throws -> LMManagedStructuredResponse<GeneratedAgentTaskIntent>
     func streamAgentDecision(
         prompt: String,
         threadID: String
@@ -158,6 +163,20 @@ actor WheelModelContextService: WheelModelContextServing {
         return threadID
     }
 
+    func generateAgentTaskIntent(
+        requestID: UUID,
+        task: String,
+        instructions: String
+    ) async throws -> LMManagedStructuredResponse<GeneratedAgentTaskIntent> {
+        try await openIntentThread(requestID: requestID, instructions: instructions)
+        return try await contextKit.respondManaged(
+            to: task,
+            generating: GeneratedAgentTaskIntent.self,
+            threadID: Self.agentIntentThreadID(for: requestID),
+            transcriptRenderer: { _ in "Agent task intent extracted" }
+        )
+    }
+
     func streamAgentDecision(
         prompt: String,
         threadID: String
@@ -231,6 +250,13 @@ actor WheelModelContextService: WheelModelContextServing {
     private func openSummaryThread(requestID: UUID, instructions: String) async throws {
         try await openThread(
             id: Self.summaryThreadID(for: requestID),
+            instructions: instructions
+        )
+    }
+
+    private func openIntentThread(requestID: UUID, instructions: String) async throws {
+        try await openThread(
+            id: Self.agentIntentThreadID(for: requestID),
             instructions: instructions
         )
     }
@@ -345,6 +371,10 @@ actor WheelModelContextService: WheelModelContextServing {
 
     nonisolated static func agentThreadID(tabId: UUID, runId: UUID) -> String {
         "agent:\(tabId.uuidString.lowercased()):\(runId.uuidString.lowercased())"
+    }
+
+    nonisolated static func agentIntentThreadID(for requestID: UUID) -> String {
+        "agent-intent:\(requestID.uuidString.lowercased())"
     }
 
     nonisolated static func summaryThreadID(for requestID: UUID) -> String {
