@@ -27,6 +27,28 @@ struct WidgetRuntimeBridgeTests {
     }
 
     @MainActor
+    @Test("Parses layout toggle actions")
+    func parsesLayoutToggleAction() {
+        let bridge = WidgetRuntimeBridge()
+        let widgetID = UUID()
+        var action: WidgetRuntimeAction?
+
+        bridge.onWidgetAction = { action = $0 }
+        bridge.handleMessage(
+            named: "widgetBridge",
+            body: [
+                "type": "widgetAction",
+                "payload": [
+                    "action": "toggleLayout",
+                    "id": widgetID.uuidString,
+                ],
+            ]
+        )
+
+        #expect(action == .toggleLayout(widgetID))
+    }
+
+    @MainActor
     @Test("Parses loaded and error messages")
     func parsesLoadedAndError() {
         let bridge = WidgetRuntimeBridge()

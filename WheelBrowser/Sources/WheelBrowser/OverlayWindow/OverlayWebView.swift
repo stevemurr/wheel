@@ -48,6 +48,7 @@ struct OverlayWebView: NSViewRepresentable {
         private let articleExtractionService = ArticleExtractionService()
         private var originalDocumentHTML: String?
         private var originalDocumentURL: URL?
+        private var originalDocumentTitle: String?
 
         init(item: OverlayWindowItem, isLoading: Binding<Bool>, isReaderMode: Binding<Bool>) {
             self.item = item
@@ -63,6 +64,7 @@ struct OverlayWebView: NSViewRepresentable {
                 if !self.isReaderMode {
                     self.originalDocumentHTML = nil
                     self.originalDocumentURL = nil
+                    self.originalDocumentTitle = nil
                 }
             }
         }
@@ -147,10 +149,28 @@ struct OverlayWebView: NSViewRepresentable {
 
         func disableReaderMode(in webView: WKWebView) {
             if let originalDocumentHTML {
-                let baseURL = originalDocumentURL ?? webView.url
+                let restoredTitle = originalDocumentTitle?.trimmingCharacters(in: .whitespacesAndNewlines)
+                let fallbackTitle = restoredTitle?.isEmpty == false
+                    ? restoredTitle
+                    : originalDocumentURL?.host ?? webView.url?.host ?? item.title
+
                 self.originalDocumentHTML = nil
                 self.originalDocumentURL = nil
-                webView.loadHTMLString(originalDocumentHTML, baseURL: baseURL)
+                self.originalDocumentTitle = nil
+
+                Task { @MainActor in
+                    do {
+                        try await ReaderModeTransitionAnimator.perform(in: webView) { [self, webView] in
+                            _ = try await webView.evaluateJavaScript(Self.documentRewriteScript(for: originalDocumentHTML))
+                            if let fallbackTitle {
+                                self.item.title = fallbackTitle
+                            }
+                        }
+                    } catch {
+                        Log.Overlay.error("Reader mode restore failed", error: error)
+                        webView.reload()
+                    }
+                }
                 return
             }
 
@@ -160,40 +180,47 @@ struct OverlayWebView: NSViewRepresentable {
         @MainActor
         func applyReaderMode(in webView: WKWebView) async -> Bool {
             do {
-                if originalDocumentHTML == nil {
-                    originalDocumentHTML = try await webView.evaluateJavaScript(
-                        "document.documentElement.outerHTML"
-                    ) as? String
-                    originalDocumentURL = webView.url
+                return try await ReaderModeTransitionAnimator.perform(in: webView) { [self, webView] in
+                    if self.originalDocumentHTML == nil {
+                        self.originalDocumentHTML = try await webView.evaluateJavaScript(
+                            "document.documentElement.outerHTML"
+                        ) as? String
+                        self.originalDocumentURL = webView.url
+                        self.originalDocumentTitle = webView.title
+                    }
+
+                    guard let article = try await self.articleExtractionService.extract(from: webView) else {
+                        self.isReaderMode = false
+                        self.lastReaderModeState = false
+                        self.originalDocumentHTML = nil
+                        self.originalDocumentURL = nil
+                        self.originalDocumentTitle = nil
+                        return false
+                    }
+
+                    let readerHTML = ReaderModeDocumentBuilder.document(for: article)
+                    _ = try await webView.evaluateJavaScript(Self.documentRewriteScript(for: readerHTML))
+                    self.item.title = article.title
+                    return true
                 }
-
-                guard let article = try await articleExtractionService.extract(from: webView) else {
-                    isReaderMode = false
-                    lastReaderModeState = false
-                    originalDocumentHTML = nil
-                    originalDocumentURL = nil
-                    return false
-                }
-
-                let readerHTML = ReaderModeDocumentBuilder.document(for: article)
-                let escapedHTML = JavaScriptEscaper.escape(readerHTML)
-                let script = """
-                document.open();
-                document.write(`\(escapedHTML)`);
-                document.close();
-                """
-
-                _ = try await webView.evaluateJavaScript(script)
-                item.title = article.title
-                return true
             } catch {
                 Log.Overlay.error("Reader mode extraction failed", error: error)
                 isReaderMode = false
                 lastReaderModeState = false
                 originalDocumentHTML = nil
                 originalDocumentURL = nil
+                originalDocumentTitle = nil
                 return false
             }
+        }
+
+        private static func documentRewriteScript(for html: String) -> String {
+            let escapedHTML = JavaScriptEscaper.escape(html)
+            return """
+            document.open();
+            document.write(`\(escapedHTML)`);
+            document.close();
+            """
         }
     }
 }

@@ -240,12 +240,54 @@ struct PriceCardConfig: Codable, Sendable {
     let footnote: String?
 }
 
+enum WidgetLayoutPreference: String, Codable, Sendable {
+    case auto
+    case singleColumn
+    case fullWidth
+}
+
 struct WidgetRecord: Codable, Identifiable, Sendable {
     var manifest: WidgetManifest
     var position: Int
+    var layoutPreference: WidgetLayoutPreference
     var lastAttemptedAt: Date?
     var lastLoadedAt: Date?
     var lastError: String?
 
     var id: UUID { manifest.id }
+
+    enum CodingKeys: String, CodingKey {
+        case manifest
+        case position
+        case layoutPreference
+        case lastAttemptedAt
+        case lastLoadedAt
+        case lastError
+    }
+
+    init(
+        manifest: WidgetManifest,
+        position: Int,
+        layoutPreference: WidgetLayoutPreference = .auto,
+        lastAttemptedAt: Date?,
+        lastLoadedAt: Date?,
+        lastError: String?
+    ) {
+        self.manifest = manifest
+        self.position = position
+        self.layoutPreference = layoutPreference
+        self.lastAttemptedAt = lastAttemptedAt
+        self.lastLoadedAt = lastLoadedAt
+        self.lastError = lastError
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        manifest = try container.decode(WidgetManifest.self, forKey: .manifest)
+        position = try container.decode(Int.self, forKey: .position)
+        layoutPreference = try container.decodeIfPresent(WidgetLayoutPreference.self, forKey: .layoutPreference) ?? .auto
+        lastAttemptedAt = try container.decodeIfPresent(Date.self, forKey: .lastAttemptedAt)
+        lastLoadedAt = try container.decodeIfPresent(Date.self, forKey: .lastLoadedAt)
+        lastError = try container.decodeIfPresent(String.self, forKey: .lastError)
+    }
 }

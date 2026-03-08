@@ -145,6 +145,19 @@ final class WidgetDashboardStore {
         }
     }
 
+    func toggleLayoutPreference(id: UUID) {
+        guard let index = records.firstIndex(where: { $0.id == id }) else { return }
+        switch records[index].layoutPreference {
+        case .auto:
+            records[index].layoutPreference = .singleColumn
+        case .singleColumn:
+            records[index].layoutPreference = .fullWidth
+        case .fullWidth:
+            records[index].layoutPreference = .auto
+        }
+        persistIgnoringErrors()
+    }
+
     func refreshStale() {
         for record in records where isStale(record) {
             refresh(id: record.id)

@@ -28,6 +28,22 @@ enum WidgetSampleCatalog {
             buildManifest: usdToEurManifest
         ),
         WidgetSampleDefinition(
+            id: "utc-clock",
+            title: "UTC Clock",
+            subtitle: "Local time widget with the compact clock treatment.",
+            badge: "Local",
+            promptHint: "Create a UTC clock widget",
+            buildManifest: utcClockManifest
+        ),
+        WidgetSampleDefinition(
+            id: "amd-trend",
+            title: "AMD Trend",
+            subtitle: "Live 30-day AMD price history as a simple line chart.",
+            badge: "Live API",
+            promptHint: "Show me AMD stock price over the last 30 days as a line chart",
+            buildManifest: amdTrendManifest
+        ),
+        WidgetSampleDefinition(
             id: "welcome-note",
             title: "Welcome Note",
             subtitle: "Local widget with no AI and no network.",
@@ -174,6 +190,45 @@ enum WidgetSampleCatalog {
             returns: "textData",
             ttl: 0,
             prompt: "Welcome sample"
+        )
+    }
+
+    private static func utcClockManifest() -> WidgetManifest {
+        WidgetManifest(
+            widgetType: .text,
+            config: .text(
+                TextConfig(
+                    title: "UTC Clock",
+                    markdown: false
+                )
+            ),
+            skillChain: [
+                WidgetSkillStep(
+                    step: 1,
+                    skill: .currentDateTime,
+                    params: [
+                        "timeZone": AnyCodable("UTC"),
+                        "label": AnyCodable("UTC"),
+                        "showTimeZone": AnyCodable(true),
+                        "includeSeconds": AnyCodable(true),
+                    ],
+                    outputKey: "clock"
+                ),
+            ],
+            returns: "clock",
+            ttl: 0,
+            prompt: "UTC clock sample"
+        )
+    }
+
+    private static func amdTrendManifest() -> WidgetManifest {
+        WidgetPromptTemplateFactory.makeStockTrendManifest(
+            symbol: "AMD",
+            title: "AMD Price (30D)",
+            prompt: "AMD trend sample",
+            rangeLabel: "30D",
+            pointLimit: 30,
+            color: "#ff6b35"
         )
     }
 

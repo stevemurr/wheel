@@ -170,12 +170,12 @@ enum WidgetPlanCompiler {
         let prompt = plan.prompt?.nonEmptyTrimmed ?? fallbackPrompt
         let title = plan.title.nonEmptyTrimmed ?? prompt
         let ttl = max(plan.refreshSeconds, 0)
-        let widgetType = try canonicalWidgetType(plan.widgetType)
+        let widgetType = try canonicalWidgetType(plan, prompt: prompt, title: title)
         let sourceKind = try canonicalSourceKind(plan.source.kind)
 
         switch sourceKind {
         case .literalText:
-            return try compileLiteralText(plan, title: title, ttl: ttl, prompt: prompt)
+            return try compileLiteralText(plan, widgetType: widgetType, title: title, ttl: ttl, prompt: prompt)
         case .currentDateTime:
             return try compileCurrentDateTime(plan, widgetType: widgetType, title: title, ttl: ttl, prompt: prompt)
         case .jsonAPI:
@@ -185,11 +185,12 @@ enum WidgetPlanCompiler {
 
     private static func compileLiteralText(
         _ plan: GeneratedWidgetPlan,
+        widgetType: WidgetType,
         title: String,
         ttl: Int,
         prompt: String
     ) throws -> WidgetManifest {
-        guard try canonicalWidgetType(plan.widgetType) == .text else {
+        guard widgetType == .text else {
             throw WidgetPlanCompilationError.unsupportedCombination(widgetType: plan.widgetType, sourceKind: plan.source.kind)
         }
         guard let text = plan.text else {
@@ -759,7 +760,8 @@ enum WidgetPlanCompiler {
         steps: [WidgetSkillStep],
         dataKey: String
     ) throws -> WidgetManifest {
-        guard let chart = plan.chart,
+        let hints = chartInferenceHints(title: title, prompt: prompt, url: plan.source.url)
+        guard let chart = resolvedChartPlan(from: plan, hints: hints, preferredWidgetType: .barChart),
               let xField = chart.xField.nonEmptyTrimmed,
               let yField = chart.yField?.nonEmptyTrimmed else {
             throw WidgetPlanCompilationError.missingPlanSection("chart")
@@ -805,7 +807,8 @@ enum WidgetPlanCompiler {
         steps: [WidgetSkillStep],
         dataKey: String
     ) throws -> WidgetManifest {
-        guard let chart = plan.chart,
+        let hints = chartInferenceHints(title: title, prompt: prompt, url: plan.source.url)
+        guard let chart = resolvedChartPlan(from: plan, hints: hints, preferredWidgetType: .lineChart),
               let xField = chart.xField.nonEmptyTrimmed else {
             throw WidgetPlanCompilationError.missingPlanSection("chart")
         }
@@ -867,6 +870,30 @@ enum WidgetPlanCompiler {
         return values
     }
 
+    private static func resolvedChartPlan(
+        from plan: GeneratedWidgetPlan,
+        hints: String,
+        preferredWidgetType: WidgetType
+    ) -> GeneratedWidgetChartPlan? {
+        if let chart = plan.chart {
+            return chart
+        }
+
+        guard let inferred = inferredImplicitChartFields(from: plan, hints: hints, preferredWidgetType: preferredWidgetType) else {
+            return nil
+        }
+
+        return GeneratedWidgetChartPlan(
+            xField: inferred.xField,
+            yField: inferred.yField,
+            series: nil,
+            color: nil,
+            yPrefix: inferred.yPrefix,
+            yUnit: nil,
+            showPoints: inferred.showPoints
+        )
+    }
+
     private static func canonicalSeries(from chart: GeneratedWidgetChartPlan) -> [GeneratedWidgetSeriesPlan] {
         if let series = chart.series, !series.isEmpty {
             return series.compactMap { entry in
@@ -890,6 +917,13 @@ enum WidgetPlanCompiler {
             ]
         }
         return []
+    }
+
+    private struct InferredChartFields {
+        let xField: String
+        let yField: String
+        let yPrefix: String?
+        let showPoints: Bool?
     }
 
     private static func listInferenceHints(title: String, prompt: String, url: String?) -> String {
@@ -966,18 +1000,26 @@ enum WidgetPlanCompiler {
         return nil
     }
 
-    private static func canonicalWidgetType(_ rawValue: String) throws -> WidgetType {
+    private static func canonicalWidgetType(
+        _ plan: GeneratedWidgetPlan,
+        prompt: String,
+        title: String
+    ) throws -> WidgetType {
+        let rawValue = plan.widgetType
         if let exact = WidgetType(rawValue: rawValue) {
             return exact
         }
 
-        switch normalizedIdentifier(rawValue) {
+        let normalized = normalizedIdentifier(rawValue)
+        switch normalized {
         case "barchart", "bargraph":
             return .barChart
         case "linechart", "timeseries", "trendchart":
             return .lineChart
         case "statcard", "statscard", "metriccard", "metric":
             return .statCard
+        case "singlevalue", "valuecard", "summarycard":
+            return inferredMetricWidgetType(from: plan, hints: combinedHints(prompt: prompt, title: title)) ?? .statCard
         case "table", "datatable":
             return .table
         case "list", "rankinglist", "feed":
@@ -986,9 +1028,23 @@ enum WidgetPlanCompiler {
             return .text
         case "pricecard", "price", "ticker", "quote":
             return .priceCard
+        case "chart", "graph", "plot", "visualization", "visual", "diagram":
+            if let inferred = inferredChartWidgetType(from: plan, hints: combinedHints(prompt: prompt, title: title)) {
+                return inferred
+            }
+        case "card", "widget", "tile", "panel":
+            if let inferred = inferredWidgetType(from: plan, hints: combinedHints(prompt: prompt, title: title)) {
+                return inferred
+            }
         default:
-            throw WidgetPlanCompilationError.unsupportedWidgetType(rawValue)
+            break
         }
+
+        if let inferred = inferredWidgetType(from: plan, hints: combinedHints(prompt: prompt, title: title)) {
+            return inferred
+        }
+
+        throw WidgetPlanCompilationError.unsupportedWidgetType(rawValue)
     }
 
     private static func canonicalSourceKind(_ rawValue: String) throws -> SourceKind {
@@ -1042,6 +1098,128 @@ enum WidgetPlanCompiler {
         }
     }
 
+    private static func inferredWidgetType(from plan: GeneratedWidgetPlan, hints: String) -> WidgetType? {
+        if plan.chart != nil {
+            return inferredChartWidgetType(from: plan, hints: hints)
+        }
+        if plan.table != nil {
+            return .table
+        }
+        if plan.list != nil {
+            return .list
+        }
+        if plan.metric != nil {
+            return inferredMetricWidgetType(from: plan, hints: hints)
+        }
+        if plan.text != nil {
+            return .text
+        }
+
+        switch normalizedIdentifier(plan.source.kind) {
+        case "currentdatetime", "clock", "time", "timezone", "worldclock", "literaltext", "literal", "note", "statictext":
+            return .text
+        default:
+            return nil
+        }
+    }
+
+    private static func inferredMetricWidgetType(from plan: GeneratedWidgetPlan, hints: String) -> WidgetType? {
+        guard let metric = plan.metric else { return nil }
+        let metricHints = [
+            hints,
+            metric.valueField,
+            metric.changeField ?? "",
+            metric.changePercentField ?? "",
+            metric.footnote ?? "",
+        ]
+            .joined(separator: " ")
+            .lowercased()
+
+        if containsAny(["price", "stock", "quote", "ticker", "market", "crypto", "coin", "token", "fx", "exchange rate"], in: metricHints) {
+            return .priceCard
+        }
+        return .statCard
+    }
+
+    private static func inferredChartWidgetType(from plan: GeneratedWidgetPlan, hints: String) -> WidgetType? {
+        guard let chart = plan.chart else {
+            if inferredImplicitChartFields(from: plan, hints: hints, preferredWidgetType: .lineChart) != nil {
+                return .lineChart
+            }
+            if containsAny(["bar", "bars", "histogram", "ranking", "leaderboard", "compare", "comparison", "breakdown", "category"], in: hints) {
+                return .barChart
+            }
+            return nil
+        }
+        let chartHints = [
+            hints,
+            chart.xField,
+            chart.yField ?? "",
+            plan.source.sortBy ?? "",
+        ]
+            .joined(separator: " ")
+            .lowercased()
+
+        if containsAny(["line", "trend", "history", "over time", "timeseries", "time series", "timeline", "sparkline"], in: chartHints) {
+            return .lineChart
+        }
+        if containsAny(["1h", "12h", "24h", "7d", "30d", "day", "days", "week", "weeks", "month", "months", "year", "years"], in: chartHints) {
+            return .lineChart
+        }
+        if containsAny(["date", "time", "timestamp", "day", "week", "month", "year"], in: chart.xField.lowercased()) {
+            return .lineChart
+        }
+        if (chart.series?.isEmpty == false) || chart.showPoints == true {
+            return .lineChart
+        }
+        if containsAny(["bar", "bars", "histogram", "ranking", "leaderboard", "compare", "comparison", "breakdown", "category"], in: chartHints) {
+            return .barChart
+        }
+
+        return .barChart
+    }
+
+    private static func inferredImplicitChartFields(
+        from plan: GeneratedWidgetPlan,
+        hints: String,
+        preferredWidgetType: WidgetType
+    ) -> InferredChartFields? {
+        let isStockLike = containsAny(["stock", "stocks", "price", "prices", "quote", "quotes", "ticker", "tickers", "share", "shares", "equity", "equities"], in: hints)
+            || isPocketPortfolioStockHistoryURL(plan.source.url)
+        guard isStockLike else { return nil }
+
+        let xField = plan.source.sortBy?.nonEmptyTrimmed ?? "date"
+        let limit = max(plan.source.limit ?? 0, 0)
+        return InferredChartFields(
+            xField: xField,
+            yField: "close",
+            yPrefix: "$",
+            showPoints: preferredWidgetType == .lineChart && limit > 0 ? limit <= 14 : nil
+        )
+    }
+
+    private static func isPocketPortfolioStockHistoryURL(_ rawURL: String?) -> Bool {
+        guard let rawURL,
+              let url = URL(string: rawURL),
+              let host = url.host?.lowercased() else {
+            return false
+        }
+
+        return host == "www.pocketportfolio.app"
+            && url.path.lowercased().contains("/api/tickers/")
+            && url.path.lowercased().hasSuffix("/json")
+    }
+
+    private static func combinedHints(prompt: String, title: String) -> String {
+        "\(prompt) \(title)".lowercased()
+    }
+
+    private static func chartInferenceHints(title: String, prompt: String, url: String?) -> String {
+        [title, prompt, url ?? ""]
+            .joined(separator: " ")
+            .lowercased()
+    }
+
     private static func normalizedIdentifier(_ value: String) -> String {
         value.lowercased().filter { $0.isLetter || $0.isNumber }
     }
@@ -1089,6 +1267,7 @@ enum WidgetPlanSystemPrompt {
         - Use currentDateTime for clocks and timezone widgets
         - Use jsonAPI for prices, exchange rates, weather, rankings, feeds, tables, and charts
         - Prefer free public JSON APIs and avoid scraping
+        - For stock price history charts, prefer https://www.pocketportfolio.app/api/tickers/<SYMBOL>/json and use data as the chart collection when the prompt asks for stock trends over days, weeks, or months
         - For subreddit post prompts, prefer canonical Reddit listing URLs like https://www.reddit.com/r/<subreddit>/top.json?raw_json=1&limit=5&t=day and parse posts from data.children
         - If widgetType is list, always fill the list section and always provide at least list.labelField
         - For lists, use compact for simple summaries, ranked for leaderboards/watchlists, feed for headlines/updates, agenda for schedules, and cards for richer multi-line items
@@ -1099,6 +1278,7 @@ enum WidgetPlanSystemPrompt {
         Hard rules:
         - Output only the WidgetPlan
         - Use exact field names from the plan contract
+        - widgetType must be one of the exact allowed values; never emit generic values like chart, graph, plot, card, or widget
         - Do not invent source kinds
         - Do not invent undocumented API URL patterns
         - Do not emit skill names, output keys, or returns

@@ -5,6 +5,7 @@ enum WidgetRuntimeAction: Equatable {
     case remove(UUID)
     case moveUp(UUID)
     case moveDown(UUID)
+    case toggleLayout(UUID)
     case refresh(UUID)
     case openLink(UUID, URL)
 }
@@ -35,14 +36,14 @@ final class WidgetRuntimeBridge: NSObject, WKScriptMessageHandler {
     func bootstrapDashboard(records: [WidgetRecord], isEditing: Bool) {
         send(
             command: "bootstrapDashboard",
-            payload: DashboardPayload(widgets: records.map(\.manifest), isEditing: isEditing)
+            payload: DashboardPayload(widgets: records.map(DashboardWidgetPayload.init), isEditing: isEditing)
         )
     }
 
     func setDashboardState(records: [WidgetRecord], isEditing: Bool) {
         send(
             command: "setDashboardState",
-            payload: DashboardPayload(widgets: records.map(\.manifest), isEditing: isEditing)
+            payload: DashboardPayload(widgets: records.map(DashboardWidgetPayload.init), isEditing: isEditing)
         )
     }
 
@@ -136,6 +137,8 @@ final class WidgetRuntimeBridge: NSObject, WKScriptMessageHandler {
             return .moveUp(id)
         case "moveDown":
             return .moveDown(id)
+        case "toggleLayout":
+            return .toggleLayout(id)
         case "refresh":
             return .refresh(id)
         case "openLink":
@@ -158,10 +161,20 @@ final class WidgetRuntimeBridge: NSObject, WKScriptMessageHandler {
 }
 
 private struct DashboardPayload: Encodable {
-    let widgets: [WidgetManifest]
+    let widgets: [DashboardWidgetPayload]
     let isEditing: Bool
 }
 
 private struct RefreshPayload: Encodable {
     let id: UUID
+}
+
+private struct DashboardWidgetPayload: Encodable {
+    let manifest: WidgetManifest
+    let layoutPreference: WidgetLayoutPreference
+
+    init(record: WidgetRecord) {
+        manifest = record.manifest
+        layoutPreference = record.layoutPreference
+    }
 }

@@ -81,6 +81,23 @@ func awaitNavigation(in webView: WKWebView, action: () -> Void) async throws {
 }
 
 @MainActor
+func waitUntilJavaScript(
+    in webView: WKWebView,
+    script: String,
+    timeout: TimeInterval = 2.0,
+    interval: TimeInterval = 0.02
+) async throws {
+    let deadline = Date().addingTimeInterval(timeout)
+    while Date() < deadline {
+        if let matched = try await webView.evaluateJavaScript(script) as? Bool, matched {
+            return
+        }
+        try await Task.sleep(nanoseconds: UInt64(interval * 1_000_000_000))
+    }
+    throw CocoaError(.userCancelled)
+}
+
+@MainActor
 final class ReaderModeBindingState {
     var isLoading = false
     var isReaderMode = false

@@ -37,9 +37,8 @@ struct OverlayWebViewReaderModeTests {
         let coordinator = makeCoordinator(state: state, url: fileURL)
 
         #expect(await coordinator.applyReaderMode(in: webView))
-        try await awaitNavigation(in: webView) {
-            coordinator.disableReaderMode(in: webView)
-        }
+        coordinator.disableReaderMode(in: webView)
+        try await waitUntilJavaScript(in: webView, script: "document.body.innerText.includes('Trending tickers')")
 
         let restoredBody = try #require(try await webView.evaluateJavaScript("document.body.innerText") as? String)
         #expect(restoredBody.contains("Trending tickers"))

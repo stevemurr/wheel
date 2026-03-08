@@ -5,6 +5,7 @@ const state = {
   isEditing: false,
   cache: new Map(),
   inFlight: new Map(),
+  liveUpdates: new Map(),
 };
 
 function postMessage(type, payload = {}) {
@@ -695,6 +696,65 @@ async function executeSkillChain(manifest, { force = false } = {}) {
   }
 }
 
+function isLiveDateTimeWidget(manifest) {
+  return Array.isArray(manifest?.skillChain)
+    && manifest.skillChain.some((step) => step?.skill === 'currentDateTime');
+}
+
+function stopLiveUpdates(id) {
+  const handle = state.liveUpdates.get(id);
+  if (!handle) return;
+
+  if (handle.timeoutId) clearTimeout(handle.timeoutId);
+  if (handle.intervalId) clearInterval(handle.intervalId);
+  state.liveUpdates.delete(id);
+}
+
+function stopAllLiveUpdates() {
+  for (const id of Array.from(state.liveUpdates.keys())) {
+    stopLiveUpdates(id);
+  }
+}
+
+function scheduleLiveUpdates(manifest) {
+  if (!isLiveDateTimeWidget(manifest)) return;
+
+  stopLiveUpdates(manifest.id);
+
+  const handle = {
+    timeoutId: null,
+    intervalId: null,
+    isUpdating: false,
+  };
+
+  const tick = () => {
+    const card = dashboard.querySelector(`[data-widget-id="${manifest.id}"]`);
+    const content = card?.querySelector('.widget-content');
+    if (!card || !content || handle.isUpdating) return;
+
+    handle.isUpdating = true;
+    executeSkillChain(manifest, { force: true })
+      .then((data) => {
+        applyCardPresentation(card, manifest, data);
+        content.innerHTML = renderWidgetContent(manifest, data);
+      })
+      .catch(() => {
+        // Keep the current rendered value if a live local update fails unexpectedly.
+      })
+      .finally(() => {
+        handle.isUpdating = false;
+      });
+  };
+
+  const delay = Math.max(80, 1000 - (Date.now() % 1000));
+  handle.timeoutId = setTimeout(() => {
+    tick();
+    handle.intervalId = setInterval(tick, 1000);
+  }, delay);
+
+  state.liveUpdates.set(manifest.id, handle);
+}
+
 const ACTION_ICONS = {
   refresh: `
     <svg viewBox="0 0 24 24" aria-hidden="true">
@@ -720,6 +780,12 @@ const ACTION_ICONS = {
       <path d="M6 6l12 12"></path>
     </svg>
   `,
+  toggleLayout: `
+    <svg viewBox="0 0 24 24" aria-hidden="true">
+      <rect x="4" y="6" width="16" height="12" rx="2"></rect>
+      <path d="M9 6v12"></path>
+    </svg>
+  `,
 };
 
 function createIconButton({ label, action, extraClass = '' }) {
@@ -734,6 +800,10 @@ function createIconButton({ label, action, extraClass = '' }) {
 }
 
 function widgetChromeLabel(manifest) {
+  if (Array.isArray(manifest?.skillChain) && manifest.skillChain.some((step) => step?.skill === 'currentDateTime')) {
+    return manifest.widgetType === 'list' ? 'World Clock' : 'Clock';
+  }
+
   switch (manifest.widgetType) {
     case 'statCard':
       return 'Metric';
@@ -746,14 +816,19 @@ function widgetChromeLabel(manifest) {
     case 'text':
       return manifest.config?.markdown ? 'Rich Text' : 'Text';
     case 'barChart':
+      return 'Comparison';
     case 'lineChart':
-      return 'Chart';
+      return 'Trend';
     default:
       return 'Widget';
   }
 }
 
 function widgetLayoutDensity(manifest) {
+  if (manifest.layoutPreference === 'fullWidth') {
+    return 'wide';
+  }
+
   switch (manifest.widgetType) {
     case 'statCard':
     case 'priceCard':
@@ -773,22 +848,166 @@ function widgetLayoutDensity(manifest) {
   }
 }
 
+function nextLayoutPreference(preference) {
+  switch (preference) {
+    case 'singleColumn':
+      return 'fullWidth';
+    case 'fullWidth':
+      return 'auto';
+    default:
+      return 'singleColumn';
+  }
+}
+
+function layoutPreferenceActionLabel(preference) {
+  switch (preference) {
+    case 'singleColumn':
+      return 'Make Full Width';
+    case 'fullWidth':
+      return 'Use Auto Width';
+    default:
+      return 'Pin to One Column';
+  }
+}
+
 function dashboardLayoutClasses(widgets) {
   const count = widgets.length;
   const countClass = count === 0 ? 'dashboard--empty' : count <= 4 ? `dashboard--count-${count}` : 'dashboard--count-many';
   const densities = widgets.map(widgetLayoutDensity);
   const allCompact = densities.length > 0 && densities.every((density) => density === 'compact');
   const hasWide = densities.some((density) => density === 'wide');
+  const hasFullWidth = widgets.some((widget) => widget.layoutPreference === 'fullWidth');
+  const heroIndex = count === 3 && !allCompact
+    ? widgets.findIndex((widget, index) => densities[index] !== 'compact' && widget.layoutPreference === 'auto')
+    : -1;
 
   return {
-    classNames: ['dashboard', countClass, allCompact ? 'dashboard--all-compact' : 'dashboard--mixed', hasWide ? 'dashboard--has-wide' : 'dashboard--no-wide'],
-    heroIndex: count === 3 && !allCompact ? Math.max(densities.findIndex((density) => density !== 'compact'), 0) : -1,
+    classNames: ['dashboard', countClass, allCompact ? 'dashboard--all-compact' : 'dashboard--mixed', hasWide ? 'dashboard--has-wide' : 'dashboard--no-wide', hasFullWidth ? 'dashboard--has-full-width' : 'dashboard--auto-widths'],
+    heroIndex,
   };
 }
 
 function formatValue(value, prefix = '', suffix = '') {
   if (value == null) return '—';
   return `${prefix}${value}${suffix}`;
+}
+
+function numericValue(value) {
+  if (typeof value === 'number') {
+    return Number.isFinite(value) ? value : null;
+  }
+
+  if (typeof value === 'string') {
+    const normalized = value.replace(/,/g, '').replace(/[^0-9.+-]/g, '');
+    if (!normalized) return null;
+    const parsed = Number(normalized);
+    return Number.isFinite(parsed) ? parsed : null;
+  }
+
+  return null;
+}
+
+function formatCompactNumber(value) {
+  const number = numericValue(value);
+  if (number == null) return '—';
+
+  const magnitude = Math.abs(number);
+  const fractionDigits = magnitude >= 100 ? 0 : magnitude >= 10 ? 1 : 2;
+  const minimumFractionDigits = magnitude < 10 ? Math.min(fractionDigits, 2) : 0;
+
+  return new Intl.NumberFormat(undefined, {
+    minimumFractionDigits,
+    maximumFractionDigits: fractionDigits,
+  }).format(number);
+}
+
+function formatChartValue(value, prefix = '', suffix = '') {
+  if (value == null) return '—';
+  return `${prefix}${formatCompactNumber(value)}${suffix}`;
+}
+
+function deltaToneClass(value) {
+  const number = numericValue(value);
+  if (number != null) {
+    if (number > 0) return 'is-positive';
+    if (number < 0) return 'is-negative';
+    return 'is-neutral';
+  }
+
+  const text = String(value ?? '').trim().toLowerCase();
+  if (!text) return 'is-neutral';
+  if (text.startsWith('+') || text.includes('up')) return 'is-positive';
+  if (text.startsWith('-') || text.includes('down')) return 'is-negative';
+  return 'is-neutral';
+}
+
+function isClockPayload(data) {
+  return Boolean(
+    data
+    && typeof data === 'object'
+    && typeof data.time === 'string'
+    && typeof data.date === 'string'
+    && (typeof data.timeZoneAbbreviation === 'string' || typeof data.timeZone === 'string')
+  );
+}
+
+function splitClockDisplay(time) {
+  const value = String(time ?? '').trim();
+  const match = value.match(/^(.+?)(?:\s+([AP]M))?$/i);
+  if (!match) {
+    return { primary: value || '—', suffix: null };
+  }
+
+  return {
+    primary: match[1],
+    suffix: match[2] ? match[2].toUpperCase() : null,
+  };
+}
+
+function renderClockWidget(data) {
+  const zoneLabel = data?.timeZoneAbbreviation || data?.timeZone || 'Local';
+  const zoneDetail = data?.timeZone && data.timeZone !== zoneLabel ? data.timeZone : null;
+  const display = splitClockDisplay(data?.time);
+
+  return `
+    <div class="clock-panel">
+      <div class="clock-panel__orbits" aria-hidden="true">
+        <div class="clock-orbit clock-orbit--large"></div>
+        <div class="clock-orbit clock-orbit--small"></div>
+      </div>
+      <div class="clock-header">
+        <div class="clock-label">${escapeHTML(data?.label || 'Local Time')}</div>
+        <div class="clock-zone-chip">${escapeHTML(zoneLabel)}</div>
+      </div>
+      <div class="clock-body">
+        <div class="clock-time">
+          <span class="clock-time-primary">${escapeHTML(display.primary)}</span>
+          ${display.suffix ? `<span class="clock-time-suffix">${escapeHTML(display.suffix)}</span>` : ''}
+        </div>
+        <div class="clock-date">${escapeHTML(data?.date || '')}</div>
+      </div>
+      ${zoneDetail ? `<div class="clock-footer">${escapeHTML(zoneDetail)}</div>` : ''}
+    </div>
+  `;
+}
+
+function renderMetricPanel({ valueMarkup, delta = null, footnote = null }) {
+  const deltaMarkup = delta != null
+    ? `<div class="metric-pill ${deltaToneClass(delta)}">${escapeHTML(String(delta))}</div>`
+    : '';
+  const footnoteMarkup = footnote
+    ? `<div class="metric-footnote">${escapeHTML(footnote)}</div>`
+    : '';
+
+  return `
+    <div class="metric-panel">
+      <div class="metric-panel__value">${valueMarkup}</div>
+      <div class="metric-panel__footer">
+        ${deltaMarkup}
+        ${footnoteMarkup}
+      </div>
+    </div>
+  `;
 }
 
 function renderMarkdown(content) {
@@ -854,64 +1073,258 @@ function renderListItem(item, config, index) {
 }
 
 function renderBarChart(config, data) {
-  const width = 600;
-  const height = 220;
-  const padding = 28;
-  const max = Math.max(...data.map((item) => Number(item?.[config.yField] ?? 0)), 1);
-  const barWidth = (width - padding * 2) / Math.max(data.length, 1);
+  const width = 640;
+  const height = 240;
+  const padding = { top: 22, right: 18, bottom: 34, left: 28 };
+  const values = data
+    .map((item) => numericValue(item?.[config.yField]))
+    .filter((value) => value != null);
+  const max = Math.max(...values, 1);
+  const plotWidth = width - padding.left - padding.right;
+  const plotHeight = height - padding.top - padding.bottom;
+  const barWidth = plotWidth / Math.max(data.length, 1);
   const color = config.color || '#0d8f73';
+  const labels = axisLabelsFromData(data, config.xField);
+  const peakValue = values.length ? Math.max(...values) : null;
+
+  const gridLines = Array.from({ length: 4 }, (_, index) => {
+    const ratio = index / 3;
+    const y = padding.top + plotHeight * ratio;
+    return `<line class="chart-gridline" x1="${padding.left}" y1="${y}" x2="${width - padding.right}" y2="${y}"></line>`;
+  }).join('');
 
   const bars = data.map((item, index) => {
-    const value = Number(item?.[config.yField] ?? 0);
-    const barHeight = ((height - padding * 2) * value) / max;
-    const x = padding + index * barWidth + 8;
-    const y = height - padding - barHeight;
-    return `<rect class="chart-bar" x="${x}" y="${y}" width="${Math.max(barWidth - 16, 12)}" height="${barHeight}" fill="${escapeAttribute(color)}"></rect>`;
+    const value = numericValue(item?.[config.yField]) ?? 0;
+    const barHeight = (plotHeight * value) / max;
+    const x = padding.left + index * barWidth + Math.max((barWidth - 18) / 2, 6);
+    const y = height - padding.bottom - barHeight;
+    return `<rect class="chart-bar" x="${x}" y="${y}" width="${Math.max(barWidth - 12, 12)}" height="${barHeight}" fill="${escapeAttribute(color)}"></rect>`;
   }).join('');
 
   return `
-    <div class="chart-wrap">
-      <svg class="chart-svg" viewBox="0 0 ${width} ${height}" role="img" aria-label="${escapeAttribute(config.title)}">
-        <line class="chart-axis" x1="${padding}" y1="${height - padding}" x2="${width - padding}" y2="${height - padding}"></line>
-        <line class="chart-axis" x1="${padding}" y1="${padding}" x2="${padding}" y2="${height - padding}"></line>
-        ${bars}
-      </svg>
+    <div class="chart-shell">
+      <div class="chart-meta">
+        <div class="chart-legend">
+          <span class="chart-legend__item">
+            <span class="chart-swatch" style="--series-color: ${escapeAttribute(color)}"></span>
+            <span class="chart-legend__label">${escapeHTML(config.title)}</span>
+          </span>
+        </div>
+        ${peakValue != null ? `<div class="chart-summary"><span class="chart-summary-pill">Peak ${escapeHTML(formatChartValue(peakValue, config.yPrefix || '', config.yUnit ? ` ${config.yUnit}` : ''))}</span></div>` : ''}
+      </div>
+      <div class="chart-wrap">
+        <svg class="chart-svg" viewBox="0 0 ${width} ${height}" role="img" aria-label="${escapeAttribute(config.title)}">
+          ${gridLines}
+          <line class="chart-axis" x1="${padding.left}" y1="${height - padding.bottom}" x2="${width - padding.right}" y2="${height - padding.bottom}"></line>
+          ${bars}
+        </svg>
+      </div>
+      ${renderAxisLabels(labels)}
     </div>
   `;
 }
 
-function renderLineChart(config, data) {
-  const width = 600;
-  const height = 220;
-  const padding = 28;
-  const allValues = config.series
-    .flatMap((series) => data.map((item) => Number(item?.[series.field] ?? 0)))
-    .filter((value) => Number.isFinite(value));
-  const max = Math.max(...allValues, 1);
-  const xStep = data.length > 1 ? (width - padding * 2) / (data.length - 1) : 0;
+const DEFAULT_CHART_COLORS = ['#0d8f73', '#c18550', '#4259b2', '#b04444'];
 
-  const paths = config.series.map((series, seriesIndex) => {
-    const color = series.color || ['#0d8f73', '#c18550', '#4259b2'][seriesIndex % 3];
-    const coordinates = data.map((item, index) => {
-      const value = Number(item?.[series.field] ?? 0);
-      const x = padding + index * xStep;
-      const y = height - padding - ((height - padding * 2) * value) / max;
-      return { x, y };
+function chartColor(series, index) {
+  return series.color || DEFAULT_CHART_COLORS[index % DEFAULT_CHART_COLORS.length];
+}
+
+function axisLabelsFromData(data, xField) {
+  if (!Array.isArray(data) || data.length === 0) return [];
+
+  const indexes = Array.from(new Set([0, Math.floor((data.length - 1) / 2), data.length - 1]));
+  return indexes
+    .map((index) => {
+      const label = data[index]?.[xField];
+      return label == null ? '' : String(label);
+    })
+    .filter((label) => label);
+}
+
+function renderAxisLabels(labels) {
+  const slots = labels.length >= 3
+    ? labels.slice(0, 3)
+    : labels.length === 2
+      ? [labels[0], '', labels[1]]
+      : labels.length === 1
+        ? [labels[0], '', labels[0]]
+        : [];
+
+  if (slots.length === 0) return '';
+
+  return `
+    <div class="chart-axis-labels">
+      ${slots.map((label) => `<span>${escapeHTML(label)}</span>`).join('')}
+    </div>
+  `;
+}
+
+function linePathFromCoordinates(points) {
+  let path = '';
+  let started = false;
+
+  for (const point of points) {
+    if (!point) {
+      started = false;
+      continue;
+    }
+
+    path += `${started ? ' L' : 'M'} ${point.x} ${point.y}`;
+    started = true;
+  }
+
+  return path;
+}
+
+function areaPathFromCoordinates(points, baselineY) {
+  const validPoints = points.filter(Boolean);
+  if (validPoints.length < 2) return '';
+
+  return `${validPoints.map((point, index) => `${index === 0 ? 'M' : 'L'} ${point.x} ${point.y}`).join(' ')} L ${validPoints[validPoints.length - 1].x} ${baselineY} L ${validPoints[0].x} ${baselineY} Z`;
+}
+
+function lastDefinedPoint(points) {
+  for (let index = points.length - 1; index >= 0; index -= 1) {
+    if (points[index]) {
+      return points[index];
+    }
+  }
+  return null;
+}
+
+function renderLineChart(config, data) {
+  if (!data.length || !config.series.length) {
+    return '<div class="chart-empty">No data yet.</div>';
+  }
+
+  const width = 640;
+  const height = 240;
+  const padding = { top: 18, right: 18, bottom: 34, left: 44 };
+  const allValues = config.series
+    .flatMap((series) => data.map((item) => numericValue(item?.[series.field])))
+    .filter((value) => Number.isFinite(value));
+  if (allValues.length === 0) {
+    return '<div class="chart-empty">No numeric chart data.</div>';
+  }
+
+  let min = Math.min(...allValues);
+  let max = Math.max(...allValues);
+  if (min === max) {
+    const pad = min === 0 ? 1 : Math.abs(min) * 0.08;
+    min -= pad;
+    max += pad;
+  } else {
+    const pad = (max - min) * 0.12;
+    min -= pad;
+    max += pad;
+  }
+
+  const plotWidth = width - padding.left - padding.right;
+  const plotHeight = height - padding.top - padding.bottom;
+  const xStep = data.length > 1 ? plotWidth / (data.length - 1) : 0;
+  const baselineY = height - padding.bottom;
+  const gradientID = `chart-gradient-${Math.random().toString(36).slice(2, 9)}`;
+
+  const gridLines = Array.from({ length: 4 }, (_, index) => {
+    const ratio = index / 3;
+    const y = padding.top + plotHeight * ratio;
+    const value = max - (max - min) * ratio;
+    return `
+      <line class="chart-gridline" x1="${padding.left}" y1="${y}" x2="${width - padding.right}" y2="${y}"></line>
+      <text class="chart-gridlabel" x="${padding.left - 10}" y="${y + 4}" text-anchor="end">${escapeHTML(formatCompactNumber(value))}</text>
+    `;
+  }).join('');
+
+  const seriesCoordinates = config.series.map((series) => {
+    return data.map((item, index) => {
+      const value = numericValue(item?.[series.field]);
+      if (value == null) return null;
+
+      return {
+        x: data.length > 1 ? padding.left + index * xStep : padding.left + plotWidth / 2,
+        y: padding.top + ((max - value) / (max - min || 1)) * plotHeight,
+        value,
+      };
     });
-    const path = coordinates.map((point, index) => `${index === 0 ? 'M' : 'L'} ${point.x} ${point.y}`).join(' ');
-    const dots = (config.showPoints ? coordinates.map((point) => `<circle class="chart-point" cx="${point.x}" cy="${point.y}" r="4" fill="${escapeAttribute(color)}"></circle>`).join('') : '');
+  });
+
+  const firstArea = areaPathFromCoordinates(seriesCoordinates[0], baselineY);
+  const seriesMarkup = config.series.map((series, seriesIndex) => {
+    const color = chartColor(series, seriesIndex);
+    const points = seriesCoordinates[seriesIndex];
+    const path = linePathFromCoordinates(points);
+    const dots = config.showPoints
+      ? points.filter(Boolean).map((point) => (
+        `<circle class="chart-point" cx="${point.x}" cy="${point.y}" r="4" fill="${escapeAttribute(color)}"></circle>`
+      )).join('')
+      : '';
     return `<path class="chart-line" d="${path}" stroke="${escapeAttribute(color)}"></path>${dots}`;
   }).join('');
 
+  const legendMarkup = config.series.map((series, index) => {
+    const color = chartColor(series, index);
+    return `
+      <span class="chart-legend__item">
+        <span class="chart-swatch" style="--series-color: ${escapeAttribute(color)}"></span>
+        <span class="chart-legend__label">${escapeHTML(series.label)}</span>
+      </span>
+    `;
+  }).join('');
+
+  const summaryMarkup = config.series.map((series, index) => {
+    const latest = lastDefinedPoint(seriesCoordinates[index]);
+    if (!latest) return '';
+    return `<span class="chart-summary-pill">${escapeHTML(series.label)} ${escapeHTML(formatChartValue(latest.value, config.yPrefix || ''))}</span>`;
+  }).join('');
+
+  const labels = axisLabelsFromData(data, config.xField);
+
   return `
-    <div class="chart-wrap">
-      <svg class="chart-svg" viewBox="0 0 ${width} ${height}" role="img" aria-label="${escapeAttribute(config.title)}">
-        <line class="chart-axis" x1="${padding}" y1="${height - padding}" x2="${width - padding}" y2="${height - padding}"></line>
-        <line class="chart-axis" x1="${padding}" y1="${padding}" x2="${padding}" y2="${height - padding}"></line>
-        ${paths}
-      </svg>
+    <div class="chart-shell">
+      <div class="chart-meta">
+        <div class="chart-legend">${legendMarkup}</div>
+        ${summaryMarkup ? `<div class="chart-summary">${summaryMarkup}</div>` : ''}
+      </div>
+      <div class="chart-wrap">
+        <svg class="chart-svg" viewBox="0 0 ${width} ${height}" role="img" aria-label="${escapeAttribute(config.title)}">
+          <defs>
+            <linearGradient id="${gradientID}" x1="0" x2="0" y1="0" y2="1">
+              <stop offset="0%" stop-color="${escapeAttribute(chartColor(config.series[0], 0))}" stop-opacity="0.24"></stop>
+              <stop offset="100%" stop-color="${escapeAttribute(chartColor(config.series[0], 0))}" stop-opacity="0"></stop>
+            </linearGradient>
+          </defs>
+          ${gridLines}
+          <line class="chart-axis" x1="${padding.left}" y1="${baselineY}" x2="${width - padding.right}" y2="${baselineY}"></line>
+          ${firstArea ? `<path class="chart-area" d="${firstArea}" fill="url(#${gradientID})"></path>` : ''}
+          ${seriesMarkup}
+        </svg>
+      </div>
+      ${renderAxisLabels(labels)}
     </div>
   `;
+}
+
+function presentationModeFor(manifest, data) {
+  if (manifest.widgetType === 'text' && !manifest.config?.markdown && isClockPayload(data)) {
+    return 'clock';
+  }
+  if (manifest.widgetType === 'statCard' || manifest.widgetType === 'priceCard') {
+    return 'metric';
+  }
+  if (manifest.widgetType === 'lineChart') {
+    return 'trend';
+  }
+  return null;
+}
+
+function applyCardPresentation(card, manifest, data) {
+  const mode = presentationModeFor(manifest, data);
+  if (mode) {
+    card.dataset.presentation = mode;
+  } else {
+    delete card.dataset.presentation;
+  }
 }
 
 function renderWidgetContent(manifest, data) {
@@ -920,23 +1333,22 @@ function renderWidgetContent(manifest, data) {
       const config = manifest.config;
       const value = data?.[config.valueField];
       const delta = config.changeField ? data?.[config.changeField] : null;
-      return `
-        <div class="stat-block">
-          <div class="stat-value">${escapeHTML(formatValue(value, config.prefix || '', config.suffix || ''))}</div>
-          ${delta != null ? `<div class="stat-delta">${escapeHTML(config.changeIsPercent ? `${delta}%` : delta)}</div>` : ''}
-        </div>
-      `;
+      const deltaText = delta != null
+        ? (config.changeIsPercent ? `${delta}%` : String(delta))
+        : null;
+      return renderMetricPanel({
+        valueMarkup: `<div class="stat-value">${escapeHTML(formatValue(value, config.prefix || '', config.suffix || ''))}</div>`,
+        delta: deltaText,
+      });
     }
     case 'priceCard': {
       const config = manifest.config;
       const deltaField = config.changePercentField || config.changeField;
-      return `
-        <div class="stat-block">
-          <div class="price-value">${escapeHTML(formatValue(data?.[config.priceField], config.prefix || ''))}</div>
-          ${deltaField ? `<div class="price-delta">${escapeHTML(data?.[deltaField] ?? '—')}</div>` : ''}
-          ${config.footnote ? `<div class="footnote">${escapeHTML(config.footnote)}</div>` : ''}
-        </div>
-      `;
+      return renderMetricPanel({
+        valueMarkup: `<div class="price-value">${escapeHTML(formatValue(data?.[config.priceField], config.prefix || ''))}</div>`,
+        delta: deltaField ? data?.[deltaField] ?? '—' : null,
+        footnote: config.footnote,
+      });
     }
     case 'list': {
       const config = manifest.config;
@@ -978,6 +1390,9 @@ function renderWidgetContent(manifest, data) {
     case 'text': {
       const config = manifest.config;
       const content = data?.content ?? '';
+      if (!config.markdown && isClockPayload(data)) {
+        return renderClockWidget(data);
+      }
       return config.markdown
         ? `<div class="markdown">${renderMarkdown(content)}</div>`
         : `<div class="text-block">${escapeHTML(content)}</div>`;
@@ -997,7 +1412,8 @@ function renderCard(manifest, options = {}) {
   card.dataset.widgetId = manifest.id;
   card.dataset.widgetType = manifest.widgetType;
   card.dataset.density = widgetLayoutDensity(manifest);
-  if (options.isHero) {
+  card.dataset.layoutPreference = manifest.layoutPreference || 'auto';
+  if (options.isHero && manifest.layoutPreference === 'auto') {
     card.classList.add('widget-card--hero');
   }
 
@@ -1017,6 +1433,10 @@ function renderCard(manifest, options = {}) {
   actions.appendChild(createIconButton({ label: 'Refresh', action: 'refresh' }));
 
   if (state.isEditing) {
+    actions.appendChild(createIconButton({
+      label: layoutPreferenceActionLabel(manifest.layoutPreference),
+      action: 'toggleLayout',
+    }));
     actions.appendChild(createIconButton({ label: 'Move Up', action: 'moveUp' }));
     actions.appendChild(createIconButton({ label: 'Move Down', action: 'moveDown' }));
     actions.appendChild(createIconButton({ label: 'Remove', action: 'remove', extraClass: 'danger' }));
@@ -1037,12 +1457,16 @@ function renderCard(manifest, options = {}) {
   executeSkillChain(manifest)
     .then((data) => {
       card.classList.remove('is-loading');
+      applyCardPresentation(card, manifest, data);
       content.innerHTML = renderWidgetContent(manifest, data);
+      scheduleLiveUpdates(manifest);
       postMessage('widgetLoaded', { id: manifest.id });
       notifyHeight();
     })
     .catch((error) => {
       card.classList.remove('is-loading');
+      stopLiveUpdates(manifest.id);
+      delete card.dataset.presentation;
       content.innerHTML = `<div class="widget-error">${escapeHTML(error.message || String(error))}</div>`;
       postMessage('widgetError', { id: manifest.id, message: error.message || String(error) });
       notifyHeight();
@@ -1052,6 +1476,7 @@ function renderCard(manifest, options = {}) {
 }
 
 function renderDashboard() {
+  stopAllLiveUpdates();
   dashboard.innerHTML = '';
   const layout = dashboardLayoutClasses(state.widgets);
   dashboard.className = layout.classNames.join(' ');
@@ -1074,8 +1499,22 @@ function renderDashboard() {
   notifyHeight();
 }
 
+function normalizeDashboardWidget(widget) {
+  if (widget?.manifest && typeof widget.manifest === 'object') {
+    return {
+      ...widget.manifest,
+      layoutPreference: widget.layoutPreference || 'auto',
+    };
+  }
+
+  return {
+    ...widget,
+    layoutPreference: widget?.layoutPreference || 'auto',
+  };
+}
+
 function applyDashboardState(payload) {
-  state.widgets = payload.widgets || [];
+  state.widgets = (payload.widgets || []).map(normalizeDashboardWidget);
   state.isEditing = Boolean(payload.isEditing);
   renderDashboard();
 }
@@ -1095,13 +1534,17 @@ function refreshWidgetCard(manifest) {
   executeSkillChain(manifest, { force: true })
     .then((data) => {
       const refreshed = dashboard.querySelector(`[data-widget-id="${manifest.id}"] .widget-content`);
+      applyCardPresentation(card, manifest, data);
       if (refreshed) refreshed.innerHTML = renderWidgetContent(manifest, data);
       card?.classList.remove('is-loading');
+      scheduleLiveUpdates(manifest);
       postMessage('widgetLoaded', { id: manifest.id });
       notifyHeight();
     })
     .catch((error) => {
       const refreshed = dashboard.querySelector(`[data-widget-id="${manifest.id}"] .widget-content`);
+      stopLiveUpdates(manifest.id);
+      if (card) delete card.dataset.presentation;
       if (refreshed) refreshed.innerHTML = `<div class="widget-error">${escapeHTML(error.message || String(error))}</div>`;
       card?.classList.remove('is-loading');
       postMessage('widgetError', { id: manifest.id, message: error.message || String(error) });
@@ -1119,9 +1562,22 @@ function handleWidgetAction(action, id) {
       postMessage('widgetAction', { action, id });
       refreshWidgetCard(manifest);
       return;
+    case 'toggleLayout': {
+      const updated = [...state.widgets];
+      const current = updated[index];
+      updated[index] = {
+        ...current,
+        layoutPreference: nextLayoutPreference(current.layoutPreference),
+      };
+      state.widgets = updated;
+      renderDashboard();
+      postMessage('widgetAction', { action, id });
+      return;
+    }
     case 'remove':
       state.widgets = state.widgets.filter((widget) => widget.id !== id);
       renderDashboard();
+      stopLiveUpdates(id);
       postMessage('widgetAction', { action, id });
       return;
     case 'moveUp':

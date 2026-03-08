@@ -276,7 +276,7 @@ struct WidgetPromptSheet: View {
             Text("Describe the widget you want")
                 .font(.headline)
 
-            Text("Good prompts mention both the data and the presentation. Example: “Show me Bitcoin price and 24h change as a compact stat card.”")
+            Text("Good prompts mention both the data and the presentation. Examples: “Show me Bitcoin price and 24h change as a compact stat card.” or “Show me AMD stock price over the last 30 days as a line chart.”")
                 .font(.system(size: 13))
                 .foregroundStyle(.secondary)
 
@@ -287,7 +287,7 @@ struct WidgetPromptSheet: View {
                     .stroke(Color.primary.opacity(0.08), lineWidth: 1)
 
                 if prompt.isEmpty {
-                    Text("e.g. Show me Bitcoin price and 24h change as a compact stat card")
+                    Text("e.g. Show me AMD stock price over the last 30 days as a line chart")
                         .font(.system(size: 14))
                         .foregroundStyle(.tertiary)
                         .padding(.horizontal, 14)

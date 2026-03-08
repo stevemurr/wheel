@@ -155,6 +155,123 @@ struct WidgetManifestGeneratorTests {
         #expect(config.changeField == "change")
     }
 
+    @Test("Generator infers chart widgets from generic widget type labels")
+    func infersGenericChartLabels() async throws {
+        let generator = OnDeviceWidgetManifestGenerator(
+            completionProvider: { _, _ in
+                GeneratedWidgetPlan(
+                    title: "Revenue Trend",
+                    widgetType: "chart",
+                    source: GeneratedWidgetSourcePlan(
+                        kind: "jsonAPI",
+                        url: "https://example.com/revenue.json",
+                        jsonPath: "data",
+                        resultShape: "collection",
+                        sortBy: "date",
+                        sortAscending: true,
+                        limit: 30,
+                        timeZones: nil
+                    ),
+                    refreshSeconds: 300,
+                    prompt: "show me revenue over the last 30 days",
+                    text: nil,
+                    metric: nil,
+                    list: nil,
+                    table: nil,
+                    chart: GeneratedWidgetChartPlan(
+                        xField: "date",
+                        yField: "close",
+                        series: nil,
+                        color: "#00aa88",
+                        yPrefix: "$",
+                        yUnit: nil,
+                        showPoints: false
+                    )
+                )
+            },
+            preflightProvider: { _ in }
+        )
+
+        let manifest = try await generator.generate(prompt: "show me revenue over the last 30 days")
+
+        #expect(manifest.widgetType == .lineChart)
+        #expect(manifest.skillChain.map(\.skill) == [.fetchUrl, .parseJson, .filterSort, .transform])
+    }
+
+    @Test("Generator infers stock chart defaults when chart details are omitted")
+    func infersStockChartDefaultsWithoutChartSection() async throws {
+        let generator = OnDeviceWidgetManifestGenerator(
+            completionProvider: { _, _ in
+                GeneratedWidgetPlan(
+                    title: "Apple Stock Over the Last 30 Days",
+                    widgetType: "chart",
+                    source: GeneratedWidgetSourcePlan(
+                        kind: "jsonAPI",
+                        url: "https://www.pocketportfolio.app/api/tickers/AAPL/json",
+                        jsonPath: "data",
+                        resultShape: "collection",
+                        sortBy: "date",
+                        sortAscending: true,
+                        limit: 30,
+                        timeZones: [
+                            GeneratedWidgetTimeZonePlan(label: "UTC", identifier: "UTC"),
+                        ]
+                    ),
+                    refreshSeconds: 60,
+                    prompt: "show me the 30 day series",
+                    text: nil,
+                    metric: nil,
+                    list: nil,
+                    table: nil,
+                    chart: nil
+                )
+            },
+            preflightProvider: { _ in }
+        )
+
+        let manifest = try await generator.generate(prompt: "show me the 30 day series")
+
+        #expect(manifest.widgetType == .lineChart)
+        #expect(manifest.skillChain.map(\.skill) == [.fetchUrl, .parseJson, .filterSort, .transform])
+
+        guard case .lineChart(let config) = manifest.config else {
+            Issue.record("Expected lineChart config")
+            return
+        }
+
+        #expect(config.yPrefix == "$")
+        #expect(config.series.first?.label == "Close")
+    }
+
+    @Test("Generator uses a built-in stock template for compact range prompts")
+    func usesBuiltInStockTemplateForCompactRangePrompt() async throws {
+        let generator = OnDeviceWidgetManifestGenerator(
+            completionProvider: { _, _ in
+                Issue.record("Compact stock range prompt should bypass the language model.")
+                throw TestSequenceError.depleted
+            },
+            availabilityProvider: {
+                Issue.record("Compact stock range prompt should not check model availability.")
+                return .unavailable("Should not be called")
+            },
+            preflightProvider: { _ in }
+        )
+
+        let manifest = try await generator.generate(prompt: "show me the apple stock price over 30d")
+
+        #expect(manifest.widgetType == .lineChart)
+        #expect(manifest.skillChain.first?.params["url"]?.stringValue == "https://www.pocketportfolio.app/api/tickers/AAPL/json")
+        #expect(manifest.skillChain[1].params["path"]?.stringValue == "data")
+
+        guard case .lineChart(let config) = manifest.config else {
+            Issue.record("Expected lineChart config")
+            return
+        }
+
+        #expect(config.title == "AAPL Price (30D)")
+        #expect(config.series.first?.label == "AAPL")
+    }
+
     @Test("Generator repairs an invalid first plan")
     func repairsInvalidPlan() async throws {
         let sequence = PlanSequence(responses: [
@@ -360,6 +477,43 @@ struct WidgetManifestGeneratorTests {
         #expect(config.title == "Pacific Clock")
         #expect(config.markdown == false)
         #expect(await preflight.ids == [manifest.id])
+    }
+
+    @Test("Generator uses a built-in stock trend template for stock chart prompts")
+    func usesBuiltInStockTrendTemplate() async throws {
+        let generator = OnDeviceWidgetManifestGenerator(
+            completionProvider: { _, _ in
+                Issue.record("Stock trend template should bypass the language model.")
+                throw TestSequenceError.depleted
+            },
+            availabilityProvider: {
+                Issue.record("Stock trend template should not check model availability.")
+                return .unavailable("Should not be called")
+            },
+            preflightProvider: { _ in }
+        )
+
+        let manifest = try await generator.generate(
+            prompt: "Create a widget with AMD stock price over the last 30 days as a line chart"
+        )
+
+        #expect(manifest.widgetType == .lineChart)
+        #expect(manifest.skillChain.map(\.skill) == [.fetchUrl, .parseJson, .filterSort, .filterSort, .transform])
+        #expect(manifest.skillChain.first?.params["url"]?.stringValue == "https://www.pocketportfolio.app/api/tickers/AMD/json")
+        #expect(manifest.skillChain[1].params["path"]?.stringValue == "data")
+        #expect(manifest.returns == "chartData")
+
+        guard case .lineChart(let config) = manifest.config else {
+            Issue.record("Expected lineChart config")
+            return
+        }
+
+        #expect(config.title == "AMD Price (30D)")
+        #expect(config.xField == "date")
+        #expect(config.series.count == 1)
+        #expect(config.series.first?.field == "close")
+        #expect(config.series.first?.label == "AMD")
+        #expect(config.yPrefix == "$")
     }
 
     @Test("Generator uses a built-in finance planner for crypto watchlists")

@@ -68,6 +68,84 @@ struct WidgetRuntimeIntegrationTests {
     }
 
     @MainActor
+    @Test("Runtime gives clock widgets the dedicated clock presentation")
+    func givesClockWidgetsDedicatedPresentation() async throws {
+        let harness = try WidgetRuntimeHarness()
+        harness.load()
+        try await harness.waitUntilReady()
+
+        let manifest = clockWidgetManifest(title: "UTC Clock", timeZone: "UTC")
+        harness.bootstrap([manifest])
+        try await harness.waitUntilLoaded(id: manifest.id)
+
+        let presentation = try await harness.webView.evaluateJavaScript(
+            "document.querySelector('[data-widget-id=\"\(manifest.id.uuidString)\"]')?.dataset.presentation"
+        ) as? String
+        let timeText = try await harness.webView.evaluateJavaScript(
+            "document.querySelector('[data-widget-id=\"\(manifest.id.uuidString)\"] .clock-time-primary')?.textContent"
+        ) as? String
+
+        #expect(presentation == "clock")
+        #expect((timeText ?? "").isEmpty == false)
+    }
+
+    @MainActor
+    @Test("Clock widget content fits inside its panel")
+    func clockWidgetFitsInsidePanel() async throws {
+        let harness = try WidgetRuntimeHarness()
+        harness.load()
+        try await harness.waitUntilReady()
+
+        let manifest = clockWidgetManifest(title: "UTC Clock", timeZone: "UTC")
+        harness.bootstrap([manifest])
+        try await harness.waitUntilLoaded(id: manifest.id)
+
+        let fits = try await harness.webView.evaluateJavaScript(
+            """
+            (() => {
+              const panel = document.querySelector('[data-widget-id="\(manifest.id.uuidString)"] .clock-panel');
+              const date = document.querySelector('[data-widget-id="\(manifest.id.uuidString)"] .clock-date');
+              const time = document.querySelector('[data-widget-id="\(manifest.id.uuidString)"] .clock-time');
+              if (!panel || !date || !time) return false;
+              const panelRect = panel.getBoundingClientRect();
+              const dateRect = date.getBoundingClientRect();
+              const timeRect = time.getBoundingClientRect();
+              return timeRect.bottom <= panelRect.bottom - 16 && dateRect.bottom <= panelRect.bottom - 12;
+            })()
+            """
+        ) as? Bool
+
+        #expect(fits == true)
+    }
+
+    @MainActor
+    @Test("Runtime updates clock widgets in real time")
+    func updatesClockWidgetsInRealTime() async throws {
+        let harness = try WidgetRuntimeHarness()
+        harness.load()
+        try await harness.waitUntilReady()
+
+        let manifest = clockWidgetManifest(title: "UTC Clock", timeZone: "UTC")
+        harness.bootstrap([manifest])
+        try await harness.waitUntilLoaded(id: manifest.id)
+
+        let selector = "[data-widget-id=\"\(manifest.id.uuidString)\"] .clock-time-primary"
+        let firstValue = try await harness.webView.evaluateJavaScript(
+            "document.querySelector('\(selector)')?.textContent"
+        ) as? String
+
+        try await Task.sleep(nanoseconds: 1_200_000_000)
+
+        let secondValue = try await harness.webView.evaluateJavaScript(
+            "document.querySelector('\(selector)')?.textContent"
+        ) as? String
+
+        #expect(firstValue != nil)
+        #expect(secondValue != nil)
+        #expect(firstValue != secondValue)
+    }
+
+    @MainActor
     @Test("Runtime renders multi-clock list widgets")
     func rendersMultiClockWidget() async throws {
         let harness = try WidgetRuntimeHarness()
@@ -144,6 +222,47 @@ struct WidgetRuntimeIntegrationTests {
     }
 
     @MainActor
+    @Test("Runtime toggles widget width preferences while editing")
+    func togglesWidgetWidthPreferences() async throws {
+        let harness = try WidgetRuntimeHarness()
+        harness.load()
+        try await harness.waitUntilReady()
+
+        let manifest = textWidgetManifest(title: "Wide", content: "Focus")
+        harness.bridge.bootstrapDashboard(
+            records: [WidgetRecord(manifest: manifest, position: 0, lastAttemptedAt: nil, lastLoadedAt: nil, lastError: nil)],
+            isEditing: true
+        )
+        try await harness.waitUntilLoaded(id: manifest.id)
+
+        _ = try await harness.webView.evaluateJavaScript(
+            "document.querySelector('[data-widget-action=\"toggleLayout\"]')?.click(); true;"
+        )
+
+        try await waitUntil {
+            harness.actions.contains(.toggleLayout(manifest.id))
+        }
+
+        let layout = try await harness.webView.evaluateJavaScript(
+            "document.querySelector('[data-widget-id=\"\(manifest.id.uuidString)\"]')?.dataset.layoutPreference"
+        ) as? String
+        #expect(layout == "singleColumn")
+
+        _ = try await harness.webView.evaluateJavaScript(
+            "document.querySelector('[data-widget-action=\"toggleLayout\"]')?.click(); true;"
+        )
+
+        try await waitUntil {
+            harness.actions.filter { $0 == .toggleLayout(manifest.id) }.count >= 2
+        }
+
+        let fullWidthLayout = try await harness.webView.evaluateJavaScript(
+            "document.querySelector('[data-widget-id=\"\(manifest.id.uuidString)\"]')?.dataset.layoutPreference"
+        ) as? String
+        #expect(fullWidthLayout == "fullWidth")
+    }
+
+    @MainActor
     @Test("Runtime promotes a mixed three-widget dashboard into a hero layout")
     func promotesMixedThreeWidgetLayout() async throws {
         let harness = try WidgetRuntimeHarness()
@@ -171,6 +290,58 @@ struct WidgetRuntimeIntegrationTests {
         ) as? String
         #expect(className?.contains("dashboard--count-3") == true)
         #expect(className?.contains("dashboard--mixed") == true)
+    }
+
+    @MainActor
+    @Test("Runtime keeps explicitly single-column widgets out of the hero slot")
+    func singleColumnWidgetsDoNotBecomeHero() async throws {
+        let harness = try WidgetRuntimeHarness()
+        harness.load()
+        try await harness.waitUntilReady()
+
+        let first = WidgetRecord(
+            manifest: textWidgetManifest(
+                title: "Longform Brief",
+                content: "A markdown card that would normally become the hero treatment.",
+                markdown: true
+            ),
+            position: 0,
+            layoutPreference: .singleColumn,
+            lastAttemptedAt: nil,
+            lastLoadedAt: nil,
+            lastError: nil
+        )
+        let second = WidgetRecord(
+            manifest: textWidgetManifest(title: "Quick Note", content: "Small card"),
+            position: 1,
+            lastAttemptedAt: nil,
+            lastLoadedAt: nil,
+            lastError: nil
+        )
+        let third = WidgetRecord(
+            manifest: textWidgetManifest(title: "Status", content: "Nominal"),
+            position: 2,
+            lastAttemptedAt: nil,
+            lastLoadedAt: nil,
+            lastError: nil
+        )
+
+        harness.bridge.bootstrapDashboard(records: [first, second, third], isEditing: false)
+        try await harness.waitUntilLoaded(id: first.id)
+
+        let heroTitle = try await harness.webView.evaluateJavaScript(
+            "document.querySelector('.widget-card--hero .widget-title')?.textContent"
+        ) as? String
+        let firstPreference = try await harness.webView.evaluateJavaScript(
+            "document.querySelector('[data-widget-id=\"\(first.id.uuidString)\"]')?.dataset.layoutPreference"
+        ) as? String
+        let firstHasHeroClass = try await harness.webView.evaluateJavaScript(
+            "document.querySelector('[data-widget-id=\"\(first.id.uuidString)\"]')?.classList.contains('widget-card--hero')"
+        ) as? Bool
+
+        #expect(firstPreference == "singleColumn")
+        #expect(firstHasHeroClass == false)
+        #expect(heroTitle == nil)
     }
 
     @MainActor
@@ -272,6 +443,28 @@ struct WidgetRuntimeIntegrationTests {
             "document.querySelector('.text-block')?.innerHTML"
         ) as? String
         #expect(innerHTML == "&lt;b&gt;literal&lt;/b&gt;")
+    }
+
+    @MainActor
+    @Test("Runtime renders chart legends and axis labels for line charts")
+    func rendersLineChartMetadata() async throws {
+        let harness = try WidgetRuntimeHarness()
+        harness.load()
+        try await harness.waitUntilReady()
+
+        let manifest = lineChartWidgetManifest(title: "AMD Price (7D)")
+        harness.bootstrap([manifest])
+        try await harness.waitUntilLoaded(id: manifest.id)
+
+        let legend = try await harness.webView.evaluateJavaScript(
+            "document.querySelector('[data-widget-id=\"\(manifest.id.uuidString)\"] .chart-legend__label')?.textContent"
+        ) as? String
+        let axisLabelCount = try await harness.webView.evaluateJavaScript(
+            "document.querySelectorAll('[data-widget-id=\"\(manifest.id.uuidString)\"] .chart-axis-labels span').length"
+        ) as? Int
+
+        #expect(legend == "AMD")
+        #expect(axisLabelCount == 3)
     }
 }
 
@@ -581,5 +774,44 @@ private func postFetchWidgetManifest() -> WidgetManifest {
         returns: "textData",
         ttl: 0,
         prompt: "POST sample"
+    )
+}
+
+private func lineChartWidgetManifest(title: String) -> WidgetManifest {
+    WidgetManifest(
+        widgetType: .lineChart,
+        config: .lineChart(
+            LineChartConfig(
+                title: title,
+                xField: "date",
+                series: [
+                    LineChartSeries(field: "close", label: "AMD", color: "#ff6b35"),
+                ],
+                yPrefix: "$",
+                showPoints: false
+            )
+        ),
+        skillChain: [
+            WidgetSkillStep(
+                step: 1,
+                skill: .transform,
+                params: [
+                    "data": AnyCodable([
+                        ["date": "3/1", "close": 146.3],
+                        ["date": "3/3", "close": 149.1],
+                        ["date": "3/5", "close": 151.8],
+                        ["date": "3/7", "close": 150.6],
+                    ]),
+                    "mapping": AnyCodable([
+                        "date": "date",
+                        "close": "close",
+                    ]),
+                ],
+                outputKey: "chartData"
+            ),
+        ],
+        returns: "chartData",
+        ttl: 0,
+        prompt: title
     )
 }

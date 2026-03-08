@@ -218,6 +218,9 @@ struct WidgetDashboardPageView: View {
                 store.move(from: index, to: index + 1)
                 syncDashboard()
             }
+        case .toggleLayout(let id):
+            store.toggleLayoutPreference(id: id)
+            syncDashboard()
         case .refresh(let id):
             store.refresh(id: id)
             flushPendingRefreshes(store.pendingRefreshIDs)

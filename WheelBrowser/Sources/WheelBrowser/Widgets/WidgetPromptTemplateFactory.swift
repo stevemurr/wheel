@@ -2,15 +2,19 @@ import Foundation
 
 enum WidgetPromptTemplateFactory {
     static func manifest(for prompt: String) -> WidgetManifest? {
-        guard let intent = ClockIntent(prompt: prompt) else {
-            return nil
+        if let intent = ClockIntent(prompt: prompt) {
+            if intent.locations.count <= 1 {
+                return singleClockManifest(for: intent)
+            }
+
+            return multiClockManifest(for: intent)
         }
 
-        if intent.locations.count <= 1 {
-            return singleClockManifest(for: intent)
+        if let intent = StockTrendIntent(prompt: prompt) {
+            return stockTrendManifest(for: intent)
         }
 
-        return multiClockManifest(for: intent)
+        return nil
     }
 
     private static func singleClockManifest(for intent: ClockIntent) -> WidgetManifest {
@@ -116,6 +120,101 @@ enum WidgetPromptTemplateFactory {
             return "\(labels[0]), \(labels[1]), and \(labels[2])"
         }
         return "World Clocks"
+    }
+
+    static func makeStockTrendManifest(
+        symbol: String,
+        title: String,
+        prompt: String,
+        rangeLabel: String = "30D",
+        pointLimit: Int = 30,
+        color: String = "#ff6b35"
+    ) -> WidgetManifest {
+        let sanitizedSymbol = symbol
+            .uppercased()
+            .filter { $0.isLetter || $0.isNumber }
+        let url = "https://www.pocketportfolio.app/api/tickers/\(sanitizedSymbol)/json"
+
+        return WidgetManifest(
+            widgetType: .lineChart,
+            config: .lineChart(
+                LineChartConfig(
+                    title: title,
+                    xField: "date",
+                    series: [
+                        LineChartSeries(field: "close", label: sanitizedSymbol, color: color),
+                    ],
+                    yPrefix: "$",
+                    showPoints: max(pointLimit, 2) <= 14
+                )
+            ),
+            skillChain: [
+                WidgetSkillStep(
+                    step: 1,
+                    skill: .fetchUrl,
+                    params: [
+                        "url": AnyCodable(url),
+                    ],
+                    outputKey: "raw"
+                ),
+                WidgetSkillStep(
+                    step: 2,
+                    skill: .parseJson,
+                    params: [
+                        "json": AnyCodable("$raw"),
+                        "path": AnyCodable("data"),
+                    ],
+                    outputKey: "history"
+                ),
+                WidgetSkillStep(
+                    step: 3,
+                    skill: .filterSort,
+                    params: [
+                        "data": AnyCodable("$history"),
+                        "sortBy": AnyCodable("date"),
+                        "ascending": AnyCodable(false),
+                        "limit": AnyCodable(max(pointLimit, 2)),
+                    ],
+                    outputKey: "recentHistory"
+                ),
+                WidgetSkillStep(
+                    step: 4,
+                    skill: .filterSort,
+                    params: [
+                        "data": AnyCodable("$recentHistory"),
+                        "sortBy": AnyCodable("date"),
+                        "ascending": AnyCodable(true),
+                    ],
+                    outputKey: "orderedHistory"
+                ),
+                WidgetSkillStep(
+                    step: 5,
+                    skill: .transform,
+                    params: [
+                        "data": AnyCodable("$orderedHistory"),
+                        "mapping": AnyCodable([
+                            "date": "expr:new Date(item.date).toLocaleDateString()",
+                            "close": "close",
+                        ]),
+                    ],
+                    outputKey: "chartData"
+                ),
+            ],
+            returns: "chartData",
+            ttl: 1800,
+            prompt: prompt.isEmpty ? "\(sanitizedSymbol) price trend (\(rangeLabel))" : prompt
+        )
+    }
+
+    private static func stockTrendManifest(for intent: StockTrendIntent) -> WidgetManifest {
+        makeStockTrendManifest(
+            symbol: intent.stock.symbol,
+            title: "\(intent.stock.symbol) Price (\(intent.range.label))",
+            prompt: intent.prompt,
+            rangeLabel: intent.range.label,
+            pointLimit: intent.range.pointLimit,
+            color: intent.stock.color
+        )
     }
 }
 
@@ -294,4 +393,210 @@ private struct ClockLocation: Hashable {
             aliases: ["utc", "zulu", "universal time"]
         ),
     ]
+}
+
+private struct StockTrendIntent {
+    struct RangeSelection {
+        let label: String
+        let pointLimit: Int
+    }
+
+    struct Stock: Hashable {
+        let symbol: String
+        let name: String
+        let aliases: [String]
+        let color: String
+
+        func matches(in prompt: String) -> Bool {
+            aliases.contains { alias in
+                Self.contains(alias: alias, in: prompt)
+            }
+        }
+
+        private static func contains(alias: String, in prompt: String) -> Bool {
+            let normalizedAlias = normalize(alias)
+            if normalizedAlias.contains(" ") {
+                return prompt.contains(normalizedAlias)
+            }
+
+            return containsWord(normalizedAlias, in: prompt)
+        }
+    }
+
+    let prompt: String
+    let stock: Stock
+    let range: RangeSelection
+
+    init?(prompt: String) {
+        let trimmedPrompt = prompt.trimmingCharacters(in: .whitespacesAndNewlines)
+        let normalizedPrompt = Self.normalize(trimmedPrompt)
+        let range = Self.extractRange(from: normalizedPrompt) ?? RangeSelection(label: "30D", pointLimit: 30)
+
+        guard Self.containsTrendIntent(in: normalizedPrompt, hasExplicitRange: Self.extractRange(from: normalizedPrompt) != nil) else {
+            return nil
+        }
+
+        let matchedStocks = Self.deduplicate(Self.catalog.filter { $0.matches(in: normalizedPrompt) })
+        if let stock = matchedStocks.first {
+            self.prompt = trimmedPrompt
+            self.stock = stock
+            self.range = range
+            return
+        }
+
+        guard Self.containsStockContext(in: normalizedPrompt),
+              let ticker = Self.extractTicker(from: trimmedPrompt) else {
+            return nil
+        }
+
+        self.prompt = trimmedPrompt
+        self.stock = Stock(
+            symbol: ticker,
+            name: ticker,
+            aliases: [ticker.lowercased()],
+            color: "#ff6b35"
+        )
+        self.range = range
+    }
+
+    private static func containsTrendIntent(in prompt: String, hasExplicitRange: Bool) -> Bool {
+        containsWord("chart", in: prompt)
+            || containsWord("graph", in: prompt)
+            || containsWord("trend", in: prompt)
+            || containsWord("history", in: prompt)
+            || containsWord("historical", in: prompt)
+            || containsPhrase("over time", in: prompt)
+            || (hasExplicitRange && containsWord("price", in: prompt))
+            || (hasExplicitRange && containsStockContext(in: prompt))
+    }
+
+    private static func containsStockContext(in prompt: String) -> Bool {
+        containsWord("stock", in: prompt)
+            || containsWord("stocks", in: prompt)
+            || containsWord("ticker", in: prompt)
+            || containsWord("share", in: prompt)
+            || containsWord("shares", in: prompt)
+            || containsWord("equity", in: prompt)
+            || containsWord("equities", in: prompt)
+            || prompt.contains("nasdaq")
+            || prompt.contains("nyse")
+    }
+
+    private static func extractRange(from prompt: String) -> RangeSelection? {
+        let pattern = #"\b(\d+)\s*(d|day|days|w|week|weeks|m|mo|mon|month|months|y|yr|year|years)\b"#
+        guard let regex = try? NSRegularExpression(pattern: pattern) else {
+            return nil
+        }
+
+        let nsRange = NSRange(prompt.startIndex..., in: prompt)
+        let selections = regex.matches(in: prompt, range: nsRange).compactMap { match -> RangeSelection? in
+            guard let valueRange = Range(match.range(at: 1), in: prompt),
+                  let unitRange = Range(match.range(at: 2), in: prompt),
+                  let value = Int(prompt[valueRange]) else {
+                return nil
+            }
+
+            let unit = String(prompt[unitRange])
+            switch unit {
+            case "d", "day", "days":
+                return RangeSelection(label: "\(value)D", pointLimit: min(max(value, 2), 90))
+            case "w", "week", "weeks":
+                return RangeSelection(label: "\(value)W", pointLimit: min(max(value * 7, 7), 120))
+            case "m", "mo", "mon", "month", "months":
+                return RangeSelection(label: "\(value)M", pointLimit: min(max(value * 30, 14), 180))
+            case "y", "yr", "year", "years":
+                return RangeSelection(label: "\(value)Y", pointLimit: min(max(value * 252, 60), 252))
+            default:
+                return nil
+            }
+        }
+
+        return selections.max(by: { $0.pointLimit < $1.pointLimit })
+    }
+
+    private static func extractTicker(from prompt: String) -> String? {
+        guard let regex = try? NSRegularExpression(pattern: #"\b[A-Z]{1,5}\b"#) else {
+            return nil
+        }
+
+        let nsRange = NSRange(prompt.startIndex..., in: prompt)
+        for match in regex.matches(in: prompt, range: nsRange) {
+            guard let range = Range(match.range, in: prompt) else { continue }
+            let ticker = String(prompt[range])
+            if ticker.count >= 1, ticker.count <= 5 {
+                return ticker
+            }
+        }
+
+        return nil
+    }
+
+    private static func containsWord(_ word: String, in prompt: String) -> Bool {
+        prompt == word
+            || prompt.hasPrefix("\(word) ")
+            || prompt.hasSuffix(" \(word)")
+            || prompt.contains(" \(word) ")
+    }
+
+    private static func containsPhrase(_ phrase: String, in prompt: String) -> Bool {
+        prompt.contains(phrase)
+    }
+
+    private static func deduplicate(_ stocks: [Stock]) -> [Stock] {
+        var seen = Set<Stock>()
+        var result: [Stock] = []
+        for stock in stocks where seen.insert(stock).inserted {
+            result.append(stock)
+        }
+        return result
+    }
+
+    private static func normalize(_ value: String) -> String {
+        value
+            .lowercased()
+            .replacingOccurrences(of: "-", with: " ")
+            .replacingOccurrences(of: "_", with: " ")
+            .replacingOccurrences(
+                of: #"[^a-z0-9 ]+"#,
+                with: " ",
+                options: .regularExpression
+            )
+            .replacingOccurrences(of: #"\s+"#, with: " ", options: .regularExpression)
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private static let catalog: [Stock] = [
+        Stock(symbol: "AMD", name: "Advanced Micro Devices", aliases: ["amd", "advanced micro devices"], color: "#ff6b35"),
+        Stock(symbol: "AAPL", name: "Apple", aliases: ["aapl", "apple"], color: "#4f7cff"),
+        Stock(symbol: "AMZN", name: "Amazon", aliases: ["amzn", "amazon"], color: "#ff9900"),
+        Stock(symbol: "GOOGL", name: "Alphabet", aliases: ["googl", "google", "alphabet"], color: "#1a73e8"),
+        Stock(symbol: "META", name: "Meta", aliases: ["meta", "facebook"], color: "#1877f2"),
+        Stock(symbol: "MSFT", name: "Microsoft", aliases: ["msft", "microsoft"], color: "#5e5ce6"),
+        Stock(symbol: "NFLX", name: "Netflix", aliases: ["nflx", "netflix"], color: "#e50914"),
+        Stock(symbol: "NVDA", name: "NVIDIA", aliases: ["nvda", "nvidia"], color: "#76b900"),
+        Stock(symbol: "TSLA", name: "Tesla", aliases: ["tsla", "tesla"], color: "#cc2d2d"),
+    ]
+}
+
+private extension StockTrendIntent.Stock {
+    static func containsWord(_ word: String, in prompt: String) -> Bool {
+        prompt == word
+            || prompt.hasPrefix("\(word) ")
+            || prompt.hasSuffix(" \(word)")
+            || prompt.contains(" \(word) ")
+    }
+
+    static func normalize(_ value: String) -> String {
+        value
+            .lowercased()
+            .replacingOccurrences(of: "-", with: " ")
+            .replacingOccurrences(of: "_", with: " ")
+            .replacingOccurrences(
+                of: #"[^a-z0-9 ]+"#,
+                with: " ",
+                options: .regularExpression
+            )
+            .replacingOccurrences(of: #"\s+"#, with: " ", options: .regularExpression)
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+    }
 }

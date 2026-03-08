@@ -35,6 +35,60 @@ struct WidgetDashboardStoreTests {
     }
 
     @MainActor
+    @Test("Store persists widget layout preferences")
+    func persistsLayoutPreferences() throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        let storageURL = directory.appendingPathComponent("widgets.json")
+
+        let store = WidgetDashboardStore(
+            storageURL: storageURL,
+            legacyCleanupPaths: [],
+            observeActivation: false
+        )
+        let manifest = textManifest(title: "Wide", content: "Focus")
+
+        try store.add(manifest: manifest)
+        store.toggleLayoutPreference(id: manifest.id)
+
+        let reloaded = WidgetDashboardStore(
+            storageURL: storageURL,
+            legacyCleanupPaths: [],
+            observeActivation: false
+        )
+
+        #expect(reloaded.records.count == 1)
+        #expect(reloaded.records[0].layoutPreference == .singleColumn)
+    }
+
+    @MainActor
+    @Test("Store cycles widget layout preferences")
+    func cyclesLayoutPreferences() throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        let storageURL = directory.appendingPathComponent("widgets.json")
+
+        let store = WidgetDashboardStore(
+            storageURL: storageURL,
+            legacyCleanupPaths: [],
+            observeActivation: false
+        )
+        let manifest = textManifest(title: "Wide", content: "Focus")
+
+        try store.add(manifest: manifest)
+        #expect(store.records[0].layoutPreference == .auto)
+
+        store.toggleLayoutPreference(id: manifest.id)
+        #expect(store.records[0].layoutPreference == .singleColumn)
+
+        store.toggleLayoutPreference(id: manifest.id)
+        #expect(store.records[0].layoutPreference == .fullWidth)
+
+        store.toggleLayoutPreference(id: manifest.id)
+        #expect(store.records[0].layoutPreference == .auto)
+    }
+
+    @MainActor
     @Test("Store marks stale widgets for refresh")
     func marksStaleWidgets() throws {
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
@@ -150,6 +204,66 @@ struct WidgetDashboardStoreTests {
         #expect(mapping?["label"] as? String == "data.title")
         #expect(mapping?["value"] as? String == "data.score")
     }
+
+    @MainActor
+    @Test("Store repairs persisted Pocket Portfolio history path")
+    func repairsPersistedPocketPortfolioWidgets() throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        let storageURL = directory.appendingPathComponent("widgets.json")
+        let manifest = legacyPocketPortfolioManifest()
+        let records = [
+            WidgetRecord(
+                manifest: manifest,
+                position: 0,
+                lastAttemptedAt: nil,
+                lastLoadedAt: nil,
+                lastError: nil
+            ),
+        ]
+
+        let encoder = JSONEncoder()
+        try encoder.encode(records).write(to: storageURL)
+
+        let store = WidgetDashboardStore(
+            storageURL: storageURL,
+            legacyCleanupPaths: [],
+            observeActivation: false
+        )
+
+        #expect(store.records.count == 1)
+        #expect(store.records[0].manifest.skillChain[1].params["path"]?.stringValue == "data")
+    }
+
+    @MainActor
+    @Test("Store repairs persisted Pocket Portfolio candle data path")
+    func repairsPersistedPocketPortfolioCandleDataWidgets() throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        let storageURL = directory.appendingPathComponent("widgets.json")
+        let manifest = legacyPocketPortfolioManifest(path: "data.candle_data")
+        let records = [
+            WidgetRecord(
+                manifest: manifest,
+                position: 0,
+                lastAttemptedAt: nil,
+                lastLoadedAt: nil,
+                lastError: nil
+            ),
+        ]
+
+        let encoder = JSONEncoder()
+        try encoder.encode(records).write(to: storageURL)
+
+        let store = WidgetDashboardStore(
+            storageURL: storageURL,
+            legacyCleanupPaths: [],
+            observeActivation: false
+        )
+
+        #expect(store.records.count == 1)
+        #expect(store.records[0].manifest.skillChain[1].params["path"]?.stringValue == "data")
+    }
 }
 
 private func textManifest(title: String, content: String, ttl: Int = 300) -> WidgetManifest {
@@ -235,5 +349,44 @@ private func malformedRedditManifest() -> WidgetManifest {
         returns: "listData",
         ttl: 60,
         prompt: "give me a list of the top 5 posts in the swift subbreddit"
+    )
+}
+
+private func legacyPocketPortfolioManifest(path: String = "history_sample") -> WidgetManifest {
+    WidgetManifest(
+        widgetType: .lineChart,
+        config: .lineChart(
+            LineChartConfig(
+                title: "AMD Price (30D)",
+                xField: "date",
+                series: [
+                    LineChartSeries(field: "close", label: "AMD", color: "#ff6b35"),
+                ],
+                yPrefix: "$",
+                showPoints: false
+            )
+        ),
+        skillChain: [
+            WidgetSkillStep(
+                step: 1,
+                skill: .fetchUrl,
+                params: [
+                    "url": AnyCodable("https://www.pocketportfolio.app/api/tickers/AMD/json"),
+                ],
+                outputKey: "raw"
+            ),
+            WidgetSkillStep(
+                step: 2,
+                skill: .parseJson,
+                params: [
+                    "json": AnyCodable("$raw"),
+                    "path": AnyCodable(path),
+                ],
+                outputKey: "history"
+            ),
+        ],
+        returns: "history",
+        ttl: 1800,
+        prompt: "AMD trend sample"
     )
 }

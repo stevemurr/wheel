@@ -237,4 +237,81 @@ struct WidgetPlanCompilerTests {
             try WidgetPlanCompiler.compile(plan, fallbackPrompt: "Fallback")
         }
     }
+
+    @Test("Compiler infers a line chart from a generic chart widget type")
+    func infersLineChartFromGenericChartType() throws {
+        let plan = GeneratedWidgetPlan(
+            title: "Apple Price",
+            widgetType: "chart",
+            source: GeneratedWidgetSourcePlan(
+                kind: "jsonAPI",
+                url: "https://example.com/aapl.json",
+                jsonPath: "$.data",
+                resultShape: "collection",
+                sortBy: "date",
+                sortAscending: true,
+                limit: 30,
+                timeZones: nil
+            ),
+            refreshSeconds: 300,
+            prompt: "Show me the Apple stock price over 30d",
+            text: nil,
+            metric: nil,
+            list: nil,
+            table: nil,
+            chart: GeneratedWidgetChartPlan(
+                xField: "date",
+                yField: "close",
+                series: nil,
+                color: "#00aa88",
+                yPrefix: "$",
+                yUnit: nil,
+                showPoints: false
+            )
+        )
+
+        let manifest = try WidgetPlanCompiler.compile(plan, fallbackPrompt: "Fallback")
+
+        #expect(manifest.widgetType == .lineChart)
+        #expect(manifest.skillChain.map(\.skill) == [.fetchUrl, .parseJson, .filterSort, .transform])
+    }
+
+    @Test("Compiler infers stock chart defaults when chart details are omitted")
+    func infersStockChartDefaultsWithoutChartSection() throws {
+        let plan = GeneratedWidgetPlan(
+            title: "Apple Stock Over the Last 30 Days",
+            widgetType: "chart",
+            source: GeneratedWidgetSourcePlan(
+                kind: "jsonAPI",
+                url: "https://www.pocketportfolio.app/api/tickers/AAPL/json",
+                jsonPath: "data",
+                resultShape: "collection",
+                sortBy: "date",
+                sortAscending: true,
+                limit: 30,
+                timeZones: [
+                    GeneratedWidgetTimeZonePlan(label: "UTC", identifier: "UTC"),
+                ]
+            ),
+            refreshSeconds: 60,
+            prompt: "apple stock over the last 30 days",
+            text: nil,
+            metric: nil,
+            list: nil,
+            table: nil,
+            chart: nil
+        )
+
+        let manifest = try WidgetPlanCompiler.compile(plan, fallbackPrompt: "Fallback")
+
+        #expect(manifest.widgetType == .lineChart)
+
+        guard case .lineChart(let config) = manifest.config else {
+            Issue.record("Expected lineChart config")
+            return
+        }
+
+        #expect(config.yPrefix == "$")
+        #expect(config.series.first?.label == "Close")
+    }
 }

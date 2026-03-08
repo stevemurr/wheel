@@ -187,34 +187,37 @@ class Tab: Identifiable {
     @discardableResult
     func applyReaderMode() async -> Bool {
         guard hasWebView else { return false }
+        let currentWebView = self.webView
 
         do {
-            if originalDocumentHTML == nil {
-                originalDocumentHTML = try await webView.evaluateJavaScript(
-                    "document.documentElement.outerHTML"
-                ) as? String
-                originalDocumentURL = webView.url
-                originalDocumentTitle = webView.title
+            return try await ReaderModeTransitionAnimator.perform(in: currentWebView) { [self, currentWebView] in
+                if self.originalDocumentHTML == nil {
+                    self.originalDocumentHTML = try await currentWebView.evaluateJavaScript(
+                        "document.documentElement.outerHTML"
+                    ) as? String
+                    self.originalDocumentURL = currentWebView.url
+                    self.originalDocumentTitle = currentWebView.title
+                }
+
+                guard let originalDocumentHTML = self.originalDocumentHTML else {
+                    return self.handleReaderModeFailure()
+                }
+
+                guard let article = try await self.articleExtractionService.extract(
+                    from: originalDocumentHTML,
+                    url: self.originalDocumentURL ?? currentWebView.url,
+                    title: self.originalDocumentTitle ?? currentWebView.title
+                ) else {
+                    return self.handleReaderModeFailure()
+                }
+
+                let readerHTML = ReaderModeDocumentBuilder.document(for: article)
+                let script = Self.documentRewriteScript(for: readerHTML)
+
+                _ = try await currentWebView.evaluateJavaScript(script)
+                self.title = article.title
+                return true
             }
-
-            guard let originalDocumentHTML else {
-                return handleReaderModeFailure()
-            }
-
-            guard let article = try await articleExtractionService.extract(
-                from: originalDocumentHTML,
-                url: originalDocumentURL ?? webView.url,
-                title: originalDocumentTitle ?? webView.title
-            ) else {
-                return handleReaderModeFailure()
-            }
-
-            let readerHTML = ReaderModeDocumentBuilder.document(for: article)
-            let script = Self.documentRewriteScript(for: readerHTML)
-
-            _ = try await webView.evaluateJavaScript(script)
-            title = article.title
-            return true
         } catch {
             Log.Browser.error("Reader mode extraction failed", error: error)
             return handleReaderModeFailure()
@@ -224,12 +227,13 @@ class Tab: Identifiable {
     @MainActor
     func disableReaderMode() async {
         guard hasWebView else { return }
+        let currentWebView = self.webView
 
         let originalDocumentHTML = originalDocumentHTML
         let restoredTitle = originalDocumentTitle?.trimmingCharacters(in: .whitespacesAndNewlines)
         let fallbackTitle = restoredTitle?.isEmpty == false
             ? restoredTitle
-            : originalDocumentURL?.host ?? webView.url?.host ?? title
+            : originalDocumentURL?.host ?? currentWebView.url?.host ?? title
 
         self.originalDocumentHTML = nil
         self.originalDocumentURL = nil
@@ -241,13 +245,15 @@ class Tab: Identifiable {
         }
 
         do {
-            _ = try await webView.evaluateJavaScript(Self.documentRewriteScript(for: originalDocumentHTML))
-            if let fallbackTitle {
-                title = fallbackTitle
+            try await ReaderModeTransitionAnimator.perform(in: currentWebView) { [self, currentWebView] in
+                _ = try await currentWebView.evaluateJavaScript(Self.documentRewriteScript(for: originalDocumentHTML))
+                if let fallbackTitle {
+                    self.title = fallbackTitle
+                }
             }
         } catch {
             Log.Browser.error("Reader mode restore failed", error: error)
-            webView.reload()
+            currentWebView.reload()
         }
     }
 

@@ -7,7 +7,7 @@ enum WidgetManifestRepair {
     }
 
     static func repair(_ manifest: WidgetManifest) -> Result {
-        guard isRedditChildListing(manifest) else {
+        guard needsRepair(manifest) else {
             return Result(manifest: manifest, changed: false)
         }
 
@@ -40,6 +40,10 @@ enum WidgetManifestRepair {
         )
     }
 
+    private static func needsRepair(_ manifest: WidgetManifest) -> Bool {
+        isRedditChildListing(manifest) || isPocketPortfolioStockHistory(manifest)
+    }
+
     private static func isRedditChildListing(_ manifest: WidgetManifest) -> Bool {
         let hasRedditFetch = manifest.skillChain.contains { step in
             guard step.skill == .fetchUrl,
@@ -62,6 +66,32 @@ enum WidgetManifestRepair {
         }
 
         return hasRedditFetch && hasChildPath
+    }
+
+    private static func isPocketPortfolioStockHistory(_ manifest: WidgetManifest) -> Bool {
+        let hasPocketPortfolioFetch = manifest.skillChain.contains { step in
+            guard step.skill == .fetchUrl,
+                  let rawURL = step.params["url"]?.stringValue,
+                  let url = URL(string: rawURL),
+                  let host = url.host?.lowercased() else {
+                return false
+            }
+
+            return host == "www.pocketportfolio.app"
+                && url.path.lowercased().contains("/api/tickers/")
+                && url.path.lowercased().hasSuffix("/json")
+        }
+
+        let hasLegacyHistoryPath = manifest.skillChain.contains { step in
+            guard step.skill == .parseJson,
+                  let path = step.params["path"]?.stringValue else {
+                return false
+            }
+
+            return repairedPocketPortfolioHistoryPath(path) != path
+        }
+
+        return hasPocketPortfolioFetch && hasLegacyHistoryPath
     }
 
     private static func repair(_ step: WidgetSkillStep) -> (step: WidgetSkillStep, changed: Bool) {
@@ -110,6 +140,14 @@ enum WidgetManifestRepair {
 
                 if NSDictionary(dictionary: repairedMapping).isEqual(to: mapping) == false {
                     params["mapping"] = AnyCodable(repairedMapping)
+                    changed = true
+                }
+            }
+        case .parseJson:
+            if let path = params["path"]?.stringValue {
+                let repairedPath = repairPocketPortfolioHistoryPath(path)
+                if repairedPath != path {
+                    params["path"] = AnyCodable(repairedPath)
                     changed = true
                 }
             }
@@ -177,9 +215,28 @@ enum WidgetManifestRepair {
         return "data.\(trimmed)"
     }
 
+    private static func repairPocketPortfolioHistoryPath(_ path: String) -> String {
+        repairedPocketPortfolioHistoryPath(path)
+    }
+
+    private static func repairedPocketPortfolioHistoryPath(_ path: String) -> String {
+        switch normalizedJSONPathIdentifier(path) {
+        case "historysample", "candledata", "datacandledata", "candles", "datacandles":
+            return "data"
+        default:
+            return path
+        }
+    }
+
     private static func normalizedJSONPath(_ path: String) -> String {
         path
             .trimmingCharacters(in: .whitespacesAndNewlines)
             .replacingOccurrences(of: "$.", with: "")
+    }
+
+    private static func normalizedJSONPathIdentifier(_ path: String) -> String {
+        normalizedJSONPath(path)
+            .lowercased()
+            .filter { $0.isLetter || $0.isNumber }
     }
 }
