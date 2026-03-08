@@ -3,6 +3,8 @@ import SwiftUI
 struct NoteWindowContainer: View {
     var noteStore: NoteStore
     var noteWindowState: NoteWindowState
+    let onCopyNote: (NoteRecord) -> Void
+    let onDeleteNote: (NoteRecord) -> Void
     let containerSize: CGSize
 
     var body: some View {
@@ -13,7 +15,9 @@ struct NoteWindowContainer: View {
                     item: window,
                     note: note,
                     noteStore: noteStore,
-                    noteWindowState: noteWindowState
+                    noteWindowState: noteWindowState,
+                    onCopyNote: onCopyNote,
+                    onDeleteNote: onDeleteNote
                 )
                 .modifier(FloatingWindowPositionModifier(item: window, containerSize: containerSize))
                 .zIndex(1000)
@@ -39,9 +43,11 @@ private struct NoteWindow: View {
     var note: NoteRecord
     var noteStore: NoteStore
     var noteWindowState: NoteWindowState
+    let onCopyNote: (NoteRecord) -> Void
+    let onDeleteNote: (NoteRecord) -> Void
 
     @State private var editorBridge = NoteEditorBridge()
-    @State private var draftTitle = ""
+    @State private var isShowingDeleteConfirmation = false
 
     var body: some View {
         FloatingWindowShell(
@@ -78,31 +84,47 @@ private struct NoteWindow: View {
         }
         .onChange(of: note.displayTitle) { _, newValue in
             noteWindowState.updateTitle(newValue)
-            draftTitle = note.title
         }
     }
 
     private var header: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            TextField("Untitled Note", text: $draftTitle)
-                .textFieldStyle(.plain)
-                .font(.system(size: 18, weight: .semibold, design: .rounded))
-                .onChange(of: draftTitle) { _, newValue in
-                    noteStore.renameNote(id: note.id, title: newValue)
-                    noteWindowState.updateTitle(newValue.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "Untitled Note" : newValue)
-                }
+        HStack(spacing: 8) {
+            noteTypeBadge
 
-            HStack(spacing: 8) {
-                noteTypeBadge
-                Text("Updated \(note.shortUpdatedText)")
-                    .font(.system(size: 10, weight: .medium))
-                    .foregroundStyle(.secondary)
+            Text("Updated \(note.shortUpdatedText)")
+                .font(.system(size: 10, weight: .medium))
+                .foregroundStyle(.secondary)
+
+            Spacer(minLength: 0)
+
+            Button(action: { onCopyNote(note) }) {
+                Image(systemName: "doc.on.doc")
             }
+            .buttonStyle(NoteWindowHeaderActionButtonStyle())
+            .help("Copy note")
+
+            Button(role: .destructive, action: { isShowingDeleteConfirmation = true }) {
+                Image(systemName: "trash")
+            }
+            .buttonStyle(NoteWindowHeaderActionButtonStyle())
+            .help("Delete note")
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(.horizontal, 16)
-        .padding(.vertical, 9)
+        .padding(.vertical, 6)
         .background(Color(nsColor: .windowBackgroundColor))
+        .confirmationDialog(
+            "Delete this note?",
+            isPresented: $isShowingDeleteConfirmation,
+            titleVisibility: .visible
+        ) {
+            Button("Delete Note", role: .destructive) {
+                onDeleteNote(note)
+            }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text(note.displayTitle)
+        }
     }
 
     private var noteTypeBadge: some View {
@@ -136,8 +158,18 @@ private struct NoteWindow: View {
         editorBridge.activate(noteID: note.id)
         editorBridge.loadDocumentIfNeeded(note.document, force: false)
         noteWindowState.updateTitle(note.displayTitle)
-        if draftTitle != note.title {
-            draftTitle = note.title
-        }
+    }
+}
+
+private struct NoteWindowHeaderActionButtonStyle: ButtonStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .font(.system(size: 11, weight: .semibold))
+            .foregroundStyle(Color.primary.opacity(configuration.isPressed ? 0.65 : 0.88))
+            .frame(width: 26, height: 26)
+            .background(
+                RoundedRectangle(cornerRadius: 8, style: .continuous)
+                    .fill(Color.primary.opacity(configuration.isPressed ? 0.09 : 0.05))
+            )
     }
 }

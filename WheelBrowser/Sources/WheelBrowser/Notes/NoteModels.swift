@@ -33,14 +33,51 @@ struct NoteDocument: Codable, Sendable {
         )
     }
 
+    static func titled(_ title: String) -> NoteDocument {
+        let normalizedTitle = Self.normalizeLine(title)
+        guard !normalizedTitle.isEmpty else { return .empty }
+
+        return NoteDocument(
+            root: [
+                "type": AnyCodable("doc"),
+                "content": AnyCodable([Self.paragraphNode(text: normalizedTitle)]),
+            ]
+        )
+    }
+
     func plainText(maxLength: Int = 180) -> String {
-        let text = Self.extractPlainText(from: Self.normalizedJSON(root))
-            .replacingOccurrences(of: "\n{2,}", with: "\n", options: .regularExpression)
+        let text = Self.documentLines(from: Self.normalizedJSON(root))
+            .joined(separator: "\n")
             .trimmingCharacters(in: .whitespacesAndNewlines)
 
-        guard text.count > maxLength else { return text }
-        let index = text.index(text.startIndex, offsetBy: maxLength)
-        return String(text[..<index]).trimmingCharacters(in: .whitespacesAndNewlines) + "..."
+        return Self.truncated(text, maxLength: maxLength)
+    }
+
+    func titleLine(maxLength: Int = 120) -> String {
+        let line = Self.documentLines(from: Self.normalizedJSON(root)).first ?? ""
+        return Self.truncated(line, maxLength: maxLength)
+    }
+
+    func previewText(maxLength: Int = 180) -> String {
+        let lines = Self.documentLines(from: Self.normalizedJSON(root))
+        let text = Array(lines.dropFirst())
+            .joined(separator: "\n")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+
+        return Self.truncated(text, maxLength: maxLength)
+    }
+
+    func migratedForInlineTitle(_ legacyTitle: String) -> NoteDocument {
+        let normalizedTitle = Self.normalizeLine(legacyTitle)
+        guard !normalizedTitle.isEmpty, titleLine(maxLength: Int.max).isEmpty else {
+            return self
+        }
+
+        var updatedRoot = root
+        var content = updatedRoot["content"]?.arrayValue ?? []
+        content.insert(Self.paragraphNode(text: normalizedTitle), at: 0)
+        updatedRoot["content"] = AnyCodable(content)
+        return NoteDocument(root: updatedRoot)
     }
 
     func insertingPageSource(_ source: NotePageSource) -> NoteDocument {
@@ -76,22 +113,91 @@ struct NoteDocument: Codable, Sendable {
         "content": [],
     ]
 
+    private static func paragraphNode(text: String) -> [String: Any] {
+        [
+            "type": "paragraph",
+            "content": [
+                [
+                    "type": "text",
+                    "text": text,
+                ],
+            ],
+        ]
+    }
+
     private static let iso8601: ISO8601DateFormatter = {
         let formatter = ISO8601DateFormatter()
         formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
         return formatter
     }()
 
-    private static func extractPlainText(from value: Any) -> String {
+    private static func documentLines(from value: Any) -> [String] {
+        blockTextLines(from: value)
+            .flatMap { $0.components(separatedBy: .newlines) }
+            .map(normalizeLine)
+            .filter { !$0.isEmpty }
+    }
+
+    private static func blockTextLines(from value: Any) -> [String] {
         switch value {
         case let wrapped as AnyCodable:
-            return extractPlainText(from: wrapped.value)
+            return blockTextLines(from: wrapped.value)
+
+        case let dictionary as [String: Any]:
+            if let type = dictionary["type"] as? String {
+                switch type {
+                case "doc", "bulletList", "orderedList", "taskList", "listItem", "taskItem", "table":
+                    return blockTextLines(from: dictionary["content"] ?? [])
+                case "tableRow":
+                    return blockTextLines(from: dictionary["content"] ?? [])
+                case "paragraph", "heading":
+                    let text = inlineText(from: dictionary["content"] ?? [])
+                    return text.isEmpty ? [] : [text]
+                case "blockquote", "tableCell", "tableHeader":
+                    return blockTextLines(from: dictionary["content"] ?? [])
+                case "codeBlock":
+                    return inlineText(from: dictionary["content"] ?? [])
+                        .components(separatedBy: .newlines)
+                        .filter { !$0.isEmpty }
+                case "pageSource":
+                    if let attrs = dictionary["attrs"] as? [String: Any] {
+                        let title = attrs["title"] as? String ?? "Source"
+                        let url = attrs["url"] as? String ?? ""
+                        let text = [title, url].filter { !$0.isEmpty }.joined(separator: " ")
+                        return text.isEmpty ? [] : [text]
+                    }
+                default:
+                    break
+                }
+            }
+
+            if let content = dictionary["content"] {
+                return blockTextLines(from: content)
+            }
+
+            return []
+
+        case let array as [Any]:
+            return array
+                .flatMap(blockTextLines(from:))
+
+        default:
+            return []
+        }
+    }
+
+    private static func inlineText(from value: Any) -> String {
+        switch value {
+        case let wrapped as AnyCodable:
+            return inlineText(from: wrapped.value)
 
         case let dictionary as [String: Any]:
             if let type = dictionary["type"] as? String {
                 switch type {
                 case "text":
                     return dictionary["text"] as? String ?? ""
+                case "hardBreak":
+                    return "\n"
                 case "pageSource":
                     if let attrs = dictionary["attrs"] as? [String: Any] {
                         let title = attrs["title"] as? String ?? "Source"
@@ -104,19 +210,15 @@ struct NoteDocument: Codable, Sendable {
             }
 
             if let content = dictionary["content"] {
-                return extractPlainText(from: content)
+                return inlineText(from: content)
             }
 
-            return dictionary.values
-                .map(extractPlainText(from:))
-                .filter { !$0.isEmpty }
-                .joined(separator: " ")
+            return ""
 
         case let array as [Any]:
             return array
-                .map(extractPlainText(from:))
-                .filter { !$0.isEmpty }
-                .joined(separator: "\n")
+                .map(inlineText(from:))
+                .joined()
 
         default:
             return ""
@@ -164,6 +266,18 @@ struct NoteDocument: Codable, Sendable {
         default:
             return value
         }
+    }
+
+    private static func normalizeLine(_ text: String) -> String {
+        text
+            .replacingOccurrences(of: "\\s+", with: " ", options: .regularExpression)
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private static func truncated(_ text: String, maxLength: Int) -> String {
+        guard text.count > maxLength else { return text }
+        let index = text.index(text.startIndex, offsetBy: maxLength)
+        return String(text[..<index]).trimmingCharacters(in: .whitespacesAndNewlines) + "..."
     }
 }
 

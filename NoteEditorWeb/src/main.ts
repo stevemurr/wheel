@@ -38,6 +38,7 @@ declare global {
     NoteEditor: {
       receiveCommand: (command: string, payload: JSONObject) => void
       debugApplyMarkdown: (text: string) => JSONObject
+      debugOpenSlashMenu: (query: string) => JSONObject
     }
     webkit?: {
       messageHandlers?: {
@@ -49,11 +50,10 @@ declare global {
   }
 }
 
-const toolbar = document.getElementById('toolbar')
 const editorElement = document.getElementById('editor')
 
-if (!toolbar || !editorElement) {
-  throw new Error('Wheel note editor failed to find its root elements.')
+if (!editorElement) {
+  throw new Error('Wheel note editor failed to find its editor root element.')
 }
 
 let documentChangeTimer: number | undefined
@@ -324,8 +324,16 @@ const createSlashMenu = () => {
       return
     }
 
-    element.style.left = `${rect.left + window.scrollX}px`
-    element.style.top = `${rect.bottom + window.scrollY + 10}px`
+    const menuWidth = element.offsetWidth || 240
+    const menuHeight = element.offsetHeight || 280
+    const left = Math.max(12, Math.min(rect.left, window.innerWidth - menuWidth - 12))
+    const preferredTop = rect.bottom + 10
+    const top = preferredTop + menuHeight <= window.innerHeight - 12
+      ? preferredTop
+      : Math.max(12, rect.top - menuHeight - 10)
+
+    element.style.left = `${left}px`
+    element.style.top = `${top}px`
   }
 
   const selectItem = (index: number) => {
@@ -415,6 +423,12 @@ const createSlashMenu = () => {
         return true
       }
 
+      if (event.key === 'Tab') {
+        event.preventDefault()
+        selectItem(selectedIndex)
+        return true
+      }
+
       if (event.key === 'Escape') {
         remove()
         return true
@@ -434,12 +448,8 @@ const SlashCommand = Extension.create({
       Suggestion<SlashItem>({
         editor: this.editor,
         char: '/',
-        startOfLine: false,
-        allow: ({ state, range }) => {
-          const $from = state.doc.resolve(range.from)
-          const textBefore = $from.parent.textBetween(0, $from.parentOffset, undefined, '\ufffc')
-          return textBefore.trimStart().startsWith('/')
-        },
+        startOfLine: true,
+        allowedPrefixes: null,
         items: ({ query }) => {
           const normalized = query.trim().toLowerCase()
           if (!normalized) {
@@ -492,7 +502,7 @@ const editor = new Editor({
     TableHeader,
     TableCell,
     Placeholder.configure({
-      placeholder: 'Start writing, type / for blocks, or use markdown like #, -, [], >, and ```',
+      placeholder: 'First line becomes the title. Type / for blocks, or use markdown like #, -, [], >, and ```',
     }),
     PageSource,
     MarkdownShortcuts,
@@ -513,71 +523,11 @@ const editor = new Editor({
     documentChangeTimer = window.setTimeout(() => {
       sendBridgeMessage('documentChanged', { document: editor.getJSON() as JSONObject })
     }, 120)
-    renderToolbar()
   },
-  onSelectionUpdate: renderToolbar,
   onCreate: () => {
-    renderToolbar()
     sendBridgeMessage('ready')
   },
 })
-
-const toolbarButtons = [
-  {
-    label: 'H1',
-    isActive: () => editor.isActive('heading', { level: 1 }),
-    run: () => editor.chain().focus().toggleHeading({ level: 1 }).run(),
-  },
-  {
-    label: 'H2',
-    isActive: () => editor.isActive('heading', { level: 2 }),
-    run: () => editor.chain().focus().toggleHeading({ level: 2 }).run(),
-  },
-  {
-    label: 'Bold',
-    isActive: () => editor.isActive('bold'),
-    run: () => editor.chain().focus().toggleBold().run(),
-  },
-  {
-    label: 'List',
-    isActive: () => editor.isActive('bulletList'),
-    run: () => editor.chain().focus().toggleBulletList().run(),
-  },
-  {
-    label: 'Tasks',
-    isActive: () => editor.isActive('taskList'),
-    run: () => editor.chain().focus().toggleTaskList().run(),
-  },
-  {
-    label: 'Quote',
-    isActive: () => editor.isActive('blockquote'),
-    run: () => editor.chain().focus().toggleBlockquote().run(),
-  },
-  {
-    label: 'Code',
-    isActive: () => editor.isActive('codeBlock'),
-    run: () => editor.chain().focus().toggleCodeBlock().run(),
-  },
-  {
-    label: 'Table',
-    isActive: () => editor.isActive('table'),
-    run: () => editor.chain().focus().insertTable({ rows: 3, cols: 3, withHeaderRow: true }).run(),
-  },
-]
-
-function renderToolbar() {
-  toolbar!.innerHTML = ''
-  toolbarButtons.forEach((item) => {
-    const button = document.createElement('button')
-    button.type = 'button'
-    button.textContent = item.label
-    if (item.isActive()) {
-      button.classList.add('is-active')
-    }
-    button.onclick = () => item.run()
-    toolbar!.appendChild(button)
-  })
-}
 
 function setDocument(document: JSONObject | undefined) {
   editor.commands.setContent(
@@ -587,7 +537,6 @@ function setDocument(document: JSONObject | undefined) {
     },
     false
   )
-  renderToolbar()
 }
 
 function insertSourceBlock(source: SourcePayload | undefined) {
@@ -668,6 +617,29 @@ window.NoteEditor = {
       applied,
       type: firstNode.type ?? '',
       level: attrs.level ?? 0,
+    }
+  },
+  debugOpenSlashMenu(query: string) {
+    setDocument({
+      type: 'doc',
+      content: [{ type: 'paragraph' }],
+    })
+    editor.commands.focus('start')
+    editor.commands.focus('end')
+    if (query.length > 0) {
+      editor.commands.insertContent(`/${query}`)
+    } else {
+      editor.commands.insertContent('/')
+    }
+
+    const items = Array.from(document.querySelectorAll('.slash-menu__item strong')).map((element) => {
+      return element.textContent ?? ''
+    })
+
+    return {
+      visible: Boolean(document.querySelector('.slash-menu')),
+      itemCount: items.length,
+      items,
     }
   },
 }

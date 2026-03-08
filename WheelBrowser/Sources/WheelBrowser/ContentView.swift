@@ -7,6 +7,8 @@ private struct BrowserContentArea: View {
     var agentManager: AgentManager
     var browserState: BrowserState
     var noteStore: NoteStore
+    let onCopyNote: (NoteRecord) -> Void
+    let onDeleteNote: (NoteRecord) -> Void
     @ObservedObject var settings: AppSettings
     var agentEngine: AgentEngine
     var wheelState: TabWheelState
@@ -38,6 +40,7 @@ private struct BrowserContentArea: View {
                         tab: activeTab,
                         agentManager: agentManager,
                         browserState: browserState,
+                        noteStore: noteStore,
                         agentEngine: agentEngine,
                         contentExtractor: contentExtractor
                     )
@@ -76,6 +79,8 @@ private struct BrowserContentArea: View {
                 NoteWindowContainer(
                     noteStore: noteStore,
                     noteWindowState: noteWindowState,
+                    onCopyNote: onCopyNote,
+                    onDeleteNote: onDeleteNote,
                     containerSize: geometry.size
                 )
             }
@@ -320,6 +325,8 @@ struct ContentView: View {
                         agentManager: agentManager,
                         browserState: state,
                         noteStore: noteStore,
+                        onCopyNote: copyNote,
+                        onDeleteNote: deleteNote,
                         settings: settings,
                         agentEngine: agentEngine,
                         wheelState: wheelState,
@@ -339,6 +346,8 @@ struct ContentView: View {
             NotesStrip(
                 noteStore: noteStore,
                 onOpenNote: openNote,
+                onCopyNote: copyNote,
+                onDeleteNote: deleteNote,
                 onCreateNote: createNote
             )
             .frame(maxWidth: .infinity, alignment: .trailing)
@@ -424,6 +433,23 @@ struct ContentView: View {
     @MainActor
     private func openNote(_ note: NoteRecord) {
         noteWindowState.open(note: note)
+    }
+
+    @MainActor
+    private func copyNote(_ note: NoteRecord) {
+        guard let duplicated = noteStore.duplicateNote(id: note.id),
+              let resolved = noteStore.note(with: duplicated.id) else {
+            return
+        }
+        openNote(resolved)
+    }
+
+    @MainActor
+    private func deleteNote(_ note: NoteRecord) {
+        noteStore.deleteNote(id: note.id)
+        if noteWindowState.window?.noteID == note.id {
+            noteWindowState.close()
+        }
     }
 }
 

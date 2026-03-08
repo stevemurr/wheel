@@ -54,6 +54,8 @@ struct MentionChip: View {
             return .blue
         case .overlay:
             return .mint
+        case .note:
+            return .accentColor
         case .semanticResult:
             return .orange
         case .history:
@@ -101,8 +103,8 @@ struct MentionSuggestionRow: View {
                     .foregroundColor(.primary)
                     .lineLimit(1)
 
-                if let url = suggestion.mention.url {
-                    Text(formatURL(url))
+                if let subtitle = suggestion.mention.subtitleText ?? suggestion.mention.url.map(formatURL) {
+                    Text(subtitle)
                         .font(.system(size: 10))
                         .foregroundColor(.secondary)
                         .lineLimit(1)
@@ -154,6 +156,8 @@ struct MentionSuggestionRow: View {
             return .blue
         case .overlay:
             return .mint
+        case .note:
+            return .accentColor
         case .semanticResult:
             return .orange
         case .history:
@@ -194,6 +198,16 @@ struct MentionSuggestionRow: View {
                 .background(
                     RoundedRectangle(cornerRadius: 5)
                         .fill(Color.mint.opacity(0.1))
+                )
+
+        case .note:
+            Image(systemName: "note.text")
+                .font(.system(size: 12))
+                .foregroundColor(.accentColor)
+                .frame(width: 24, height: 24)
+                .background(
+                    RoundedRectangle(cornerRadius: 5)
+                        .fill(Color.accentColor.opacity(0.12))
                 )
 
         case .semanticResult:
@@ -293,6 +307,10 @@ struct MentionSuggestionRow: View {
                 mention: .semanticResult(id: UUID(), title: "Swift Documentation", url: "https://swift.org/docs"),
                 onRemove: {}
             )
+            MentionChip(
+                mention: .note(id: UUID(), title: "Planning note", excerpt: "Ship note mentions next."),
+                onRemove: {}
+            )
         }
 
         Divider()
@@ -305,6 +323,15 @@ struct MentionSuggestionRow: View {
                     score: 800
                 ),
                 isSelected: true,
+                onSelect: {}
+            )
+
+            MentionSuggestionRow(
+                suggestion: MentionSuggestion(
+                    mention: .note(id: UUID(), title: "Release plan", excerpt: "Tighten chat mentions and note actions."),
+                    score: 700
+                ),
+                isSelected: false,
                 onSelect: {}
             )
 

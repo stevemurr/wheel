@@ -7,6 +7,7 @@ struct MentionContentResolver {
     let contentExtractor: ContentExtractor
     let browserState: BrowserState
     let currentTab: Tab
+    let noteStore: NoteStore
 
     /// Resolve all mentions into page contexts for the given query
     func resolve(mentions: [Mention], query: String) async -> [PageContext] {
@@ -79,6 +80,19 @@ struct MentionContentResolver {
                     title: title,
                     textContent: "[Content from mini window - URL: \(url)]",
                     contextBadge: .miniWindow(title: title, url: url)
+                ))
+
+            case .note(let noteID, let title, _):
+                guard let note = noteStore.note(with: noteID) else { break }
+                let content = note.document.plainText(maxLength: Int.max)
+                let textContent = content.isEmpty
+                    ? "[From Note]\n\(title)"
+                    : "[From Note]\n\(content)"
+                contexts.append(PageContext(
+                    url: "note://\(noteID.uuidString)",
+                    title: note.displayTitle,
+                    textContent: textContent,
+                    contextBadge: .note(id: noteID, title: note.displayTitle)
                 ))
 
             case .semanticResult(_, let title, let url):

@@ -5,6 +5,7 @@ enum Mention: Identifiable, Equatable, Hashable {
     case currentPage
     case tab(id: UUID, title: String, url: String)
     case overlay(id: UUID, title: String, url: String) // Mini window
+    case note(id: UUID, title: String, excerpt: String)
     case semanticResult(id: UUID, title: String, url: String)
     case history
     case web           // Search all indexed web content
@@ -19,6 +20,8 @@ enum Mention: Identifiable, Equatable, Hashable {
             return "tab-\(id.uuidString)"
         case .overlay(let id, _, _):
             return "overlay-\(id.uuidString)"
+        case .note(let id, _, _):
+            return "note-\(id.uuidString)"
         case .semanticResult(let id, _, _):
             return "semantic-\(id.uuidString)"
         case .history:
@@ -40,6 +43,8 @@ enum Mention: Identifiable, Equatable, Hashable {
             return title.isEmpty ? "Untitled" : String(title.prefix(30))
         case .overlay(_, let title, _):
             return title.isEmpty ? "Mini Window" : String(title.prefix(30))
+        case .note(_, let title, _):
+            return title.isEmpty ? "Untitled Note" : String(title.prefix(30))
         case .semanticResult(_, let title, _):
             return title.isEmpty ? "Untitled" : String(title.prefix(30))
         case .history:
@@ -61,6 +66,8 @@ enum Mention: Identifiable, Equatable, Hashable {
             return "square.on.square"
         case .overlay:
             return "pip"
+        case .note:
+            return "note.text"
         case .semanticResult:
             return "brain.head.profile"
         case .history:
@@ -82,6 +89,8 @@ enum Mention: Identifiable, Equatable, Hashable {
             return "Tab"
         case .overlay:
             return "Mini"
+        case .note:
+            return "Note"
         case .semanticResult:
             return "History"
         case .history:
@@ -103,6 +112,8 @@ enum Mention: Identifiable, Equatable, Hashable {
             return url
         case .overlay(_, _, let url):
             return url
+        case .note:
+            return nil
         case .semanticResult(_, _, let url):
             return url
         case .history, .web, .readingList:
@@ -133,7 +144,7 @@ enum Mention: Identifiable, Equatable, Hashable {
         switch self {
         case .web, .history, .readingList, .domain:
             return true
-        case .currentPage, .tab, .overlay, .semanticResult:
+        case .currentPage, .tab, .overlay, .note, .semanticResult:
             return false
         }
     }
@@ -143,7 +154,7 @@ enum Mention: Identifiable, Equatable, Hashable {
         switch self {
         case .currentPage, .overlay:
             return true
-        case .tab, .semanticResult, .history, .web, .readingList, .domain:
+        case .tab, .note, .semanticResult, .history, .web, .readingList, .domain:
             return false
         }
     }
@@ -153,6 +164,16 @@ enum Mention: Identifiable, Equatable, Hashable {
         switch self {
         case .readingList:
             return .readingList
+        default:
+            return nil
+        }
+    }
+
+    var subtitleText: String? {
+        switch self {
+        case .note(_, _, let excerpt):
+            let trimmed = excerpt.trimmingCharacters(in: .whitespacesAndNewlines)
+            return trimmed.isEmpty ? nil : trimmed
         default:
             return nil
         }

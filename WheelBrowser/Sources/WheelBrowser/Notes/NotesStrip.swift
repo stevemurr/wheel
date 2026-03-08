@@ -3,6 +3,8 @@ import SwiftUI
 struct NotesStrip: View {
     var noteStore: NoteStore
     let onOpenNote: (NoteRecord) -> Void
+    let onCopyNote: (NoteRecord) -> Void
+    let onDeleteNote: (NoteRecord) -> Void
     let onCreateNote: () -> Void
 
     @AppStorage(AppSettings.hiddenTabScaleKey)
@@ -51,6 +53,10 @@ struct NotesStrip: View {
         10 * max(0.9, shownScale)
     }
 
+    private var expandedActionHeight: CGFloat {
+        34 * max(0.92, shownScale)
+    }
+
     private var collapsedPeekMaxWidth: CGFloat {
         12 * hiddenScale
     }
@@ -64,7 +70,10 @@ struct NotesStrip: View {
     }
 
     private var expandedStackHeight: CGFloat {
-        stackHeight(itemHeight: expandedCardHeight, spacing: expandedSpacing, verticalPadding: 64)
+        let count = CGFloat(noteStore.notes.count)
+        let gaps = max(0, count - 1)
+        let notesHeight = count > 0 ? count * expandedCardHeight + gaps * expandedSpacing : 0
+        return notesHeight + expandedActionHeight + (14 * shownScale) + 24
     }
 
     private var collapsedStackHeight: CGFloat {
@@ -104,15 +113,19 @@ struct NotesStrip: View {
 
                 LazyVStack(spacing: expandedSpacing) {
                     ForEach(noteStore.orderedNotes) { note in
-                        NotePreviewCard(note: note, sizeScale: shownScale) {
-                            onOpenNote(note)
-                        }
+                        NotePreviewCard(
+                            note: note,
+                            sizeScale: shownScale,
+                            onSelect: { onOpenNote(note) },
+                            onCopy: { onCopyNote(note) },
+                            onDelete: { onDeleteNote(note) }
+                        )
                     }
                 }
             }
             .padding(.vertical, 12)
             .padding(.horizontal, 8)
-            .frame(minHeight: containerHeight, alignment: .top)
+            .frame(minHeight: containerHeight, alignment: .center)
         }
         .frame(width: expandedDockWidth)
     }
@@ -138,7 +151,9 @@ struct NotesStrip: View {
                         NotePeek(
                             note: note,
                             sizeScale: hiddenScale,
-                            onSelect: { onOpenNote(note) }
+                            onSelect: { onOpenNote(note) },
+                            onCopy: { onCopyNote(note) },
+                            onDelete: { onDeleteNote(note) }
                         )
                     }
                 }
@@ -185,6 +200,8 @@ private struct NotePreviewCard: View {
     let note: NoteRecord
     let sizeScale: CGFloat
     let onSelect: () -> Void
+    let onCopy: () -> Void
+    let onDelete: () -> Void
 
     @State private var isHovered = false
 
@@ -234,6 +251,18 @@ private struct NotePreviewCard: View {
             .scaleEffect(isHovered ? 1.02 : 1)
         }
         .buttonStyle(.plain)
+        .contextMenu {
+            Button("Open Note", systemImage: "arrow.up.right.square") {
+                onSelect()
+            }
+            Button("Copy Note", systemImage: "doc.on.doc") {
+                onCopy()
+            }
+            Divider()
+            Button("Delete Note", systemImage: "trash", role: .destructive) {
+                onDelete()
+            }
+        }
         .onHover { hovering in
             withAnimation(AppAnimation.hoverSpring) {
                 isHovered = hovering
@@ -269,6 +298,8 @@ private struct NotePeek: View {
     let note: NoteRecord
     let sizeScale: CGFloat
     let onSelect: () -> Void
+    let onCopy: () -> Void
+    let onDelete: () -> Void
 
     @State private var isHovered = false
 
@@ -305,6 +336,18 @@ private struct NotePeek: View {
         }
         .contentShape(Rectangle())
         .onTapGesture(perform: onSelect)
+        .contextMenu {
+            Button("Open Note", systemImage: "arrow.up.right.square") {
+                onSelect()
+            }
+            Button("Copy Note", systemImage: "doc.on.doc") {
+                onCopy()
+            }
+            Divider()
+            Button("Delete Note", systemImage: "trash", role: .destructive) {
+                onDelete()
+            }
+        }
         .onHover { hovering in
             withAnimation(AppAnimation.quick) {
                 isHovered = hovering

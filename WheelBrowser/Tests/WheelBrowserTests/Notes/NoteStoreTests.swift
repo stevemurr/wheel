@@ -54,7 +54,8 @@ struct NoteStoreTests {
         #expect(reloaded.notes.count == 2)
         #expect(reloaded.note(with: first.id) != nil)
         let savedSecond = try #require(reloaded.note(with: second.id))
-        #expect(savedSecond.excerpt.contains("Track launch notes"))
+        #expect(savedSecond.title == "Track launch notes")
+        #expect(savedSecond.excerpt.isEmpty)
     }
 
     @Test("Workspace binding isolates note collections")
@@ -95,8 +96,113 @@ struct NoteStoreTests {
         reloaded.bindToWorkspace(workspaceID)
 
         let updated = try #require(reloaded.note(with: note.id))
+        #expect(updated.title == "Research")
         #expect(updated.excerpt.contains("Wheel Docs"))
         #expect(updated.excerpt.contains("https://example.com/docs"))
+    }
+
+    @Test("Document updates use the first line as the note title")
+    func derivesTitleFromDocument() {
+        let store = makeStore()
+        let workspaceID = UUID()
+        store.bindToWorkspace(workspaceID)
+
+        let note = store.createNote()
+        store.updateDocument(
+            id: note.id,
+            document: NoteDocument(
+                root: [
+                    "type": AnyCodable("doc"),
+                    "content": AnyCodable([
+                        [
+                            "type": "paragraph",
+                            "content": [
+                                [
+                                    "type": "text",
+                                    "text": "Release notes",
+                                ],
+                            ],
+                        ],
+                        [
+                            "type": "paragraph",
+                            "content": [
+                                [
+                                    "type": "text",
+                                    "text": "Tighten slash commands and task styling.",
+                                ],
+                            ],
+                        ],
+                    ]),
+                ]
+            )
+        )
+
+        let updated = try! #require(store.note(with: note.id))
+        #expect(updated.title == "Release notes")
+        #expect(updated.excerpt == "Tighten slash commands and task styling.")
+    }
+
+    @Test("Duplicating a note copies the full document into a new record")
+    func duplicatesNote() {
+        let store = makeStore()
+        let workspaceID = UUID()
+        store.bindToWorkspace(workspaceID)
+
+        let note = store.createNote()
+        store.updateDocument(
+            id: note.id,
+            document: NoteDocument(
+                root: [
+                    "type": AnyCodable("doc"),
+                    "content": AnyCodable([
+                        [
+                            "type": "paragraph",
+                            "content": [
+                                [
+                                    "type": "text",
+                                    "text": "Design review",
+                                ],
+                            ],
+                        ],
+                        [
+                            "type": "paragraph",
+                            "content": [
+                                [
+                                    "type": "text",
+                                    "text": "Compare note duplication and deletion flows.",
+                                ],
+                            ],
+                        ],
+                    ]),
+                ]
+            )
+        )
+
+        let duplicated = try! #require(store.duplicateNote(id: note.id))
+        let resolved = try! #require(store.note(with: duplicated.id))
+
+        #expect(resolved.id != note.id)
+        #expect(resolved.document.plainText(maxLength: Int.max) == "Design review\nCompare note duplication and deletion flows.")
+        #expect(resolved.title == "Design review")
+    }
+
+    @Test("Deleting a note removes it from memory and disk")
+    func deletesNote() throws {
+        let root = tempDirectory()
+        let workspaceID = UUID()
+        let store = NoteStore(storageRoot: root, saveDebounceInterval: .seconds(60))
+        store.bindToWorkspace(workspaceID)
+
+        let note = store.createNote(title: "Disposable")
+        store.flushPendingSaves()
+        store.deleteNote(id: note.id)
+
+        let fileURL = root
+            .appendingPathComponent(workspaceID.uuidString, isDirectory: true)
+            .appendingPathComponent("\(note.id.uuidString).json")
+
+        #expect(store.note(with: note.id) == nil)
+        #expect(FileManager.default.fileExists(atPath: fileURL.path) == false)
     }
 
     @Test("Ordered notes prioritize the most recently updated note")

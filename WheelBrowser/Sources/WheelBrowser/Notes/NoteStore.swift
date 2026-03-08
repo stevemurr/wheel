@@ -47,34 +47,56 @@ final class NoteStore {
     }
 
     @discardableResult
-    func createNote(title: String = "Untitled Note") -> NoteRecord {
+    func createNote(title: String = "") -> NoteRecord {
         preconditionWorkspace()
 
+        let document = NoteDocument.titled(title)
         let note = NoteRecord(
             workspaceID: currentWorkspaceID!,
             kind: .adhoc,
-            title: title
+            title: document.titleLine(maxLength: Int.max),
+            excerpt: document.previewText(),
+            document: document
         )
         insert(note)
         persistNoteImmediately(note)
         return note
     }
 
-    func renameNote(id: UUID, title: String) {
-        guard let index = notes.firstIndex(where: { $0.id == id }) else { return }
-
-        notes[index].title = title.trimmingCharacters(in: .whitespacesAndNewlines)
-        notes[index].updatedAt = Date()
-        markDirty(notes[index].id)
-    }
-
     func updateDocument(id: UUID, document: NoteDocument) {
         guard let index = notes.firstIndex(where: { $0.id == id }) else { return }
 
         notes[index].document = document
-        notes[index].excerpt = document.plainText()
+        notes[index].title = document.titleLine(maxLength: Int.max)
+        notes[index].excerpt = document.previewText()
         notes[index].updatedAt = Date()
         markDirty(notes[index].id)
+    }
+
+    @discardableResult
+    func duplicateNote(id: UUID) -> NoteRecord? {
+        guard let source = note(with: id) else { return nil }
+
+        let duplicated = NoteRecord(
+            workspaceID: source.workspaceID,
+            kind: .adhoc,
+            title: source.title,
+            createdAt: Date(),
+            updatedAt: Date(),
+            excerpt: source.excerpt,
+            document: source.document
+        )
+        insert(duplicated)
+        persistNoteImmediately(duplicated)
+        return duplicated
+    }
+
+    func deleteNote(id: UUID) {
+        guard let index = notes.firstIndex(where: { $0.id == id }) else { return }
+
+        let note = notes.remove(at: index)
+        dirtyNoteIDs.remove(note.id)
+        deletePersistedNote(note)
     }
 
     func insertPageSource(id: UUID, source: NotePageSource) {
@@ -82,7 +104,8 @@ final class NoteStore {
 
         let document = notes[index].document.insertingPageSource(source)
         notes[index].document = document
-        notes[index].excerpt = document.plainText()
+        notes[index].title = document.titleLine(maxLength: Int.max)
+        notes[index].excerpt = document.previewText()
         notes[index].updatedAt = Date()
         markDirty(notes[index].id)
     }
@@ -146,7 +169,7 @@ final class NoteStore {
                   let note = try? decoder.decode(NoteRecord.self, from: data) else {
                 continue
             }
-            notes.append(note)
+            notes.append(normalizedRecord(note))
         }
     }
 
@@ -165,11 +188,33 @@ final class NoteStore {
         }
     }
 
+    private func deletePersistedNote(_ note: NoteRecord) {
+        let fileURL = workspaceDirectory(for: note.workspaceID)
+            .appendingPathComponent("\(note.id.uuidString).json")
+
+        do {
+            if FileManager.default.fileExists(atPath: fileURL.path) {
+                try FileManager.default.removeItem(at: fileURL)
+            }
+        } catch {
+            Log.Workspace.error("Failed to delete note", error: error)
+        }
+    }
+
     private func workspaceDirectory(for workspaceID: UUID) -> URL {
         storageRoot.appendingPathComponent(workspaceID.uuidString, isDirectory: true)
     }
 
     private func preconditionWorkspace() {
         precondition(currentWorkspaceID != nil, "NoteStore must bind to a workspace before note operations")
+    }
+
+    private func normalizedRecord(_ note: NoteRecord) -> NoteRecord {
+        var normalized = note
+        let migratedDocument = note.document.migratedForInlineTitle(note.title)
+        normalized.document = migratedDocument
+        normalized.title = migratedDocument.titleLine(maxLength: Int.max)
+        normalized.excerpt = migratedDocument.previewText()
+        return normalized
     }
 }

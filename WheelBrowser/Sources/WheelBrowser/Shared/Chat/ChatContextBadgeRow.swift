@@ -87,6 +87,8 @@ private extension ChatContextBadge.Kind {
             return "Domain"
         case .miniWindow:
             return "Mini Window"
+        case .note:
+            return "Note"
         case .tool:
             return "Tool"
         case .toolResult:
@@ -108,6 +110,8 @@ private extension ChatContextBadge.Kind {
             return "link"
         case .miniWindow:
             return "pip"
+        case .note:
+            return "note.text"
         case .tool:
             return "hammer"
         case .toolResult:
@@ -129,6 +133,8 @@ private extension ChatContextBadge.Kind {
             return .cyan
         case .miniWindow:
             return .mint
+        case .note:
+            return .accentColor
         case .tool:
             return .orange
         case .toolResult:

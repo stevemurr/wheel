@@ -1,3 +1,4 @@
+import Foundation
 import Testing
 @testable import WheelBrowser
 
@@ -31,5 +32,15 @@ struct ChatContextBadgeTests {
             "website-https://example.com/a",
             "website-https://example.org/b"
         ])
+    }
+
+    @Test("Note badges preserve the note identity")
+    func buildsNoteBadge() {
+        let id = UUID()
+        let badge = ChatContextBadge.note(id: id, title: "Planning")
+
+        #expect(badge.kind == ChatContextBadge.Kind.note)
+        #expect(badge.id == "note-\(id.uuidString)")
+        #expect(badge.title == "Planning")
     }
 }

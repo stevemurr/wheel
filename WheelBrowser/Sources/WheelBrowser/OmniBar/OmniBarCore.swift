@@ -5,6 +5,7 @@ struct OmniBar: View {
     var tab: Tab
     var agentManager: AgentManager
     var browserState: BrowserState
+    var noteStore: NoteStore
     var agentEngine: AgentEngine
     @Environment(\.colorScheme) var currentColorScheme
     @State var omniState = OmniBarState()
@@ -131,6 +132,7 @@ struct OmniBar: View {
             omniState.inputText = tab.url?.absoluteString ?? ""
             suggestionsVM.browserState = browserState
             mentionSuggestionsVM.browserState = browserState
+            mentionSuggestionsVM.noteStore = noteStore
             agentManager.switchConversation(to: tab.conversationId)
             updateFullPageChatState()
         }

@@ -4,6 +4,49 @@ import Testing
 
 @Suite("NoteDocument")
 struct NoteModelsTests {
+    @Test("Title and preview derive from the first line of the document")
+    func extractsInlineTitleAndPreview() {
+        let document = NoteDocument(
+            root: [
+                "type": AnyCodable("doc"),
+                "content": AnyCodable([
+                    [
+                        "type": "paragraph",
+                        "content": [
+                            [
+                                "type": "text",
+                                "text": "Project plan",
+                            ],
+                        ],
+                    ],
+                    [
+                        "type": "paragraph",
+                        "content": [
+                            [
+                                "type": "text",
+                                "text": "Ship the editor cleanup next.",
+                            ],
+                        ],
+                    ],
+                ]),
+            ]
+        )
+
+        #expect(document.titleLine() == "Project plan")
+        #expect(document.previewText() == "Ship the editor cleanup next.")
+    }
+
+    @Test("Legacy title metadata can migrate into the note body")
+    func migratesLegacyTitlesIntoBody() throws {
+        let document = NoteDocument.empty.migratedForInlineTitle("Scratchpad")
+
+        #expect(document.titleLine() == "Scratchpad")
+
+        let content = try #require(document.root["content"]?.arrayValue)
+        let firstNode = try #require(content.first as? [String: Any])
+        #expect(firstNode["type"] as? String == "paragraph")
+    }
+
     @Test("Page sources replace the empty starter paragraph instead of adding leading blank space")
     func sourceInsertionIntoEmptyDocumentIsCompact() throws {
         let document = NoteDocument.empty.insertingPageSource(

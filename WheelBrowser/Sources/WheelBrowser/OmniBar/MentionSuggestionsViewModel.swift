@@ -11,6 +11,7 @@ import SwiftUI
 
     /// Reference to browser state for accessing open tabs
     weak var browserState: BrowserState?
+    weak var noteStore: NoteStore?
 
     private let searchDebouncer = Debouncer(delay: .milliseconds(30))
 
@@ -127,6 +128,15 @@ import SwiftUI
             allSuggestions.append(contentsOf: tabSuggestions)
         }
 
+        if let noteStore {
+            let noteSuggestions = searchNotes(
+                query: query,
+                notes: noteStore.orderedNotes,
+                excludedIds: excludedIds
+            )
+            allSuggestions.append(contentsOf: noteSuggestions)
+        }
+
         // Search open overlay windows (mini windows)
         let overlaySuggestions = searchOverlays(
             query: query,
@@ -147,10 +157,7 @@ import SwiftUI
             if a.score != b.score {
                 return a.score > b.score
             }
-            if case .tab = a.mention, case .semanticResult = b.mention {
-                return true
-            }
-            return false
+            return suggestionRank(for: a.mention) < suggestionRank(for: b.mention)
         }
 
         allSuggestions = Array(allSuggestions.prefix(10))
@@ -160,6 +167,56 @@ import SwiftUI
         suggestions = allSuggestions
         selectedIndex = suggestions.isEmpty ? -1 : 0
         isSearching = false
+    }
+
+    private func searchNotes(
+        query: String,
+        notes: [NoteRecord],
+        excludedIds: Set<String>
+    ) -> [MentionSuggestion] {
+        return notes.enumerated().compactMap { index, note -> MentionSuggestion? in
+            let mention = Mention.note(
+                id: note.id,
+                title: note.displayTitle,
+                excerpt: note.excerpt
+            )
+
+            if excludedIds.contains(mention.id) { return nil }
+
+            let score: Int
+            if query.isEmpty {
+                score = max(620 - (index * 8), 0)
+            } else {
+                let fullText = note.document.plainText(maxLength: Int.max)
+                let titleScore = FuzzySearch.score(query: query, target: note.displayTitle)
+                let excerptScore = FuzzySearch.score(query: query, target: note.excerpt)
+                let contentScore = FuzzySearch.score(query: query, target: fullText)
+                let typeScore = ["note", "memo", "scratchpad"]
+                    .map { FuzzySearch.score(query: query, target: $0) }
+                    .max() ?? 0
+                score = max(titleScore, excerptScore, contentScore, typeScore)
+            }
+
+            guard score > 0 else { return nil }
+            return MentionSuggestion(mention: mention, score: score)
+        }
+    }
+
+    private func suggestionRank(for mention: Mention) -> Int {
+        switch mention {
+        case .overlay:
+            return 0
+        case .currentPage:
+            return 1
+        case .history, .web, .readingList, .domain:
+            return 2
+        case .note:
+            return 3
+        case .tab:
+            return 4
+        case .semanticResult:
+            return 5
+        }
     }
 
     /// Search open overlay windows using fuzzy matching

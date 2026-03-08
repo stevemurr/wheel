@@ -11,6 +11,7 @@ public struct ChatContextBadge: Identifiable, Equatable, Hashable, Codable {
         case readingList
         case domain
         case miniWindow
+        case note
         case tool
         case toolResult
     }
@@ -88,6 +89,15 @@ public struct ChatContextBadge: Identifiable, Equatable, Hashable, Codable {
             kind: .miniWindow,
             title: preferredTitle(title, url: url),
             url: url
+        )
+    }
+
+    static func note(id: UUID, title: String? = nil, detail: String? = nil) -> Self {
+        ChatContextBadge(
+            id: "note-\(id.uuidString)",
+            kind: .note,
+            title: preferredTitle(title, url: nil),
+            detail: detail
         )
     }
 
