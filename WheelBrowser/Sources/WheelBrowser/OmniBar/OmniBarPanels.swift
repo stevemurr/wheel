@@ -359,8 +359,8 @@ private struct AgentOmniPanel: View {
                 Button("Cancel Task") { agentEngine.cancel() }
                     .disabled(!agentEngine.isRunning)
                 Divider()
-                Button("Clear History") { agentEngine.steps = [] }
-                    .disabled(agentEngine.steps.isEmpty)
+                Button("Clear History") { agentEngine.clearHistory() }
+                    .disabled(agentEngine.steps.isEmpty && agentEngine.lastResult == nil)
             },
             onDismiss: onDismiss
         ) {

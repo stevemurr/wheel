@@ -28,18 +28,19 @@ extension BrowserBridge {
     func snapshot(request: SnapshotRequest) async throws -> ReducedPageObservation {
         let pageSnapshot = try await snapshot()
         let linkRequest = LinkCollectionRequest(
-            allowedHosts: request.relevantHosts,
+            targetHosts: request.relevantHosts,
             includePaginationLinks: request.includePaginationControls,
-            maxMatches: max(request.maxRelevantLinks * 3, request.maxRelevantLinks)
+            maxMatches: max(request.maxRelevantLinks * 3, request.maxRelevantLinks),
+            canonicalizationStrategy: request.canonicalizationStrategy
         )
         let linkResult = try await collectLinks(linkRequest)
         return ReducedPageObservation(
             snapshot: pageSnapshot,
             request: request,
             relevantLinks: linkResult.matches.map {
-                PageLink(text: $0.text, url: $0.url, isPaginationControl: false)
+                PageLink(text: $0.text, url: $0.canonicalURL, isPaginationControl: false)
             },
-            paginationLinks: request.includePaginationControls ? linkResult.paginationLinks : [],
+            paginationCandidates: request.includePaginationControls ? linkResult.paginationCandidates : [],
             totalPageLinkCount: linkResult.totalLinksScanned
         )
     }
@@ -80,24 +81,30 @@ extension BrowserBridge {
             guard !link.isPaginationControl else {
                 return false
             }
-            if request.allowedHosts.isEmpty {
+            if request.targetHosts.isEmpty {
                 return true
             }
-            return request.allowedHosts.contains(link.host)
+            return request.targetHosts.contains(link.host)
         }
 
         let matches = filteredMatches.prefix(request.maxMatches).map {
             LinkCollectionMatch(text: $0.text, url: $0.url, sourcePageURL: currentURL)
         }
-        let paginationLinks = request.includePaginationLinks
+        let paginationCandidates = request.includePaginationLinks
             ? parsedLinks.filter(\.isPaginationControl)
+                .map { PaginationCandidate(text: $0.text, url: $0.url) }
             : []
 
-        return LinkCollectionResult(
-            matches: Array(matches),
-            paginationLinks: paginationLinks,
-            totalLinksScanned: parsedLinks.count,
-            filteredOutCount: max(0, parsedLinks.count - matches.count)
+        return LinkCollectionCanonicalizer.apply(
+            to: LinkCollectionResult(
+                matches: Array(matches),
+                paginationCandidates: paginationCandidates,
+                totalLinksScanned: parsedLinks.count,
+                filteredOutCount: max(0, parsedLinks.count - matches.count),
+                pageURL: currentURL,
+                pageHost: URL(string: currentURL)?.normalizedAgentHost ?? ""
+            ),
+            request: request
         )
     }
 }

@@ -70,6 +70,13 @@ struct AgentLiveTests {
         try await runScenario(named: "scroll_and_find")
     }
 
+    @Test("hn_arxiv_first_5_pages", .tags(.collection, .multiStep))
+    @MainActor
+    func hnArxivFirstFivePages() async throws {
+        guard Self.liveTestsEnabled else { return }
+        try await runScenario(named: "hn_arxiv_first_5_pages")
+    }
+
     // MARK: - Full Suite
 
     @Test("Run all scenarios and generate report")
@@ -146,4 +153,5 @@ extension Tag {
     @Tag static var read: Self
     @Tag static var multiStep: Self
     @Tag static var scroll: Self
+    @Tag static var collection: Self
 }

@@ -529,16 +529,16 @@ enum AgentScripts {
     })();
     """
 
-    static func collectLinks(allowedHostsJSON: String, maxMatches: Int, includePaginationLinks: Bool) -> String {
+    static func collectLinks(targetHostsJSON: String, maxMatches: Int, includePaginationLinks: Bool) -> String {
         let includePagination = includePaginationLinks ? "true" : "false"
         return """
         (function() {
-            const allowedHosts = new Set(\(allowedHostsJSON));
+            const targetHosts = new Set(\(targetHostsJSON));
             const includePaginationLinks = \(includePagination);
             const maxMatches = \(maxMatches);
             const seen = new Set();
             const matches = [];
-            const paginationLinks = [];
+            const paginationCandidates = [];
             let totalLinksScannedRef = { value: 0 };
             const filteredOutCountRef = { value: 0 };
 
@@ -584,10 +584,14 @@ enum AgentScripts {
                 const text = normalizeText(anchor);
                 const isPagination = isPaginationLabel(text);
                 const host = normalizeHost(href);
-                const matchesHost = allowedHosts.size === 0 || allowedHosts.has(host);
+                const matchesHost = targetHosts.size === 0 || targetHosts.has(host);
 
                 if (isPagination && includePaginationLinks) {
-                    paginationLinks.push({ text, url: href, isPaginationControl: true });
+                    paginationCandidates.push({
+                        text,
+                        url: href,
+                        identity: href.replace(/#.*$/, '').toLowerCase()
+                    });
                 }
 
                 if (!matchesHost || isPagination) {
@@ -608,9 +612,11 @@ enum AgentScripts {
 
             return {
                 matches,
-                paginationLinks,
+                paginationCandidates,
                 totalLinksScanned: totalLinksScannedRef.value,
-                filteredOutCount: filteredOutCountRef.value
+                filteredOutCount: filteredOutCountRef.value,
+                pageURL: window.location.href,
+                pageHost: window.location.host.replace(/^www\\./, '').toLowerCase()
             };
         })();
         """

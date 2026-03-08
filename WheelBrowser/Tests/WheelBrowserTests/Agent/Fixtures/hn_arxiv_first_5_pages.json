@@ -1,0 +1,22 @@
+{
+    "name": "hn_arxiv_first_5_pages",
+    "description": "Collect arXiv links from the first five pages of Hacker News and return them as artifacts.",
+    "startURL": "about:blank",
+    "task": "Go to Hacker News, and create a list of all arxiv papers linked in the first 5 pages",
+    "maxSteps": 20,
+    "timeout": 120,
+    "successCriteria": {
+        "requireAgentSuccess": true,
+        "urlContains": "news.ycombinator.com",
+        "titleContains": "Hacker News",
+        "pageContains": null,
+        "summaryContains": null,
+        "maxExpectedSteps": 12,
+        "collectionCountAtLeast": 1,
+        "collectionHost": "arxiv.org",
+        "pagesScanned": 5,
+        "artifactPresent": true,
+        "noDuplicateCanonicalIDs": true
+    },
+    "tags": ["collection", "research", "multi-step"]
+}

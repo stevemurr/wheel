@@ -93,4 +93,23 @@ struct StructuredAgentDecisionTests {
         #expect(generated.tabIndex == 2)
         #expect(try generated.toAgentAction() == .switchTab(index: 2))
     }
+
+    @Test("Generated advance pagination action round-trips to AgentAction")
+    func advancePaginationRoundTrip() throws {
+        let action = GeneratedAgentAction(
+            actionType: "advance_pagination",
+            elementId: nil,
+            text: nil,
+            url: "https://news.ycombinator.com/news?p=2",
+            scrollDirection: nil,
+            modifiers: nil,
+            tabIndex: nil,
+            reason: nil,
+            waitSeconds: nil,
+            summary: nil
+        )
+
+        #expect(try action.toAgentAction() == .advancePagination(url: "https://news.ycombinator.com/news?p=2"))
+        #expect(GeneratedAgentAction(from: .advancePagination(url: nil)).actionType == "advance_pagination")
+    }
 }

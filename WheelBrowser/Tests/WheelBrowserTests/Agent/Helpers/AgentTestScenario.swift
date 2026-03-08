@@ -34,6 +34,16 @@ struct SuccessCriteria: Codable, Sendable {
     let summaryContains: String?
     /// Maximum steps to consider "efficient" (soft metric, logged but doesn't fail)
     let maxExpectedSteps: Int?
+    /// Collected item count must be at least this number
+    let collectionCountAtLeast: Int?
+    /// All collected items must resolve to this host
+    let collectionHost: String?
+    /// Collected result must report this exact page count
+    let pagesScanned: Int?
+    /// Whether agent artifacts should be present
+    let artifactPresent: Bool?
+    /// Canonical IDs in the collection must be unique
+    let noDuplicateCanonicalIDs: Bool?
 }
 
 // MARK: - Fixture Loading

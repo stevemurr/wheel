@@ -41,18 +41,19 @@ class AccessibilityBridge: BrowserBridge {
     func snapshot(request: SnapshotRequest) async throws -> ReducedPageObservation {
         let pageSnapshot = try await snapshot()
         let linkRequest = LinkCollectionRequest(
-            allowedHosts: request.relevantHosts,
+            targetHosts: request.relevantHosts,
             includePaginationLinks: request.includePaginationControls,
-            maxMatches: max(request.maxRelevantLinks * 3, request.maxRelevantLinks)
+            maxMatches: max(request.maxRelevantLinks * 3, request.maxRelevantLinks),
+            canonicalizationStrategy: request.canonicalizationStrategy
         )
         let linkResult = try await collectLinks(linkRequest)
         return ReducedPageObservation(
             snapshot: pageSnapshot,
             request: request,
             relevantLinks: linkResult.matches.map {
-                PageLink(text: $0.text, url: $0.url, isPaginationControl: false)
+                PageLink(text: $0.text, url: $0.canonicalURL, isPaginationControl: false)
             },
-            paginationLinks: request.includePaginationControls ? linkResult.paginationLinks : [],
+            paginationCandidates: request.includePaginationControls ? linkResult.paginationCandidates : [],
             totalPageLinkCount: linkResult.totalLinksScanned
         )
     }
@@ -157,10 +158,10 @@ class AccessibilityBridge: BrowserBridge {
         }
 
         do {
-            let jsonData = try JSONEncoder().encode(request.allowedHosts)
-            let allowedHostsJSON = String(data: jsonData, encoding: .utf8) ?? "[]"
+            let jsonData = try JSONEncoder().encode(request.targetHosts)
+            let targetHostsJSON = String(data: jsonData, encoding: .utf8) ?? "[]"
             let script = AgentScripts.collectLinks(
-                allowedHostsJSON: allowedHostsJSON,
+                targetHostsJSON: targetHostsJSON,
                 maxMatches: request.maxMatches,
                 includePaginationLinks: request.includePaginationLinks
             )
@@ -169,7 +170,8 @@ class AccessibilityBridge: BrowserBridge {
                 throw AgentError.javascriptError("collectLinks: Invalid response format")
             }
             let responseData = try JSONSerialization.data(withJSONObject: dict)
-            return try JSONDecoder().decode(LinkCollectionResult.self, from: responseData)
+            let decoded = try JSONDecoder().decode(LinkCollectionResult.self, from: responseData)
+            return LinkCollectionCanonicalizer.apply(to: decoded, request: request)
         } catch let error as AgentError {
             throw error
         } catch {

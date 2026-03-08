@@ -73,14 +73,64 @@ struct SuccessCriteriaEvaluator {
             }
         }
 
-        // Efficiency check (warning only, doesn't fail)
+        if let collectionCountAtLeast = criteria.collectionCountAtLeast {
+            let total = agentResult.collection?.totalUniqueCount ?? 0
+            if total < collectionCountAtLeast {
+                failures.append("Collected \(total) items, expected at least \(collectionCountAtLeast)")
+            }
+        }
+
+        if let expectedHost = criteria.collectionHost {
+            guard let items = agentResult.collection?.items, !items.isEmpty else {
+                failures.append("No collection items were available to validate host '\(expectedHost)'")
+                applyEfficiencyWarnings(&warnings, criteria: criteria, agentResult: agentResult)
+                return (passed: failures.isEmpty, failures: failures, warnings: warnings)
+            }
+
+            let mismatches = items.filter {
+                URL(string: $0.canonicalURL)?.normalizedAgentHost != expectedHost
+            }
+            if !mismatches.isEmpty {
+                failures.append("Collected items included hosts other than '\(expectedHost)'")
+            }
+        }
+
+        if let expectedPagesScanned = criteria.pagesScanned {
+            let actualPagesScanned = agentResult.collection?.pagesScanned ?? 0
+            if actualPagesScanned != expectedPagesScanned {
+                failures.append("Pages scanned was \(actualPagesScanned), expected \(expectedPagesScanned)")
+            }
+        }
+
+        if let artifactPresent = criteria.artifactPresent {
+            let hasArtifacts = !agentResult.artifacts.isEmpty
+            if artifactPresent != hasArtifacts {
+                failures.append("Artifact presence was \(hasArtifacts), expected \(artifactPresent)")
+            }
+        }
+
+        if criteria.noDuplicateCanonicalIDs == true,
+           let items = agentResult.collection?.items {
+            let canonicalIDs = items.compactMap(\.canonicalID)
+            if canonicalIDs.count != Set(canonicalIDs).count {
+                failures.append("Collection contained duplicate canonical IDs")
+            }
+        }
+
+        applyEfficiencyWarnings(&warnings, criteria: criteria, agentResult: agentResult)
+        return (passed: failures.isEmpty, failures: failures, warnings: warnings)
+    }
+
+    private static func applyEfficiencyWarnings(
+        _ warnings: inout [String],
+        criteria: SuccessCriteria,
+        agentResult: AgentResult
+    ) {
         if let maxExpectedSteps = criteria.maxExpectedSteps {
             let actionCount = agentResult.steps.filter { $0.type == .action }.count
             if actionCount > maxExpectedSteps {
                 warnings.append("Took \(actionCount) actions (expected <= \(maxExpectedSteps))")
             }
         }
-
-        return (passed: failures.isEmpty, failures: failures, warnings: warnings)
     }
 }

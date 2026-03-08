@@ -32,6 +32,10 @@ enum ActionErrorMapper {
             if case .navigate(let url) = action {
                 return "Could not navigate to \(url). Verify the URL is correct and try again, or search for it instead."
             }
+            if case .advancePagination(let url) = action {
+                let destination = url ?? "the next page"
+                return "Could not advance pagination to \(destination). Try a different pagination target or reassess the page."
+            }
             return "Navigation failed. Try a different URL or use a search engine to find the page."
         }
 

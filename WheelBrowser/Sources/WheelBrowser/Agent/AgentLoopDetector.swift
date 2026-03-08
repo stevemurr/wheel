@@ -55,6 +55,9 @@ struct NormalizedAction: Hashable {
         case .collectLinks:
             self.type = "collectLinks"
             self.target = ""
+        case .advancePagination(let url):
+            self.type = "advancePagination"
+            self.target = url ?? ""
         }
     }
 }
@@ -179,6 +182,9 @@ final class AgentLoopDetector {
             // Only detect the most severe patterns (exact same action 4x)
             let lastFour = Array(actions.suffix(4))
             if Set(lastFour).count == 1 {
+                if lastFour[0].type == "advancePagination" || lastFour[0].type == "navigate" {
+                    return nil
+                }
                 return "Same action repeated 4 times"
             }
             return nil

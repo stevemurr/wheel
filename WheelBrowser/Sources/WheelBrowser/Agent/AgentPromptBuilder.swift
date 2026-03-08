@@ -29,6 +29,7 @@ enum AgentPromptBuilder {
     extract_content      - Get the full text content of the current page
     read_links           - List links on the current page (compatibility fallback)
     collect_links        - Deterministically collect matching links from the current page into the result set
+    advance_pagination   - Navigate to the next pagination target for the crawl
     new_tab              - Open a new blank tab (agent stays on current tab)
     open_tab             - Open a URL in a new tab (agent stays on current tab)
     switch_tab           - Switch to tab by 1-based index (rebinds agent to that tab)
@@ -37,7 +38,10 @@ enum AgentPromptBuilder {
     done                 - Call this as soon as the task objective is satisfied
 
     RULES:
+    - For paginated collection tasks, the executor automatically collects matching links once per newly observed crawl page.
     - Prefer `collect_links` over `read_links` when the task is to build a list of links.
+    - Prefer `advance_pagination` over raw clicks for collection tasks when a next page is available.
+    - Do not call `done` for paginated collection tasks until the requested page budget is reached or pagination is exhausted.
     - Use `done` immediately once the result set is complete enough for the task.
     - If a captcha or challenge is present, use `wait_for_user`.
     - If repeated actions are failing, choose a different action instead of retrying the same thing.
@@ -60,8 +64,11 @@ enum AgentPromptBuilder {
         if let pageLimit = intent.pageLimit {
             lines.append("Requested page limit: \(pageLimit)")
         }
-        if !intent.allowedHosts.isEmpty {
-            lines.append("Relevant hosts: \(intent.allowedHosts.joined(separator: ", "))")
+        if !intent.sourceHosts.isEmpty {
+            lines.append("Source hosts: \(intent.sourceHosts.joined(separator: ", "))")
+        }
+        if !intent.targetHosts.isEmpty {
+            lines.append("Target hosts: \(intent.targetHosts.joined(separator: ", "))")
         }
         if runtimeStatus.recentErrorCount > 0 {
             lines.append("Recent errors: \(runtimeStatus.recentErrorCount)")
@@ -85,7 +92,7 @@ enum AgentPromptBuilder {
 
         if intent.isLinkCollection {
             lines.append("TASK HINT:")
-            lines.append("This is a link-collection task. Prefer `collect_links` and pagination/navigation actions over reading large raw content.")
+            lines.append("This is a link-collection task. Collection happens automatically once per newly observed crawl page. Prefer pagination/navigation actions over reading large raw content, and use `collect_links` only if you need to retry collection on the current page.")
             lines.append("")
         }
 

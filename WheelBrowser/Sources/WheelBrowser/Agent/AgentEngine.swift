@@ -52,6 +52,8 @@ private extension AgentAction {
             return "read_links"
         case .collectLinks:
             return "collect_links"
+        case .advancePagination:
+            return "advance_pagination"
         case .done:
             return "done"
         }
@@ -64,6 +66,7 @@ struct AgentResult {
     let summary: String
     let steps: [AgentStep]
     let artifacts: [ChatArtifact]
+    let collection: AgentCollectionSummary?
 }
 
 /// Modifier keys that can be held during a click action
@@ -112,6 +115,7 @@ enum AgentAction: Equatable {
     case extractContent
     case readLinks
     case collectLinks
+    case advancePagination(url: String?)
     case done(summary: String)
 
     enum ScrollDirection: String {
@@ -163,6 +167,7 @@ class AgentEngine {
     private(set) var waitingReason: String = ""
     private(set) var guardrailWarning: String?
     private(set) var streamingThought: String?
+    private(set) var lastResult: AgentResult?
 
     // MARK: - Dependencies (excluded from observation)
 
@@ -176,8 +181,18 @@ class AgentEngine {
     @ObservationIgnored private var tabClosureObserverTask: Task<Void, Never>?
     @ObservationIgnored private var currentRunID: UUID?
     @ObservationIgnored private var currentThreadID: String?
-    @ObservationIgnored private var taskIntent: AgentTaskIntent = AgentTaskIntent(kind: .general, allowedHosts: [], pageLimit: nil, requiresUniqueURLs: true)
+    @ObservationIgnored private var taskIntent = AgentTaskIntent(
+        seedURL: nil,
+        sourceHosts: [],
+        targetHosts: [],
+        pageLimit: nil,
+        requiresUniqueURLs: true,
+        collectionMode: .none,
+        canonicalizationStrategy: .none
+    )
     @ObservationIgnored private var collectionAccumulator = AgentCollectionAccumulator()
+    @ObservationIgnored private var crawlSession: AgentCrawlSession?
+    @ObservationIgnored private var lastCollectionDelta: CollectionDelta?
 
     // MARK: - Configuration (excluded from observation)
 
@@ -238,11 +253,11 @@ class AgentEngine {
     /// Run an agent task
     func run(task: String) async -> AgentResult {
         guard !isRunning else {
-            return AgentResult(success: false, summary: "Agent is already running", steps: [], artifacts: [])
+            return AgentResult(success: false, summary: "Agent is already running", steps: [], artifacts: [], collection: nil)
         }
 
         guard let activeTab = browserState.activeTab else {
-            return AgentResult(success: false, summary: "No active tab", steps: [], artifacts: [])
+            return AgentResult(success: false, summary: "No active tab", steps: [], artifacts: [], collection: nil)
         }
 
         boundTabId = activeTab.id
@@ -259,26 +274,35 @@ class AgentEngine {
         progress = "Starting..."
         taskIntent = AgentTaskIntent.parse(task: task)
         collectionAccumulator = AgentCollectionAccumulator()
+        crawlSession = taskIntent.isLinkCollection ? AgentCrawlSession(intent: taskIntent) : nil
+        lastCollectionDelta = nil
+        lastResult = nil
         currentRunID = UUID()
 
         let taskHandle = Task { () -> AgentResult in
             defer { self.resetState() }
             do {
                 let result = try await executeTask(task)
+                await MainActor.run {
+                    self.lastResult = result
+                }
                 return result
             } catch {
                 Log.Agent.error("Task failed with error: \(error.localizedDescription)")
                 let errorStep = AgentStep(type: .error, content: error.localizedDescription, timestamp: Date())
+                let failureResult = AgentResult(
+                    success: false,
+                    summary: error.localizedDescription,
+                    steps: self.steps + [errorStep],
+                    artifacts: self.currentArtifacts(),
+                    collection: self.currentCollectionSummary()
+                )
                 await MainActor.run {
                     self.steps.append(errorStep)
                     self.error = error.localizedDescription
+                    self.lastResult = failureResult
                 }
-                return AgentResult(
-                    success: false,
-                    summary: error.localizedDescription,
-                    steps: self.steps,
-                    artifacts: self.collectionAccumulator.artifacts(title: "Collected")
-                )
+                return failureResult
             }
         }
 
@@ -297,6 +321,15 @@ class AgentEngine {
         progress = "Cancelled"
     }
 
+    func clearHistory() {
+        steps = []
+        currentTask = ""
+        error = nil
+        guardrailWarning = nil
+        streamingThought = nil
+        lastResult = nil
+    }
+
     // MARK: - State Management
 
     /// Atomically reset all mutable state after a task completes
@@ -313,8 +346,18 @@ class AgentEngine {
         currentStepCount = 0
         currentRunID = nil
         currentThreadID = nil
-        taskIntent = AgentTaskIntent(kind: .general, allowedHosts: [], pageLimit: nil, requiresUniqueURLs: true)
+        taskIntent = AgentTaskIntent(
+            seedURL: nil,
+            sourceHosts: [],
+            targetHosts: [],
+            pageLimit: nil,
+            requiresUniqueURLs: true,
+            collectionMode: .none,
+            canonicalizationStrategy: .none
+        )
         collectionAccumulator = AgentCollectionAccumulator()
+        crawlSession = nil
+        lastCollectionDelta = nil
         loopDetector.reset()
     }
 
@@ -431,6 +474,10 @@ class AgentEngine {
             instructions: AgentPromptBuilder.threadInstructions
         )
 
+        if let bridge = bridgeProvider.bridge(for: tabId) {
+            try await navigateToSeedPageIfNeeded(bridge: bridge)
+        }
+
         while iteration < maxSteps {
             // Check wall-clock timeout
             let elapsed = Date().timeIntervalSince(startTime)
@@ -470,6 +517,7 @@ class AgentEngine {
             }
 
             let observation = try await bridge.snapshot(request: taskIntent.snapshotRequest)
+            crawlSession?.observePage(url: observation.url, paginationCandidates: observation.paginationCandidates)
 
             // Track URL for progress detection
             loopDetector.recordURL(observation.url)
@@ -480,6 +528,15 @@ class AgentEngine {
                 timestamp: Date()
             )
             steps.append(observationStep)
+
+            try await ensureObservedPageCollection(observation: observation, bridge: bridge)
+
+            if let autoCompletionSummary = collectionAutoCompletionSummary() {
+                Log.Agent.info("Collection completed automatically: \(autoCompletionSummary)")
+                let doneStep = AgentStep(type: .done, content: autoCompletionSummary, timestamp: Date())
+                steps.append(doneStep)
+                return buildResult(success: true, summary: autoCompletionSummary)
+            }
 
             // 2. Think - Ask LLM for next action
             let recentErrors = steps.suffix(6).filter { $0.type == .error }.count
@@ -615,11 +672,9 @@ class AgentEngine {
                 Log.Agent.warning("Stuck loop detected (\(loopType)) - forcing completion")
                 let doneStep = AgentStep(type: .done, content: "Task ended: \(loopType)", timestamp: Date())
                 steps.append(doneStep)
-                return AgentResult(
+                return buildResult(
                     success: false,
-                    summary: "Agent got stuck: \(loopType)",
-                    steps: steps,
-                    artifacts: currentArtifacts()
+                    summary: "Agent got stuck: \(loopType)"
                 )
             }
 
@@ -628,6 +683,18 @@ class AgentEngine {
                 let actionResult = try await executeAction(action, bridge: bridge, elementById: elementById)
 
                 if case .done(let summary) = action {
+                    if let rejection = verifyCollectionDoneCondition() {
+                        doneRejections += 1
+                        Log.Agent.warning("done() rejected (\(doneRejections)/\(maxDoneRejections)): \(rejection)")
+                        let correctionStep = AgentStep(type: .error, content: "Verification failed: \(rejection) Do NOT call done() again immediately. Instead, take a corrective action (collect_links, advance_pagination, navigate, scroll, click, or try a different approach). If the task truly cannot be completed, call done(\"Unable to complete: \(rejection)\").", timestamp: Date())
+                        steps.append(correctionStep)
+                        await appendAgentExternalTurn(
+                            text: correctionStep.content,
+                            tags: ["verification-error"]
+                        )
+                        continue
+                    }
+
                     // Post-done() verification
                     if doneRejections < maxDoneRejections {
                         if let rejection = await verifyDoneCondition(bridge: bridge) {
@@ -643,15 +710,11 @@ class AgentEngine {
                         }
                     }
 
-                    Log.Agent.info("Task completed successfully: \(summary)")
-                    let doneStep = AgentStep(type: .done, content: summary, timestamp: Date())
+                    let completionSummary = completionSummary(for: summary)
+                    Log.Agent.info("Task completed successfully: \(completionSummary)")
+                    let doneStep = AgentStep(type: .done, content: completionSummary, timestamp: Date())
                     steps.append(doneStep)
-                    return AgentResult(
-                        success: true,
-                        summary: summary,
-                        steps: steps,
-                        artifacts: currentArtifacts()
-                    )
+                    return buildResult(success: true, summary: completionSummary)
                 }
 
                 let resultStep = AgentStep(type: .result, content: actionResult.message, timestamp: Date())
@@ -696,23 +759,198 @@ class AgentEngine {
             return nil
         }
 
-        var parts = ["Collected \(collectionAccumulator.totalUniqueCount) unique links so far."]
-        if let pageLimit = taskIntent.pageLimit {
-            parts.append("Target: up to \(pageLimit) pages.")
+        var parts: [String] = []
+
+        if let crawlSession {
+            if let pageLimit = crawlSession.pageLimit {
+                parts.append("Pages scanned: \(crawlSession.pagesScanned)/\(pageLimit).")
+            } else {
+                parts.append("Pages scanned: \(crawlSession.pagesScanned).")
+            }
+            parts.append(crawlSession.hasAvailablePaginationCandidate
+                ? "Next page available."
+                : "No unseen pagination target available.")
         }
-        if !taskIntent.allowedHosts.isEmpty {
-            parts.append("Relevant host filter: \(taskIntent.allowedHosts.joined(separator: ", ")).")
+        parts.append("Collected \(collectionAccumulator.totalUniqueCount) unique links so far.")
+        if let lastCollectionDelta {
+            parts.append("Last collect: \(lastCollectionDelta.added.count) new, \(lastCollectionDelta.duplicateCount) duplicates.")
+        }
+        if !taskIntent.targetHosts.isEmpty {
+            parts.append("Target host filter: \(taskIntent.targetHosts.joined(separator: ", ")).")
         }
         return parts.joined(separator: " ")
     }
 
     private func currentArtifacts() -> [ChatArtifact] {
-        guard taskIntent.isLinkCollection, collectionAccumulator.totalUniqueCount > 0 else {
+        guard taskIntent.isLinkCollection,
+              crawlSession?.hasMaterializedCollectionResult == true else {
             return []
         }
 
-        let title = taskIntent.allowedHosts.first ?? "Collected"
+        let title = taskIntent.targetHosts.first ?? "Collected"
         return collectionAccumulator.artifacts(title: title)
+    }
+
+    private func currentCollectionSummary() -> AgentCollectionSummary? {
+        guard taskIntent.isLinkCollection,
+              let crawlSession,
+              crawlSession.hasMaterializedCollectionResult else {
+            return nil
+        }
+
+        return AgentCollectionSummary(
+            pagesScanned: crawlSession.pagesScanned,
+            pageLimit: taskIntent.pageLimit,
+            sourceHosts: taskIntent.sourceHosts,
+            targetHosts: taskIntent.targetHosts,
+            totalUniqueCount: collectionAccumulator.totalUniqueCount,
+            items: collectionAccumulator.sortedMatches
+        )
+    }
+
+    private func buildResult(success: Bool, summary: String) -> AgentResult {
+        AgentResult(
+            success: success,
+            summary: summary,
+            steps: steps,
+            artifacts: currentArtifacts(),
+            collection: currentCollectionSummary()
+        )
+    }
+
+    private func collectionAutoCompletionSummary() -> String? {
+        guard taskIntent.isLinkCollection,
+              let crawlSession,
+              crawlSession.hasMaterializedCollectionResult else {
+            return nil
+        }
+
+        let total = collectionAccumulator.totalUniqueCount
+        if crawlSession.pageBudgetReached {
+            if total == 1 {
+                return "Collected 1 unique link from \(crawlSession.pagesScanned) requested pages."
+            }
+            return "Collected \(total) unique links from \(crawlSession.pagesScanned) requested pages."
+        }
+
+        if let pageLimit = crawlSession.pageLimit,
+           crawlSession.pagesScanned > 0,
+           !crawlSession.hasAvailablePaginationCandidate {
+            if total == 1 {
+                return "Collected 1 unique link after scanning \(crawlSession.pagesScanned) of \(pageLimit) requested pages because no additional pagination targets were available."
+            }
+            return "Collected \(total) unique links after scanning \(crawlSession.pagesScanned) of \(pageLimit) requested pages because no additional pagination targets were available."
+        }
+
+        return nil
+    }
+
+    private func completionSummary(for requestedSummary: String) -> String {
+        guard let crawlSession,
+              let pageLimit = crawlSession.pageLimit,
+              crawlSession.pagesScanned < pageLimit,
+              !crawlSession.hasAvailablePaginationCandidate else {
+            return requestedSummary
+        }
+
+        let normalizedSummary = requestedSummary.trimmingCharacters(in: .whitespacesAndNewlines)
+        let suffix = " Scanned \(crawlSession.pagesScanned) of \(pageLimit) requested pages because no additional pagination targets were available."
+        if normalizedSummary.isEmpty {
+            return "Collection completed.\(suffix)"
+        }
+        if normalizedSummary.contains("Scanned \(crawlSession.pagesScanned) of \(pageLimit)") {
+            return normalizedSummary
+        }
+        return normalizedSummary + suffix
+    }
+
+    private func verifyCollectionDoneCondition() -> String? {
+        guard taskIntent.isLinkCollection, let crawlSession else {
+            return nil
+        }
+
+        guard crawlSession.hasMaterializedCollectionResult else {
+            return "No collection result has been materialized yet. Use collect_links before finishing."
+        }
+
+        if let pageLimit = crawlSession.pageLimit,
+           crawlSession.pagesScanned < pageLimit,
+           crawlSession.hasAvailablePaginationCandidate {
+            return "You have only scanned \(crawlSession.pagesScanned) of \(pageLimit) requested pages and another page is available."
+        }
+
+        return nil
+    }
+
+    private func ensureObservedPageCollection(
+        observation: ReducedPageObservation,
+        bridge: any BrowserBridge
+    ) async throws {
+        guard taskIntent.isLinkCollection,
+              var crawlSession,
+              crawlSession.shouldCollectPage(url: observation.url) else {
+            return
+        }
+
+        let request = taskIntent.linkCollectionRequest ?? LinkCollectionRequest(
+            targetHosts: taskIntent.targetHosts,
+            includePaginationLinks: true,
+            maxMatches: 250,
+            canonicalizationStrategy: taskIntent.canonicalizationStrategy
+        )
+
+        let actionStep = AgentStep(
+            type: .action,
+            content: "Collecting matching links from the current crawl page",
+            timestamp: Date()
+        )
+        steps.append(actionStep)
+
+        let result = try await bridge.collectLinks(request)
+        let pageIndex = max(1, crawlSession.currentPageIndex)
+        let delta = collectionAccumulator.absorb(result.withPageIndex(pageIndex))
+        crawlSession.markCollectedPage(url: observation.url)
+        self.crawlSession = crawlSession
+        lastCollectionDelta = delta
+
+        let message: String
+        if delta.added.isEmpty && delta.duplicateCount == 0 {
+            message = "No matching links found on this page. Scanned \(result.totalLinksScanned) links."
+        } else {
+            message = "Collected links from this page: \(delta.message)"
+        }
+
+        let resultStep = AgentStep(type: .result, content: message, timestamp: Date())
+        steps.append(resultStep)
+        await appendAgentExternalTurn(
+            text: message,
+            tags: ["auto-collection", "collect_links"]
+        )
+    }
+
+    private func navigateToSeedPageIfNeeded(bridge: any BrowserBridge) async throws {
+        guard let seedURL = taskIntent.seedURL,
+              !taskIntent.sourceHosts.isEmpty else {
+            return
+        }
+
+        let currentHost = boundTab?.url?.normalizedAgentHost ?? ""
+        guard !taskIntent.sourceHosts.contains(currentHost) else {
+            return
+        }
+
+        let preState = await bridge.capturePreActionState()
+        let validatedURL = try NavigationPolicy.validate(seedURL)
+        let tab = try requireBoundTab()
+
+        let actionStep = AgentStep(type: .action, content: "Navigating to source page \(validatedURL.absoluteString)", timestamp: Date())
+        steps.append(actionStep)
+        tab.load(validatedURL.absoluteString)
+        try await bridge.waitForLoad(timeout: 10.0)
+        let delta = await bridge.quickDelta(before: preState)
+        let resultStep = AgentStep(type: .result, content: "Loaded source page. \(delta.description)", timestamp: Date())
+        steps.append(resultStep)
+        await appendAgentExternalTurn(text: resultStep.content, tags: ["seed-navigation"])
     }
 
     private func appendAgentExternalTurn(text: String, tags: [String]) async {
@@ -789,6 +1027,11 @@ class AgentEngine {
             return "Reading all links on page"
         case .collectLinks:
             return "Collecting matching links from the page"
+        case .advancePagination(let url):
+            if let url, let host = URL(string: url)?.host {
+                return "Advancing pagination to \(host)"
+            }
+            return "Advancing to the next page"
         case .done(let summary):
             return "Done: \(summary)"
         }
@@ -974,13 +1217,27 @@ class AgentEngine {
             )
 
         case .collectLinks:
+            if var crawlSession = crawlSession,
+               !crawlSession.shouldCollectPage(url: preState.url) {
+                crawlSession.markCollectionMaterialized()
+                self.crawlSession = crawlSession
+                return ActionResult(
+                    message: "The current crawl page has already been collected. \(collectionAccumulator.totalUniqueCount) unique links are in the result set.",
+                    delta: nil
+                )
+            }
+
             let request = taskIntent.linkCollectionRequest ?? LinkCollectionRequest(
-                allowedHosts: taskIntent.allowedHosts,
+                targetHosts: taskIntent.targetHosts,
                 includePaginationLinks: true,
-                maxMatches: 250
+                maxMatches: 250,
+                canonicalizationStrategy: taskIntent.canonicalizationStrategy
             )
             let result = try await bridge.collectLinks(request)
-            let delta = collectionAccumulator.absorb(result)
+            let pageIndex = max(1, crawlSession?.currentPageIndex ?? 1)
+            let delta = collectionAccumulator.absorb(result.withPageIndex(pageIndex))
+            crawlSession?.markCollectedPage(url: result.pageURL.isEmpty ? preState.url : result.pageURL)
+            lastCollectionDelta = delta
             if delta.added.isEmpty && delta.duplicateCount == 0 {
                 return ActionResult(
                     message: "No matching links found on this page. Scanned \(result.totalLinksScanned) links.",
@@ -991,6 +1248,39 @@ class AgentEngine {
                 message: "Collected links from this page: \(delta.message)",
                 delta: nil
             )
+
+        case .advancePagination(let requestedURL):
+            guard var crawlSession else {
+                return ActionResult(message: "No active crawl session. Navigate directly instead.", delta: nil)
+            }
+
+            if crawlSession.pageBudgetReached {
+                self.crawlSession = crawlSession
+                return ActionResult(
+                    message: "The requested page budget has already been reached. Finish the task instead of advancing further.",
+                    delta: nil
+                )
+            }
+
+            guard let candidate = crawlSession.resolvePaginationCandidate(preferredURL: requestedURL) else {
+                self.crawlSession = crawlSession
+                return ActionResult(message: "No unseen pagination target remains on this page.", delta: nil)
+            }
+
+            guard crawlSession.registerPaginationVisit(candidate) else {
+                self.crawlSession = crawlSession
+                return ActionResult(message: "Pagination target was already visited: \(candidate.url)", delta: nil)
+            }
+
+            self.crawlSession = crawlSession
+
+            let validatedURL = try NavigationPolicy.validate(candidate.url)
+            let tab = try requireBoundTab()
+            tab.load(validatedURL.absoluteString)
+            try await bridge.waitForLoad(timeout: 10.0)
+            let delta = await bridge.quickDelta(before: preState)
+            let label = candidate.text.isEmpty ? validatedURL.absoluteString : candidate.text
+            return ActionResult(message: "Advanced pagination via \(label). \(delta.description)", delta: delta)
 
         case .done(let summary):
             return ActionResult(message: summary, delta: nil)

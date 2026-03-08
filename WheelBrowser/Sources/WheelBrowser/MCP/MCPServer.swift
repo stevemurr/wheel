@@ -436,7 +436,7 @@ class MCPServer {
             }
             let validatedTask = try AgentInputValidator.validateTask(task)
             let result = await agentEngine.run(task: validatedTask)
-            return makeTextResponse(result.summary)
+            return MCPToolDefinitions.agentRunResponse(result)
 
         case "agent_cancel":
             guard let agentEngine = agentEngine else {

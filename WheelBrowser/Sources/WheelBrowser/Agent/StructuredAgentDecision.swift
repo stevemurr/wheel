@@ -29,7 +29,7 @@ struct GeneratedAgentDecision: Sendable {
 
 @Generable(description: "A single browser action with typed parameters.")
 struct GeneratedAgentAction: Sendable {
-    @Guide(description: "One of: click, type, press_enter, scroll, navigate, back, wait_for_user, wait, read_text, new_tab, open_tab, switch_tab, extract_content, read_links, collect_links, done")
+    @Guide(description: "One of: click, type, press_enter, scroll, navigate, back, wait_for_user, wait, read_text, new_tab, open_tab, switch_tab, extract_content, read_links, collect_links, advance_pagination, done")
     let actionType: String
 
     @Guide(description: "Element ID for click, type, or read_text actions.")
@@ -38,7 +38,7 @@ struct GeneratedAgentAction: Sendable {
     @Guide(description: "Text to type for the type action.")
     let text: String?
 
-    @Guide(description: "URL for navigate or open_tab actions.")
+    @Guide(description: "URL for navigate, open_tab, or advance_pagination actions.")
     let url: String?
 
     @Guide(description: "One of: up, down, top, bottom for scroll actions.")
@@ -158,6 +158,9 @@ struct GeneratedAgentAction: Sendable {
         case "collect_links":
             return .collectLinks
 
+        case "advance_pagination":
+            return .advancePagination(url: url)
+
         case "done":
             return .done(summary: summary ?? "Task completed")
 
@@ -216,6 +219,8 @@ struct GeneratedAgentAction: Sendable {
             self.init(actionType: "read_links", elementId: nil, text: nil, url: nil, scrollDirection: nil, modifiers: nil, tabIndex: nil, reason: nil, waitSeconds: nil, summary: nil)
         case .collectLinks:
             self.init(actionType: "collect_links", elementId: nil, text: nil, url: nil, scrollDirection: nil, modifiers: nil, tabIndex: nil, reason: nil, waitSeconds: nil, summary: nil)
+        case .advancePagination(let url):
+            self.init(actionType: "advance_pagination", elementId: nil, text: nil, url: url, scrollDirection: nil, modifiers: nil, tabIndex: nil, reason: nil, waitSeconds: nil, summary: nil)
         case .done(let summary):
             self.init(actionType: "done", elementId: nil, text: nil, url: nil, scrollDirection: nil, modifiers: nil, tabIndex: nil, reason: nil, waitSeconds: nil, summary: summary)
         }
@@ -253,6 +258,8 @@ struct GeneratedAgentAction: Sendable {
             return "Action: read_links"
         case "collect_links":
             return "Action: collect_links"
+        case "advance_pagination":
+            return "Action: advance_pagination"
         case "done":
             return "Action: done \(summary ?? "Task completed")"
         default:

@@ -4,6 +4,7 @@ import SwiftUI
 struct AgentPanelContent: View {
     var agentEngine: AgentEngine
     var browserState: BrowserState?
+    @State private var selectedArtifact: ChatArtifact?
 
     var body: some View {
         ScrollViewReader { proxy in
@@ -23,7 +24,18 @@ struct AgentPanelContent: View {
                                 isRunning: agentEngine.isRunning,
                                 progress: agentEngine.progress,
                                 onCancel: { agentEngine.cancel() },
-                                onClear: { agentEngine.steps = [] }
+                                onClear: { agentEngine.clearHistory() }
+                            )
+                        }
+
+                        if let result = agentEngine.lastResult {
+                            AgentResultCard(
+                                result: result,
+                                onSelectArtifact: { artifact in
+                                    withAnimation(AppAnimation.standard) {
+                                        selectedArtifact = artifact
+                                    }
+                                }
                             )
                         }
 
@@ -42,6 +54,17 @@ struct AgentPanelContent: View {
                         if let streamingText = agentEngine.streamingThought, !streamingText.isEmpty {
                             AgentStreamingThoughtRow(text: streamingText)
                                 .id("streaming-thought")
+                        }
+
+                        if let selectedArtifact {
+                            ArtifactPanelView(artifact: selectedArtifact) {
+                                withAnimation(AppAnimation.standard) {
+                                    self.selectedArtifact = nil
+                                }
+                            }
+                            .frame(minHeight: 220)
+                            .clipShape(RoundedRectangle(cornerRadius: 8))
+                            .padding(.top, 8)
                         }
                     } else {
                         // Empty state
@@ -71,6 +94,89 @@ struct AgentPanelContent: View {
                 }
             }
         }
+    }
+}
+
+private struct AgentResultCard: View {
+    let result: AgentResult
+    var onSelectArtifact: (ChatArtifact) -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(spacing: 8) {
+                Image(systemName: result.success ? "checkmark.circle.fill" : "xmark.circle.fill")
+                    .font(.system(size: 12, weight: .medium))
+                    .foregroundColor(result.success ? .green : .red)
+
+                Text(result.success ? "Result" : "Latest Failure")
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundColor(.primary)
+
+                Spacer()
+            }
+
+            Text(result.summary)
+                .font(.system(size: 13))
+                .foregroundColor(.primary)
+                .fixedSize(horizontal: false, vertical: true)
+
+            if let collection = result.collection {
+                HStack(spacing: 8) {
+                    AgentStatPill(label: "\(collection.pagesScanned)", caption: "Pages")
+                    AgentStatPill(label: "\(collection.totalUniqueCount)", caption: "Unique")
+                    if let pageLimit = collection.pageLimit {
+                        AgentStatPill(label: "\(pageLimit)", caption: "Target")
+                    }
+                }
+
+                if !collection.items.isEmpty {
+                    Text(collection.items.prefix(3).map(\.canonicalURL).joined(separator: "\n"))
+                        .font(.system(size: 11, design: .monospaced))
+                        .foregroundColor(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            }
+
+            if !result.artifacts.isEmpty {
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: 6) {
+                        ForEach(result.artifacts) { artifact in
+                            ArtifactChip(artifact: artifact) {
+                                onSelectArtifact(artifact)
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 10)
+        .background(
+            RoundedRectangle(cornerRadius: 8)
+                .fill(Color(nsColor: .controlBackgroundColor).opacity(0.35))
+        )
+    }
+}
+
+private struct AgentStatPill: View {
+    let label: String
+    let caption: String
+
+    var body: some View {
+        VStack(spacing: 2) {
+            Text(label)
+                .font(.system(size: 12, weight: .semibold))
+                .foregroundColor(.primary)
+            Text(caption)
+                .font(.system(size: 10))
+                .foregroundColor(.secondary)
+        }
+        .padding(.horizontal, 8)
+        .padding(.vertical, 6)
+        .background(
+            RoundedRectangle(cornerRadius: 6)
+                .fill(Color(nsColor: .textBackgroundColor).opacity(0.8))
+        )
     }
 }
 

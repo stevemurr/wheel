@@ -44,7 +44,10 @@ let package = Package(
         ),
         .testTarget(
             name: "WheelBrowserTests",
-            dependencies: ["WheelBrowser"],
+            dependencies: [
+                "WheelBrowser",
+                .product(name: "LanguageModelContextKit", package: "LanguageModelContextKit"),
+            ],
             path: "Tests/WheelBrowserTests",
             resources: [
                 .copy("Agent/Fixtures"),

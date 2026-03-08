@@ -1,18 +1,26 @@
 import Foundation
 
-struct AgentTaskIntent: Equatable, Sendable {
-    enum Kind: String, Equatable, Sendable {
-        case general
-        case collectLinks
-    }
+enum AgentCollectionMode: String, Codable, Equatable, Sendable {
+    case none
+    case paginatedLinks
+}
 
-    let kind: Kind
-    let allowedHosts: [String]
+enum LinkCanonicalizationStrategy: String, Codable, Equatable, Sendable {
+    case none
+    case arxiv
+}
+
+struct AgentTaskIntent: Equatable, Sendable {
+    let seedURL: String?
+    let sourceHosts: [String]
+    let targetHosts: [String]
     let pageLimit: Int?
     let requiresUniqueURLs: Bool
+    let collectionMode: AgentCollectionMode
+    let canonicalizationStrategy: LinkCanonicalizationStrategy
 
     var isLinkCollection: Bool {
-        kind == .collectLinks
+        collectionMode == .paginatedLinks
     }
 
     var snapshotRequest: SnapshotRequest {
@@ -21,17 +29,19 @@ struct AgentTaskIntent: Equatable, Sendable {
             includeHeadings: !isLinkCollection,
             includeContentSummary: !isLinkCollection,
             includePaginationControls: true,
-            relevantHosts: allowedHosts,
-            maxRelevantLinks: isLinkCollection ? 12 : 6
+            relevantHosts: targetHosts,
+            maxRelevantLinks: isLinkCollection ? 12 : 6,
+            canonicalizationStrategy: canonicalizationStrategy
         )
     }
 
     var linkCollectionRequest: LinkCollectionRequest? {
         guard isLinkCollection else { return nil }
         return LinkCollectionRequest(
-            allowedHosts: allowedHosts,
+            targetHosts: targetHosts,
             includePaginationLinks: true,
-            maxMatches: 250
+            maxMatches: 250,
+            canonicalizationStrategy: canonicalizationStrategy
         )
     }
 
@@ -39,6 +49,7 @@ struct AgentTaskIntent: Equatable, Sendable {
         let lowercased = task.lowercased()
         let domains = extractDomains(from: lowercased)
         let pageLimit = extractPageLimit(from: lowercased)
+        let sourceContext = resolveSourceContext(from: lowercased)
         let isLinkCollection = lowercased.contains("link")
             || lowercased.contains("url")
             || lowercased.contains("href")
@@ -46,13 +57,34 @@ struct AgentTaskIntent: Equatable, Sendable {
         let requiresUniqueURLs = lowercased.contains("unique")
             || lowercased.contains("dedupe")
             || lowercased.contains("deduplic")
+        let classifiedDomains = classifyDomains(
+            domains: domains,
+            sourceHosts: sourceContext.hosts,
+            isLinkCollection: isLinkCollection
+        )
+        let sourceHosts = mergeUnique(sourceContext.hosts, classifiedDomains.sourceHosts)
+        let targetHosts = mergeUnique(classifiedDomains.targetHosts, lowercased.contains("arxiv") ? ["arxiv.org"] : [])
+        let canonicalizationStrategy: LinkCanonicalizationStrategy = targetHosts.contains("arxiv.org")
+            ? .arxiv
+            : .none
 
         return AgentTaskIntent(
-            kind: isLinkCollection ? .collectLinks : .general,
-            allowedHosts: domains,
+            seedURL: sourceContext.seedURL,
+            sourceHosts: sourceHosts,
+            targetHosts: targetHosts,
             pageLimit: pageLimit,
-            requiresUniqueURLs: requiresUniqueURLs || isLinkCollection
+            requiresUniqueURLs: requiresUniqueURLs || isLinkCollection,
+            collectionMode: isLinkCollection ? .paginatedLinks : .none,
+            canonicalizationStrategy: canonicalizationStrategy
         )
+    }
+
+    private static func resolveSourceContext(from task: String) -> (seedURL: String?, hosts: [String]) {
+        if task.contains("hacker news") || task.contains("news.ycombinator.com") {
+            return ("https://news.ycombinator.com/news", ["news.ycombinator.com"])
+        }
+
+        return (nil, [])
     }
 
     private static func extractDomains(from task: String) -> [String] {
@@ -78,11 +110,23 @@ struct AgentTaskIntent: Equatable, Sendable {
             hosts.append(host)
         }
 
-        if task.contains("arxiv") && !hosts.contains("arxiv.org") {
-            hosts.append("arxiv.org")
+        return hosts
+    }
+
+    private static func classifyDomains(
+        domains: [String],
+        sourceHosts: [String],
+        isLinkCollection: Bool
+    ) -> (sourceHosts: [String], targetHosts: [String]) {
+        var resolvedSourceHosts = sourceHosts
+        var targetHosts = domains.filter { !sourceHosts.contains($0) }
+
+        if isLinkCollection && resolvedSourceHosts.isEmpty && domains.count > 1 {
+            resolvedSourceHosts = [domains[0]]
+            targetHosts = Array(domains.dropFirst())
         }
 
-        return hosts
+        return (resolvedSourceHosts, targetHosts)
     }
 
     private static func extractPageLimit(from task: String) -> Int? {
@@ -111,6 +155,14 @@ struct AgentTaskIntent: Equatable, Sendable {
         let trimmed = host.lowercased().trimmingCharacters(in: CharacterSet(charactersIn: ". "))
         return trimmed.hasPrefix("www.") ? String(trimmed.dropFirst(4)) : trimmed
     }
+
+    private static func mergeUnique(_ lhs: [String], _ rhs: [String]) -> [String] {
+        var result: [String] = lhs
+        for host in rhs where !result.contains(host) {
+            result.append(host)
+        }
+        return result
+    }
 }
 
 struct SnapshotRequest: Codable, Equatable, Sendable {
@@ -120,6 +172,7 @@ struct SnapshotRequest: Codable, Equatable, Sendable {
     let includePaginationControls: Bool
     let relevantHosts: [String]
     let maxRelevantLinks: Int
+    let canonicalizationStrategy: LinkCanonicalizationStrategy
 }
 
 struct PageLink: Codable, Equatable, Hashable, Sendable {
@@ -139,12 +192,47 @@ struct PageLink: Codable, Equatable, Hashable, Sendable {
     }
 }
 
+struct PaginationCandidate: Codable, Equatable, Hashable, Sendable {
+    let text: String
+    let url: String
+    let identity: String
+
+    init(text: String, url: String, identity: String? = nil) {
+        self.text = text
+        self.url = url
+        self.identity = identity ?? Self.identity(for: url)
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        text = try container.decodeIfPresent(String.self, forKey: .text) ?? ""
+        url = try container.decode(String.self, forKey: .url)
+        identity = try container.decodeIfPresent(String.self, forKey: .identity) ?? Self.identity(for: url)
+    }
+
+    var description: String {
+        if text.isEmpty {
+            return url
+        }
+        return "\(text) -> \(url)"
+    }
+
+    static func identity(for url: String) -> String {
+        if var components = URLComponents(string: url) {
+            components.fragment = nil
+            return (components.string ?? url).lowercased()
+        }
+
+        return url.lowercased()
+    }
+}
+
 struct ReducedPageObservation: Sendable {
     let url: String
     let title: String
     let interactiveElements: [PageElement]
     let relevantLinks: [PageLink]
-    let paginationLinks: [PageLink]
+    let paginationCandidates: [PaginationCandidate]
     let headings: [PageHeading]
     let contentSummary: String?
     let scrollPosition: PageSnapshot.ScrollPosition
@@ -160,7 +248,7 @@ struct ReducedPageObservation: Sendable {
         snapshot: PageSnapshot,
         request: SnapshotRequest,
         relevantLinks: [PageLink] = [],
-        paginationLinks: [PageLink] = [],
+        paginationCandidates: [PaginationCandidate] = [],
         totalPageLinkCount: Int = 0
     ) {
         self.url = snapshot.url
@@ -184,8 +272,8 @@ struct ReducedPageObservation: Sendable {
         self.relevantLinks = Array(uniqueRelevantLinks.prefix(request.maxRelevantLinks))
         self.omittedRelevantLinkCount = max(0, uniqueRelevantLinks.count - self.relevantLinks.count)
 
-        self.paginationLinks = ReducedPageObservation.uniqueLinks(paginationLinks)
-        self.totalPageLinkCount = max(totalPageLinkCount, uniqueRelevantLinks.count + self.paginationLinks.count)
+        self.paginationCandidates = ReducedPageObservation.uniquePaginationCandidates(paginationCandidates)
+        self.totalPageLinkCount = max(totalPageLinkCount, uniqueRelevantLinks.count + self.paginationCandidates.count)
     }
 
     var textRepresentation: String {
@@ -228,11 +316,11 @@ struct ReducedPageObservation: Sendable {
             lines.append("  ... \(omittedRelevantLinkCount) more matching links omitted")
         }
 
-        if !paginationLinks.isEmpty {
+        if !paginationCandidates.isEmpty {
             lines.append("")
             lines.append("Pagination Controls:")
-            for link in paginationLinks.prefix(5) {
-                lines.append("  \(link.description)")
+            for candidate in paginationCandidates.prefix(5) {
+                lines.append("  \(candidate.description)")
             }
         }
 
@@ -317,37 +405,246 @@ struct ReducedPageObservation: Sendable {
 
         return unique
     }
+
+    private static func uniquePaginationCandidates(_ candidates: [PaginationCandidate]) -> [PaginationCandidate] {
+        var seen = Set<String>()
+        var unique: [PaginationCandidate] = []
+
+        for candidate in candidates {
+            guard seen.insert(candidate.identity).inserted else {
+                continue
+            }
+            unique.append(candidate)
+        }
+
+        return unique
+    }
 }
 
 struct LinkCollectionRequest: Codable, Equatable, Sendable {
-    let allowedHosts: [String]
+    let targetHosts: [String]
     let includePaginationLinks: Bool
     let maxMatches: Int
+    let canonicalizationStrategy: LinkCanonicalizationStrategy
 }
 
 struct LinkCollectionMatch: Codable, Equatable, Hashable, Sendable {
     let text: String
     let url: String
+    let canonicalURL: String
+    let canonicalID: String?
     let sourcePageURL: String
+    let pageIndex: Int
+
+    init(
+        text: String,
+        url: String,
+        canonicalURL: String? = nil,
+        canonicalID: String? = nil,
+        sourcePageURL: String,
+        pageIndex: Int = 0
+    ) {
+        self.text = text
+        self.url = url
+        self.canonicalURL = canonicalURL ?? url
+        self.canonicalID = canonicalID
+        self.sourcePageURL = sourcePageURL
+        self.pageIndex = pageIndex
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        text = try container.decodeIfPresent(String.self, forKey: .text) ?? ""
+        url = try container.decode(String.self, forKey: .url)
+        canonicalURL = try container.decodeIfPresent(String.self, forKey: .canonicalURL) ?? url
+        canonicalID = try container.decodeIfPresent(String.self, forKey: .canonicalID)
+        sourcePageURL = try container.decode(String.self, forKey: .sourcePageURL)
+        pageIndex = try container.decodeIfPresent(Int.self, forKey: .pageIndex) ?? 0
+    }
 
     var markdownLine: String {
-        let label = text.isEmpty ? url : text
-        return "- [\(label)](\(url))"
+        let label = text.isEmpty ? canonicalURL : text
+        return "- [\(label)](\(canonicalURL))"
+    }
+
+    func withPageIndex(_ pageIndex: Int) -> LinkCollectionMatch {
+        LinkCollectionMatch(
+            text: text,
+            url: url,
+            canonicalURL: canonicalURL,
+            canonicalID: canonicalID,
+            sourcePageURL: sourcePageURL,
+            pageIndex: pageIndex
+        )
     }
 }
 
 struct LinkCollectionResult: Codable, Equatable, Sendable {
     let matches: [LinkCollectionMatch]
-    let paginationLinks: [PageLink]
+    let paginationCandidates: [PaginationCandidate]
     let totalLinksScanned: Int
     let filteredOutCount: Int
+    let pageURL: String
+    let pageHost: String
+
+    func withPageIndex(_ pageIndex: Int) -> LinkCollectionResult {
+        LinkCollectionResult(
+            matches: matches.map { $0.withPageIndex(pageIndex) },
+            paginationCandidates: paginationCandidates,
+            totalLinksScanned: totalLinksScanned,
+            filteredOutCount: filteredOutCount,
+            pageURL: pageURL,
+            pageHost: pageHost
+        )
+    }
+}
+
+struct AgentCollectionSummary: Codable, Equatable, Sendable {
+    let pagesScanned: Int
+    let pageLimit: Int?
+    let sourceHosts: [String]
+    let targetHosts: [String]
+    let totalUniqueCount: Int
+    let items: [LinkCollectionMatch]
+}
+
+struct AgentCrawlSession: Equatable, Sendable {
+    let sourceHosts: [String]
+    let targetHosts: [String]
+    let pageLimit: Int?
+
+    private(set) var pagesScanned: Int = 0
+    private(set) var currentPageIndex: Int = 0
+    private(set) var visitedPageURLs: Set<String> = []
+    private(set) var visitedPaginationTargets: Set<String> = []
+    private(set) var pageIndexByURL: [String: Int] = [:]
+    private(set) var collectedPageURLs: Set<String> = []
+    private(set) var lastPaginationCandidates: [PaginationCandidate] = []
+    private(set) var paginationExhausted: Bool = false
+    private(set) var hasMaterializedCollectionResult: Bool = false
+
+    init(intent: AgentTaskIntent) {
+        self.sourceHosts = intent.sourceHosts
+        self.targetHosts = intent.targetHosts
+        self.pageLimit = intent.pageLimit
+    }
+
+    var pageBudgetReached: Bool {
+        guard let pageLimit else { return false }
+        return pagesScanned >= pageLimit
+    }
+
+    var hasAvailablePaginationCandidate: Bool {
+        !lastPaginationCandidates.isEmpty
+    }
+
+    mutating func observePage(url: String, paginationCandidates: [PaginationCandidate]) {
+        let normalizedURL = normalizedPageURL(url)
+
+        if isSourcePage(url: url), !normalizedURL.isEmpty {
+            if let existingIndex = pageIndexByURL[normalizedURL] {
+                currentPageIndex = existingIndex
+            } else {
+                pagesScanned += 1
+                currentPageIndex = pagesScanned
+                visitedPageURLs.insert(normalizedURL)
+                pageIndexByURL[normalizedURL] = currentPageIndex
+            }
+        }
+
+        lastPaginationCandidates = paginationCandidates.filter { !visitedPaginationTargets.contains($0.identity) }
+        paginationExhausted = lastPaginationCandidates.isEmpty
+    }
+
+    mutating func resolvePaginationCandidate(preferredURL: String?) -> PaginationCandidate? {
+        if let preferredURL, !preferredURL.isEmpty {
+            let identity = PaginationCandidate.identity(for: preferredURL)
+            guard !visitedPaginationTargets.contains(identity) else {
+                return nil
+            }
+
+            if let match = lastPaginationCandidates.first(where: { $0.identity == identity || $0.url == preferredURL }) {
+                return match
+            }
+
+            return PaginationCandidate(text: "", url: preferredURL, identity: identity)
+        }
+
+        return lastPaginationCandidates.first
+    }
+
+    mutating func registerPaginationVisit(_ candidate: PaginationCandidate) -> Bool {
+        let inserted = visitedPaginationTargets.insert(candidate.identity).inserted
+        if inserted {
+            lastPaginationCandidates.removeAll { $0.identity == candidate.identity }
+        }
+        paginationExhausted = lastPaginationCandidates.isEmpty
+        return inserted
+    }
+
+    mutating func markCollectionMaterialized() {
+        hasMaterializedCollectionResult = true
+    }
+
+    func shouldCollectPage(url: String) -> Bool {
+        guard isSourcePage(url: url) else {
+            return false
+        }
+
+        let normalizedURL = normalizedPageURL(url)
+        guard !normalizedURL.isEmpty else {
+            return false
+        }
+
+        return !collectedPageURLs.contains(normalizedURL)
+    }
+
+    mutating func markCollectedPage(url: String) {
+        guard isSourcePage(url: url) else {
+            return
+        }
+
+        let normalizedURL = normalizedPageURL(url)
+        guard !normalizedURL.isEmpty else {
+            return
+        }
+
+        collectedPageURLs.insert(normalizedURL)
+        hasMaterializedCollectionResult = true
+    }
+
+    func isSourcePage(url: String) -> Bool {
+        guard !sourceHosts.isEmpty else {
+            return true
+        }
+
+        return sourceHosts.contains(URL(string: url)?.normalizedAgentHost ?? "")
+    }
+
+    func normalizedPageURL(_ url: String) -> String {
+        if var components = URLComponents(string: url) {
+            components.fragment = nil
+            return components.string ?? url
+        }
+
+        return url
+    }
 }
 
 struct AgentCollectionAccumulator: Equatable, Sendable {
-    private(set) var collectedByURL: [String: LinkCollectionMatch] = [:]
+    private(set) var collectedByKey: [String: LinkCollectionMatch] = [:]
 
     var totalUniqueCount: Int {
-        collectedByURL.count
+        collectedByKey.count
+    }
+
+    var sortedMatches: [LinkCollectionMatch] {
+        collectedByKey.values.sorted { lhs, rhs in
+            if lhs.pageIndex != rhs.pageIndex {
+                return lhs.pageIndex < rhs.pageIndex
+            }
+            return lhs.canonicalURL < rhs.canonicalURL
+        }
     }
 
     mutating func absorb(_ result: LinkCollectionResult) -> CollectionDelta {
@@ -355,8 +652,9 @@ struct AgentCollectionAccumulator: Equatable, Sendable {
         var duplicates = 0
 
         for match in result.matches {
-            if collectedByURL[match.url] == nil {
-                collectedByURL[match.url] = match
+            let key = dedupeKey(for: match)
+            if collectedByKey[key] == nil {
+                collectedByKey[key] = match
                 added.append(match)
             } else {
                 duplicates += 1
@@ -371,14 +669,13 @@ struct AgentCollectionAccumulator: Equatable, Sendable {
     }
 
     func summaryText(sampleLimit: Int = 5) -> String {
-        guard !collectedByURL.isEmpty else {
+        guard !collectedByKey.isEmpty else {
             return "Collected links: none yet."
         }
 
-        let sample = collectedByURL.values
-            .sorted { $0.url < $1.url }
+        let sample = sortedMatches
             .prefix(sampleLimit)
-            .map(\.url)
+            .map(\.canonicalURL)
             .joined(separator: "\n")
 
         return """
@@ -389,8 +686,9 @@ struct AgentCollectionAccumulator: Equatable, Sendable {
     }
 
     func artifacts(title: String) -> [ChatArtifact] {
-        let sortedMatches = collectedByURL.values.sorted { $0.url < $1.url }
-        let markdown = sortedMatches.map(\.markdownLine).joined(separator: "\n")
+        let markdown = sortedMatches.isEmpty
+            ? "No collected links."
+            : sortedMatches.map(\.markdownLine).joined(separator: "\n")
         let jsonData = try? JSONEncoder.prettyPrinted.encode(sortedMatches)
         let jsonText = jsonData.flatMap { String(data: $0, encoding: .utf8) } ?? "[]"
 
@@ -409,6 +707,13 @@ struct AgentCollectionAccumulator: Equatable, Sendable {
             ),
         ]
     }
+
+    private func dedupeKey(for match: LinkCollectionMatch) -> String {
+        if let canonicalID = match.canonicalID, !canonicalID.isEmpty {
+            return "id:\(canonicalID)"
+        }
+        return "url:\(match.canonicalURL)"
+    }
 }
 
 struct CollectionDelta: Equatable, Sendable {
@@ -418,7 +723,7 @@ struct CollectionDelta: Equatable, Sendable {
 
     var message: String {
         let addedCount = added.count
-        let sample = added.prefix(3).map(\.url).joined(separator: ", ")
+        let sample = added.prefix(3).map(\.canonicalURL).joined(separator: ", ")
         if sample.isEmpty {
             return "\(addedCount) new matches, \(duplicateCount) duplicates, \(totalUniqueCount) total."
         }
@@ -426,7 +731,84 @@ struct CollectionDelta: Equatable, Sendable {
     }
 }
 
-private extension URL {
+enum LinkCollectionCanonicalizer {
+    static func apply(
+        to result: LinkCollectionResult,
+        request: LinkCollectionRequest
+    ) -> LinkCollectionResult {
+        let matches = result.matches.map { apply(to: $0, strategy: request.canonicalizationStrategy) }
+        return LinkCollectionResult(
+            matches: matches,
+            paginationCandidates: result.paginationCandidates,
+            totalLinksScanned: result.totalLinksScanned,
+            filteredOutCount: result.filteredOutCount,
+            pageURL: result.pageURL,
+            pageHost: result.pageHost
+        )
+    }
+
+    private static func apply(
+        to match: LinkCollectionMatch,
+        strategy: LinkCanonicalizationStrategy
+    ) -> LinkCollectionMatch {
+        let canonicalized: (canonicalURL: String, canonicalID: String?)
+        switch strategy {
+        case .none:
+            canonicalized = (match.url, nil)
+        case .arxiv:
+            canonicalized = canonicalizeArXiv(match.url)
+        }
+
+        return LinkCollectionMatch(
+            text: match.text,
+            url: match.url,
+            canonicalURL: canonicalized.canonicalURL,
+            canonicalID: canonicalized.canonicalID,
+            sourcePageURL: match.sourcePageURL,
+            pageIndex: match.pageIndex
+        )
+    }
+
+    private static func canonicalizeArXiv(_ urlString: String) -> (canonicalURL: String, canonicalID: String?) {
+        guard let components = URLComponents(string: urlString),
+              normalizedHost(components.host) == "arxiv.org" else {
+            return (urlString, nil)
+        }
+
+        let path = components.path
+        let pattern = #"^/(?:abs/([A-Za-z0-9.\-]+)|pdf/([A-Za-z0-9.\-]+)\.pdf)$"#
+        guard let regex = try? NSRegularExpression(pattern: pattern) else {
+            return (urlString, nil)
+        }
+
+        let nsRange = NSRange(path.startIndex..<path.endIndex, in: path)
+        guard let match = regex.firstMatch(in: path, options: [], range: nsRange),
+              match.numberOfRanges > 2 else {
+            return (urlString, nil)
+        }
+
+        let identifier: String?
+        if let absRange = Range(match.range(at: 1), in: path) {
+            identifier = String(path[absRange])
+        } else if let pdfRange = Range(match.range(at: 2), in: path) {
+            identifier = String(path[pdfRange])
+        } else {
+            identifier = nil
+        }
+
+        guard let identifier else {
+            return (urlString, nil)
+        }
+        return ("https://arxiv.org/abs/\(identifier)", identifier)
+    }
+
+    private static func normalizedHost(_ host: String?) -> String {
+        guard let host else { return "" }
+        return host.lowercased().replacingOccurrences(of: "^www\\.", with: "", options: .regularExpression)
+    }
+}
+
+extension URL {
     var normalizedAgentHost: String? {
         host?.lowercased().replacingOccurrences(of: "^www\\.", with: "", options: .regularExpression)
     }

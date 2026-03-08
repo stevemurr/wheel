@@ -168,4 +168,63 @@ enum MCPToolDefinitions {
     static func toolsListResponse() -> [String: Any] {
         return ["tools": tools]
     }
+
+    static func agentRunResponse(_ result: AgentResult) -> [String: Any] {
+        var payload: [String: Any] = [
+            "content": [[
+                "type": "text",
+                "text": result.summary
+            ]],
+            "success": result.success,
+            "summary": result.summary,
+            "artifacts": result.artifacts.map { artifact -> [String: Any] in
+                var artifactPayload: [String: Any] = [
+                    "id": artifact.id.uuidString,
+                    "title": artifact.title,
+                    "content": artifact.content,
+                    "type": artifact.type.rawValue
+                ]
+                if let language = artifact.language {
+                    artifactPayload["language"] = language
+                } else {
+                    artifactPayload["language"] = NSNull()
+                }
+                return artifactPayload
+            }
+        ]
+
+        if let collection = result.collection {
+            var collectionPayload: [String: Any] = [
+                "pagesScanned": collection.pagesScanned,
+                "sourceHosts": collection.sourceHosts,
+                "targetHosts": collection.targetHosts,
+                "totalUniqueCount": collection.totalUniqueCount,
+                "items": collection.items.map { item -> [String: Any] in
+                    var itemPayload: [String: Any] = [
+                        "text": item.text,
+                        "url": item.url,
+                        "canonicalURL": item.canonicalURL,
+                        "sourcePageURL": item.sourcePageURL,
+                        "pageIndex": item.pageIndex
+                    ]
+                    if let canonicalID = item.canonicalID {
+                        itemPayload["canonicalID"] = canonicalID
+                    } else {
+                        itemPayload["canonicalID"] = NSNull()
+                    }
+                    return itemPayload
+                }
+            ]
+            if let pageLimit = collection.pageLimit {
+                collectionPayload["pageLimit"] = pageLimit
+            } else {
+                collectionPayload["pageLimit"] = NSNull()
+            }
+            payload["collection"] = collectionPayload
+        } else {
+            payload["collection"] = NSNull()
+        }
+
+        return payload
+    }
 }

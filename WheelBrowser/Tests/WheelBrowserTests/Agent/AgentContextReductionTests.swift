@@ -10,12 +10,15 @@ struct AgentContextReductionTests {
             task: "On Hacker News, scan the first 10 pages and create a list of all the arxiv links with unique URLs."
         )
 
-        #expect(intent.kind == .collectLinks)
-        #expect(intent.allowedHosts == ["arxiv.org"])
+        #expect(intent.collectionMode == .paginatedLinks)
+        #expect(intent.seedURL == "https://news.ycombinator.com/news")
+        #expect(intent.sourceHosts == ["news.ycombinator.com"])
+        #expect(intent.targetHosts == ["arxiv.org"])
         #expect(intent.pageLimit == 10)
         #expect(intent.requiresUniqueURLs)
+        #expect(intent.canonicalizationStrategy == .arxiv)
         #expect(intent.snapshotRequest.relevantHosts == ["arxiv.org"])
-        #expect(intent.linkCollectionRequest?.allowedHosts == ["arxiv.org"])
+        #expect(intent.linkCollectionRequest?.targetHosts == ["arxiv.org"])
     }
 
     @Test("Reduced observation keeps relevant links and pagination while omitting irrelevant content")
@@ -87,15 +90,16 @@ struct AgentContextReductionTests {
                 includeContentSummary: false,
                 includePaginationControls: true,
                 relevantHosts: ["arxiv.org"],
-                maxRelevantLinks: 1
+                maxRelevantLinks: 1,
+                canonicalizationStrategy: .arxiv
             ),
             relevantLinks: [
                 PageLink(text: "Paper 1", url: "https://arxiv.org/abs/1234.5678", isPaginationControl: false),
                 PageLink(text: "Paper 2", url: "https://arxiv.org/abs/2345.6789", isPaginationControl: false),
                 PageLink(text: "Paper 1 duplicate", url: "https://arxiv.org/abs/1234.5678", isPaginationControl: false),
             ],
-            paginationLinks: [
-                PageLink(text: "More", url: "https://news.ycombinator.com/news?p=2", isPaginationControl: true),
+            paginationCandidates: [
+                PaginationCandidate(text: "More", url: "https://news.ycombinator.com/news?p=2"),
             ],
             totalPageLinkCount: 20
         )
@@ -103,7 +107,7 @@ struct AgentContextReductionTests {
         #expect(observation.relevantLinks.count == 1)
         #expect(observation.totalRelevantLinkCount == 2)
         #expect(observation.omittedRelevantLinkCount == 1)
-        #expect(observation.paginationLinks.count == 1)
+        #expect(observation.paginationCandidates.count == 1)
         #expect(observation.interactiveElements.count == 2)
         #expect(observation.interactiveElements[0].href == "https://arxiv.org/abs/1234.5678")
         #expect(observation.interactiveElements[1].text == "More")
@@ -118,6 +122,60 @@ struct AgentContextReductionTests {
         #expect(!rendered.contains("Headings:"))
     }
 
+    @Test("Canonicalizer normalizes arxiv abs and pdf links")
+    func canonicalizesArxivLinks() {
+        let request = LinkCollectionRequest(
+            targetHosts: ["arxiv.org"],
+            includePaginationLinks: true,
+            maxMatches: 10,
+            canonicalizationStrategy: .arxiv
+        )
+        let raw = LinkCollectionResult(
+            matches: [
+                LinkCollectionMatch(
+                    text: "Paper 1",
+                    url: "https://arxiv.org/pdf/1234.5678.pdf",
+                    sourcePageURL: "https://news.ycombinator.com/news"
+                ),
+                LinkCollectionMatch(
+                    text: "Paper 1 abstract",
+                    url: "https://arxiv.org/abs/1234.5678",
+                    sourcePageURL: "https://news.ycombinator.com/news?p=2"
+                ),
+            ],
+            paginationCandidates: [],
+            totalLinksScanned: 2,
+            filteredOutCount: 0,
+            pageURL: "https://news.ycombinator.com/news",
+            pageHost: "news.ycombinator.com"
+        )
+
+        let canonicalized = LinkCollectionCanonicalizer.apply(to: raw, request: request)
+
+        #expect(canonicalized.matches[0].canonicalID == "1234.5678")
+        #expect(canonicalized.matches[0].canonicalURL == "https://arxiv.org/abs/1234.5678")
+        #expect(canonicalized.matches[1].canonicalURL == "https://arxiv.org/abs/1234.5678")
+    }
+
+    @Test("Crawl session rejects revisiting the same pagination target")
+    func rejectsRepeatedPaginationVisit() {
+        let intent = AgentTaskIntent.parse(
+            task: "On Hacker News, scan the first 5 pages and create a list of all the arxiv links."
+        )
+        var session = AgentCrawlSession(intent: intent)
+        session.observePage(
+            url: "https://news.ycombinator.com/news",
+            paginationCandidates: [PaginationCandidate(text: "More", url: "https://news.ycombinator.com/news?p=2")]
+        )
+
+        let candidate = session.resolvePaginationCandidate(preferredURL: nil)
+        #expect(candidate?.url == "https://news.ycombinator.com/news?p=2")
+        let firstVisit = session.registerPaginationVisit(candidate!)
+        let secondVisit = session.registerPaginationVisit(candidate!)
+        #expect(firstVisit)
+        #expect(!secondVisit)
+    }
+
     @Test("Collection accumulator deduplicates and emits artifacts")
     func accumulatorDeduplicatesAndBuildsArtifacts() throws {
         var accumulator = AgentCollectionAccumulator()
@@ -127,18 +185,26 @@ struct AgentContextReductionTests {
                 matches: [
                     LinkCollectionMatch(
                         text: "Paper 1",
-                        url: "https://arxiv.org/abs/1234.5678",
-                        sourcePageURL: "https://news.ycombinator.com/news"
+                        url: "https://arxiv.org/pdf/1234.5678.pdf",
+                        canonicalURL: "https://arxiv.org/abs/1234.5678",
+                        canonicalID: "1234.5678",
+                        sourcePageURL: "https://news.ycombinator.com/news",
+                        pageIndex: 1
                     ),
                     LinkCollectionMatch(
                         text: "Paper 2",
                         url: "https://arxiv.org/abs/2345.6789",
-                        sourcePageURL: "https://news.ycombinator.com/news"
+                        canonicalURL: "https://arxiv.org/abs/2345.6789",
+                        canonicalID: "2345.6789",
+                        sourcePageURL: "https://news.ycombinator.com/news",
+                        pageIndex: 1
                     ),
                 ],
-                paginationLinks: [],
+                paginationCandidates: [],
                 totalLinksScanned: 30,
-                filteredOutCount: 28
+                filteredOutCount: 28,
+                pageURL: "https://news.ycombinator.com/news",
+                pageHost: "news.ycombinator.com"
             )
         )
 
@@ -147,18 +213,26 @@ struct AgentContextReductionTests {
                 matches: [
                     LinkCollectionMatch(
                         text: "Paper 2 again",
-                        url: "https://arxiv.org/abs/2345.6789",
-                        sourcePageURL: "https://news.ycombinator.com/news?p=2"
+                        url: "https://arxiv.org/pdf/2345.6789.pdf",
+                        canonicalURL: "https://arxiv.org/abs/2345.6789",
+                        canonicalID: "2345.6789",
+                        sourcePageURL: "https://news.ycombinator.com/news?p=2",
+                        pageIndex: 2
                     ),
                     LinkCollectionMatch(
                         text: "Paper 3",
                         url: "https://arxiv.org/abs/3456.7890",
-                        sourcePageURL: "https://news.ycombinator.com/news?p=2"
+                        canonicalURL: "https://arxiv.org/abs/3456.7890",
+                        canonicalID: "3456.7890",
+                        sourcePageURL: "https://news.ycombinator.com/news?p=2",
+                        pageIndex: 2
                     ),
                 ],
-                paginationLinks: [],
+                paginationCandidates: [],
                 totalLinksScanned: 30,
-                filteredOutCount: 28
+                filteredOutCount: 28,
+                pageURL: "https://news.ycombinator.com/news?p=2",
+                pageHost: "news.ycombinator.com"
             )
         )
 

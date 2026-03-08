@@ -17,6 +17,7 @@ final class MockBrowserBridge: BrowserBridge {
     /// Current simulated URL (updated by navigate actions)
     var currentURL: String
     var currentTitle: String
+    var queuedCollectionResults: [LinkCollectionResult]
 
     enum RecordedAction: Equatable {
         case click(elementId: Int, modifiers: ClickModifiers)
@@ -30,10 +31,16 @@ final class MockBrowserBridge: BrowserBridge {
         case revalidateElement(elementId: Int)
     }
 
-    init(snapshots: [PageSnapshot], initialURL: String = "https://example.com", initialTitle: String = "Example") {
+    init(
+        snapshots: [PageSnapshot],
+        initialURL: String = "https://example.com",
+        initialTitle: String = "Example",
+        queuedCollectionResults: [LinkCollectionResult] = []
+    ) {
         self.snapshots = snapshots
         self.currentURL = initialURL
         self.currentTitle = initialTitle
+        self.queuedCollectionResults = queuedCollectionResults
     }
 
     func snapshot() async throws -> PageSnapshot {
@@ -41,14 +48,66 @@ final class MockBrowserBridge: BrowserBridge {
             return PageSnapshotFactory.empty()
         }
         let snap = snapshots[min(snapshotIndex, snapshots.count - 1)]
+        currentURL = snap.url
+        currentTitle = snap.title
         snapshotIndex += 1
         return snap
     }
 
     func snapshot(request: SnapshotRequest) async throws -> ReducedPageObservation {
-        ReducedPageObservation(
-            snapshot: try await snapshot(),
-            request: request
+        let pageSnapshot = try await snapshot()
+        let links = pageSnapshot.elements.compactMap { element -> PageLink? in
+            guard let href = element.href else {
+                return nil
+            }
+
+            let text = element.text ?? element.ariaLabel ?? element.placeholder ?? ""
+            return PageLink(
+                text: text,
+                url: href,
+                isPaginationControl: PageLinkParser.isPaginationLabel(text)
+            )
+        }
+
+        let requestForLinks = LinkCollectionRequest(
+            targetHosts: request.relevantHosts,
+            includePaginationLinks: request.includePaginationControls,
+            maxMatches: max(request.maxRelevantLinks * 3, request.maxRelevantLinks),
+            canonicalizationStrategy: request.canonicalizationStrategy
+        )
+        let filteredMatches = links.filter { link in
+            guard !link.isPaginationControl else {
+                return false
+            }
+            if requestForLinks.targetHosts.isEmpty {
+                return true
+            }
+            return requestForLinks.targetHosts.contains(link.host)
+        }
+        let rawResult = LinkCollectionResult(
+            matches: Array(filteredMatches.prefix(requestForLinks.maxMatches)).map {
+                LinkCollectionMatch(text: $0.text, url: $0.url, sourcePageURL: pageSnapshot.url)
+            },
+            paginationCandidates: requestForLinks.includePaginationLinks
+                ? links.filter(\.isPaginationControl).map {
+                    PaginationCandidate(text: $0.text, url: $0.url)
+                }
+                : [],
+            totalLinksScanned: links.count,
+            filteredOutCount: max(0, links.count - filteredMatches.count),
+            pageURL: pageSnapshot.url,
+            pageHost: URL(string: pageSnapshot.url)?.normalizedAgentHost ?? ""
+        )
+        let linkResult = LinkCollectionCanonicalizer.apply(to: rawResult, request: requestForLinks)
+
+        return ReducedPageObservation(
+            snapshot: pageSnapshot,
+            request: request,
+            relevantLinks: linkResult.matches.map {
+                PageLink(text: $0.text, url: $0.canonicalURL, isPaginationControl: false)
+            },
+            paginationCandidates: request.includePaginationControls ? linkResult.paginationCandidates : [],
+            totalPageLinkCount: linkResult.totalLinksScanned
         )
     }
 
@@ -95,6 +154,11 @@ final class MockBrowserBridge: BrowserBridge {
     }
 
     func collectLinks(_ request: LinkCollectionRequest) async throws -> LinkCollectionResult {
+        if !queuedCollectionResults.isEmpty {
+            let next = queuedCollectionResults.removeFirst()
+            return LinkCollectionCanonicalizer.apply(to: next, request: request)
+        }
+
         let allLinks = [
             LinkCollectionMatch(
                 text: "Example Link",
@@ -108,7 +172,7 @@ final class MockBrowserBridge: BrowserBridge {
             ),
         ]
 
-        let filtered = request.allowedHosts.isEmpty
+        let filtered = request.targetHosts.isEmpty
             ? allLinks
             : allLinks.filter { match in
                 guard let host = URL(string: match.url)?.host?.replacingOccurrences(
@@ -118,16 +182,21 @@ final class MockBrowserBridge: BrowserBridge {
                 ) else {
                     return false
                 }
-                return request.allowedHosts.contains(host)
+                return request.targetHosts.contains(host)
             }
 
-        return LinkCollectionResult(
-            matches: Array(filtered.prefix(request.maxMatches)),
-            paginationLinks: request.includePaginationLinks
-                ? [PageLink(text: "More", url: "https://example.com/page/2", isPaginationControl: true)]
-                : [],
-            totalLinksScanned: allLinks.count,
-            filteredOutCount: max(0, allLinks.count - filtered.count)
+        return LinkCollectionCanonicalizer.apply(
+            to: LinkCollectionResult(
+                matches: Array(filtered.prefix(request.maxMatches)),
+                paginationCandidates: request.includePaginationLinks
+                    ? [PaginationCandidate(text: "More", url: "https://example.com/page/2")]
+                    : [],
+                totalLinksScanned: allLinks.count,
+                filteredOutCount: max(0, allLinks.count - filtered.count),
+                pageURL: currentURL,
+                pageHost: URL(string: currentURL)?.normalizedAgentHost ?? ""
+            ),
+            request: request
         )
     }
 
