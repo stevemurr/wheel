@@ -106,19 +106,6 @@ struct AgentControlledTabOverlay: View {
 
     var body: some View {
         ZStack(alignment: .topTrailing) {
-            AgentRoundedGlow(cornerRadius: 18, lineWidth: 3, fillOpacity: 0.038)
-
-            LinearGradient(
-                colors: [
-                    Color.green.opacity(0.12),
-                    Color.green.opacity(0.03),
-                    .clear,
-                ],
-                startPoint: .topLeading,
-                endPoint: .bottomTrailing
-            )
-            .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
-
             AgentAutomationBadge(
                 title: "Agent is controlling this tab",
                 subtitle: progress.isEmpty ? "Automation is in progress." : progress
@@ -126,5 +113,36 @@ struct AgentControlledTabOverlay: View {
             .padding(14)
         }
         .allowsHitTesting(false)
+    }
+}
+
+struct AgentControlledWindowGlow: View {
+    var cornerRadius: CGFloat = 16
+
+    var body: some View {
+        TimelineView(.animation(minimumInterval: 1.0 / 24.0, paused: false)) { context in
+            let phase = pulse(for: context.date)
+
+            ZStack {
+                RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+                    .strokeBorder(Color.green.opacity(0.84 + (0.06 * phase)), lineWidth: 1.8)
+
+                RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+                    .stroke(Color.green.opacity(0.32 + (0.10 * phase)), lineWidth: 4)
+                    .blur(radius: 5 + (2 * phase))
+
+                RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+                    .stroke(Color.green.opacity(0.14 + (0.05 * phase)), lineWidth: 9)
+                    .blur(radius: 12 + (4 * phase))
+            }
+            .compositingGroup()
+        }
+        .allowsHitTesting(false)
+    }
+
+    private func pulse(for date: Date) -> Double {
+        let cycle = 1.25
+        let time = date.timeIntervalSinceReferenceDate.truncatingRemainder(dividingBy: cycle)
+        return (sin((time / cycle) * (.pi * 2)) + 1) / 2
     }
 }

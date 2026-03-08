@@ -212,4 +212,12 @@ class OmniBarState {
     var modeIcon: String { mode.icon }
     var placeholder: String { mode.placeholder }
     var modeColor: Color { mode.color }
+
+    static func shouldTrapTabNavigation(
+        isInputFocused: Bool,
+        visiblePanel: OmniBarPanelVisibility,
+        showMentionDropdown: Bool
+    ) -> Bool {
+        isInputFocused || visiblePanel != .none || showMentionDropdown
+    }
 }

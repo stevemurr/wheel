@@ -108,6 +108,22 @@ extension OmniBar {
         activateMode(omniState.mode, isFocusGain: true)
     }
 
+    func handleOmniBarTabPress(isShiftTab: Bool) {
+        guard shouldTrapTabNavigation else { return }
+
+        if !isInputFocused {
+            prepareForOmniBarFocus()
+            var transaction = Transaction()
+            transaction.disablesAnimations = true
+            withTransaction(transaction) {
+                isInputFocused = true
+            }
+        }
+
+        let command: KeyboardCommand = isShiftTab ? .shiftTab : .tab
+        _ = handleKeyboardCommand(command, mode: omniState.mode, text: omniState.inputText)
+    }
+
     // MARK: - Mode Change
 
     func handleModeChange(_ newMode: OmniBarMode) {
@@ -185,7 +201,7 @@ extension OmniBar {
             // Show panel last (animated)
             omniState.setVisiblePanel(.semantic)
         case .agent:
-            omniState.setVisiblePanel(.agent)
+            omniState.dismissVisiblePanel()
         case .readingList:
             readingListVM.loadSavedPages()
             omniState.setVisiblePanel(.readingList)

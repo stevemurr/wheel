@@ -34,6 +34,13 @@ struct OmniBar: View {
     var isSemanticPanelVisible: Bool { omniState.isPanelVisible(for: .semantic) }
     var isAgentPanelVisible: Bool { omniState.isPanelVisible(for: .agent) }
     var isReadingListPanelVisible: Bool { omniState.isPanelVisible(for: .readingList) }
+    var shouldTrapTabNavigation: Bool {
+        OmniBarState.shouldTrapTabNavigation(
+            isInputFocused: isInputFocused,
+            visiblePanel: omniState.visiblePanel,
+            showMentionDropdown: omniState.showMentionDropdown
+        )
+    }
 
 
     var body: some View {
@@ -74,6 +81,15 @@ struct OmniBar: View {
                 isHovering = hovering
             }
         }
+        .background(
+            OmniBarTabKeyMonitor(
+                isEnabled: shouldTrapTabNavigation,
+                onTabPress: { isShiftTab in
+                    handleOmniBarTabPress(isShiftTab: isShiftTab)
+                }
+            )
+            .frame(width: 0, height: 0)
+        )
         .onChange(of: tab.url) { _, newURL in handleURLChange(newURL) }
         .onChange(of: tab.id) { _, _ in
             // Reset omnibar visual state for the new tab. Defocusing ensures

@@ -59,4 +59,40 @@ struct OmniBarStateTests {
 
         #expect(state.mentions.contains(.currentPage))
     }
+
+    @Test("Tab trapping stays active while any OmniBar surface is active")
+    func tabTrappingActivatesForFocusedInputOrPanels() {
+        #expect(
+            OmniBarState.shouldTrapTabNavigation(
+                isInputFocused: true,
+                visiblePanel: .none,
+                showMentionDropdown: false
+            )
+        )
+        #expect(
+            OmniBarState.shouldTrapTabNavigation(
+                isInputFocused: false,
+                visiblePanel: .semantic,
+                showMentionDropdown: false
+            )
+        )
+        #expect(
+            OmniBarState.shouldTrapTabNavigation(
+                isInputFocused: false,
+                visiblePanel: .none,
+                showMentionDropdown: true
+            )
+        )
+    }
+
+    @Test("Tab trapping stays off when the OmniBar is fully inactive")
+    func tabTrappingStaysOffWhenOmniBarIsInactive() {
+        #expect(
+            OmniBarState.shouldTrapTabNavigation(
+                isInputFocused: false,
+                visiblePanel: .none,
+                showMentionDropdown: false
+            ) == false
+        )
+    }
 }

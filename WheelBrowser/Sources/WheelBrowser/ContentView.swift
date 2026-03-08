@@ -119,7 +119,6 @@ private struct TabWebViewContainer: View {
 
             if tab.hasActiveAgent {
                 AgentControlledTabOverlay(progress: tab.agentProgress)
-                    .padding(12)
             }
         }
         // Keep inactive tabs in hierarchy but hidden
@@ -323,6 +322,11 @@ struct ContentView: View {
                 browserState: state,
                 screenshotManager: TabScreenshotManager.shared
             )
+        }
+        .overlay {
+            if state.activeTab?.hasActiveAgent == true {
+                AgentControlledWindowGlow()
+            }
         }
         .background(WindowAccessor())
     }

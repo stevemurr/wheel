@@ -101,7 +101,7 @@ extension OmniBar {
         guard !task.isEmpty else { return }
 
         omniState.inputText = ""
-        omniState.setVisiblePanel(.agent)
+        omniState.dismissVisiblePanel()
 
         Task {
             _ = await agentEngine.run(task: task)

@@ -337,30 +337,53 @@ private struct AgentActionButton: View {
     var onSubmit: () -> Void
     @State private var isAnimating = false
 
+    private var canSubmit: Bool {
+        !inputText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+
     var body: some View {
         Button(action: onSubmit) {
             ZStack {
                 Circle()
-                    .stroke(Color.green.opacity(agentEngine.isRunning ? 0.35 : 0), lineWidth: 1.5)
-                    .scaleEffect(agentEngine.isRunning && isAnimating ? 1.28 : 0.9)
-                    .opacity(agentEngine.isRunning ? (isAnimating ? 0.15 : 0.35) : 0)
+                    .stroke(Color.green.opacity(agentEngine.isRunning ? 0.45 : 0), lineWidth: 1.6)
+                    .scaleEffect(agentEngine.isRunning && isAnimating ? 1.34 : 0.92)
+                    .opacity(agentEngine.isRunning ? (isAnimating ? 0.18 : 0.36) : 0)
 
-                Image(systemName: "play.fill")
-                    .font(.system(size: 10, weight: .bold))
-                    .foregroundColor(inputText.isEmpty && !agentEngine.isRunning ? .secondary : .white)
-                    .scaleEffect(agentEngine.isRunning && isAnimating ? 1.08 : 1.0)
-                    .offset(x: agentEngine.isRunning ? 0.5 : 0)
+                if agentEngine.isRunning {
+                    Circle()
+                        .trim(from: 0.12, to: 0.88)
+                        .stroke(
+                            Color.white.opacity(0.55),
+                            style: StrokeStyle(lineWidth: 1.7, lineCap: .round)
+                        )
+                        .frame(width: 12, height: 12)
+                        .rotationEffect(.degrees(isAnimating ? 360 : 0))
+
+                    ProgressView()
+                        .controlSize(.small)
+                        .tint(.white)
+                        .scaleEffect(0.52)
+                } else {
+                    Image(systemName: "play.fill")
+                        .font(.system(size: 10, weight: .bold))
+                        .foregroundColor(canSubmit ? .white : .secondary)
+                        .offset(x: 0.5)
+                }
             }
             .frame(width: 22, height: 22)
             .background(
                 Circle()
                     .fill(buttonColor)
             )
+            .shadow(
+                color: agentEngine.isRunning ? Color.green.opacity(0.45) : .clear,
+                radius: agentEngine.isRunning ? 10 : 0
+            )
         }
         .buttonStyle(.plain)
-        .disabled(inputText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || agentEngine.isRunning)
-        .scaleEffect(agentEngine.isRunning && isAnimating ? 1.03 : 1.0)
-        .animation(.easeInOut(duration: 0.9), value: isAnimating)
+        .disabled(!canSubmit || agentEngine.isRunning)
+        .scaleEffect(agentEngine.isRunning && isAnimating ? 1.04 : 1.0)
+        .animation(agentEngine.isRunning ? .linear(duration: 0.95) : .easeInOut(duration: 0.2), value: isAnimating)
         .onAppear {
             updateAnimationState()
         }
@@ -371,15 +394,15 @@ private struct AgentActionButton: View {
 
     private var buttonColor: Color {
         if agentEngine.isRunning {
-            return Color.green
+            return Color.green.opacity(0.96)
         }
-        return inputText.isEmpty ? Color.secondary.opacity(0.2) : Color.green
+        return canSubmit ? Color.green : Color.secondary.opacity(0.2)
     }
 
     private func updateAnimationState() {
         if agentEngine.isRunning {
             guard !isAnimating else { return }
-            withAnimation(.easeInOut(duration: 0.9).repeatForever(autoreverses: true)) {
+            withAnimation(.linear(duration: 0.95).repeatForever(autoreverses: false)) {
                 isAnimating = true
             }
         } else {
