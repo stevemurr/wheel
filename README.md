@@ -61,6 +61,7 @@ Wheel indexes pages locally and lets you search by concept.
 ### Workspaces and Browser Tools
 
 - Workspace-aware tab persistence and default agent configuration
+- Workspace-scoped right-rail notes with a reusable floating mini editor
 - Reading List and Downloads built into the main UI
 - Picture-in-Picture support
 - Link previews and overlay windows from the browsing surface
@@ -83,6 +84,10 @@ Wheel can expose browser control over MCP and can also run headlessly.
 ```bash
 git clone https://github.com/stevemurr/wheel.git
 cd wheel/WheelBrowser
+cd ../NoteEditorWeb
+npm install
+npm run build
+cd ../WheelBrowser
 swift run WheelBrowser
 ```
 
@@ -91,6 +96,14 @@ swift run WheelBrowser
 ```bash
 cd WheelBrowser
 make build
+```
+
+If you change the note editor bundle, rebuild it first:
+
+```bash
+cd NoteEditorWeb
+npm install
+npm run build
 ```
 
 This produces:
@@ -145,6 +158,8 @@ The browser itself can still run without model availability, but AI-dependent fe
 | `Cmd+W` | Close tab |
 | `Cmd+Shift+S` | Toggle tab sidebar |
 | `Cmd+Option+H` | Toggle auto-hide tab dock |
+| `Cmd+Option+N` | Open today's note |
+| `Cmd+Shift+Option+N` | New note from page |
 | `Cmd+L` | Focus address bar |
 | `Cmd+Option+F` | Alternate address-bar focus |
 

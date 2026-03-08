@@ -28,6 +28,7 @@ let package = Package(
             resources: [
                 .copy("Resources/AppIcon.icns"),
                 .copy("Resources/Extensions"),
+                .copy("Resources/NoteEditor"),
                 .copy("Resources/WidgetRuntime"),
             ],
             swiftSettings: [

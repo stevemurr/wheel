@@ -3,7 +3,7 @@ import SwiftUI
 /// Represents a single overlay window displaying web content
 @MainActor
 @Observable
-class OverlayWindowItem: Identifiable {
+class OverlayWindowItem: Identifiable, @MainActor FloatingWindowItemProtocol {
     let id = UUID()
     var url: URL
     var title: String

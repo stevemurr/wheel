@@ -38,7 +38,7 @@ struct OverlayWindowContainer: View {
                         manager.updateSize(id: window.id, size: size)
                     }
                 )
-                .modifier(OverlayPositionModifier(window: window, containerSize: containerSize))
+                .modifier(FloatingWindowPositionModifier(item: window, containerSize: containerSize))
                 .zIndex(Double(window.zIndex))
                 .transition(
                     .asymmetric(
@@ -59,31 +59,6 @@ struct OverlayWindowContainer: View {
     /// Windows sorted by zIndex for proper layering
     private var sortedWindows: [OverlayWindowItem] {
         manager.windows.sorted { $0.zIndex < $1.zIndex }
-    }
-}
-
-// MARK: - Position Modifier
-
-/// A ViewModifier that observes the window's position and applies it
-/// This ensures the view updates when position changes since it directly observes the @Observable class
-private struct OverlayPositionModifier: ViewModifier {
-    var window: OverlayWindowItem
-    let containerSize: CGSize
-
-    func body(content: Content) -> some View {
-        content
-            .position(calculatedPosition)
-    }
-
-    private var calculatedPosition: CGPoint {
-        if window.isMaximized {
-            return CGPoint(x: containerSize.width / 2, y: containerSize.height / 2)
-        } else {
-            return CGPoint(
-                x: window.position.x + window.size.width / 2,
-                y: window.position.y + window.size.height / 2
-            )
-        }
     }
 }
 
