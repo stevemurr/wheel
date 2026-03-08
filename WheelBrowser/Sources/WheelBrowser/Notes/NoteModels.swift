@@ -28,12 +28,7 @@ struct NoteDocument: Codable, Sendable {
         NoteDocument(
             root: [
                 "type": AnyCodable("doc"),
-                "content": AnyCodable([
-                    [
-                        "type": "paragraph",
-                        "content": [],
-                    ],
-                ]),
+                "content": AnyCodable([Self.emptyParagraphNode]),
             ]
         )
     }
@@ -62,22 +57,24 @@ struct NoteDocument: Codable, Sendable {
             "attrs": attrs,
         ]
 
-        let needsSeparator = !content.isEmpty
-        if needsSeparator {
-            content.append([
-                "type": "paragraph",
-                "content": [],
-            ])
+        if Self.isEffectivelyEmptyContent(content) {
+            content = [pageNode, Self.emptyParagraphNode]
+        } else {
+            if let last = content.last, !Self.isEmptyParagraphNode(last) {
+                content.append(Self.emptyParagraphNode)
+            }
+            content.append(pageNode)
+            content.append(Self.emptyParagraphNode)
         }
-        content.append(pageNode)
-        content.append([
-            "type": "paragraph",
-            "content": [],
-        ])
 
         updatedRoot["content"] = AnyCodable(content)
         return NoteDocument(root: updatedRoot)
     }
+
+    private static let emptyParagraphNode: [String: Any] = [
+        "type": "paragraph",
+        "content": [],
+    ]
 
     private static let iso8601: ISO8601DateFormatter = {
         let formatter = ISO8601DateFormatter()
@@ -124,6 +121,28 @@ struct NoteDocument: Codable, Sendable {
         default:
             return ""
         }
+    }
+
+    private static func isEffectivelyEmptyContent(_ content: [Any]) -> Bool {
+        content.isEmpty || content.allSatisfy(isEmptyParagraphNode)
+    }
+
+    private static func isEmptyParagraphNode(_ value: Any) -> Bool {
+        let nodeValue = (value as? AnyCodable)?.value ?? value
+        guard let dictionary = nodeValue as? [String: Any],
+              dictionary["type"] as? String == "paragraph" else {
+            return false
+        }
+
+        if let wrapped = dictionary["content"] as? AnyCodable {
+            return wrapped.arrayValue?.isEmpty ?? false
+        }
+
+        if let array = dictionary["content"] as? [Any] {
+            return array.isEmpty
+        }
+
+        return dictionary["content"] == nil
     }
 
     private static func normalizedJSON(_ value: Any) -> Any {

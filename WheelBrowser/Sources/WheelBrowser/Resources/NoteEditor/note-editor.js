@@ -20819,6 +20819,75 @@ img.ProseMirror-separator {
   var sendBridgeMessage = (type, payload = {}) => {
     window.webkit?.messageHandlers?.noteEditorBridge?.postMessage({ type, payload });
   };
+  function isEmptyParagraphNode(node) {
+    return Boolean(node && node.type.name === "paragraph" && node.childCount === 0);
+  }
+  function deleteSourceBlock(editor2, getPos) {
+    if (typeof getPos !== "function") {
+      return false;
+    }
+    const position = getPos();
+    const sourceNode = editor2.state.doc.nodeAt(position);
+    if (!sourceNode || sourceNode.type.name !== "pageSource") {
+      return false;
+    }
+    let from2 = position;
+    let to = position + sourceNode.nodeSize;
+    const before = editor2.state.doc.resolve(position).nodeBefore;
+    if (isEmptyParagraphNode(before)) {
+      from2 -= before.nodeSize;
+    }
+    const after = editor2.state.doc.resolve(position + sourceNode.nodeSize).nodeAfter;
+    if (isEmptyParagraphNode(after)) {
+      to += after.nodeSize;
+    }
+    const paragraph = editor2.state.schema.nodes.paragraph;
+    const transaction = editor2.state.tr.delete(from2, to);
+    if (transaction.doc.childCount === 0 && paragraph) {
+      transaction.insert(0, paragraph.create());
+    }
+    const selectionPosition = Math.min(from2, transaction.doc.content.size);
+    transaction.setSelection(TextSelection.near(transaction.doc.resolve(selectionPosition)));
+    editor2.view.dispatch(transaction.scrollIntoView());
+    return true;
+  }
+  function applyMarkdownShortcut(editor2, rawTextBefore) {
+    const { selection } = editor2.state;
+    if (!selection.empty) {
+      return false;
+    }
+    const { $from } = selection;
+    if ($from.parent.type.name !== "paragraph") {
+      return false;
+    }
+    const textBefore = rawTextBefore.trimStart();
+    if (!textBefore) {
+      return false;
+    }
+    const markerRange = {
+      from: $from.start(),
+      to: selection.from
+    };
+    if (/^#{1,3}$/.test(textBefore)) {
+      return editor2.chain().focus().deleteRange(markerRange).setNode("heading", { level: textBefore.length }).run();
+    }
+    if (/^[-+*]$/.test(textBefore)) {
+      return editor2.chain().focus().deleteRange(markerRange).toggleBulletList().run();
+    }
+    if (/^1[.)]$/.test(textBefore)) {
+      return editor2.chain().focus().deleteRange(markerRange).toggleOrderedList().run();
+    }
+    if (/^(?:\[\]|\[ \])$/.test(textBefore)) {
+      return editor2.chain().focus().deleteRange(markerRange).toggleTaskList().run();
+    }
+    if (textBefore === ">") {
+      return editor2.chain().focus().deleteRange(markerRange).toggleBlockquote().run();
+    }
+    if (textBefore === "```" || textBefore === "~~~") {
+      return editor2.chain().focus().deleteRange(markerRange).toggleCodeBlock().run();
+    }
+    return false;
+  }
   var PageSource = Node2.create({
     name: "pageSource",
     group: "block",
@@ -20839,7 +20908,7 @@ img.ProseMirror-separator {
       return ["div", mergeAttributes(HTMLAttributes, { "data-type": "page-source" })];
     },
     addNodeView() {
-      return ({ node }) => {
+      return ({ editor: editor2, getPos, node }) => {
         const dom = document.createElement("div");
         dom.className = "page-source";
         dom.dataset.type = "page-source";
@@ -20860,13 +20929,38 @@ img.ProseMirror-separator {
         const time = document.createElement("span");
         time.className = "page-source__time";
         time.textContent = formatCapturedAt(String(node.attrs.capturedAt ?? ""));
+        const actions = document.createElement("div");
+        actions.className = "page-source__actions";
+        const remove = document.createElement("button");
+        remove.type = "button";
+        remove.className = "page-source__remove";
+        remove.textContent = "Remove";
+        remove.setAttribute("aria-label", "Remove source block");
+        const handleRemove = (event) => {
+          event.preventDefault();
+          event.stopPropagation();
+          deleteSourceBlock(editor2, getPos);
+        };
+        remove.onmousedown = handleRemove;
+        remove.onclick = handleRemove;
         meta.append(link, url);
-        dom.append(icon, meta, time);
-        return { dom };
+        actions.append(time, remove);
+        dom.append(icon, meta, actions);
+        return {
+          dom,
+          selectNode: () => dom.classList.add("is-selected"),
+          deselectNode: () => dom.classList.remove("is-selected")
+        };
       };
     }
   });
   var slashItems = [
+    {
+      title: "Text",
+      description: "Switch back to normal text",
+      keywords: ["paragraph", "text", "body"],
+      command: (editor2) => editor2.chain().focus().setParagraph().run()
+    },
     {
       title: "Heading 1",
       description: "Large section heading",
@@ -20878,6 +20972,12 @@ img.ProseMirror-separator {
       description: "Secondary section heading",
       keywords: ["heading", "subtitle", "h2"],
       command: (editor2) => editor2.chain().focus().toggleHeading({ level: 2 }).run()
+    },
+    {
+      title: "Heading 3",
+      description: "Compact section heading",
+      keywords: ["heading", "subheading", "h3"],
+      command: (editor2) => editor2.chain().focus().toggleHeading({ level: 3 }).run()
     },
     {
       title: "Bullet List",
@@ -20952,6 +21052,13 @@ img.ProseMirror-separator {
         return;
       }
       element.innerHTML = "";
+      if (propsRef.items.length === 0) {
+        const emptyState = document.createElement("div");
+        emptyState.className = "slash-menu__empty";
+        emptyState.textContent = "No matching blocks";
+        element.appendChild(emptyState);
+        return;
+      }
       propsRef.items.forEach((item, index) => {
         const button = document.createElement("button");
         button.type = "button";
@@ -20982,6 +21089,13 @@ img.ProseMirror-separator {
       },
       onKeyDown: ({ event }) => {
         if (!propsRef) {
+          return false;
+        }
+        if (propsRef.items.length === 0) {
+          if (event.key === "Escape") {
+            remove();
+            return true;
+          }
           return false;
         }
         if (event.key === "ArrowDown") {
@@ -21018,7 +21132,7 @@ img.ProseMirror-separator {
           allow: ({ state, range }) => {
             const $from = state.doc.resolve(range.from);
             const textBefore = $from.parent.textBetween(0, $from.parentOffset, void 0, "\uFFFC");
-            return textBefore === "/" || textBefore.endsWith(" /");
+            return textBefore.trimStart().startsWith("/");
           },
           items: ({ query }) => {
             const normalized = query.trim().toLowerCase();
@@ -21038,6 +21152,19 @@ img.ProseMirror-separator {
       ];
     }
   });
+  var MarkdownShortcuts = Extension.create({
+    name: "markdownShortcuts",
+    addKeyboardShortcuts() {
+      return {
+        Space: () => {
+          const { selection } = this.editor.state;
+          const { $from } = selection;
+          const textBefore = $from.parent.textBetween(0, $from.parentOffset, void 0, "\uFFFC");
+          return applyMarkdownShortcut(this.editor, textBefore);
+        }
+      };
+    }
+  });
   var editor = new Editor({
     element: editorElement,
     extensions: [
@@ -21052,9 +21179,10 @@ img.ProseMirror-separator {
       TableHeader,
       TableCell,
       Placeholder.configure({
-        placeholder: "Start writing, or type / for commands\u2026"
+        placeholder: "Start writing, type / for blocks, or use markdown like #, -, [], >, and ```"
       }),
       PageSource,
+      MarkdownShortcuts,
       SlashCommand
     ],
     editorProps: {
@@ -21184,6 +21312,34 @@ img.ProseMirror-separator {
           message: error instanceof Error ? error.message : "Unknown note editor failure"
         });
       }
+    },
+    debugApplyMarkdown(text) {
+      const triggerText = text.endsWith(" ") ? text.slice(0, -1) : text;
+      setDocument({
+        type: "doc",
+        content: [
+          {
+            type: "paragraph",
+            content: triggerText ? [
+              {
+                type: "text",
+                text: triggerText
+              }
+            ] : []
+          }
+        ]
+      });
+      editor.commands.focus("start");
+      editor.commands.focus("end");
+      const applied = applyMarkdownShortcut(editor, triggerText);
+      const document2 = editor.getJSON();
+      const firstNode = document2.content?.[0] ?? {};
+      const attrs = firstNode.attrs ?? {};
+      return {
+        applied,
+        type: firstNode.type ?? "",
+        level: attrs.level ?? 0
+      };
     }
   };
   function formatCapturedAt(value) {

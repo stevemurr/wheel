@@ -1,6 +1,8 @@
 import './styles.css'
 
 import { Editor, Extension, Node, mergeAttributes, type Range } from '@tiptap/core'
+import type { Node as ProseMirrorNode } from '@tiptap/pm/model'
+import { TextSelection } from '@tiptap/pm/state'
 import Placeholder from '@tiptap/extension-placeholder'
 import Table from '@tiptap/extension-table'
 import TableCell from '@tiptap/extension-table-cell'
@@ -35,6 +37,7 @@ declare global {
   interface Window {
     NoteEditor: {
       receiveCommand: (command: string, payload: JSONObject) => void
+      debugApplyMarkdown: (text: string) => JSONObject
     }
     webkit?: {
       messageHandlers?: {
@@ -57,6 +60,103 @@ let documentChangeTimer: number | undefined
 
 const sendBridgeMessage = (type: string, payload: JSONObject = {}) => {
   window.webkit?.messageHandlers?.noteEditorBridge?.postMessage({ type, payload })
+}
+
+function isEmptyParagraphNode(node: ProseMirrorNode | null | undefined): boolean {
+  return Boolean(node && node.type.name === 'paragraph' && node.childCount === 0)
+}
+
+function deleteSourceBlock(editor: Editor, getPos: (() => number) | boolean): boolean {
+  if (typeof getPos !== 'function') {
+    return false
+  }
+
+  const position = getPos()
+  const sourceNode = editor.state.doc.nodeAt(position)
+
+  if (!sourceNode || sourceNode.type.name !== 'pageSource') {
+    return false
+  }
+
+  let from = position
+  let to = position + sourceNode.nodeSize
+
+  const before = editor.state.doc.resolve(position).nodeBefore
+  if (isEmptyParagraphNode(before)) {
+    from -= before.nodeSize
+  }
+
+  const after = editor.state.doc.resolve(position + sourceNode.nodeSize).nodeAfter
+  if (isEmptyParagraphNode(after)) {
+    to += after.nodeSize
+  }
+
+  const paragraph = editor.state.schema.nodes.paragraph
+  const transaction = editor.state.tr.delete(from, to)
+
+  if (transaction.doc.childCount === 0 && paragraph) {
+    transaction.insert(0, paragraph.create())
+  }
+
+  const selectionPosition = Math.min(from, transaction.doc.content.size)
+  transaction.setSelection(TextSelection.near(transaction.doc.resolve(selectionPosition)))
+  editor.view.dispatch(transaction.scrollIntoView())
+
+  return true
+}
+
+function applyMarkdownShortcut(editor: Editor, rawTextBefore: string): boolean {
+  const { selection } = editor.state
+
+  if (!selection.empty) {
+    return false
+  }
+
+  const { $from } = selection
+  if ($from.parent.type.name !== 'paragraph') {
+    return false
+  }
+
+  const textBefore = rawTextBefore.trimStart()
+  if (!textBefore) {
+    return false
+  }
+
+  const markerRange = {
+    from: $from.start(),
+    to: selection.from,
+  }
+
+  if (/^#{1,3}$/.test(textBefore)) {
+    return editor
+      .chain()
+      .focus()
+      .deleteRange(markerRange)
+      .setNode('heading', { level: textBefore.length })
+      .run()
+  }
+
+  if (/^[-+*]$/.test(textBefore)) {
+    return editor.chain().focus().deleteRange(markerRange).toggleBulletList().run()
+  }
+
+  if (/^1[.)]$/.test(textBefore)) {
+    return editor.chain().focus().deleteRange(markerRange).toggleOrderedList().run()
+  }
+
+  if (/^(?:\[\]|\[ \])$/.test(textBefore)) {
+    return editor.chain().focus().deleteRange(markerRange).toggleTaskList().run()
+  }
+
+  if (textBefore === '>') {
+    return editor.chain().focus().deleteRange(markerRange).toggleBlockquote().run()
+  }
+
+  if (textBefore === '```' || textBefore === '~~~') {
+    return editor.chain().focus().deleteRange(markerRange).toggleCodeBlock().run()
+  }
+
+  return false
 }
 
 const PageSource = Node.create({
@@ -83,7 +183,7 @@ const PageSource = Node.create({
   },
 
   addNodeView() {
-    return ({ node }) => {
+    return ({ editor, getPos, node }) => {
       const dom = document.createElement('div')
       dom.className = 'page-source'
       dom.dataset.type = 'page-source'
@@ -110,15 +210,42 @@ const PageSource = Node.create({
       time.className = 'page-source__time'
       time.textContent = formatCapturedAt(String(node.attrs.capturedAt ?? ''))
 
-      meta.append(link, url)
-      dom.append(icon, meta, time)
+      const actions = document.createElement('div')
+      actions.className = 'page-source__actions'
 
-      return { dom }
+      const remove = document.createElement('button')
+      remove.type = 'button'
+      remove.className = 'page-source__remove'
+      remove.textContent = 'Remove'
+      remove.setAttribute('aria-label', 'Remove source block')
+      const handleRemove = (event: MouseEvent) => {
+        event.preventDefault()
+        event.stopPropagation()
+        deleteSourceBlock(editor, getPos)
+      }
+      remove.onmousedown = handleRemove
+      remove.onclick = handleRemove
+
+      meta.append(link, url)
+      actions.append(time, remove)
+      dom.append(icon, meta, actions)
+
+      return {
+        dom,
+        selectNode: () => dom.classList.add('is-selected'),
+        deselectNode: () => dom.classList.remove('is-selected'),
+      }
     }
   },
 })
 
 const slashItems: SlashItem[] = [
+  {
+    title: 'Text',
+    description: 'Switch back to normal text',
+    keywords: ['paragraph', 'text', 'body'],
+    command: (editor) => editor.chain().focus().setParagraph().run(),
+  },
   {
     title: 'Heading 1',
     description: 'Large section heading',
@@ -130,6 +257,12 @@ const slashItems: SlashItem[] = [
     description: 'Secondary section heading',
     keywords: ['heading', 'subtitle', 'h2'],
     command: (editor) => editor.chain().focus().toggleHeading({ level: 2 }).run(),
+  },
+  {
+    title: 'Heading 3',
+    description: 'Compact section heading',
+    keywords: ['heading', 'subheading', 'h3'],
+    command: (editor) => editor.chain().focus().toggleHeading({ level: 3 }).run(),
   },
   {
     title: 'Bullet List',
@@ -214,6 +347,14 @@ const createSlashMenu = () => {
     }
 
     element.innerHTML = ''
+    if (propsRef.items.length === 0) {
+      const emptyState = document.createElement('div')
+      emptyState.className = 'slash-menu__empty'
+      emptyState.textContent = 'No matching blocks'
+      element.appendChild(emptyState)
+      return
+    }
+
     propsRef.items.forEach((item, index) => {
       const button = document.createElement('button')
       button.type = 'button'
@@ -245,6 +386,15 @@ const createSlashMenu = () => {
     },
     onKeyDown: ({ event }: SuggestionKeyDownProps) => {
       if (!propsRef) {
+        return false
+      }
+
+      if (propsRef.items.length === 0) {
+        if (event.key === 'Escape') {
+          remove()
+          return true
+        }
+
         return false
       }
 
@@ -288,7 +438,7 @@ const SlashCommand = Extension.create({
         allow: ({ state, range }) => {
           const $from = state.doc.resolve(range.from)
           const textBefore = $from.parent.textBetween(0, $from.parentOffset, undefined, '\ufffc')
-          return textBefore === '/' || textBefore.endsWith(' /')
+          return textBefore.trimStart().startsWith('/')
         },
         items: ({ query }) => {
           const normalized = query.trim().toLowerCase()
@@ -313,6 +463,21 @@ const SlashCommand = Extension.create({
   },
 })
 
+const MarkdownShortcuts = Extension.create({
+  name: 'markdownShortcuts',
+
+  addKeyboardShortcuts() {
+    return {
+      Space: () => {
+        const { selection } = this.editor.state
+        const { $from } = selection
+        const textBefore = $from.parent.textBetween(0, $from.parentOffset, undefined, '\ufffc')
+        return applyMarkdownShortcut(this.editor, textBefore)
+      },
+    }
+  },
+})
+
 const editor = new Editor({
   element: editorElement,
   extensions: [
@@ -327,9 +492,10 @@ const editor = new Editor({
     TableHeader,
     TableCell,
     Placeholder.configure({
-      placeholder: 'Start writing, or type / for commands…',
+      placeholder: 'Start writing, type / for blocks, or use markdown like #, -, [], >, and ```',
     }),
     PageSource,
+    MarkdownShortcuts,
     SlashCommand,
   ],
   editorProps: {
@@ -468,6 +634,40 @@ window.NoteEditor = {
       sendBridgeMessage('editorError', {
         message: error instanceof Error ? error.message : 'Unknown note editor failure',
       })
+    }
+  },
+  debugApplyMarkdown(text: string) {
+    const triggerText = text.endsWith(' ') ? text.slice(0, -1) : text
+
+    setDocument({
+      type: 'doc',
+      content: [
+        {
+          type: 'paragraph',
+          content: triggerText
+            ? [
+                {
+                  type: 'text',
+                  text: triggerText,
+                },
+              ]
+            : [],
+        },
+      ],
+    })
+    editor.commands.focus('start')
+    editor.commands.focus('end')
+    const applied = applyMarkdownShortcut(editor, triggerText)
+    const document = editor.getJSON() as {
+      content?: Array<Record<string, unknown>>
+    }
+    const firstNode = document.content?.[0] ?? {}
+    const attrs = (firstNode.attrs as Record<string, unknown> | undefined) ?? {}
+
+    return {
+      applied,
+      type: firstNode.type ?? '',
+      level: attrs.level ?? 0,
     }
   },
 }

@@ -1,0 +1,54 @@
+import Foundation
+import Testing
+@testable import WheelBrowser
+
+@Suite("NoteDocument")
+struct NoteModelsTests {
+    @Test("Page sources replace the empty starter paragraph instead of adding leading blank space")
+    func sourceInsertionIntoEmptyDocumentIsCompact() throws {
+        let document = NoteDocument.empty.insertingPageSource(
+            NotePageSource(title: "Wheel Docs", url: "https://example.com/docs", capturedAt: Date(timeIntervalSince1970: 0))
+        )
+
+        let content = try #require(document.root["content"]?.arrayValue)
+        #expect(content.count == 2)
+
+        let firstNode = try #require(content.first as? [String: Any])
+        let secondNode = try #require(content.last as? [String: Any])
+
+        #expect(firstNode["type"] as? String == "pageSource")
+        #expect(secondNode["type"] as? String == "paragraph")
+    }
+
+    @Test("Page sources do not add duplicate spacer paragraphs when the note already ends with one")
+    func sourceInsertionAvoidsDuplicateTrailingSpacer() throws {
+        let document = NoteDocument(
+            root: [
+                "type": AnyCodable("doc"),
+                "content": AnyCodable([
+                    [
+                        "type": "paragraph",
+                        "content": [
+                            [
+                                "type": "text",
+                                "text": "Existing note",
+                            ],
+                        ],
+                    ],
+                    [
+                        "type": "paragraph",
+                        "content": [],
+                    ],
+                ]),
+            ]
+        ).insertingPageSource(
+            NotePageSource(title: "Wheel Docs", url: "https://example.com/docs", capturedAt: Date(timeIntervalSince1970: 0))
+        )
+
+        let content = try #require(document.root["content"]?.arrayValue)
+        #expect(content.count == 4)
+
+        let thirdNode = try #require(content[2] as? [String: Any])
+        #expect(thirdNode["type"] as? String == "pageSource")
+    }
+}
