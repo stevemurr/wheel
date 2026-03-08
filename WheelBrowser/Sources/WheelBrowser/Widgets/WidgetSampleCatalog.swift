@@ -5,6 +5,7 @@ struct WidgetSampleDefinition: Identifiable {
     let title: String
     let subtitle: String
     let badge: String
+    let systemImage: String
     let promptHint: String?
     let buildManifest: () -> WidgetManifest
 }
@@ -16,6 +17,7 @@ enum WidgetSampleCatalog {
             title: "Bitcoin Price",
             subtitle: "Live CoinGecko price with 24h change.",
             badge: "Live API",
+            systemImage: "bitcoinsign.circle.fill",
             promptHint: "Show me Bitcoin price and 24h change",
             buildManifest: bitcoinPriceManifest
         ),
@@ -24,6 +26,7 @@ enum WidgetSampleCatalog {
             title: "USD to EUR",
             subtitle: "Live exchange rate from Frankfurter.",
             badge: "Live API",
+            systemImage: "dollarsign.arrow.circlepath",
             promptHint: "Show me the USD to EUR exchange rate",
             buildManifest: usdToEurManifest
         ),
@@ -32,6 +35,7 @@ enum WidgetSampleCatalog {
             title: "UTC Clock",
             subtitle: "Local time widget with the compact clock treatment.",
             badge: "Local",
+            systemImage: "clock.fill",
             promptHint: "Create a UTC clock widget",
             buildManifest: utcClockManifest
         ),
@@ -40,6 +44,7 @@ enum WidgetSampleCatalog {
             title: "AMD Trend",
             subtitle: "Live 30-day AMD price history as a simple line chart.",
             badge: "Live API",
+            systemImage: "chart.xyaxis.line",
             promptHint: "Show me AMD stock price over the last 30 days as a line chart",
             buildManifest: amdTrendManifest
         ),
@@ -48,6 +53,7 @@ enum WidgetSampleCatalog {
             title: "Welcome Note",
             subtitle: "Local widget with no AI and no network.",
             badge: "Local",
+            systemImage: "text.document.fill",
             promptHint: "Create a markdown welcome note",
             buildManifest: welcomeNoteManifest
         ),
@@ -56,10 +62,20 @@ enum WidgetSampleCatalog {
             title: "Daily Agenda",
             subtitle: "Local list widget with times, badges, and notes.",
             badge: "Local",
+            systemImage: "list.bullet.rectangle.portrait.fill",
             promptHint: "Create an agenda list widget for my day",
             buildManifest: dailyAgendaManifest
         ),
     ]
+
+    static let featuredQuickStart: [WidgetSampleDefinition] = [
+        "amd-trend",
+        "utc-clock",
+        "daily-agenda",
+        "bitcoin-price",
+    ].compactMap { id in
+        quickStart.first { $0.id == id }
+    }
 
     private static func bitcoinPriceManifest() -> WidgetManifest {
         WidgetManifest(

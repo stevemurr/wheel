@@ -128,17 +128,50 @@ private struct WidgetCreationStepDescriptor: Identifiable {
     let detail: String
 }
 
+private struct WidgetPromptIdea: Identifiable {
+    let id: String
+    let title: String
+    let systemImage: String
+    let prompt: String
+}
+
 struct WidgetPromptSheet: View {
     let onCreate: @MainActor (WidgetManifest) throws -> Void
     let onDismiss: () -> Void
     private let generator: any WidgetManifestGenerator
+    private let promptIdeas: [WidgetPromptIdea] = [
+        .init(
+            id: "graph",
+            title: "Graph",
+            systemImage: "chart.xyaxis.line",
+            prompt: "Show me AMD stock price over the last 30 days as a line chart"
+        ),
+        .init(
+            id: "time",
+            title: "Time",
+            systemImage: "clock",
+            prompt: "Show me the current time in UTC, New York, and Tokyo"
+        ),
+        .init(
+            id: "list",
+            title: "List",
+            systemImage: "list.bullet.rectangle.portrait",
+            prompt: "Create an agenda list widget with today's meetings and status badges"
+        ),
+        .init(
+            id: "stat",
+            title: "Stat",
+            systemImage: "rectangle.compress.vertical",
+            prompt: "Show me Bitcoin price and 24h change as a compact stat card"
+        ),
+    ]
 
     @State private var prompt = ""
     @State private var isWorking = false
     @State private var error: String?
     @State private var availability: LMAvailabilityStatus?
     @State private var phase: WidgetCreationSheetPhase = .idle
-    @State private var statusDetail = "Describe a live widget or start with a quick sample."
+    @State private var statusDetail = "Describe a live widget or start with a featured sample."
     @State private var lastActiveStepIndex: Int?
 
     @Environment(\.dismiss) private var dismiss
@@ -197,7 +230,7 @@ struct WidgetPromptSheet: View {
                 .buttonStyle(.plain)
             }
 
-            Text("Generate a live dashboard widget with Apple Intelligence, or add a known-good sample that skips AI entirely.")
+            Text("Describe a widget in plain language, or start from a featured sample to see the runtime in action.")
                 .font(.system(size: 13))
                 .foregroundStyle(.secondary)
         }
@@ -219,18 +252,18 @@ struct WidgetPromptSheet: View {
 
     private var quickStartColumn: some View {
         VStack(alignment: .leading, spacing: 16) {
-            Text("Quick Start")
+            Text("Featured Samples")
                 .font(.headline)
 
-            Text("These widgets bypass AI generation so you can verify the dashboard, fetch bridge, and runtime immediately.")
+            Text("A small set of polished examples that show charts, clocks, lists, and compact stats.")
                 .font(.system(size: 13))
                 .foregroundStyle(.secondary)
 
-            ForEach(WidgetSampleCatalog.quickStart) { sample in
+            ForEach(WidgetSampleCatalog.featuredQuickStart) { sample in
                 sampleCard(sample)
             }
         }
-        .frame(width: 300, alignment: .leading)
+        .frame(width: 320, alignment: .leading)
     }
 
     private var modelStatusCard: some View {
@@ -272,37 +305,97 @@ struct WidgetPromptSheet: View {
     }
 
     private var promptComposer: some View {
-        VStack(alignment: .leading, spacing: 14) {
-            Text("Describe the widget you want")
-                .font(.headline)
+        VStack(alignment: .leading, spacing: 16) {
+            HStack(alignment: .top, spacing: 12) {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("Describe the widget you want")
+                        .font(.headline)
 
-            Text("Good prompts mention both the data and the presentation. Examples: “Show me Bitcoin price and 24h change as a compact stat card.” or “Show me AMD stock price over the last 30 days as a line chart.”")
-                .font(.system(size: 13))
-                .foregroundStyle(.secondary)
-
-            ZStack(alignment: .topLeading) {
-                RoundedRectangle(cornerRadius: 16)
-                    .fill(Color(nsColor: .textBackgroundColor))
-                RoundedRectangle(cornerRadius: 16)
-                    .stroke(Color.primary.opacity(0.08), lineWidth: 1)
-
-                if prompt.isEmpty {
-                    Text("e.g. Show me AMD stock price over the last 30 days as a line chart")
-                        .font(.system(size: 14))
-                        .foregroundStyle(.tertiary)
-                        .padding(.horizontal, 14)
-                        .padding(.vertical, 14)
+                    Text("Keep it simple: say what data to show, how it should look, and any time range or timezone.")
+                        .font(.system(size: 13))
+                        .foregroundStyle(.secondary)
                 }
 
-                TextEditor(text: $prompt)
-                    .font(.system(size: 14))
-                    .padding(10)
-                    .scrollContentBackground(.hidden)
-                    .background(Color.clear)
-            }
-            .frame(minHeight: 150)
+                Spacer()
 
-            Text("Need a reliable first success? Use a quick-start widget on the right, then come back to AI generation once the runtime is confirmed.")
+                Label("Prompt Studio", systemImage: "sparkles")
+                    .font(.system(size: 11, weight: .semibold))
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 6)
+                    .background(Color.primary.opacity(0.06), in: Capsule())
+            }
+
+            VStack(alignment: .leading, spacing: 14) {
+                HStack(spacing: 8) {
+                    composerBadge(
+                        title: usesBuiltInTemplate ? "Template Shortcut" : "AI Prompt",
+                        systemImage: usesBuiltInTemplate ? "bolt.fill" : "sparkles",
+                        tint: usesBuiltInTemplate ? .green : .accentColor
+                    )
+
+                    composerBadge(
+                        title: trimmedPrompt.isEmpty ? "Start from an example" : "\(trimmedPrompt.count) characters",
+                        systemImage: "text.alignleft",
+                        tint: .secondary
+                    )
+
+                    Spacer()
+                }
+
+                ZStack(alignment: .topLeading) {
+                    RoundedRectangle(cornerRadius: 20, style: .continuous)
+                        .fill(Color(nsColor: .textBackgroundColor).opacity(0.96))
+
+                    RoundedRectangle(cornerRadius: 20, style: .continuous)
+                        .stroke(promptEditorBorder, lineWidth: 1.2)
+
+                    if prompt.isEmpty {
+                        VStack(alignment: .leading, spacing: 8) {
+                            Text("Show me AMD stock price over the last 30 days as a line chart")
+                                .font(.system(size: 15, weight: .medium))
+                                .foregroundStyle(.secondary)
+
+                            Text("Mention the data, the layout, and any range or timezone you care about.")
+                                .font(.system(size: 13))
+                                .foregroundStyle(.tertiary)
+                        }
+                        .padding(.horizontal, 16)
+                        .padding(.top, 18)
+                    }
+
+                    TextEditor(text: $prompt)
+                        .font(.system(size: 15))
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 12)
+                        .scrollContentBackground(.hidden)
+                        .background(Color.clear)
+                }
+                .frame(minHeight: 176)
+
+                VStack(alignment: .leading, spacing: 10) {
+                    Text("Try one of these starts")
+                        .font(.system(size: 12, weight: .semibold))
+                        .foregroundStyle(.secondary)
+
+                    ScrollView(.horizontal, showsIndicators: false) {
+                        HStack(spacing: 10) {
+                            ForEach(promptIdeas) { idea in
+                                promptIdeaChip(idea)
+                            }
+                        }
+                        .padding(.vertical, 2)
+                    }
+                }
+            }
+            .padding(16)
+            .background(promptComposerBackground)
+            .overlay(
+                RoundedRectangle(cornerRadius: 22, style: .continuous)
+                    .stroke(promptComposerBorder, lineWidth: 1)
+            )
+            .shadow(color: Color.accentColor.opacity(0.10), radius: 24, y: 12)
+
+            Text("Want the fastest first success? Add one of the featured samples on the right, then come back to AI prompts.")
                 .font(.caption)
                 .foregroundStyle(.secondary)
         }
@@ -368,7 +461,7 @@ struct WidgetPromptSheet: View {
                 .foregroundStyle(.primary)
                 .textSelection(.enabled)
 
-            Text("Try a more specific prompt, or use a quick-start widget to confirm the dashboard and fetch runtime are working.")
+            Text("Try a more specific prompt, or use a featured sample to confirm the dashboard and fetch runtime are working.")
                 .font(.caption)
                 .foregroundStyle(.secondary)
         }
@@ -384,8 +477,18 @@ struct WidgetPromptSheet: View {
     }
 
     private func sampleCard(_ sample: WidgetSampleDefinition) -> some View {
-        VStack(alignment: .leading, spacing: 12) {
-            HStack(alignment: .top, spacing: 8) {
+        VStack(alignment: .leading, spacing: 14) {
+            HStack(alignment: .top, spacing: 12) {
+                ZStack {
+                    RoundedRectangle(cornerRadius: 14, style: .continuous)
+                        .fill(sampleAccentGradient(for: sample))
+
+                    Image(systemName: sample.systemImage)
+                        .font(.system(size: 16, weight: .semibold))
+                        .foregroundStyle(.white)
+                }
+                .frame(width: 44, height: 44)
+
                 VStack(alignment: .leading, spacing: 4) {
                     Text(sample.title)
                         .font(.system(size: 14, weight: .semibold))
@@ -395,18 +498,24 @@ struct WidgetPromptSheet: View {
                 }
 
                 Spacer()
+            }
 
+            HStack(spacing: 8) {
                 Text(sample.badge)
                     .font(.system(size: 11, weight: .semibold))
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(sampleAccentColor(for: sample))
                     .padding(.horizontal, 8)
                     .padding(.vertical, 5)
-                    .background(Color.primary.opacity(0.06), in: Capsule())
+                    .background(sampleAccentColor(for: sample).opacity(0.12), in: Capsule())
+
+                Text(sampleCategory(for: sample))
+                    .font(.system(size: 11, weight: .medium))
+                    .foregroundStyle(.secondary)
             }
 
             HStack(spacing: 10) {
                 if let promptHint = sample.promptHint {
-                    Button("Use Prompt") {
+                    Button("Load Prompt") {
                         prompt = promptHint
                         phase = .idle
                         statusDetail = "Prompt loaded from \(sample.title)."
@@ -425,12 +534,12 @@ struct WidgetPromptSheet: View {
         }
         .padding(16)
         .background(
-            RoundedRectangle(cornerRadius: 18, style: .continuous)
-                .fill(Color.primary.opacity(0.035))
+            RoundedRectangle(cornerRadius: 20, style: .continuous)
+                .fill(sampleCardBackground(for: sample))
         )
         .overlay(
-            RoundedRectangle(cornerRadius: 18, style: .continuous)
-                .stroke(Color.primary.opacity(0.08), lineWidth: 1)
+            RoundedRectangle(cornerRadius: 20, style: .continuous)
+                .stroke(sampleAccentColor(for: sample).opacity(0.16), lineWidth: 1)
         )
     }
 
@@ -481,9 +590,12 @@ struct WidgetPromptSheet: View {
         return availability.reason ?? "Widget generation runs on-device and never leaves your Mac."
     }
 
+    private var trimmedPrompt: String {
+        prompt.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
     private var generateButtonDisabled: Bool {
-        let trimmed = prompt.trimmingCharacters(in: .whitespacesAndNewlines)
-        return trimmed.isEmpty
+        trimmedPrompt.isEmpty
             || isWorking
             || (!usesBuiltInTemplate && (availability == nil || availability?.isAvailable == false))
     }
@@ -493,16 +605,15 @@ struct WidgetPromptSheet: View {
             return "This prompt matches a built-in widget shortcut, so it can still work without Apple Intelligence."
         }
         if availability?.isAvailable == false {
-            return "AI generation is unavailable right now. You can still add a quick-start widget."
+            return "AI generation is unavailable right now. You can still add a featured sample."
         }
-        return "Create from prompt, or add a quick-start widget that skips AI."
+        return "Create from prompt, or add a featured sample that skips AI."
     }
 
     private var usesBuiltInTemplate: Bool {
-        let trimmed = prompt.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { return false }
-        return WidgetPromptTemplateFactory.manifest(for: trimmed) != nil
-            || WidgetPromptPlanFactory.plan(for: trimmed) != nil
+        guard !trimmedPrompt.isEmpty else { return false }
+        return WidgetPromptTemplateFactory.manifest(for: trimmedPrompt) != nil
+            || WidgetPromptPlanFactory.plan(for: trimmedPrompt) != nil
     }
 
     private var creationSteps: [WidgetCreationStepDescriptor] {
@@ -517,6 +628,157 @@ struct WidgetPromptSheet: View {
     private var cardBackground: some View {
         RoundedRectangle(cornerRadius: 18, style: .continuous)
             .fill(Color(nsColor: .controlBackgroundColor))
+    }
+
+    private var promptComposerBackground: some View {
+        RoundedRectangle(cornerRadius: 22, style: .continuous)
+            .fill(
+                LinearGradient(
+                    colors: [
+                        Color.accentColor.opacity(0.16),
+                        Color.orange.opacity(0.09),
+                        Color(nsColor: .controlBackgroundColor),
+                    ],
+                    startPoint: .topLeading,
+                    endPoint: .bottomTrailing
+                )
+            )
+    }
+
+    private var promptComposerBorder: some ShapeStyle {
+        LinearGradient(
+            colors: [
+                Color.white.opacity(0.30),
+                Color.accentColor.opacity(0.24),
+                Color.orange.opacity(0.18),
+            ],
+            startPoint: .topLeading,
+            endPoint: .bottomTrailing
+        )
+    }
+
+    private var promptEditorBorder: some ShapeStyle {
+        LinearGradient(
+            colors: [
+                Color.accentColor.opacity(0.45),
+                Color.orange.opacity(0.24),
+                Color.primary.opacity(0.08),
+            ],
+            startPoint: .topLeading,
+            endPoint: .bottomTrailing
+        )
+    }
+
+    private func composerBadge(title: String, systemImage: String, tint: Color) -> some View {
+        Label(title, systemImage: systemImage)
+            .font(.system(size: 11, weight: .semibold))
+            .foregroundStyle(tint)
+            .padding(.horizontal, 10)
+            .padding(.vertical, 6)
+            .background(tint.opacity(0.12), in: Capsule())
+    }
+
+    private func promptIdeaChip(_ idea: WidgetPromptIdea) -> some View {
+        Button {
+            prompt = idea.prompt
+            phase = .idle
+            statusDetail = "Prompt loaded from \(idea.title.lowercased()) idea."
+            error = nil
+        } label: {
+            HStack(spacing: 10) {
+                Image(systemName: idea.systemImage)
+                    .font(.system(size: 14, weight: .semibold))
+                    .foregroundStyle(Color.accentColor)
+                    .frame(width: 26, height: 26)
+                    .background(Color.accentColor.opacity(0.10), in: RoundedRectangle(cornerRadius: 9, style: .continuous))
+
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(idea.title)
+                        .font(.system(size: 12, weight: .semibold))
+                        .foregroundStyle(.primary)
+
+                    Text(idea.prompt)
+                        .font(.system(size: 11))
+                        .foregroundStyle(.secondary)
+                        .lineLimit(2)
+                }
+            }
+            .padding(12)
+            .frame(width: 220, alignment: .leading)
+            .background(
+                RoundedRectangle(cornerRadius: 16, style: .continuous)
+                    .fill(Color.primary.opacity(0.04))
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 16, style: .continuous)
+                    .stroke(Color.primary.opacity(0.08), lineWidth: 1)
+            )
+        }
+        .buttonStyle(.plain)
+        .disabled(isWorking)
+    }
+
+    private func sampleCategory(for sample: WidgetSampleDefinition) -> String {
+        switch sample.id {
+        case "amd-trend":
+            return "Graph"
+        case "utc-clock":
+            return "Time"
+        case "daily-agenda":
+            return "List"
+        case "bitcoin-price":
+            return "Stat"
+        case "usd-eur-rate":
+            return "Rate"
+        case "welcome-note":
+            return "Text"
+        default:
+            return "Sample"
+        }
+    }
+
+    private func sampleAccentColor(for sample: WidgetSampleDefinition) -> Color {
+        switch sample.id {
+        case "amd-trend":
+            return Color(red: 0.95, green: 0.42, blue: 0.20)
+        case "utc-clock":
+            return Color(red: 0.20, green: 0.54, blue: 0.94)
+        case "daily-agenda":
+            return Color(red: 0.22, green: 0.67, blue: 0.42)
+        case "bitcoin-price":
+            return Color(red: 0.90, green: 0.60, blue: 0.16)
+        case "usd-eur-rate":
+            return Color(red: 0.28, green: 0.52, blue: 0.88)
+        case "welcome-note":
+            return Color(red: 0.47, green: 0.50, blue: 0.56)
+        default:
+            return .accentColor
+        }
+    }
+
+    private func sampleAccentGradient(for sample: WidgetSampleDefinition) -> LinearGradient {
+        let accent = sampleAccentColor(for: sample)
+        return LinearGradient(
+            colors: [
+                accent,
+                accent.opacity(0.72),
+            ],
+            startPoint: .topLeading,
+            endPoint: .bottomTrailing
+        )
+    }
+
+    private func sampleCardBackground(for sample: WidgetSampleDefinition) -> LinearGradient {
+        let accent = sampleAccentColor(for: sample)
+        return LinearGradient(
+            colors: [
+                accent.opacity(0.14),
+                Color(nsColor: .controlBackgroundColor),
+                Color(nsColor: .controlBackgroundColor),
+            ],
+            startPoint: .topLeading,
+            endPoint: .bottomTrailing
+        )
     }
 
     private func stepState(for index: Int) -> WidgetCreationStepState {
