@@ -8,7 +8,7 @@ Wheel is a macOS browser with a built-in AI workflow layer: a multi-mode OmniBar
 
 ![macOS](https://img.shields.io/badge/macOS-26+-000?logo=apple&logoColor=white)
 ![Swift](https://img.shields.io/badge/Swift-6.2+-F05138?logo=swift&logoColor=white)
-![License](https://img.shields.io/badge/License-MIT-blue)
+![License](https://img.shields.io/badge/License-Source--Available%20NC--SS-blue)
 
 <img src="./hero.png" alt="Wheel screenshot" width="1100" />
 
@@ -247,8 +247,12 @@ There are still legacy `ModuleSystem/` and `WidgetSystem/` directories in the tr
 
 ---
 
-<div align="center">
+## License
 
-MIT License
+Wheel is available under the [Wheel Noncommercial Share Source License 1.0](./LICENSE).
 
-</div>
+- Forking, use, modification, and redistribution are allowed for noncommercial purposes.
+- If you share a fork or modified version with anyone else, you must publish the complete corresponding source code under the same license.
+- Commercial use requires prior written permission from the copyright holder.
+
+Because commercial use is restricted, this license is source-available, not OSI open source.

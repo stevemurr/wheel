@@ -1,0 +1,65 @@
+Wheel Noncommercial Share Source License 1.0
+
+Copyright (c) 2026 Steve Murr
+
+Permission is granted to any person obtaining a copy of this software and
+associated documentation files (the "Software") to use, copy, modify, fork,
+and distribute the Software, subject to the conditions below.
+
+1. Noncommercial Use Only
+
+You may use, copy, modify, fork, and distribute the Software only for
+noncommercial purposes.
+
+"Noncommercial purposes" means purposes that are not primarily intended for or
+directed toward commercial advantage or monetary compensation.
+
+"Commercial use" includes, without limitation:
+
+- selling, licensing, sublicensing, or offering paid access to the Software
+- using the Software as part of a paid product, service, or hosted offering
+- using the Software to support or operate a revenue-generating business
+- using the Software in connection with consulting, support, or services for a fee
+
+Any commercial use requires prior written permission from the copyright holder.
+
+2. Share Source Requirement
+
+If you distribute, publish, sublicense, host for third-party use, or otherwise
+make the Software or a modified version of the Software available to any third
+party, you must:
+
+- make the complete corresponding source code publicly available at no charge
+- license that source code under this same license
+- keep this license text and all copyright notices intact
+
+"Complete corresponding source code" means the preferred form of the work for
+making modifications, including build scripts, configuration, interface
+definitions, and other files reasonably necessary to build and run the shared
+version of the Software.
+
+3. No Additional Restrictions
+
+You may not impose further legal or technical restrictions that prevent
+recipients from exercising the rights granted under this license.
+
+4. No Trademark License
+
+This license does not grant any right to use the names, logos, trademarks, or
+service marks of the copyright holder, except as needed for accurate
+attribution.
+
+5. Termination
+
+Any use of the Software outside the scope of this license automatically
+terminates the rights granted under it.
+
+6. Disclaimer
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE, AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES, OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT, OR OTHERWISE, ARISING FROM,
+OUT OF, OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
