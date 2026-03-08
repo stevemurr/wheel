@@ -34,6 +34,7 @@ struct AgentCollectionExecutionTests {
                 decision(thought: "Move to page 3.", action: .advancePagination(url: nil)),
                 decision(thought: "Move to page 4.", action: .advancePagination(url: nil)),
                 decision(thought: "Move to page 5.", action: .advancePagination(url: nil)),
+                decision(thought: "The requested pages are complete; return the collected top links.", action: .done(summary: "Selected top 10 links from 12 candidates across 5 requested pages.")),
             ]
         )
         let engine = AgentEngine(
@@ -53,7 +54,7 @@ struct AgentCollectionExecutionTests {
         #expect(result.artifacts.first?.content.components(separatedBy: "\n").count == 10)
     }
 
-    @Test("Engine auto-collects and stops at the requested page budget without explicit collect or done actions")
+    @Test("Engine auto-collects and lets the model finish once the requested page budget is reached")
     @MainActor
     func autoCollectsAndStopsAtRequestedPageBudget() async {
         let browserState = BrowserState()
@@ -132,7 +133,7 @@ struct AgentCollectionExecutionTests {
                 decision(thought: "Move to page 3.", action: .advancePagination(url: nil)),
                 decision(thought: "Move to page 4.", action: .advancePagination(url: nil)),
                 decision(thought: "Move to page 5.", action: .advancePagination(url: nil)),
-                decision(thought: "This should never be used.", action: .advancePagination(url: nil)),
+                decision(thought: "The requested pages are complete; return the top links.", action: .done(summary: "Collected 5 unique links across 5 requested pages.")),
             ]
         )
         let engine = AgentEngine(
@@ -151,7 +152,7 @@ struct AgentCollectionExecutionTests {
         #expect(result.collection?.items.count == 5)
         #expect(!result.artifacts.isEmpty)
         #expect(result.summary.contains("5 requested pages"))
-        #expect(await contextService.servedDecisionCount() == 4)
+        #expect(await contextService.servedDecisionCount() == 5)
     }
 
     @Test("Engine keeps automating the original tab after the user switches tabs")
@@ -211,6 +212,7 @@ struct AgentCollectionExecutionTests {
             decisions: [
                 decision(thought: "Advance to page 2.", action: .advancePagination(url: nil)),
                 decision(thought: "Advance to page 3.", action: .advancePagination(url: nil)),
+                decision(thought: "The requested pages are complete; return the collected links.", action: .done(summary: "Collected 3 links across 3 requested pages.")),
             ],
             onDecisionServed: { decisionIndex in
                 if decisionIndex == 1 {
@@ -232,7 +234,7 @@ struct AgentCollectionExecutionTests {
         #expect(result.collection?.items.count == 3)
         #expect(browserState.activeTabId == backgroundTab.id)
         #expect(agentTab.hasActiveAgent == false)
-        #expect(await contextService.servedDecisionCount() == 2)
+        #expect(await contextService.servedDecisionCount() == 3)
     }
 
     @Test("Engine treats Hacker News top-articles requests as paginated collection tasks")
@@ -314,6 +316,7 @@ struct AgentCollectionExecutionTests {
                 decision(thought: "Advance to page 3.", action: .advancePagination(url: nil)),
                 decision(thought: "Advance to page 4.", action: .advancePagination(url: nil)),
                 decision(thought: "Advance to page 5.", action: .advancePagination(url: nil)),
+                decision(thought: "The requested pages are complete; return the collected top articles.", action: .done(summary: "Collected 5 top articles across 5 requested pages.")),
             ]
         )
         let engine = AgentEngine(
@@ -331,7 +334,7 @@ struct AgentCollectionExecutionTests {
         #expect(result.collection?.totalUniqueCount == 5)
         #expect(result.collection?.items.count == 5)
         #expect(!result.artifacts.isEmpty)
-        #expect(await contextService.servedDecisionCount() == 4)
+        #expect(await contextService.servedDecisionCount() == 5)
     }
 
     @Test("Summary-enriched collection tasks do not auto-complete at the raw link stage")
@@ -398,6 +401,103 @@ struct AgentCollectionExecutionTests {
         #expect(result.artifacts.first?.title == "Final Answer")
         #expect(result.artifacts.first?.content.contains("Summary two.") == true)
         #expect(await contextService.servedDecisionCount() == 2)
+    }
+
+    @Test("Completion validation rejects missing per-item summaries and required table output")
+    @MainActor
+    func completionValidationRejectsMissingSummaryTable() async {
+        let browserState = BrowserState()
+        let bridge = MockBrowserBridge(
+            snapshots: [
+                pageSnapshot(url: "https://news.ycombinator.com/news", nextPageURL: "https://news.ycombinator.com/news?p=2"),
+                pageSnapshot(url: "https://news.ycombinator.com/news?p=2", nextPageURL: nil),
+                pageSnapshot(url: "https://news.ycombinator.com/news?p=2", nextPageURL: nil),
+            ],
+            initialURL: "about:blank",
+            initialTitle: "Blank",
+            queuedCollectionResults: [
+                linkResult(
+                    pageURL: "https://news.ycombinator.com/news",
+                    matches: [
+                        LinkCollectionMatch(
+                            text: "Article 1",
+                            url: "https://example.com/article-1",
+                            sourcePageURL: "https://news.ycombinator.com/news"
+                        ),
+                    ],
+                    paginationCandidates: [PaginationCandidate(text: "More", url: "https://news.ycombinator.com/news?p=2")]
+                ),
+                linkResult(
+                    pageURL: "https://news.ycombinator.com/news?p=2",
+                    matches: [
+                        LinkCollectionMatch(
+                            text: "Article 2",
+                            url: "https://example.com/article-2",
+                            sourcePageURL: "https://news.ycombinator.com/news?p=2"
+                        ),
+                    ],
+                    paginationCandidates: []
+                ),
+            ]
+        )
+        let contextService = MockWheelModelContextService(
+            intent: hackerNewsIntent(
+                pageLimit: 2,
+                outputLimit: 2,
+                requiresPerItemSummaries: true,
+                finalResponseFormat: "markdown_table"
+            ),
+            decisions: [
+                decision(thought: "Advance to page 2 first.", action: .advancePagination(url: nil)),
+                decision(
+                    thought: "Return the table now.",
+                    action: .done(summary: """
+                    | Title | URL |
+                    | --- | --- |
+                    | Article 1 | https://example.com/article-1 |
+                    | Article 2 | https://example.com/article-2 |
+                    """)
+                ),
+                decision(
+                    thought: "Return the full requested table with summaries.",
+                    action: .done(summary: """
+                    | Title | URL | Summary |
+                    | --- | --- | --- |
+                    | Article 1 | https://example.com/article-1 | Summary one. |
+                    | Article 2 | https://example.com/article-2 | Summary two. |
+                    """)
+                ),
+            ],
+            completionEvaluations: [
+                GeneratedAgentCompletionEvaluation(
+                    isComplete: false,
+                    reason: "The requested markdown table is missing a Summary column and per-item summaries.",
+                    recommendedNextStep: "Open the selected articles, gather content, and return a table with Title, URL, and Summary columns."
+                ),
+                GeneratedAgentCompletionEvaluation(
+                    isComplete: true,
+                    reason: "The markdown table now satisfies the requested output.",
+                    recommendedNextStep: nil
+                ),
+            ]
+        )
+        let engine = AgentEngine(
+            browserState: browserState,
+            contextService: contextService,
+            bridgeProvider: MockBrowserBridgeProvider(bridge: bridge)
+        )
+        engine.maxSteps = 10
+
+        let result = await engine.run(task: "Go to Hacker News, pull 2 articles from the first 2 pages, and return the article link and a summary in a table.")
+
+        #expect(result.success)
+        #expect(result.summary.contains("| Summary |"))
+        #expect(result.artifacts.first?.content.contains("| Title | URL | Summary |") == true)
+        #expect(result.steps.contains(where: { step in
+            step.type == .error && step.content.contains("missing a Summary column")
+        }))
+        #expect(await contextService.servedDecisionCount() == 3)
+        #expect(await contextService.servedCompletionEvaluationCount() == 2)
     }
 
     @Test("Engine collects canonicalized links across paginated pages")
@@ -529,6 +629,18 @@ struct AgentCollectionExecutionTests {
                 decision(thought: "Continue to the next page.", action: .advancePagination(url: nil)),
                 decision(thought: "Collect the second page.", action: .collectLinks),
                 decision(thought: "Now the requested pages are scanned.", action: .done(summary: "Finished collecting the requested pages.")),
+            ],
+            completionEvaluations: [
+                GeneratedAgentCompletionEvaluation(
+                    isComplete: false,
+                    reason: "You have only scanned 1 of 2 requested pages and another requested source page is still available.",
+                    recommendedNextStep: "Advance to the next page and continue collecting before finishing."
+                ),
+                GeneratedAgentCompletionEvaluation(
+                    isComplete: true,
+                    reason: "The requested pages have been scanned and the final answer is acceptable.",
+                    recommendedNextStep: nil
+                ),
             ]
         )
         let engine = AgentEngine(
@@ -592,16 +704,20 @@ struct AgentCollectionExecutionTests {
 private actor MockWheelModelContextService: WheelModelContextServing {
     private let intent: GeneratedAgentTaskIntent
     private var decisions: [GeneratedAgentDecision]
+    private var completionEvaluations: [GeneratedAgentCompletionEvaluation]
     private var servedDecisions = 0
+    private var servedCompletionEvaluations = 0
     private let onDecisionServed: (@Sendable @MainActor (Int) -> Void)?
 
     init(
         intent: GeneratedAgentTaskIntent,
         decisions: [GeneratedAgentDecision],
+        completionEvaluations: [GeneratedAgentCompletionEvaluation] = [],
         onDecisionServed: (@Sendable @MainActor (Int) -> Void)? = nil
     ) {
         self.intent = intent
         self.decisions = decisions
+        self.completionEvaluations = completionEvaluations
         self.onDecisionServed = onDecisionServed
     }
 
@@ -689,8 +805,44 @@ private actor MockWheelModelContextService: WheelModelContextServing {
         }
     }
 
+    func generateAgentCompletionEvaluation(
+        requestID: UUID,
+        prompt: String,
+        instructions: String
+    ) async throws -> LMManagedStructuredResponse<GeneratedAgentCompletionEvaluation> {
+        servedCompletionEvaluations += 1
+        let evaluation = completionEvaluations.isEmpty
+            ? GeneratedAgentCompletionEvaluation(
+                isComplete: true,
+                reason: "The proposed final answer satisfies the task.",
+                recommendedNextStep: nil
+            )
+            : completionEvaluations.removeFirst()
+
+        return LMManagedStructuredResponse(
+            content: evaluation,
+            transcriptText: evaluation.reason,
+            budget: BudgetReport(
+                accuracy: .exact,
+                contextWindowTokens: 4096,
+                estimatedInputTokens: 0,
+                reservedOutputTokens: 0,
+                projectedTotalTokens: 0,
+                softLimitTokens: 4096,
+                emergencyLimitTokens: 4096,
+                breakdown: [:]
+            ),
+            compaction: nil,
+            bridge: nil
+        )
+    }
+
     func servedDecisionCount() -> Int {
         servedDecisions
+    }
+
+    func servedCompletionEvaluationCount() -> Int {
+        servedCompletionEvaluations
     }
 
     func appendAgentTurns(_ turns: [LMNormalizedTurn], threadID: String) async throws {}
@@ -739,7 +891,9 @@ private func hackerNewsIntent(
     targetHosts: [String] = [],
     outputLimit: Int?,
     canonicalizationStrategy: String = "none",
-    requiresPerItemSummaries: Bool = false
+    requiresPerItemSummaries: Bool = false,
+    collectionMode: String = "paginated_links",
+    finalResponseFormat: String = "unspecified"
 ) -> GeneratedAgentTaskIntent {
     GeneratedAgentTaskIntent(
         seedURL: "https://news.ycombinator.com/news",
@@ -749,10 +903,11 @@ private func hackerNewsIntent(
         outputLimit: outputLimit,
         requiresUniqueURLs: true,
         requiresPerItemSummaries: requiresPerItemSummaries,
-        collectionMode: "paginated_links",
+        collectionMode: collectionMode,
         canonicalizationStrategy: canonicalizationStrategy,
         collectionStrategy: "hacker_news_story_links",
-        sourcePageIdentityStrategy: "hacker_news_news_pages"
+        sourcePageIdentityStrategy: "hacker_news_news_pages",
+        finalResponseFormat: finalResponseFormat
     )
 }
 

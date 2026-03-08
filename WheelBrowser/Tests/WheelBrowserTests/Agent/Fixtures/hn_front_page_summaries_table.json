@@ -1,0 +1,22 @@
+{
+    "name": "hn_front_page_summaries_table",
+    "description": "Collect three Hacker News front-page articles and return a markdown table with article links and summaries.",
+    "startURL": "about:blank",
+    "task": "Go to Hacker News and pull 3 articles from the front page, then return the article link and a summary of the article in a table.",
+    "maxSteps": 20,
+    "timeout": 120,
+    "successCriteria": {
+        "requireAgentSuccess": true,
+        "urlContains": null,
+        "titleContains": null,
+        "pageContains": null,
+        "summaryContains": "| title |",
+        "maxExpectedSteps": 12,
+        "collectionCountAtLeast": 3,
+        "collectionHost": null,
+        "pagesScanned": 1,
+        "artifactPresent": true,
+        "noDuplicateCanonicalIDs": false
+    },
+    "tags": ["collection", "summary", "table"]
+}

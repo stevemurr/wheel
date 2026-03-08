@@ -17,7 +17,8 @@ struct AgentContextReductionTests {
             collectionMode: "paginated_links",
             canonicalizationStrategy: "arxiv",
             collectionStrategy: "hacker_news_story_links",
-            sourcePageIdentityStrategy: "hacker_news_news_pages"
+            sourcePageIdentityStrategy: "hacker_news_news_pages",
+            finalResponseFormat: "unspecified"
         ).toTaskIntent()
 
         #expect(intent.collectionMode == .paginatedLinks)
@@ -47,7 +48,8 @@ struct AgentContextReductionTests {
             collectionMode: "paginated_links",
             canonicalizationStrategy: "none",
             collectionStrategy: "hacker_news_story_links",
-            sourcePageIdentityStrategy: "hacker_news_news_pages"
+            sourcePageIdentityStrategy: "hacker_news_news_pages",
+            finalResponseFormat: "unspecified"
         ).toTaskIntent()
 
         #expect(intent.collectionMode == .paginatedLinks)
@@ -72,7 +74,8 @@ struct AgentContextReductionTests {
             collectionMode: "paginated_links",
             canonicalizationStrategy: "none",
             collectionStrategy: "hacker_news_story_links",
-            sourcePageIdentityStrategy: "hacker_news_news_pages"
+            sourcePageIdentityStrategy: "hacker_news_news_pages",
+            finalResponseFormat: "unspecified"
         ).toTaskIntent()
 
         #expect(intent.collectionMode == .paginatedLinks)
@@ -85,6 +88,30 @@ struct AgentContextReductionTests {
         #expect(intent.sourcePageIdentityStrategy == .hackerNewsNewsPages)
         #expect(intent.snapshotRequest.includeContentSummary)
         #expect(intent.snapshotRequest.includeHeadings)
+    }
+
+    @Test("Generated task intent can represent single-page table summaries")
+    func convertsSinglePageTableIntent() throws {
+        let intent = try makeIntent(
+            seedURL: "https://news.ycombinator.com/news",
+            sourceHosts: ["news.ycombinator.com"],
+            targetHosts: [],
+            pageLimit: nil,
+            outputLimit: 3,
+            requiresUniqueURLs: true,
+            requiresPerItemSummaries: true,
+            collectionMode: "page_links",
+            canonicalizationStrategy: "none",
+            collectionStrategy: "hacker_news_story_links",
+            sourcePageIdentityStrategy: "hacker_news_news_pages",
+            finalResponseFormat: "markdown_table"
+        ).toTaskIntent()
+
+        #expect(intent.collectionMode == .pageLinks)
+        #expect(intent.requiresPerItemSummaries)
+        #expect(intent.outputLimit == 3)
+        #expect(intent.finalResponseFormat == .markdownTable)
+        #expect(intent.prefersMarkdownTable)
     }
 
     @Test("Reduced observation keeps relevant links and pagination while omitting irrelevant content")
@@ -238,7 +265,8 @@ struct AgentContextReductionTests {
             collectionMode: "paginated_links",
             canonicalizationStrategy: "arxiv",
             collectionStrategy: "hacker_news_story_links",
-            sourcePageIdentityStrategy: "hacker_news_news_pages"
+            sourcePageIdentityStrategy: "hacker_news_news_pages",
+            finalResponseFormat: "unspecified"
         ).toTaskIntent()
         var session = AgentCrawlSession(intent: intent)
         session.observePage(
@@ -267,7 +295,8 @@ struct AgentContextReductionTests {
             collectionMode: "paginated_links",
             canonicalizationStrategy: "none",
             collectionStrategy: "hacker_news_story_links",
-            sourcePageIdentityStrategy: "hacker_news_news_pages"
+            sourcePageIdentityStrategy: "hacker_news_news_pages",
+            finalResponseFormat: "unspecified"
         ).toTaskIntent()
         var session = AgentCrawlSession(intent: intent)
 
@@ -360,6 +389,8 @@ struct AgentContextReductionTests {
         #expect(secondDelta.totalUniqueCount == 3)
         #expect(accumulator.totalUniqueCount == 3)
         #expect(accumulator.summaryText().contains("Collected links: 3 unique URLs."))
+        #expect(accumulator.summaryText().contains("Candidate items:"))
+        #expect(accumulator.summaryText().contains("Paper 1 -> https://arxiv.org/abs/1234.5678"))
 
         let artifacts = accumulator.artifacts(title: "arXiv")
         #expect(artifacts.count == 2)
@@ -388,7 +419,8 @@ private func makeIntent(
     collectionMode: String,
     canonicalizationStrategy: String,
     collectionStrategy: String,
-    sourcePageIdentityStrategy: String
+    sourcePageIdentityStrategy: String,
+    finalResponseFormat: String = "unspecified"
 ) -> GeneratedAgentTaskIntent {
     GeneratedAgentTaskIntent(
         seedURL: seedURL,
@@ -401,6 +433,7 @@ private func makeIntent(
         collectionMode: collectionMode,
         canonicalizationStrategy: canonicalizationStrategy,
         collectionStrategy: collectionStrategy,
-        sourcePageIdentityStrategy: sourcePageIdentityStrategy
+        sourcePageIdentityStrategy: sourcePageIdentityStrategy,
+        finalResponseFormat: finalResponseFormat
     )
 }

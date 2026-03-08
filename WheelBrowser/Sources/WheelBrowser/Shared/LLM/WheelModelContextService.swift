@@ -54,6 +54,11 @@ protocol WheelModelContextServing: Sendable {
         prompt: String,
         threadID: String
     ) async throws -> AsyncThrowingStream<WheelAgentDecisionStreamEvent, Error>
+    func generateAgentCompletionEvaluation(
+        requestID: UUID,
+        prompt: String,
+        instructions: String
+    ) async throws -> LMManagedStructuredResponse<GeneratedAgentCompletionEvaluation>
     func appendAgentTurns(_ turns: [LMNormalizedTurn], threadID: String) async throws
     func generateSummary(
         requestID: UUID,
@@ -191,6 +196,22 @@ actor WheelModelContextService: WheelModelContextServing {
         return mapAgentStream(stream)
     }
 
+    func generateAgentCompletionEvaluation(
+        requestID: UUID,
+        prompt: String,
+        instructions: String
+    ) async throws -> LMManagedStructuredResponse<GeneratedAgentCompletionEvaluation> {
+        try await openAgentCompletionThread(requestID: requestID, instructions: instructions)
+        return try await contextKit.respondManaged(
+            to: prompt,
+            generating: GeneratedAgentCompletionEvaluation.self,
+            threadID: Self.agentCompletionThreadID(for: requestID),
+            transcriptRenderer: { response in
+                response.isComplete ? "Completion accepted" : "Completion rejected"
+            }
+        )
+    }
+
     func appendAgentTurns(_ turns: [LMNormalizedTurn], threadID: String) async throws {
         try await contextKit.appendTurns(turns, threadID: threadID)
     }
@@ -257,6 +278,13 @@ actor WheelModelContextService: WheelModelContextServing {
     private func openIntentThread(requestID: UUID, instructions: String) async throws {
         try await openThread(
             id: Self.agentIntentThreadID(for: requestID),
+            instructions: instructions
+        )
+    }
+
+    private func openAgentCompletionThread(requestID: UUID, instructions: String) async throws {
+        try await openThread(
+            id: Self.agentCompletionThreadID(for: requestID),
             instructions: instructions
         )
     }
@@ -379,6 +407,10 @@ actor WheelModelContextService: WheelModelContextServing {
 
     nonisolated static func summaryThreadID(for requestID: UUID) -> String {
         "summary:\(requestID.uuidString.lowercased())"
+    }
+
+    nonisolated static func agentCompletionThreadID(for requestID: UUID) -> String {
+        "agent-completion:\(requestID.uuidString.lowercased())"
     }
 
     nonisolated static func widgetThreadID(for requestID: UUID) -> String {
