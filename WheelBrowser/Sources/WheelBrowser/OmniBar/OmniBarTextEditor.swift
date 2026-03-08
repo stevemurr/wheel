@@ -64,8 +64,9 @@ struct OmniBarTextEditor: NSViewRepresentable {
 
         OmniBarTextInputConfigurator.configure(textView)
 
-        // Focus coordination (Rule 9: set focus before mode, Rule 11: no withAnimation on focus)
-        if isFocused {
+        // Avoid re-requesting first responder from inside an active edit session.
+        // That creates a SwiftUI <-> AppKit focus feedback loop during panel/layout updates.
+        if isFocused && !context.coordinator.isEditing {
             if let window = textView.window, window.firstResponder != textView {
                 OmniBarWindowDiagnostics.shared.arm(reason: "chat-programmatic-focus")
                 window.makeFirstResponder(textView)
@@ -75,6 +76,7 @@ struct OmniBarTextEditor: NSViewRepresentable {
                 let coordinator = context.coordinator
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) { [weak textView] in
                     guard coordinator.parent.isFocused,
+                          !coordinator.isEditing,
                           let textView = textView,
                           let window = textView.window,
                           window.firstResponder != textView else { return }
@@ -157,12 +159,8 @@ struct OmniBarTextEditor: NSViewRepresentable {
                 OmniBarTextInputConfigurator.configure(textView)
             }
             DispatchQueue.main.async {
-                // Wrap in withAnimation so pill expansion animates smoothly
-                // alongside the panel open. Safe now that .animation() was
-                // removed from omniBarContent (no overlapping contexts).
-                withAnimation(AppAnimation.panelSpring) {
-                    self.parent.isFocused = true
-                }
+                guard !self.parent.isFocused else { return }
+                self.parent.isFocused = true
             }
         }
 
@@ -170,6 +168,8 @@ struct OmniBarTextEditor: NSViewRepresentable {
             guard isEditing else { return }
             isEditing = false
             DispatchQueue.main.async {
+                guard !self.omniBarInputHasFirstResponder() else { return }
+                guard self.parent.isFocused else { return }
                 self.parent.isFocused = false
             }
         }
@@ -261,6 +261,12 @@ struct OmniBarTextEditor: NSViewRepresentable {
                 }
             }
             parent.onAtDismiss()
+        }
+
+        private func omniBarInputHasFirstResponder() -> Bool {
+            guard let responder = NSApp.keyWindow?.firstResponder else { return false }
+            return responder is OmniBarTextEditor.ChatTextView
+                || responder is OmniBarTextField.CommandTextView
         }
     }
 }

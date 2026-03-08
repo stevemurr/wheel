@@ -90,18 +90,18 @@ struct OmniBarTextField: NSViewRepresentable {
         OmniBarTextInputConfigurator.configure(textView)
         textView.textContainerInset = NSSize(width: 0, height: OmniBarSingleLineLayout.verticalInset(for: textView))
         context.coordinator.updatePlaceholder()
-        requestFocusIfNeeded(for: textView)
+        requestFocusIfNeeded(for: textView, coordinator: context.coordinator)
     }
 
     func makeCoordinator() -> Coordinator {
         Coordinator(self)
     }
 
-    private func requestFocusIfNeeded(for textView: NSTextView) {
-        guard isFocused else { return }
+    private func requestFocusIfNeeded(for textView: NSTextView, coordinator: Coordinator) {
+        guard isFocused, !coordinator.isEditing else { return }
 
         guard let window = textView.window else {
-            scheduleFocusRetry(for: textView, reason: "single-line-delayed-focus-no-window")
+            scheduleFocusRetry(for: textView, coordinator: coordinator, reason: "single-line-delayed-focus-no-window")
             return
         }
 
@@ -109,13 +109,13 @@ struct OmniBarTextField: NSViewRepresentable {
 
         OmniBarWindowDiagnostics.shared.arm(reason: "single-line-programmatic-focus")
         if !window.makeFirstResponder(textView) {
-            scheduleFocusRetry(for: textView, reason: "single-line-delayed-focus-retry")
+            scheduleFocusRetry(for: textView, coordinator: coordinator, reason: "single-line-delayed-focus-retry")
         }
     }
 
-    private func scheduleFocusRetry(for textView: NSTextView, reason: String) {
+    private func scheduleFocusRetry(for textView: NSTextView, coordinator: Coordinator, reason: String) {
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
-            guard self.isFocused else { return }
+            guard self.isFocused, !coordinator.isEditing else { return }
             guard let window = textView.window, window.firstResponder !== textView else { return }
 
             OmniBarWindowDiagnostics.shared.arm(reason: reason)
@@ -175,9 +175,8 @@ struct OmniBarTextField: NSViewRepresentable {
                 OmniBarTextInputConfigurator.configure(textView)
             }
             DispatchQueue.main.async {
-                withAnimation(AppAnimation.panelSpring) {
-                    self.parent.isFocused = true
-                }
+                guard !self.parent.isFocused else { return }
+                self.parent.isFocused = true
             }
         }
 
@@ -185,6 +184,8 @@ struct OmniBarTextField: NSViewRepresentable {
             guard isEditing else { return }
             isEditing = false
             DispatchQueue.main.async {
+                guard !self.omniBarInputHasFirstResponder() else { return }
+                guard self.parent.isFocused else { return }
                 self.parent.isFocused = false
             }
         }
@@ -259,6 +260,12 @@ struct OmniBarTextField: NSViewRepresentable {
             }
 
             parent.onAtDismiss()
+        }
+
+        private func omniBarInputHasFirstResponder() -> Bool {
+            guard let responder = NSApp.keyWindow?.firstResponder else { return false }
+            return responder is OmniBarTextField.CommandTextView
+                || responder is OmniBarTextEditor.ChatTextView
         }
     }
 }
