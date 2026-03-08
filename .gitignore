@@ -31,3 +31,4 @@ Package.resolved
 # Screenshots/examples (optional, remove if you want to include them)
 *.png
 !hero.png
+!hero2.png

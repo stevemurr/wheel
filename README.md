@@ -39,6 +39,8 @@ Opening a blank tab shows the current widget dashboard, not a static new-tab pag
 - Widget creation uses on-device generation plus deterministic templates for high-reliability cases like clocks
 - Widgets can render local data or fetch public HTTPS data through an app-managed fetch bridge
 
+<img src="./hero2.png" alt="Wheel widget dashboard with live clocks and stock widgets" width="1100" />
+
 ### On-Device AI
 
 Wheel uses Apple Intelligence through `FoundationModels` for chat, agent flows, and widget generation.
