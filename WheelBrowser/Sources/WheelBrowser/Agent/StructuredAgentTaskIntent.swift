@@ -8,9 +8,12 @@ enum AgentTaskIntentExtractionPrompt {
     Represent the user's requested outcome, not your own preferred implementation.
     Do not rely on regex-style phrasing rules. Infer intent semantically from the request.
     Do not omit requirements like summaries, ranking, filtering, or page limits.
+    Do not omit requested output formats such as tables.
     If the task asks for a fixed number of final items, set outputLimit to that number.
     If the task asks for summaries/descriptions/blurbs for each selected item, set requiresPerItemSummaries to true.
+    If the task asks for links/items from only the current page or front page, use collectionMode `page_links`.
     Use collectionMode `paginated_links` only when the task requires gathering linked items across source pages.
+    If the task explicitly asks for a table or tabular output, set finalResponseFormat to `markdown_table`.
     Use targetHosts only when the user explicitly or strongly implicitly wants a host/domain filter.
     Use canonicalizationStrategy `arxiv` only when the task explicitly targets arXiv links/papers.
 
@@ -45,7 +48,7 @@ struct GeneratedAgentTaskIntent: Sendable {
     @Guide(description: "True when each final selected item needs its own summary or description.")
     let requiresPerItemSummaries: Bool
 
-    @Guide(description: "One of: none, paginated_links.")
+    @Guide(description: "One of: none, page_links, paginated_links.")
     let collectionMode: String
 
     @Guide(description: "One of: none, arxiv.")
@@ -56,6 +59,9 @@ struct GeneratedAgentTaskIntent: Sendable {
 
     @Guide(description: "One of: generic_host_pages, hacker_news_news_pages.")
     let sourcePageIdentityStrategy: String
+
+    @Guide(description: "One of: unspecified, markdown_list, markdown_table.")
+    let finalResponseFormat: String
 
     init(
         seedURL: String?,
@@ -68,7 +74,8 @@ struct GeneratedAgentTaskIntent: Sendable {
         collectionMode: String,
         canonicalizationStrategy: String,
         collectionStrategy: String,
-        sourcePageIdentityStrategy: String
+        sourcePageIdentityStrategy: String,
+        finalResponseFormat: String
     ) {
         self.seedURL = seedURL
         self.sourceHosts = sourceHosts
@@ -81,6 +88,7 @@ struct GeneratedAgentTaskIntent: Sendable {
         self.canonicalizationStrategy = canonicalizationStrategy
         self.collectionStrategy = collectionStrategy
         self.sourcePageIdentityStrategy = sourcePageIdentityStrategy
+        self.finalResponseFormat = finalResponseFormat
     }
 
     func toTaskIntent() throws -> AgentTaskIntent {
@@ -99,6 +107,9 @@ struct GeneratedAgentTaskIntent: Sendable {
         guard let resolvedSourcePageIdentityStrategy = SourcePageIdentityStrategy(rawValue: normalizedSourcePageIdentityStrategy) else {
             throw AgentError.invalidLLMResponse("Unknown source page identity strategy: \(sourcePageIdentityStrategy)")
         }
+        guard let resolvedFinalResponseFormat = AgentFinalResponseFormat(rawValue: normalizedFinalResponseFormat) else {
+            throw AgentError.invalidLLMResponse("Unknown final response format: \(finalResponseFormat)")
+        }
 
         return AgentTaskIntent(
             seedURL: seedURL?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty,
@@ -111,12 +122,15 @@ struct GeneratedAgentTaskIntent: Sendable {
             collectionMode: resolvedCollectionMode,
             canonicalizationStrategy: resolvedCanonicalization,
             collectionStrategy: resolvedCollectionStrategy,
-            sourcePageIdentityStrategy: resolvedSourcePageIdentityStrategy
+            sourcePageIdentityStrategy: resolvedSourcePageIdentityStrategy,
+            finalResponseFormat: resolvedFinalResponseFormat
         )
     }
 
     private var normalizedCollectionMode: String {
         switch collectionMode.lowercased() {
+        case "page_links", "pagelinks":
+            return AgentCollectionMode.pageLinks.rawValue
         case "paginated_links", "paginatedlinks":
             return AgentCollectionMode.paginatedLinks.rawValue
         case "none":
@@ -149,6 +163,19 @@ struct GeneratedAgentTaskIntent: Sendable {
             return SourcePageIdentityStrategy.hackerNewsNewsPages.rawValue
         default:
             return sourcePageIdentityStrategy.lowercased()
+        }
+    }
+
+    private var normalizedFinalResponseFormat: String {
+        switch finalResponseFormat.lowercased() {
+        case "markdown_list", "markdownlist", "list":
+            return AgentFinalResponseFormat.markdownList.rawValue
+        case "markdown_table", "markdowntable", "table":
+            return AgentFinalResponseFormat.markdownTable.rawValue
+        case "none", "unspecified":
+            return AgentFinalResponseFormat.unspecified.rawValue
+        default:
+            return finalResponseFormat.lowercased()
         }
     }
 

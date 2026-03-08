@@ -39,10 +39,13 @@ enum AgentPromptBuilder {
 
     RULES:
     - For paginated collection tasks, the executor automatically collects matching links once per newly observed crawl page.
+    - For single-page collection tasks, collect from the current/source page and do not paginate unless the user explicitly asked for more pages.
     - Prefer `collect_links` over `read_links` when the task is to build a list of links.
     - Prefer `advance_pagination` over raw clicks for collection tasks when a next page is available.
     - Do not call `done` for paginated collection tasks until the requested page budget is reached or pagination is exhausted.
-    - Use `done` immediately once the result set is complete enough for the task.
+    - Do not call `done` until the exact requested deliverable is present in the answer you will return.
+    - For summary tasks, collecting links is not completion. Open the selected items, read enough page content, then return the summaries.
+    - Use `done` immediately once the requested deliverable is fully ready.
     - If a captcha or challenge is present, use `wait_for_user`.
     - If repeated actions are failing, choose a different action instead of retrying the same thing.
     - Return only structured data matching the schema.
@@ -69,6 +72,14 @@ enum AgentPromptBuilder {
         }
         if intent.requiresPerItemSummaries {
             lines.append("Final output must include a summary for each selected item.")
+        }
+        switch intent.finalResponseFormat {
+        case .markdownTable:
+            lines.append("Final output must be a markdown table.")
+        case .markdownList:
+            lines.append("Final output should be a markdown list.")
+        case .unspecified:
+            break
         }
         if !intent.sourceHosts.isEmpty {
             lines.append("Source hosts: \(intent.sourceHosts.joined(separator: ", "))")
@@ -98,10 +109,21 @@ enum AgentPromptBuilder {
 
         if intent.isLinkCollection {
             lines.append("TASK HINT:")
-            lines.append("This is a link-collection task. Collection happens automatically once per newly observed crawl page. Prefer pagination/navigation actions over reading large raw content, and use `collect_links` only if you need to retry collection on the current page.")
+            if intent.isPaginatedLinkCollection {
+                lines.append("This is a paginated link-collection task. Collection happens automatically once per newly observed crawl page. Prefer pagination/navigation actions over reading large raw content, and use `collect_links` only if you need to retry collection on the current page.")
+            } else {
+                lines.append("This is a single-page link-collection task. Collection happens automatically on the source page. Do not paginate unless the user explicitly asked for additional pages.")
+            }
             if intent.requiresPerItemSummaries {
                 lines.append("This task is not complete after collecting links. After selecting the requested items, open them and gather enough content to produce a concise summary for each one.")
-                lines.append("When you call `done`, return a markdown list where each item includes the title, URL, and a short summary.")
+                switch intent.finalResponseFormat {
+                case .markdownTable:
+                    lines.append("When you call `done`, return a markdown table with columns Title | URL | Summary.")
+                case .markdownList, .unspecified:
+                    lines.append("When you call `done`, return a markdown list where each item includes the title, URL, and a short summary.")
+                }
+            } else if intent.prefersMarkdownTable {
+                lines.append("When you call `done`, return a markdown table with columns Title and URL.")
             }
             if intent.collectionStrategy == .hackerNewsStoryLinks {
                 lines.append("On Hacker News feed pages, only top-level story links are collected. Internal HN discussion and user links are excluded.")

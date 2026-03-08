@@ -538,13 +538,6 @@ class AgentEngine {
 
             try await ensureObservedPageCollection(observation: observation, bridge: bridge)
 
-            if let autoCompletionSummary = collectionAutoCompletionSummary() {
-                Log.Agent.info("Collection completed automatically: \(autoCompletionSummary)")
-                let doneStep = AgentStep(type: .done, content: autoCompletionSummary, timestamp: Date())
-                steps.append(doneStep)
-                return buildResult(success: true, summary: autoCompletionSummary)
-            }
-
             // 2. Think - Ask LLM for next action
             let recentErrors = steps.suffix(6).filter { $0.type == .error }.count
             let runtimeStatus = AgentRuntimeStatus(
@@ -692,31 +685,27 @@ class AgentEngine {
                 let actionResult = try await executeAction(action, bridge: bridge, elementById: elementById)
 
                 if case .done(let summary) = action {
-                    if let rejection = verifyCollectionDoneCondition() {
+                    let evaluation = try await evaluateDoneDecision(
+                        task: task,
+                        proposedSummary: summary,
+                        observation: observation
+                    )
+
+                    if !evaluation.isComplete {
                         doneRejections += 1
-                        Log.Agent.warning("done() rejected (\(doneRejections)/\(maxDoneRejections)): \(rejection)")
-                        let correctionStep = AgentStep(type: .error, content: "Verification failed: \(rejection) Do NOT call done() again immediately. Instead, take a corrective action (collect_links, advance_pagination, navigate, scroll, click, or try a different approach). If the task truly cannot be completed, call done(\"Unable to complete: \(rejection)\").", timestamp: Date())
+                        let nextStepHint = evaluation.recommendedNextStep.map { " Next step: \($0)" } ?? ""
+                        Log.Agent.warning("done() rejected (\(doneRejections)/\(maxDoneRejections)): \(evaluation.reason)")
+                        let correctionStep = AgentStep(
+                            type: .error,
+                            content: "Completion rejected: \(evaluation.reason). Do NOT call done() again immediately.\(nextStepHint)",
+                            timestamp: Date()
+                        )
                         steps.append(correctionStep)
                         await appendAgentExternalTurn(
                             text: correctionStep.content,
-                            tags: ["verification-error"]
+                            tags: ["completion-rejected"]
                         )
                         continue
-                    }
-
-                    // Post-done() verification
-                    if doneRejections < maxDoneRejections {
-                        if let rejection = await verifyDoneCondition(bridge: bridge) {
-                            doneRejections += 1
-                            Log.Agent.warning("done() rejected (\(doneRejections)/\(maxDoneRejections)): \(rejection)")
-                            let correctionStep = AgentStep(type: .error, content: "Verification failed: \(rejection) Do NOT call done() again immediately. Instead, take a corrective action (navigate, scroll, click, or try a different approach). If the task truly cannot be completed, call done(\"Unable to complete: \(rejection)\").", timestamp: Date())
-                            steps.append(correctionStep)
-                            await appendAgentExternalTurn(
-                                text: correctionStep.content,
-                                tags: ["verification-error"]
-                            )
-                            continue
-                        }
                     }
 
                     let completionSummary = completionSummary(for: summary)
@@ -838,32 +827,6 @@ class AgentEngine {
         )
     }
 
-    private func collectionAutoCompletionSummary() -> String? {
-        guard taskIntent.isLinkCollection,
-              !taskIntent.requiresPerItemSummaries,
-              let crawlSession,
-              crawlSession.hasMaterializedCollectionResult else {
-            return nil
-        }
-
-        let total = collectionAccumulator.totalUniqueCount
-        let displayedCount = min(taskIntent.outputLimit ?? total, total)
-        let selectionPrefix = displayedCount < total
-            ? "Selected top \(displayedCount) links from \(total) candidates"
-            : (displayedCount == 1 ? "Collected 1 unique link" : "Collected \(displayedCount) unique links")
-        if crawlSession.pageBudgetReached {
-            return "\(selectionPrefix) across \(crawlSession.pagesScanned) requested pages."
-        }
-
-        if let pageLimit = crawlSession.pageLimit,
-           crawlSession.pagesScanned > 0,
-           !crawlSession.hasAvailablePaginationCandidate {
-            return "\(selectionPrefix) after scanning \(crawlSession.pagesScanned) of \(pageLimit) requested pages because no additional pagination targets were available."
-        }
-
-        return nil
-    }
-
     private func finalAnswerArtifacts(summary: String, success: Bool) -> [ChatArtifact] {
         guard success else {
             return []
@@ -910,22 +873,44 @@ class AgentEngine {
         return normalizedSummary + suffix
     }
 
-    private func verifyCollectionDoneCondition() -> String? {
-        guard taskIntent.isLinkCollection, let crawlSession else {
+    private func completionValidationSummary() -> String? {
+        guard taskIntent.isLinkCollection else {
             return nil
         }
 
-        guard crawlSession.hasMaterializedCollectionResult else {
-            return "No collection result has been materialized yet. Use collect_links before finishing."
+        var lines: [String] = []
+        if let crawlSession {
+            if let pageLimit = crawlSession.pageLimit {
+                lines.append("Pages scanned: \(crawlSession.pagesScanned)/\(pageLimit)")
+            } else {
+                lines.append("Pages scanned: \(crawlSession.pagesScanned)")
+            }
+            lines.append("Additional pagination available: \(crawlSession.hasAvailablePaginationCandidate ? "yes" : "no")")
+            lines.append("Collection materialized: \(crawlSession.hasMaterializedCollectionResult ? "yes" : "no")")
         }
+        lines.append(collectionAccumulator.summaryText(sampleLimit: taskIntent.outputLimit ?? 5, outputLimit: taskIntent.outputLimit))
+        return lines.joined(separator: "\n")
+    }
 
-        if let pageLimit = crawlSession.pageLimit,
-           crawlSession.pagesScanned < pageLimit,
-           crawlSession.hasAvailablePaginationCandidate {
-            return "You have only scanned \(crawlSession.pagesScanned) of \(pageLimit) requested pages and another page is available."
-        }
-
-        return nil
+    private func evaluateDoneDecision(
+        task: String,
+        proposedSummary: String,
+        observation: ReducedPageObservation
+    ) async throws -> AgentCompletionEvaluation {
+        let requestID = UUID()
+        let prompt = AgentCompletionEvaluationPrompt.buildPrompt(
+            task: task,
+            intent: taskIntent,
+            collectionSummary: completionValidationSummary(),
+            observation: observation,
+            proposedSummary: proposedSummary
+        )
+        let response = try await contextService.generateAgentCompletionEvaluation(
+            requestID: requestID,
+            prompt: prompt,
+            instructions: AgentCompletionEvaluationPrompt.instructions
+        )
+        return try response.content.toEvaluation()
     }
 
     private func ensureObservedPageCollection(
@@ -1335,36 +1320,4 @@ class AgentEngine {
         }
     }
 
-    // MARK: - Post-done() Verification
-
-    /// Lightweight heuristic check before accepting done(). Returns rejection reason or nil if OK.
-    private func verifyDoneCondition(bridge: any BrowserBridge) async -> String? {
-        do {
-            let snapshot = try await bridge.snapshot()
-
-            // Check if page shows error
-            let title = snapshot.title.lowercased()
-            let url = snapshot.url.lowercased()
-            if title.contains("404") || title.contains("not found") || title.contains("error") ||
-               url.contains("/404") || url.contains("/error") {
-                return "The page appears to show an error (title: \"\(snapshot.title)\")."
-            }
-
-            // Check if captcha is still present
-            if snapshot.captchaDetected {
-                return "A captcha/challenge is still present on the page. It must be resolved first."
-            }
-
-            // Check if page has loaded (very few elements suggests blank/loading page)
-            if snapshot.elements.count <= 3 {
-                return "The page appears to still be loading (only \(snapshot.elements.count) elements found)."
-            }
-
-            return nil
-        } catch {
-            // If we can't even take a snapshot, don't block done()
-            Log.Agent.warning("Verification snapshot failed: \(error.localizedDescription)")
-            return nil
-        }
-    }
 }

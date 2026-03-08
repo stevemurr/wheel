@@ -2,6 +2,7 @@ import Foundation
 
 enum AgentCollectionMode: String, Codable, Equatable, Sendable {
     case none
+    case pageLinks
     case paginatedLinks
 }
 
@@ -20,6 +21,12 @@ enum SourcePageIdentityStrategy: String, Codable, Equatable, Sendable {
     case hackerNewsNewsPages
 }
 
+enum AgentFinalResponseFormat: String, Codable, Equatable, Sendable {
+    case unspecified
+    case markdownList
+    case markdownTable
+}
+
 struct AgentTaskIntent: Equatable, Sendable {
     let seedURL: String?
     let sourceHosts: [String]
@@ -32,9 +39,18 @@ struct AgentTaskIntent: Equatable, Sendable {
     let canonicalizationStrategy: LinkCanonicalizationStrategy
     let collectionStrategy: LinkCollectionStrategy
     let sourcePageIdentityStrategy: SourcePageIdentityStrategy
+    let finalResponseFormat: AgentFinalResponseFormat
 
     var isLinkCollection: Bool {
+        collectionMode != .none
+    }
+
+    var isPaginatedLinkCollection: Bool {
         collectionMode == .paginatedLinks
+    }
+
+    var prefersMarkdownTable: Bool {
+        finalResponseFormat == .markdownTable
     }
 
     var snapshotRequest: SnapshotRequest {
@@ -83,7 +99,8 @@ struct AgentTaskIntent: Equatable, Sendable {
         collectionMode: .none,
         canonicalizationStrategy: .none,
         collectionStrategy: .generic,
-        sourcePageIdentityStrategy: .genericHostPages
+        sourcePageIdentityStrategy: .genericHostPages,
+        finalResponseFormat: .unspecified
     )
 }
 
@@ -641,7 +658,12 @@ struct AgentCollectionAccumulator: Equatable, Sendable {
         let selected = selectedMatches(limit: outputLimit)
         let sample = selected
             .prefix(sampleLimit)
-            .map(\.canonicalURL)
+            .enumerated()
+            .map { index, match in
+                let title = match.text.isEmpty ? match.canonicalURL : match.text
+                let pagePrefix = match.pageIndex > 0 ? "[page \(match.pageIndex)] " : ""
+                return "\(index + 1). \(pagePrefix)\(title) -> \(match.canonicalURL)"
+            }
             .joined(separator: "\n")
         let header: String
         if selected.count < totalUniqueCount {
@@ -652,7 +674,7 @@ struct AgentCollectionAccumulator: Equatable, Sendable {
 
         return """
         \(header)
-        Sample:
+        Candidate items:
         \(sample)
         """
     }

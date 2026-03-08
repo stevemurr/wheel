@@ -77,6 +77,13 @@ struct AgentLiveTests {
         try await runScenario(named: "hn_arxiv_first_5_pages")
     }
 
+    @Test("hn_front_page_summaries_table", .tags(.collection, .read))
+    @MainActor
+    func hnFrontPageSummariesTable() async throws {
+        guard Self.liveTestsEnabled else { return }
+        try await runScenario(named: "hn_front_page_summaries_table")
+    }
+
     // MARK: - Full Suite
 
     @Test("Run all scenarios and generate report")
