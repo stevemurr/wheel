@@ -49,6 +49,8 @@ struct OverlayWebView: NSViewRepresentable {
         private var originalDocumentHTML: String?
         private var originalDocumentURL: URL?
         private var originalDocumentTitle: String?
+        private var pendingReaderModeNavigation: ReaderModeInternalNavigation?
+        private var pendingReaderModeNavigationContinuation: CheckedContinuation<Void, Error>?
 
         init(item: OverlayWindowItem, isLoading: Binding<Bool>, isReaderMode: Binding<Bool>) {
             self.item = item
@@ -84,6 +86,10 @@ struct OverlayWebView: NSViewRepresentable {
                     self.item.url = currentURL
                 }
 
+                if self.completePendingReaderModeNavigation(with: .success(())) {
+                    return
+                }
+
                 if self.isReaderMode {
                     _ = await self.applyReaderMode(in: webView)
                 }
@@ -92,12 +98,20 @@ struct OverlayWebView: NSViewRepresentable {
 
         func webView(_ webView: WKWebView, didFail navigation: WKNavigation!, withError error: Error) {
             Task { @MainActor in
+                if self.completePendingReaderModeNavigation(with: .failure(error)) {
+                    self.isLoading = false
+                    return
+                }
                 self.isLoading = false
             }
         }
 
         func webView(_ webView: WKWebView, didFailProvisionalNavigation navigation: WKNavigation!, withError error: Error) {
             Task { @MainActor in
+                if self.completePendingReaderModeNavigation(with: .failure(error)) {
+                    self.isLoading = false
+                    return
+                }
                 self.isLoading = false
             }
         }
@@ -153,6 +167,7 @@ struct OverlayWebView: NSViewRepresentable {
                 let fallbackTitle = restoredTitle?.isEmpty == false
                     ? restoredTitle
                     : originalDocumentURL?.host ?? webView.url?.host ?? item.title
+                let restoreBaseURL = self.originalDocumentURL ?? webView.url
 
                 self.originalDocumentHTML = nil
                 self.originalDocumentURL = nil
@@ -161,13 +176,19 @@ struct OverlayWebView: NSViewRepresentable {
                 Task { @MainActor in
                     do {
                         try await ReaderModeTransitionAnimator.perform(in: webView) { [self, webView] in
-                            _ = try await webView.evaluateJavaScript(Self.documentRewriteScript(for: originalDocumentHTML))
+                            try await self.loadReaderModeHTML(
+                                originalDocumentHTML,
+                                baseURL: restoreBaseURL,
+                                navigation: .restore,
+                                in: webView
+                            )
                             if let fallbackTitle {
                                 self.item.title = fallbackTitle
                             }
                         }
                     } catch {
                         Log.Overlay.error("Reader mode restore failed", error: error)
+                        self.clearPendingReaderModeNavigation()
                         webView.reload()
                     }
                 }
@@ -189,7 +210,20 @@ struct OverlayWebView: NSViewRepresentable {
                         self.originalDocumentTitle = webView.title
                     }
 
-                    guard let article = try await self.articleExtractionService.extract(from: webView) else {
+                    guard let originalDocumentHTML = self.originalDocumentHTML else {
+                        self.isReaderMode = false
+                        self.lastReaderModeState = false
+                        self.originalDocumentHTML = nil
+                        self.originalDocumentURL = nil
+                        self.originalDocumentTitle = nil
+                        return false
+                    }
+
+                    guard let article = try await self.articleExtractionService.extract(
+                        from: originalDocumentHTML,
+                        url: self.originalDocumentURL ?? webView.url,
+                        title: self.originalDocumentTitle ?? webView.title
+                    ) else {
                         self.isReaderMode = false
                         self.lastReaderModeState = false
                         self.originalDocumentHTML = nil
@@ -199,12 +233,18 @@ struct OverlayWebView: NSViewRepresentable {
                     }
 
                     let readerHTML = ReaderModeDocumentBuilder.document(for: article)
-                    _ = try await webView.evaluateJavaScript(Self.documentRewriteScript(for: readerHTML))
+                    try await self.loadReaderModeHTML(
+                        readerHTML,
+                        baseURL: self.originalDocumentURL ?? webView.url,
+                        navigation: .apply,
+                        in: webView
+                    )
                     self.item.title = article.title
                     return true
                 }
             } catch {
                 Log.Overlay.error("Reader mode extraction failed", error: error)
+                clearPendingReaderModeNavigation()
                 isReaderMode = false
                 lastReaderModeState = false
                 originalDocumentHTML = nil
@@ -214,13 +254,56 @@ struct OverlayWebView: NSViewRepresentable {
             }
         }
 
-        private static func documentRewriteScript(for html: String) -> String {
-            let escapedHTML = JavaScriptEscaper.escape(html)
-            return """
-            document.open();
-            document.write(`\(escapedHTML)`);
-            document.close();
-            """
+        @MainActor
+        private func completePendingReaderModeNavigation(with result: Result<Void, Error>) -> Bool {
+            guard pendingReaderModeNavigation != nil else { return false }
+
+            pendingReaderModeNavigation = nil
+            let continuation = pendingReaderModeNavigationContinuation
+            pendingReaderModeNavigationContinuation = nil
+
+            switch result {
+            case .success:
+                continuation?.resume()
+            case .failure(let error):
+                continuation?.resume(throwing: error)
+            }
+
+            return true
+        }
+
+        @MainActor
+        private func loadReaderModeHTML(
+            _ html: String,
+            baseURL: URL?,
+            navigation: ReaderModeInternalNavigation,
+            in webView: WKWebView
+        ) async throws {
+            guard pendingReaderModeNavigationContinuation == nil else {
+                throw ReaderModeNavigationError.navigationAlreadyInProgress
+            }
+
+            pendingReaderModeNavigation = navigation
+
+            try await withCheckedThrowingContinuation { continuation in
+                pendingReaderModeNavigationContinuation = continuation
+                webView.loadHTMLString(html, baseURL: baseURL)
+            }
+        }
+
+        @MainActor
+        private func clearPendingReaderModeNavigation() {
+            pendingReaderModeNavigation = nil
+            pendingReaderModeNavigationContinuation = nil
+        }
+
+        private enum ReaderModeInternalNavigation {
+            case apply
+            case restore
+        }
+
+        private enum ReaderModeNavigationError: Error {
+            case navigationAlreadyInProgress
         }
     }
 }

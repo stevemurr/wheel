@@ -51,6 +51,10 @@ final class PageLifecycleHandler {
         tab.canGoBack = webView.canGoBack
         tab.canGoForward = webView.canGoForward
 
+        if tab.completePendingReaderModeNavigation(with: .success(())) {
+            return
+        }
+
         // Record to browsing history with current workspace
         if let url = webView.url {
             let title = webView.title ?? "Untitled"
@@ -76,6 +80,11 @@ final class PageLifecycleHandler {
     // MARK: - Error Handling
 
     func handleNavigationError(_ error: Error, isProvisional: Bool) {
+        if tab.completePendingReaderModeNavigation(with: .failure(error)) {
+            tab.isLoading = false
+            return
+        }
+
         let nsError = error as NSError
 
         // Ignore cancellation errors (user navigated away, frame cancelled, etc.)

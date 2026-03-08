@@ -59,6 +59,8 @@ class Tab: Identifiable {
     @ObservationIgnored private var originalDocumentHTML: String?
     @ObservationIgnored private var originalDocumentURL: URL?
     @ObservationIgnored private var originalDocumentTitle: String?
+    @ObservationIgnored private var pendingReaderModeNavigation: ReaderModeInternalNavigation?
+    @ObservationIgnored private var pendingReaderModeNavigationContinuation: CheckedContinuation<Void, Error>?
 
     /// Computed display title that handles empty/default titles gracefully
     /// Returns the URL host (without www.) if title is empty or "New Tab"
@@ -172,6 +174,7 @@ class Tab: Identifiable {
 
     @MainActor
     func handleReaderModeNavigationStarted() {
+        guard pendingReaderModeNavigation == nil else { return }
         originalDocumentHTML = nil
         originalDocumentURL = nil
         originalDocumentTitle = nil
@@ -179,7 +182,7 @@ class Tab: Identifiable {
 
     @MainActor
     func handleReaderModeNavigationFinished() async {
-        guard isReaderMode, hasWebView else { return }
+        guard pendingReaderModeNavigation == nil, isReaderMode, hasWebView else { return }
         _ = await applyReaderMode()
     }
 
@@ -212,14 +215,17 @@ class Tab: Identifiable {
                 }
 
                 let readerHTML = ReaderModeDocumentBuilder.document(for: article)
-                let script = Self.documentRewriteScript(for: readerHTML)
-
-                _ = try await currentWebView.evaluateJavaScript(script)
+                try await self.loadReaderModeHTML(
+                    readerHTML,
+                    baseURL: self.originalDocumentURL ?? currentWebView.url,
+                    navigation: .apply
+                )
                 self.title = article.title
                 return true
             }
         } catch {
             Log.Browser.error("Reader mode extraction failed", error: error)
+            clearPendingReaderModeNavigation()
             return handleReaderModeFailure()
         }
     }
@@ -234,6 +240,7 @@ class Tab: Identifiable {
         let fallbackTitle = restoredTitle?.isEmpty == false
             ? restoredTitle
             : originalDocumentURL?.host ?? currentWebView.url?.host ?? title
+        let restoreBaseURL = originalDocumentURL ?? currentWebView.url
 
         self.originalDocumentHTML = nil
         self.originalDocumentURL = nil
@@ -245,14 +252,19 @@ class Tab: Identifiable {
         }
 
         do {
-            try await ReaderModeTransitionAnimator.perform(in: currentWebView) { [self, currentWebView] in
-                _ = try await currentWebView.evaluateJavaScript(Self.documentRewriteScript(for: originalDocumentHTML))
+            try await ReaderModeTransitionAnimator.perform(in: currentWebView) { [self] in
+                try await self.loadReaderModeHTML(
+                    originalDocumentHTML,
+                    baseURL: restoreBaseURL,
+                    navigation: .restore
+                )
                 if let fallbackTitle {
                     self.title = fallbackTitle
                 }
             }
         } catch {
             Log.Browser.error("Reader mode restore failed", error: error)
+            clearPendingReaderModeNavigation()
             currentWebView.reload()
         }
     }
@@ -385,6 +397,7 @@ class Tab: Identifiable {
 
     @MainActor
     private func handleReaderModeFailure() -> Bool {
+        clearPendingReaderModeNavigation()
         isReaderMode = false
         originalDocumentHTML = nil
         originalDocumentURL = nil
@@ -392,12 +405,54 @@ class Tab: Identifiable {
         return false
     }
 
-    private static func documentRewriteScript(for html: String) -> String {
-        let escapedHTML = JavaScriptEscaper.escape(html)
-        return """
-        document.open();
-        document.write(`\(escapedHTML)`);
-        document.close();
-        """
+    @MainActor
+    func completePendingReaderModeNavigation(with result: Result<Void, Error>) -> Bool {
+        guard pendingReaderModeNavigation != nil else { return false }
+
+        pendingReaderModeNavigation = nil
+        let continuation = pendingReaderModeNavigationContinuation
+        pendingReaderModeNavigationContinuation = nil
+
+        switch result {
+        case .success:
+            continuation?.resume()
+        case .failure(let error):
+            continuation?.resume(throwing: error)
+        }
+
+        return true
+    }
+
+    @MainActor
+    private func loadReaderModeHTML(
+        _ html: String,
+        baseURL: URL?,
+        navigation: ReaderModeInternalNavigation
+    ) async throws {
+        guard pendingReaderModeNavigationContinuation == nil else {
+            throw ReaderModeNavigationError.navigationAlreadyInProgress
+        }
+
+        pendingReaderModeNavigation = navigation
+
+        try await withCheckedThrowingContinuation { continuation in
+            pendingReaderModeNavigationContinuation = continuation
+            webView.loadHTMLString(html, baseURL: baseURL)
+        }
+    }
+
+    @MainActor
+    private func clearPendingReaderModeNavigation() {
+        pendingReaderModeNavigation = nil
+        pendingReaderModeNavigationContinuation = nil
+    }
+
+    private enum ReaderModeInternalNavigation {
+        case apply
+        case restore
+    }
+
+    private enum ReaderModeNavigationError: Error {
+        case navigationAlreadyInProgress
     }
 }

@@ -14,6 +14,8 @@ struct OverlayWebViewReaderModeTests {
         let state = ReaderModeBindingState()
         state.isReaderMode = true
         let coordinator = makeCoordinator(state: state, url: fileURL)
+        webView.navigationDelegate = coordinator
+        webView.uiDelegate = coordinator
 
         let success = await coordinator.applyReaderMode(in: webView)
         #expect(success)
@@ -35,6 +37,8 @@ struct OverlayWebViewReaderModeTests {
         let state = ReaderModeBindingState()
         state.isReaderMode = true
         let coordinator = makeCoordinator(state: state, url: fileURL)
+        webView.navigationDelegate = coordinator
+        webView.uiDelegate = coordinator
 
         #expect(await coordinator.applyReaderMode(in: webView))
         coordinator.disableReaderMode(in: webView)
@@ -61,6 +65,8 @@ struct OverlayWebViewReaderModeTests {
         let state = ReaderModeBindingState()
         state.isReaderMode = true
         let coordinator = makeCoordinator(state: state, url: URL(string: "https://example.com/blank")!)
+        webView.navigationDelegate = coordinator
+        webView.uiDelegate = coordinator
 
         let success = await coordinator.applyReaderMode(in: webView)
         let bodyText = try #require(try await webView.evaluateJavaScript("document.body.innerText") as? String)

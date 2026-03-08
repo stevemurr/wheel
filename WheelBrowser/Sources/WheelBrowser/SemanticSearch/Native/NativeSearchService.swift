@@ -69,11 +69,22 @@ actor NativeSearchService: SemanticSearchBackend {
         let contentHash = SHA256.hash(data: Data(content.utf8))
             .map { String(format: "%02x", $0) }
             .joined()
+        let searchableText = makeSearchableText(title: title, content: content)
+        let domain = url.host ?? ""
+        let categoryStrings = categories.map { $0.rawValue }
 
-        // Dedup: skip if content unchanged
+        // Dedup chunks if content is unchanged, but still refresh page-level metadata.
         if let existingHash = try await metadataDB.getPageHash(url: urlString),
            existingHash == contentHash {
-            Log.Search.debug("NativeSearchService: skipping \(url) — content unchanged")
+            try await metadataDB.upsertPage(
+                url: urlString,
+                title: title,
+                domain: domain,
+                contentHash: contentHash,
+                categories: categoryStrings,
+                fullText: searchableText
+            )
+            Log.Search.debug("NativeSearchService: refreshed metadata for \(url) — content unchanged")
             return
         }
 
@@ -90,16 +101,14 @@ actor NativeSearchService: SemanticSearchBackend {
             return
         }
 
-        let domain = url.host ?? ""
-        let categoryStrings = categories.map { $0.rawValue }
-
         // Upsert page first (FK parent for chunk_map)
         try await metadataDB.upsertPage(
             url: urlString,
             title: title,
             domain: domain,
             contentHash: contentHash,
-            categories: categoryStrings
+            categories: categoryStrings,
+            fullText: searchableText
         )
 
         // Add chunks to VecturaKit and track the mapping
@@ -130,9 +139,7 @@ actor NativeSearchService: SemanticSearchBackend {
         guard let vectura = vecturaDB else { return [] }
         guard limit > 0 else { return [] }
 
-        let queryTerms = query.lowercased()
-            .components(separatedBy: .whitespacesAndNewlines)
-            .filter { !$0.isEmpty }
+        let queryTerms = tokenizeQuery(query)
         let totalChunks = try await metadataDB.getChunkCount()
         guard totalChunks > 0 else { return [] }
 
@@ -143,13 +150,22 @@ actor NativeSearchService: SemanticSearchBackend {
             categoryFilter = nil
         }
 
+        let keywordMatches = try await metadataDB.searchKeywordMatches(
+            query: query,
+            limit: max(limit * 3, 50)
+        )
+        let filteredKeywordMatches = keywordMatches.filter { match in
+            guard let categoryFilter else { return true }
+            return !Set(match.categories).isDisjoint(with: categoryFilter)
+        }
+
         let maxCandidateCount = min(totalChunks, 1_000)
         var candidateCount = min(max(limit * 8, 100), maxCandidateCount)
         var assembledResults: SearchAssembly?
 
         while true {
             let vecturaResults = try await vectura.search(query: .text(query), numResults: candidateCount)
-            guard !vecturaResults.isEmpty else { return [] }
+            guard !vecturaResults.isEmpty else { break }
 
             let assembly = try await assembleResults(
                 from: vecturaResults,
@@ -178,8 +194,22 @@ actor NativeSearchService: SemanticSearchBackend {
             candidateCount = min(candidateCount * 2, maxCandidateCount)
         }
 
-        guard let assembledResults else { return [] }
-        return Array(assembledResults.results.prefix(limit))
+        let semanticResults = assembledResults?.results ?? []
+        let mergedResults = mergeKeywordMatches(
+            semanticResults: semanticResults,
+            keywordMatches: filteredKeywordMatches,
+            query: query,
+            queryTerms: queryTerms
+        )
+
+        Log.Search.debug(
+            """
+            NativeSearchService.search query='\(query)' semanticPages=\(semanticResults.count) \
+            keywordPages=\(filteredKeywordMatches.count) returned=\(min(limit, mergedResults.count))
+            """
+        )
+
+        return Array(mergedResults.prefix(limit))
     }
 
     // MARK: - Stats
@@ -212,6 +242,121 @@ actor NativeSearchService: SemanticSearchBackend {
         let uniquePagesBeforeFilter: Int
         let uniquePagesAfterFilter: Int
         let results: [NativeSearchResult]
+    }
+
+    private func makeSearchableText(title: String?, content: String) -> String {
+        _ = title
+        return content
+    }
+
+    private func tokenizeQuery(_ query: String) -> [String] {
+        query
+            .lowercased()
+            .components(separatedBy: .alphanumerics.inverted)
+            .filter { !$0.isEmpty }
+    }
+
+    private func normalizeForMatching(_ text: String) -> String {
+        text
+            .lowercased()
+            .replacingOccurrences(of: "[^a-z0-9]+", with: " ", options: .regularExpression)
+            .replacingOccurrences(of: "\\s+", with: " ", options: .regularExpression)
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private func mergeKeywordMatches(
+        semanticResults: [NativeSearchResult],
+        keywordMatches: [PageKeywordMatch],
+        query: String,
+        queryTerms: [String]
+    ) -> [NativeSearchResult] {
+        guard !keywordMatches.isEmpty else {
+            return semanticResults.sorted { $0.score > $1.score }
+        }
+
+        let normalizedQuery = normalizeForMatching(query)
+        var merged = Dictionary(uniqueKeysWithValues: semanticResults.map { ($0.url, $0) })
+
+        for match in keywordMatches {
+            let lexicalScore = lexicalScore(for: match, normalizedQuery: normalizedQuery, queryTerms: queryTerms)
+            let keywordSnippet = bestSnippet(for: match, queryTerms: queryTerms)
+
+            if let existing = merged[match.url] {
+                merged[match.url] = NativeSearchResult(
+                    url: existing.url,
+                    title: existing.title ?? match.title,
+                    content: existing.content,
+                    score: max(existing.score, lexicalScore),
+                    sectionHierarchy: existing.sectionHierarchy,
+                    matchedBy: mergedMatchedBy(existing.matchedBy, ["bm25"]),
+                    positionInDoc: existing.positionInDoc,
+                    chunkRelevanceScore: existing.chunkRelevanceScore,
+                    snippet: existing.snippet ?? keywordSnippet,
+                    additionalChunks: existing.additionalChunks
+                )
+            } else {
+                let content = match.fullText ?? match.title ?? ""
+                merged[match.url] = NativeSearchResult(
+                    url: match.url,
+                    title: match.title,
+                    content: content,
+                    score: lexicalScore,
+                    sectionHierarchy: [],
+                    matchedBy: ["bm25"],
+                    positionInDoc: 0.0,
+                    chunkRelevanceScore: lexicalScore,
+                    snippet: keywordSnippet,
+                    additionalChunks: []
+                )
+            }
+        }
+
+        return merged.values.sorted { lhs, rhs in
+            if lhs.score == rhs.score {
+                return lhs.url < rhs.url
+            }
+            return lhs.score > rhs.score
+        }
+    }
+
+    private func bestSnippet(for match: PageKeywordMatch, queryTerms: [String]) -> String? {
+        guard let fullText = match.fullText, !fullText.isEmpty else { return nil }
+        return SnippetExtractor.extractSnippet(from: fullText, queryTerms: queryTerms)
+    }
+
+    private func lexicalScore(
+        for match: PageKeywordMatch,
+        normalizedQuery: String,
+        queryTerms: [String]
+    ) -> Float {
+        let normalizedTitle = normalizeForMatching(match.title ?? "")
+        let normalizedBody = normalizeForMatching(match.fullText ?? "")
+        let matchedTerms = queryTerms.filter { term in
+            normalizedTitle.contains(term) || normalizedBody.contains(term)
+        }
+        let coverage = queryTerms.isEmpty
+            ? 0
+            : Float(Set(matchedTerms).count) / Float(Set(queryTerms).count)
+
+        let phraseInTitle = !normalizedQuery.isEmpty && normalizedTitle.contains(normalizedQuery)
+        let phraseInBody = !normalizedQuery.isEmpty && normalizedBody.contains(normalizedQuery)
+
+        var score: Float = 0.55 + (0.20 * coverage)
+        if phraseInBody {
+            score += 0.12
+        }
+        if phraseInTitle {
+            score += 0.10
+        } else if !matchedTerms.isEmpty && !normalizedTitle.isEmpty {
+            score += 0.05
+        }
+
+        let bm25Boost = max(0.0, min(Float(-match.bm25Score) * 0.02, 0.08))
+        return min(score + bm25Boost, 0.98)
+    }
+
+    private func mergedMatchedBy(_ lhs: [String], _ rhs: [String]) -> [String] {
+        Array(Set(lhs).union(rhs)).sorted()
     }
 
     private func assembleResults(

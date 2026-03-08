@@ -18,9 +18,28 @@ struct PageMeta: Sendable {
     let categories: [String]
 }
 
+/// Exact-match candidate returned from the page-level keyword index.
+struct PageKeywordMatch: Sendable {
+    let url: String
+    let title: String?
+    let fullText: String?
+    let categories: [String]
+    let bm25Score: Double
+}
+
 /// Lightweight SQLite store mapping VecturaKit document UUIDs back to page metadata.
 /// VecturaKit stores the text + embeddings; this DB tracks which page each chunk came from.
 actor ChunkMetadataDB {
+    private static let ftsSanitizeRegex: NSRegularExpression = {
+        guard let regex = try? NSRegularExpression(
+            pattern: "[\"'\\-\\+\\*\\(\\)\\{\\}\\[\\]\\^\\~\\:\\@\\#\\$\\%\\&]",
+            options: []
+        ) else {
+            fatalError("ChunkMetadataDB: FTS sanitize regex is invalid")
+        }
+        return regex
+    }()
+
     private var db: OpaquePointer?
     private let dbPath: URL
     private var isInitialized = false
@@ -60,20 +79,28 @@ actor ChunkMetadataDB {
         return String(cString: ptr)
     }
 
-    func upsertPage(url: String, title: String?, domain: String, contentHash: String, categories: [String]) throws {
+    func upsertPage(
+        url: String,
+        title: String?,
+        domain: String,
+        contentHash: String,
+        categories: [String],
+        fullText: String?
+    ) throws {
         try ensureInitialized()
         let now = Int64(Date().timeIntervalSince1970)
         let categoriesJSON = (try? JSONSerialization.data(withJSONObject: categories))
             .flatMap { String(data: $0, encoding: .utf8) } ?? "[]"
 
         let sql = """
-            INSERT INTO indexed_pages (url, title, domain, content_hash, categories, indexed_at)
-            VALUES (?, ?, ?, ?, ?, ?)
+            INSERT INTO indexed_pages (url, title, domain, content_hash, categories, full_text, indexed_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(url) DO UPDATE SET
                 title = COALESCE(excluded.title, title),
                 domain = excluded.domain,
                 content_hash = excluded.content_hash,
                 categories = excluded.categories,
+                full_text = excluded.full_text,
                 indexed_at = excluded.indexed_at
         """
         var stmt: OpaquePointer?
@@ -87,7 +114,8 @@ actor ChunkMetadataDB {
         sqlite3_bind_text(stmt, 3, domain, -1, SQLITE_TRANSIENT)
         sqlite3_bind_text(stmt, 4, contentHash, -1, SQLITE_TRANSIENT)
         sqlite3_bind_text(stmt, 5, categoriesJSON, -1, SQLITE_TRANSIENT)
-        sqlite3_bind_int64(stmt, 6, now)
+        if let fullText { sqlite3_bind_text(stmt, 6, fullText, -1, SQLITE_TRANSIENT) } else { sqlite3_bind_null(stmt, 6) }
+        sqlite3_bind_int64(stmt, 7, now)
 
         guard sqlite3_step(stmt) == SQLITE_DONE else {
             throw SearchDBError.executeFailed(String(cString: sqlite3_errmsg(db)))
@@ -196,6 +224,56 @@ actor ChunkMetadataDB {
         return result
     }
 
+    func searchKeywordMatches(query: String, limit: Int = 50) throws -> [PageKeywordMatch] {
+        try ensureInitialized()
+
+        let ftsQuery = makeFTSQuery(query)
+        guard !ftsQuery.isEmpty else { return [] }
+
+        let sql = """
+            SELECT p.url, p.title, p.full_text, p.categories, bm25(indexed_pages_fts)
+            FROM indexed_pages p
+            JOIN indexed_pages_fts ON indexed_pages_fts.rowid = p.rowid
+            WHERE indexed_pages_fts MATCH ?
+            ORDER BY bm25(indexed_pages_fts)
+            LIMIT ?
+        """
+        var stmt: OpaquePointer?
+        defer { sqlite3_finalize(stmt) }
+
+        guard sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK else {
+            throw SearchDBError.prepareFailed(String(cString: sqlite3_errmsg(db)))
+        }
+        sqlite3_bind_text(stmt, 1, ftsQuery, -1, SQLITE_TRANSIENT)
+        sqlite3_bind_int(stmt, 2, Int32(limit))
+
+        var matches: [PageKeywordMatch] = []
+        while sqlite3_step(stmt) == SQLITE_ROW {
+            guard let urlPtr = sqlite3_column_text(stmt, 0) else { continue }
+
+            let url = String(cString: urlPtr)
+            let title = sqlite3_column_text(stmt, 1).map { String(cString: $0) }
+            let fullText = sqlite3_column_text(stmt, 2).map { String(cString: $0) }
+            var categories: [String] = []
+            if let catPtr = sqlite3_column_text(stmt, 3),
+               let data = String(cString: catPtr).data(using: .utf8),
+               let array = try? JSONSerialization.jsonObject(with: data) as? [String] {
+                categories = array
+            }
+            let bm25Score = sqlite3_column_double(stmt, 4)
+
+            matches.append(PageKeywordMatch(
+                url: url,
+                title: title,
+                fullText: fullText,
+                categories: categories,
+                bm25Score: bm25Score
+            ))
+        }
+
+        return matches
+    }
+
     /// Delete all chunk mappings for a page, returning VecturaKit IDs to delete
     func deleteChunksForPage(url: String) throws -> [UUID] {
         try ensureInitialized()
@@ -288,6 +366,9 @@ actor ChunkMetadataDB {
     }
 
     private func createSchema() throws {
+        let hadKeywordIndex = try objectExists(type: "table", name: "indexed_pages_fts")
+        let migrationState = try runMigrations()
+
         try execute("""
             CREATE TABLE IF NOT EXISTS indexed_pages (
                 url TEXT PRIMARY KEY,
@@ -295,6 +376,7 @@ actor ChunkMetadataDB {
                 domain TEXT,
                 content_hash TEXT NOT NULL,
                 categories TEXT,
+                full_text TEXT,
                 indexed_at INTEGER NOT NULL
             )
         """)
@@ -308,6 +390,72 @@ actor ChunkMetadataDB {
             )
         """)
         try execute("CREATE INDEX IF NOT EXISTS idx_chunk_map_url ON chunk_map(page_url)")
+        try execute("""
+            CREATE VIRTUAL TABLE IF NOT EXISTS indexed_pages_fts USING fts5(
+                title,
+                full_text,
+                content='indexed_pages',
+                content_rowid='rowid',
+                tokenize='porter unicode61'
+            )
+        """)
+        try execute("""
+            CREATE TRIGGER IF NOT EXISTS indexed_pages_fts_insert AFTER INSERT ON indexed_pages BEGIN
+                INSERT INTO indexed_pages_fts(rowid, title, full_text)
+                VALUES (new.rowid, new.title, new.full_text);
+            END
+        """)
+        try execute("""
+            CREATE TRIGGER IF NOT EXISTS indexed_pages_fts_update AFTER UPDATE OF title, full_text ON indexed_pages BEGIN
+                INSERT INTO indexed_pages_fts(indexed_pages_fts, rowid, title, full_text)
+                VALUES ('delete', old.rowid, old.title, old.full_text);
+                INSERT INTO indexed_pages_fts(rowid, title, full_text)
+                VALUES (new.rowid, new.title, new.full_text);
+            END
+        """)
+        try execute("""
+            CREATE TRIGGER IF NOT EXISTS indexed_pages_fts_delete AFTER DELETE ON indexed_pages BEGIN
+                INSERT INTO indexed_pages_fts(indexed_pages_fts, rowid, title, full_text)
+                VALUES ('delete', old.rowid, old.title, old.full_text);
+            END
+        """)
+
+        if !hadKeywordIndex || migrationState.needsKeywordIndexRebuild {
+            try execute("INSERT INTO indexed_pages_fts(indexed_pages_fts) VALUES ('rebuild')")
+        }
+    }
+
+    private struct MigrationState {
+        var needsKeywordIndexRebuild = false
+    }
+
+    private func runMigrations() throws -> MigrationState {
+        let columns: Set<String> = {
+            var stmt: OpaquePointer?
+            defer { sqlite3_finalize(stmt) }
+
+            guard sqlite3_prepare_v2(db, "PRAGMA table_info(indexed_pages)", -1, &stmt, nil) == SQLITE_OK else {
+                return []
+            }
+
+            var names = Set<String>()
+            while sqlite3_step(stmt) == SQLITE_ROW {
+                if let namePtr = sqlite3_column_text(stmt, 1) {
+                    names.insert(String(cString: namePtr))
+                }
+            }
+            return names
+        }()
+
+        var state = MigrationState()
+        guard !columns.isEmpty else { return state }
+
+        if !columns.contains("full_text") {
+            try execute("ALTER TABLE indexed_pages ADD COLUMN full_text TEXT")
+            state.needsKeywordIndexRebuild = true
+        }
+
+        return state
     }
 
     private func execute(_ sql: String) throws {
@@ -318,5 +466,44 @@ actor ChunkMetadataDB {
             sqlite3_free(errorMsg)
             throw SearchDBError.executeFailed(error)
         }
+    }
+
+    private func objectExists(type: String, name: String) throws -> Bool {
+        let sql = "SELECT 1 FROM sqlite_master WHERE type = ? AND name = ? LIMIT 1"
+        var stmt: OpaquePointer?
+        defer { sqlite3_finalize(stmt) }
+
+        guard sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK else {
+            throw SearchDBError.prepareFailed(String(cString: sqlite3_errmsg(db)))
+        }
+        sqlite3_bind_text(stmt, 1, type, -1, SQLITE_TRANSIENT)
+        sqlite3_bind_text(stmt, 2, name, -1, SQLITE_TRANSIENT)
+
+        return sqlite3_step(stmt) == SQLITE_ROW
+    }
+
+    private func makeFTSQuery(_ query: String) -> String {
+        let terms = query
+            .components(separatedBy: .whitespacesAndNewlines)
+            .filter { !$0.isEmpty }
+            .map { term -> String in
+                Self.ftsSanitizeRegex.stringByReplacingMatches(
+                    in: term,
+                    options: [],
+                    range: NSRange(term.startIndex..., in: term),
+                    withTemplate: ""
+                )
+            }
+            .filter { !$0.isEmpty }
+            .prefix(8)
+
+        guard !terms.isEmpty else { return "" }
+        if terms.count == 1 {
+            return String(terms[0])
+        }
+
+        let phrase = "\"\(terms.joined(separator: " "))\""
+        let allTerms = terms.joined(separator: " ")
+        return "\(phrase) OR \(allTerms)"
     }
 }

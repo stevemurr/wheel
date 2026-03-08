@@ -67,6 +67,59 @@ actor MockVecturaEmbedder: VecturaEmbedder {
     }
 }
 
+/// Embedder that only understands a small set of body-topic terms.
+/// Title-only queries remain orthogonal to page embeddings, so exact lookup
+/// must come from the page-level keyword index.
+actor BodyOnlyVecturaEmbedder: VecturaEmbedder {
+    private let dim = 64
+
+    var dimension: Int {
+        get async throws { dim }
+    }
+
+    private let topicAxes: [String: Int] = [
+        "swift": 0,
+        "programming": 0,
+        "code": 0,
+        "cooking": 1,
+        "recipes": 1,
+        "food": 1,
+        "kitchen": 1,
+    ]
+
+    func embed(text: String) async throws -> [Float] {
+        makeVector(for: text)
+    }
+
+    func embed(texts: [String]) async throws -> [[Float]] {
+        texts.map { makeVector(for: $0) }
+    }
+
+    private func makeVector(for text: String) -> [Float] {
+        var vector = [Float](repeating: 0, count: dim)
+        let words = text.lowercased().components(separatedBy: .alphanumerics.inverted).filter { !$0.isEmpty }
+
+        for word in words {
+            if let axis = topicAxes[word] {
+                vector[axis] += 1.0
+            }
+        }
+
+        if !vector.contains(where: { $0 != 0 }) {
+            vector[dim - 1] = 1.0
+        }
+
+        var norm: Float = 0
+        for value in vector { norm += value * value }
+        norm = sqrt(norm)
+        if norm > 1e-9 {
+            for index in 0..<dim { vector[index] /= norm }
+        }
+
+        return vector
+    }
+}
+
 // MARK: - Integration Tests
 
 @Suite("Native Search Integration")
@@ -82,6 +135,11 @@ struct NativeSearchIntegrationTests {
     private func makeService(tempDir: URL) -> NativeSearchService {
         let dbPath = tempDir.appendingPathComponent("meta.db")
         return NativeSearchService(dbPath: dbPath, embedder: MockVecturaEmbedder())
+    }
+
+    private func makeService(tempDir: URL, embedder: any VecturaEmbedder) -> NativeSearchService {
+        let dbPath = tempDir.appendingPathComponent("meta.db")
+        return NativeSearchService(dbPath: dbPath, embedder: embedder)
     }
 
     private func cleanup(_ path: URL) {
@@ -156,6 +214,31 @@ struct NativeSearchIntegrationTests {
         #expect(results[0].url == "https://example.com/swift")
     }
 
+    @Test("Exact title terms surface pages even when chunk search favors another page")
+    func exactTitleTermsSurfacePages() async throws {
+        let tempDir = makeTempDir()
+        defer { cleanup(tempDir) }
+        let service = makeService(tempDir: tempDir, embedder: BodyOnlyVecturaEmbedder())
+
+        try await service.indexPage(
+            url: URL(string: "https://example.com/title-match")!,
+            title: "Precise Build Sentinel",
+            content: "Cooking recipes for the kitchen and food preparation.",
+            categories: [.web]
+        )
+        try await service.indexPage(
+            url: URL(string: "https://example.com/body-match")!,
+            title: "Build Pipelines",
+            content: "Swift programming code uses a precise build pipeline with a sentinel check for release validation.",
+            categories: [.web]
+        )
+
+        let results = try await service.search(query: "precise build sentinel", limit: 10)
+        #expect(!results.isEmpty)
+        #expect(results[0].url == "https://example.com/title-match")
+        #expect(results[0].matchedBy.contains("bm25"))
+    }
+
     @Test("Deduplication skips unchanged content")
     func deduplicationSkipsUnchangedContent() async throws {
         let tempDir = makeTempDir()
@@ -184,6 +267,31 @@ struct NativeSearchIntegrationTests {
         let stats2 = try await service.getStats()
         #expect(stats2.pageCount == stats1.pageCount)
         #expect(stats2.chunkCount == stats1.chunkCount)
+    }
+
+    @Test("Unchanged content refreshes title keyword metadata")
+    func unchangedContentRefreshesTitleKeywordMetadata() async throws {
+        let tempDir = makeTempDir()
+        defer { cleanup(tempDir) }
+        let service = makeService(tempDir: tempDir, embedder: BodyOnlyVecturaEmbedder())
+
+        let content = "Cooking recipes for the kitchen and food preparation."
+
+        try await service.indexPage(
+            url: URL(string: "https://example.com/refresh")!,
+            title: "Original Title",
+            content: content,
+            categories: [.web]
+        )
+        try await service.indexPage(
+            url: URL(string: "https://example.com/refresh")!,
+            title: "Precise Build Sentinel",
+            content: content,
+            categories: [.web]
+        )
+
+        let results = try await service.search(query: "precise build sentinel", limit: 10)
+        #expect(results.contains { $0.url == "https://example.com/refresh" })
     }
 
     @Test("Content change re-indexes the document")
