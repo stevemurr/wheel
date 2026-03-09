@@ -2438,7 +2438,7 @@
   function isStyleRule(rule) {
     return rule.style != null;
   }
-  var DOMParser = class _DOMParser {
+  var DOMParser2 = class _DOMParser {
     /**
     Create a parser that targets the given schema, using the given
     parsing rules.
@@ -8648,7 +8648,7 @@
         dom = child;
       }
     if (!slice2) {
-      let parser = view.someProp("clipboardParser") || view.someProp("domParser") || DOMParser.fromSchema(view.state.schema);
+      let parser = view.someProp("clipboardParser") || view.someProp("domParser") || DOMParser2.fromSchema(view.state.schema);
       slice2 = parser.parseSlice(dom, {
         preserveWhitespace: !!(asText || sliceData),
         context: $context,
@@ -10514,7 +10514,7 @@
       }
     }
     let startDoc = view.state.doc;
-    let parser = view.someProp("domParser") || DOMParser.fromSchema(view.state.schema);
+    let parser = view.someProp("domParser") || DOMParser2.fromSchema(view.state.schema);
     let $from = startDoc.resolve(from2);
     let sel = null, doc3 = parser.parse(parent, {
       topNode: $from.parent,
@@ -13880,15 +13880,15 @@
           })
         });
         if (options.slice) {
-          DOMParser.fromSchema(contentCheckSchema).parseSlice(elementFromString(content), options.parseOptions);
+          DOMParser2.fromSchema(contentCheckSchema).parseSlice(elementFromString(content), options.parseOptions);
         } else {
-          DOMParser.fromSchema(contentCheckSchema).parse(elementFromString(content), options.parseOptions);
+          DOMParser2.fromSchema(contentCheckSchema).parse(elementFromString(content), options.parseOptions);
         }
         if (options.errorOnInvalidContent && hasInvalidContent) {
           throw new Error("[tiptap error]: Invalid HTML content", { cause: new Error(`Invalid element found: ${invalidContent}`) });
         }
       }
-      const parser = DOMParser.fromSchema(schema);
+      const parser = DOMParser2.fromSchema(schema);
       if (options.slice) {
         return parser.parseSlice(elementFromString(content), options.parseOptions).content;
       }
@@ -16235,6 +16235,71 @@ img.ProseMirror-separator {
     return string.replace(/[-/\\^$*+?.()|[\]{}]/g, "\\$&");
   }
 
+  // node_modules/@tiptap/extension-image/dist/index.js
+  var inputRegex = /(?:^|\s)(!\[(.+|:?)]\((\S+)(?:(?:\s+)["'](\S+)["'])?\))$/;
+  var Image = Node2.create({
+    name: "image",
+    addOptions() {
+      return {
+        inline: false,
+        allowBase64: false,
+        HTMLAttributes: {}
+      };
+    },
+    inline() {
+      return this.options.inline;
+    },
+    group() {
+      return this.options.inline ? "inline" : "block";
+    },
+    draggable: true,
+    addAttributes() {
+      return {
+        src: {
+          default: null
+        },
+        alt: {
+          default: null
+        },
+        title: {
+          default: null
+        }
+      };
+    },
+    parseHTML() {
+      return [
+        {
+          tag: this.options.allowBase64 ? "img[src]" : 'img[src]:not([src^="data:"])'
+        }
+      ];
+    },
+    renderHTML({ HTMLAttributes }) {
+      return ["img", mergeAttributes(this.options.HTMLAttributes, HTMLAttributes)];
+    },
+    addCommands() {
+      return {
+        setImage: (options) => ({ commands: commands2 }) => {
+          return commands2.insertContent({
+            type: this.name,
+            attrs: options
+          });
+        }
+      };
+    },
+    addInputRules() {
+      return [
+        nodeInputRule({
+          find: inputRegex,
+          type: this.type,
+          getAttributes: (match) => {
+            const [, , alt, src, title] = match;
+            return { src, alt, title };
+          }
+        })
+      ];
+    }
+  });
+
   // node_modules/@tiptap/extension-placeholder/dist/index.js
   var Placeholder = Extension.create({
     name: "placeholder",
@@ -18442,7 +18507,7 @@ img.ProseMirror-separator {
   });
 
   // node_modules/@tiptap/extension-task-item/dist/index.js
-  var inputRegex = /^\s*(\[([( |x])?\])\s$/;
+  var inputRegex2 = /^\s*(\[([( |x])?\])\s$/;
   var TaskItem = Node2.create({
     name: "taskItem",
     addOptions() {
@@ -18582,7 +18647,7 @@ img.ProseMirror-separator {
     addInputRules() {
       return [
         wrappingInputRule({
-          find: inputRegex,
+          find: inputRegex2,
           type: this.type,
           getAttributes: (match) => ({
             checked: match[match.length - 1] === "x"
@@ -18631,7 +18696,7 @@ img.ProseMirror-separator {
   });
 
   // node_modules/@tiptap/extension-blockquote/dist/index.js
-  var inputRegex2 = /^\s*>\s$/;
+  var inputRegex3 = /^\s*>\s$/;
   var Blockquote = Node2.create({
     name: "blockquote",
     addOptions() {
@@ -18671,7 +18736,7 @@ img.ProseMirror-separator {
     addInputRules() {
       return [
         wrappingInputRule({
-          find: inputRegex2,
+          find: inputRegex3,
           type: this.type
         })
       ];
@@ -18760,7 +18825,7 @@ img.ProseMirror-separator {
   // node_modules/@tiptap/extension-bullet-list/dist/index.js
   var ListItemName = "listItem";
   var TextStyleName = "textStyle";
-  var inputRegex3 = /^\s*([-+*])\s$/;
+  var inputRegex4 = /^\s*([-+*])\s$/;
   var BulletList = Node2.create({
     name: "bulletList",
     addOptions() {
@@ -18800,12 +18865,12 @@ img.ProseMirror-separator {
     },
     addInputRules() {
       let inputRule = wrappingInputRule({
-        find: inputRegex3,
+        find: inputRegex4,
         type: this.type
       });
       if (this.options.keepMarks || this.options.keepAttributes) {
         inputRule = wrappingInputRule({
-          find: inputRegex3,
+          find: inputRegex4,
           type: this.type,
           keepMarks: this.options.keepMarks,
           keepAttributes: this.options.keepAttributes,
@@ -18822,7 +18887,7 @@ img.ProseMirror-separator {
   });
 
   // node_modules/@tiptap/extension-code/dist/index.js
-  var inputRegex4 = /(^|[^`])`([^`]+)`(?!`)/;
+  var inputRegex5 = /(^|[^`])`([^`]+)`(?!`)/;
   var pasteRegex = /(^|[^`])`([^`]+)`(?!`)/g;
   var Code = Mark2.create({
     name: "code",
@@ -18863,7 +18928,7 @@ img.ProseMirror-separator {
     addInputRules() {
       return [
         markInputRule({
-          find: inputRegex4,
+          find: inputRegex5,
           type: this.type
         })
       ];
@@ -20344,7 +20409,7 @@ img.ProseMirror-separator {
   // node_modules/@tiptap/extension-ordered-list/dist/index.js
   var ListItemName2 = "listItem";
   var TextStyleName2 = "textStyle";
-  var inputRegex5 = /^(\d+)\.\s$/;
+  var inputRegex6 = /^(\d+)\.\s$/;
   var OrderedList = Node2.create({
     name: "orderedList",
     addOptions() {
@@ -20401,14 +20466,14 @@ img.ProseMirror-separator {
     },
     addInputRules() {
       let inputRule = wrappingInputRule({
-        find: inputRegex5,
+        find: inputRegex6,
         type: this.type,
         getAttributes: (match) => ({ start: +match[1] }),
         joinPredicate: (match, node) => node.childCount + node.attrs.start === +match[1]
       });
       if (this.options.keepMarks || this.options.keepAttributes) {
         inputRule = wrappingInputRule({
-          find: inputRegex5,
+          find: inputRegex6,
           type: this.type,
           keepMarks: this.options.keepMarks,
           keepAttributes: this.options.keepAttributes,
@@ -20457,7 +20522,7 @@ img.ProseMirror-separator {
   });
 
   // node_modules/@tiptap/extension-strike/dist/index.js
-  var inputRegex6 = /(?:^|\s)(~~(?!\s+~~)((?:[^~]+))~~(?!\s+~~))$/;
+  var inputRegex7 = /(?:^|\s)(~~(?!\s+~~)((?:[^~]+))~~(?!\s+~~))$/;
   var pasteRegex2 = /(?:^|\s)(~~(?!\s+~~)((?:[^~]+))~~(?!\s+~~))/g;
   var Strike = Mark2.create({
     name: "strike",
@@ -20508,7 +20573,7 @@ img.ProseMirror-separator {
     addInputRules() {
       return [
         markInputRule({
-          find: inputRegex6,
+          find: inputRegex7,
           type: this.type
         })
       ];
@@ -20815,28 +20880,273 @@ img.ProseMirror-separator {
     throw new Error("Wheel note editor failed to find its editor root element.");
   }
   var documentChangeTimer;
+  var supportedImageExtensions = /* @__PURE__ */ new Set([
+    "png",
+    "jpg",
+    "jpeg",
+    "gif",
+    "webp",
+    "svg",
+    "bmp",
+    "tif",
+    "tiff",
+    "heic",
+    "heif",
+    "avif",
+    "ico"
+  ]);
   var sendBridgeMessage = (type, payload = {}) => {
     window.webkit?.messageHandlers?.noteEditorBridge?.postMessage({ type, payload });
   };
   function isEmptyParagraphNode(node) {
     return Boolean(node && node.type.name === "paragraph" && node.childCount === 0);
   }
-  function deleteSourceBlock(editor2, getPos) {
+  function isEmptyEditor(editor2) {
+    return editor2.state.doc.childCount === 1 && isEmptyParagraphNode(editor2.state.doc.firstChild);
+  }
+  function normalizeText(value) {
+    return value.replace(/\s+/g, " ").trim();
+  }
+  function truncateText(value, maxLength) {
+    const normalized = normalizeText(value);
+    if (normalized.length <= maxLength) {
+      return normalized;
+    }
+    return `${normalized.slice(0, Math.max(0, maxLength - 1)).trimEnd()}\u2026`;
+  }
+  function normalizeLinkURL(value) {
+    const trimmed = value.trim();
+    if (!trimmed || /\s/.test(trimmed)) {
+      return null;
+    }
+    try {
+      const parsed = new URL(trimmed);
+      if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
+        return null;
+      }
+      return parsed.toString();
+    } catch {
+      return null;
+    }
+  }
+  function formatLinkDisplayURL(value, maxLength = 58) {
+    try {
+      const parsed = new URL(value);
+      const hostname = parsed.hostname.replace(/^www\./i, "");
+      const pathname = parsed.pathname === "/" ? "" : parsed.pathname.replace(/\/$/, "");
+      const decodedPath = pathname ? (() => {
+        try {
+          return decodeURIComponent(pathname);
+        } catch {
+          return pathname;
+        }
+      })() : "";
+      const suffix = parsed.search || parsed.hash ? "\u2026" : "";
+      const display = `${hostname}${decodedPath}${suffix}` || hostname || value;
+      return truncateText(display, maxLength);
+    } catch {
+      return truncateText(value, maxLength);
+    }
+  }
+  function deriveLinkTitle(url) {
+    return formatLinkDisplayURL(url, 92);
+  }
+  function formatLinkTitle(value) {
+    return truncateText(value, 92);
+  }
+  function formatLinkSummary(value) {
+    return formatLinkDisplayURL(value, 58);
+  }
+  function formatLinkHost(value) {
+    try {
+      return new URL(value).hostname.replace(/^www\./i, "") || value;
+    } catch {
+      return value;
+    }
+  }
+  function extractSingleAnchorFromHTML(html) {
+    const trimmed = html.trim();
+    if (!trimmed) {
+      return null;
+    }
+    const document2 = new DOMParser().parseFromString(trimmed, "text/html");
+    const anchors = Array.from(document2.body.querySelectorAll("a[href]"));
+    if (anchors.length !== 1) {
+      return null;
+    }
+    const [anchor] = anchors;
+    const bodyText = normalizeText(document2.body.textContent ?? "");
+    const anchorText = normalizeText(anchor.textContent ?? "");
+    if (bodyText && anchorText && bodyText !== anchorText) {
+      return null;
+    }
+    return {
+      href: anchor.href,
+      text: anchorText
+    };
+  }
+  function firstURIListEntry(value) {
+    return value.split(/\r?\n/).map((entry) => entry.trim()).find((entry) => entry.length > 0 && !entry.startsWith("#")) ?? "";
+  }
+  function extractLinkCardPayload(plainText, html = "", uriList = "") {
+    const anchor = extractSingleAnchorFromHTML(html);
+    const plainURL = normalizeLinkURL(normalizeText(plainText));
+    const uriListURL = normalizeLinkURL(firstURIListEntry(uriList));
+    const anchorURL = normalizeLinkURL(anchor?.href ?? "");
+    const url = plainURL ?? anchorURL ?? uriListURL;
+    if (!url) {
+      return null;
+    }
+    if (anchorURL && plainURL && anchorURL !== plainURL) {
+      return null;
+    }
+    const anchorTitle = normalizeText(anchor?.text ?? "");
+    const title = anchorTitle && anchorTitle !== url ? formatLinkTitle(anchorTitle) : deriveLinkTitle(url);
+    return {
+      title,
+      url
+    };
+  }
+  function selectionCanInsertTopLevelBlock(editor2) {
+    const { selection } = editor2.state;
+    if (!selection.empty) {
+      return false;
+    }
+    const { $from } = selection;
+    return $from.depth === 1 && $from.parent.type.name === "paragraph" && $from.parent.textContent.trim().length === 0;
+  }
+  function currentTopLevelParagraphRange(editor2) {
+    if (!selectionCanInsertTopLevelBlock(editor2)) {
+      return null;
+    }
+    const { $from } = editor2.state.selection;
+    return {
+      from: $from.before(),
+      to: $from.after()
+    };
+  }
+  function isSupportedImageFile(file) {
+    const normalizedType = file.type.trim().toLowerCase();
+    if (normalizedType.startsWith("image/")) {
+      return true;
+    }
+    const extensionMatch = file.name.toLowerCase().match(/\.([a-z0-9]+)$/);
+    return Boolean(extensionMatch && supportedImageExtensions.has(extensionMatch[1]));
+  }
+  function readFileAsDataURL(file) {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onerror = () => {
+        reject(new Error(`Failed to read ${file.name || "image file"}.`));
+      };
+      reader.onload = () => {
+        if (typeof reader.result === "string") {
+          resolve(reader.result);
+          return;
+        }
+        reject(new Error(`Failed to decode ${file.name || "image file"}.`));
+      };
+      reader.readAsDataURL(file);
+    });
+  }
+  function buildImageContent(images) {
+    const content = [];
+    images.forEach((image) => {
+      content.push({
+        type: "image",
+        attrs: {
+          src: image.src,
+          alt: image.alt,
+          title: image.alt
+        }
+      });
+      content.push({ type: "paragraph" });
+    });
+    return content;
+  }
+  function buildLinkCardContent(link) {
+    return [
+      {
+        type: "linkCard",
+        attrs: {
+          title: link.title,
+          url: link.url
+        }
+      },
+      {
+        type: "paragraph"
+      }
+    ];
+  }
+  async function insertImageFiles(editor2, files, target) {
+    const imageFiles = files.filter(isSupportedImageFile);
+    if (imageFiles.length === 0) {
+      return false;
+    }
+    try {
+      const images = await Promise.all(
+        imageFiles.map(async (file) => ({
+          src: await readFileAsDataURL(file),
+          alt: file.name || "Image"
+        }))
+      );
+      const content = buildImageContent(images);
+      if (isEmptyEditor(editor2)) {
+        editor2.commands.setContent({ type: "doc", content }, false);
+        editor2.commands.focus("end");
+        return true;
+      }
+      const insertionTarget = typeof target === "number" ? { from: target, to: target } : target ?? { from: editor2.state.selection.from, to: editor2.state.selection.to };
+      editor2.chain().focus().insertContentAt(insertionTarget, content).run();
+      return true;
+    } catch (error) {
+      sendBridgeMessage("editorError", {
+        message: error instanceof Error ? error.message : "Failed to insert dropped image."
+      });
+      return false;
+    }
+  }
+  function makeDebugImageFile(mimeType, fileName) {
+    const normalizedMimeType = mimeType.trim().toLowerCase();
+    const fallbackName = normalizedMimeType === "image/jpeg" ? "debug-image.jpg" : "debug-image.png";
+    const bytes = normalizedMimeType === "image/jpeg" ? new Uint8Array([255, 216, 255, 217]) : new Uint8Array([137, 80, 78, 71, 13, 10, 26, 10]);
+    return new File([bytes], fileName || fallbackName, {
+      type: normalizedMimeType || "image/png"
+    });
+  }
+  function insertLinkCard(editor2, link) {
+    if (!selectionCanInsertTopLevelBlock(editor2)) {
+      return false;
+    }
+    const content = buildLinkCardContent(link);
+    if (isEmptyEditor(editor2)) {
+      editor2.commands.setContent({ type: "doc", content }, false);
+      editor2.commands.focus("end");
+      return true;
+    }
+    const insertionTarget = currentTopLevelParagraphRange(editor2);
+    if (!insertionTarget) {
+      return false;
+    }
+    editor2.chain().focus().insertContentAt(insertionTarget, content).run();
+    return true;
+  }
+  function deleteAtomicBlock(editor2, getPos, nodeTypeName) {
     if (typeof getPos !== "function") {
       return false;
     }
     const position = getPos();
-    const sourceNode = editor2.state.doc.nodeAt(position);
-    if (!sourceNode || sourceNode.type.name !== "pageSource") {
+    const blockNode = editor2.state.doc.nodeAt(position);
+    if (!blockNode || blockNode.type.name !== nodeTypeName) {
       return false;
     }
     let from2 = position;
-    let to = position + sourceNode.nodeSize;
+    let to = position + blockNode.nodeSize;
     const before = editor2.state.doc.resolve(position).nodeBefore;
     if (isEmptyParagraphNode(before)) {
       from2 -= before.nodeSize;
     }
-    const after = editor2.state.doc.resolve(position + sourceNode.nodeSize).nodeAfter;
+    const after = editor2.state.doc.resolve(position + blockNode.nodeSize).nodeAfter;
     if (isEmptyParagraphNode(after)) {
       to += after.nodeSize;
     }
@@ -20938,12 +21248,77 @@ img.ProseMirror-separator {
         const handleRemove = (event) => {
           event.preventDefault();
           event.stopPropagation();
-          deleteSourceBlock(editor2, getPos);
+          deleteAtomicBlock(editor2, getPos, "pageSource");
         };
         remove.onmousedown = handleRemove;
         remove.onclick = handleRemove;
         meta.append(link, url);
         actions.append(time, remove);
+        dom.append(icon, meta, actions);
+        return {
+          dom,
+          selectNode: () => dom.classList.add("is-selected"),
+          deselectNode: () => dom.classList.remove("is-selected")
+        };
+      };
+    }
+  });
+  var LinkCard = Node2.create({
+    name: "linkCard",
+    group: "block",
+    atom: true,
+    selectable: true,
+    draggable: false,
+    addAttributes() {
+      return {
+        title: { default: "" },
+        url: { default: "" }
+      };
+    },
+    parseHTML() {
+      return [{ tag: 'div[data-type="link-card"]' }];
+    },
+    renderHTML({ HTMLAttributes }) {
+      return ["div", mergeAttributes(HTMLAttributes, { "data-type": "link-card" })];
+    },
+    addNodeView() {
+      return ({ editor: editor2, getPos, node }) => {
+        const dom = document.createElement("div");
+        dom.className = "link-card";
+        dom.dataset.type = "link-card";
+        const icon = document.createElement("div");
+        icon.className = "link-card__icon";
+        icon.textContent = "\u2197";
+        const meta = document.createElement("div");
+        meta.className = "link-card__meta";
+        const link = document.createElement("a");
+        link.className = "link-card__title";
+        link.href = String(node.attrs.url ?? "");
+        link.target = "_blank";
+        link.rel = "noreferrer";
+        link.textContent = String(node.attrs.title ?? node.attrs.url ?? "Link");
+        const url = document.createElement("span");
+        url.className = "link-card__url";
+        url.textContent = formatLinkSummary(String(node.attrs.url ?? ""));
+        const actions = document.createElement("div");
+        actions.className = "link-card__actions";
+        const host = document.createElement("span");
+        host.className = "link-card__host";
+        host.textContent = formatLinkHost(String(node.attrs.url ?? ""));
+        const remove = document.createElement("button");
+        remove.type = "button";
+        remove.className = "link-card__remove";
+        remove.textContent = "Remove";
+        remove.setAttribute("aria-label", "Remove link block");
+        const handleRemove = (event) => {
+          event.preventDefault();
+          event.stopPropagation();
+          deleteAtomicBlock(editor2, getPos, "linkCard");
+        };
+        remove.onmousedown = handleRemove;
+        remove.onclick = handleRemove;
+        meta.append(link, url);
+        actions.append(host, remove);
         dom.append(icon, meta, actions);
         return {
           dom,
@@ -21183,10 +21558,18 @@ img.ProseMirror-separator {
       TableRow,
       TableHeader,
       TableCell,
+      Image.configure({
+        allowBase64: true,
+        inline: false,
+        HTMLAttributes: {
+          loading: "lazy"
+        }
+      }),
       Placeholder.configure({
-        placeholder: "First line becomes the title. Type / for blocks, or use markdown like #, -, [], >, and ```"
+        placeholder: "First line becomes the title. Type / for blocks, use markdown like #, -, [], >, and ```, or drop images here."
       }),
       PageSource,
+      LinkCard,
       MarkdownShortcuts,
       SlashCommand
     ],
@@ -21194,6 +21577,37 @@ img.ProseMirror-separator {
       attributes: {
         class: "wheel-note-editor",
         spellcheck: "true"
+      },
+      handleDrop: (_view, event) => {
+        const files = Array.from(event.dataTransfer?.files ?? []);
+        if (files.length === 0 || files.every((file) => !isSupportedImageFile(file))) {
+          return false;
+        }
+        event.preventDefault();
+        const position = editor.view.posAtCoords({
+          left: event.clientX,
+          top: event.clientY
+        })?.pos;
+        void insertImageFiles(editor, files, position);
+        return true;
+      },
+      handlePaste: (_view, event) => {
+        const files = Array.from(event.clipboardData?.files ?? []);
+        if (files.length > 0 && files.some(isSupportedImageFile)) {
+          event.preventDefault();
+          void insertImageFiles(editor, files);
+          return true;
+        }
+        const link = extractLinkCardPayload(
+          event.clipboardData?.getData("text/plain") ?? "",
+          event.clipboardData?.getData("text/html") ?? "",
+          event.clipboardData?.getData("text/uri-list") ?? ""
+        );
+        if (!link || !selectionCanInsertTopLevelBlock(editor)) {
+          return false;
+        }
+        event.preventDefault();
+        return insertLinkCard(editor, link);
       }
     },
     content: {
@@ -21306,6 +21720,36 @@ img.ProseMirror-separator {
         visible: Boolean(document.querySelector(".slash-menu")),
         itemCount: items.length,
         items
+      };
+    },
+    async debugInsertImage(mimeType, fileName) {
+      setDocument({
+        type: "doc",
+        content: [{ type: "paragraph" }]
+      });
+      editor.commands.focus("end");
+      await insertImageFiles(editor, [makeDebugImageFile(mimeType, fileName)]);
+      const images = Array.from(document.querySelectorAll(".ProseMirror img"));
+      return {
+        imageCount: images.length,
+        sources: images.map((image) => image.getAttribute("src") ?? ""),
+        alts: images.map((image) => image.getAttribute("alt") ?? "")
+      };
+    },
+    debugPasteLink(plainText, html = "", uriList = "") {
+      setDocument({
+        type: "doc",
+        content: [{ type: "paragraph" }]
+      });
+      editor.commands.focus("end");
+      const link = extractLinkCardPayload(plainText, html, uriList);
+      const inserted = link ? insertLinkCard(editor, link) : false;
+      const links = Array.from(document.querySelectorAll(".link-card"));
+      return {
+        inserted,
+        title: document.querySelector(".link-card__title")?.textContent ?? "",
+        url: document.querySelector(".link-card__url")?.textContent ?? "",
+        linkCount: links.length
       };
     }
   };

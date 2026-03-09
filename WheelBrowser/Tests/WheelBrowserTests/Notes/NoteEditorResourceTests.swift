@@ -134,6 +134,69 @@ struct NoteEditorResourceTests {
         #expect(payload["itemDisplay"] as? String == "flex")
     }
 
+    @Test("Bundled editor inserts dropped image files as note images")
+    func droppedImagesInsertIntoDocument() async throws {
+        let webView = try await makeLoadedWebView()
+
+        let result = try await webView.callAsyncJavaScript(
+            """
+            const png = await window.NoteEditor.debugInsertImage('image/png', 'diagram.png');
+            const jpeg = await window.NoteEditor.debugInsertImage('image/jpeg', 'photo.jpg');
+            return { png, jpeg };
+            """,
+            arguments: [:],
+            in: nil,
+            contentWorld: .page
+        )
+        let payload = try #require(result as? [String: Any])
+        let png = try #require(payload["png"] as? [String: Any])
+        let jpeg = try #require(payload["jpeg"] as? [String: Any])
+        let pngSources = try #require(png["sources"] as? [String])
+        let jpegSources = try #require(jpeg["sources"] as? [String])
+        let pngAlts = try #require(png["alts"] as? [String])
+        let jpegAlts = try #require(jpeg["alts"] as? [String])
+
+        #expect((png["imageCount"] as? NSNumber)?.intValue == 1)
+        #expect(pngSources.first?.hasPrefix("data:image/png;base64,") == true)
+        #expect(pngAlts.first == "diagram.png")
+        #expect((jpeg["imageCount"] as? NSNumber)?.intValue == 1)
+        #expect(jpegSources.first?.hasPrefix("data:image/jpeg;base64,") == true)
+        #expect(jpegAlts.first == "photo.jpg")
+    }
+
+    @Test("Bundled editor turns pasted links into removable link cards")
+    func pastedLinksInsertAsLinkCards() async throws {
+        let webView = try await makeLoadedWebView()
+
+        let result = try await webView.callAsyncJavaScript(
+            """
+            const inserted = window.NoteEditor.debugPasteLink(
+              'https://www.example.com/product/notes?view=full#section',
+              '<a href="https://www.example.com/product/notes?view=full#section">Product Notes</a>'
+            );
+            return {
+              inserted: inserted.inserted,
+              linkCount: inserted.linkCount,
+              title: document.querySelector('.link-card__title')?.textContent ?? '',
+              url: document.querySelector('.link-card__url')?.textContent ?? '',
+              host: document.querySelector('.link-card__host')?.textContent ?? '',
+              removeCount: document.querySelectorAll('.link-card__remove').length,
+            };
+            """,
+            arguments: [:],
+            in: nil,
+            contentWorld: .page
+        )
+        let payload = try #require(result as? [String: Any])
+
+        #expect(payload["inserted"] as? Bool == true)
+        #expect((payload["linkCount"] as? NSNumber)?.intValue == 1)
+        #expect(payload["title"] as? String == "Product Notes")
+        #expect(payload["url"] as? String == "example.com/product/notes…")
+        #expect(payload["host"] as? String == "example.com")
+        #expect((payload["removeCount"] as? NSNumber)?.intValue == 1)
+    }
+
     @Test("Bundled editor omits formatting toolbar buttons")
     func toolbarOmitsFormattingButtons() async throws {
         let webView = try await makeLoadedWebView()

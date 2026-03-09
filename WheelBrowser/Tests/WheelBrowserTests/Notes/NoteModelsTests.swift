@@ -141,4 +141,34 @@ struct NoteModelsTests {
 
         #expect(first.canonicalJSONString == second.canonicalJSONString)
     }
+
+    @Test("Link cards contribute their title and URL to note text extraction")
+    func extractsTitleAndPreviewFromLinkCards() {
+        let document = NoteDocument(
+            root: [
+                "type": AnyCodable("doc"),
+                "content": AnyCodable([
+                    [
+                        "type": "linkCard",
+                        "attrs": [
+                            "title": "Product Notes",
+                            "url": "https://www.example.com/product/notes?view=full#section",
+                        ],
+                    ],
+                    [
+                        "type": "paragraph",
+                        "content": [
+                            [
+                                "type": "text",
+                                "text": "Need to refine the editor card copy.",
+                            ],
+                        ],
+                    ],
+                ]),
+            ]
+        )
+
+        #expect(document.titleLine() == "Product Notes")
+        #expect(document.previewText() == "example.com/product/notes…\nNeed to refine the editor card copy.")
+    }
 }

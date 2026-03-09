@@ -1,6 +1,7 @@
 import './styles.css'
 
 import { Editor, Extension, Node, mergeAttributes, type Range } from '@tiptap/core'
+import Image from '@tiptap/extension-image'
 import type { Node as ProseMirrorNode } from '@tiptap/pm/model'
 import { TextSelection } from '@tiptap/pm/state'
 import Placeholder from '@tiptap/extension-placeholder'
@@ -26,6 +27,24 @@ type SourcePayload = {
   capturedAt?: string
 }
 
+type ImageInsertResult = {
+  imageCount: number
+  sources: string[]
+  alts: string[]
+}
+
+type LinkCardPayload = {
+  title: string
+  url: string
+}
+
+type LinkCardInsertResult = {
+  inserted: boolean
+  title: string
+  url: string
+  linkCount: number
+}
+
 type SlashItem = {
   title: string
   description: string
@@ -39,6 +58,8 @@ declare global {
       receiveCommand: (command: string, payload: JSONObject) => void
       debugApplyMarkdown: (text: string) => JSONObject
       debugOpenSlashMenu: (query: string) => JSONObject
+      debugInsertImage: (mimeType: string, fileName?: string) => Promise<ImageInsertResult>
+      debugPasteLink: (plainText: string, html?: string, uriList?: string) => LinkCardInsertResult
     }
     webkit?: {
       messageHandlers?: {
@@ -57,6 +78,21 @@ if (!editorElement) {
 }
 
 let documentChangeTimer: number | undefined
+const supportedImageExtensions = new Set([
+  'png',
+  'jpg',
+  'jpeg',
+  'gif',
+  'webp',
+  'svg',
+  'bmp',
+  'tif',
+  'tiff',
+  'heic',
+  'heif',
+  'avif',
+  'ico',
+])
 
 const sendBridgeMessage = (type: string, payload: JSONObject = {}) => {
   window.webkit?.messageHandlers?.noteEditorBridge?.postMessage({ type, payload })
@@ -66,27 +102,341 @@ function isEmptyParagraphNode(node: ProseMirrorNode | null | undefined): boolean
   return Boolean(node && node.type.name === 'paragraph' && node.childCount === 0)
 }
 
-function deleteSourceBlock(editor: Editor, getPos: (() => number) | boolean): boolean {
+function isEmptyEditor(editor: Editor): boolean {
+  return editor.state.doc.childCount === 1 && isEmptyParagraphNode(editor.state.doc.firstChild)
+}
+
+function normalizeText(value: string): string {
+  return value.replace(/\s+/g, ' ').trim()
+}
+
+function truncateText(value: string, maxLength: number): string {
+  const normalized = normalizeText(value)
+  if (normalized.length <= maxLength) {
+    return normalized
+  }
+
+  return `${normalized.slice(0, Math.max(0, maxLength - 1)).trimEnd()}…`
+}
+
+function normalizeLinkURL(value: string): string | null {
+  const trimmed = value.trim()
+  if (!trimmed || /\s/.test(trimmed)) {
+    return null
+  }
+
+  try {
+    const parsed = new URL(trimmed)
+    if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
+      return null
+    }
+
+    return parsed.toString()
+  } catch {
+    return null
+  }
+}
+
+function formatLinkDisplayURL(value: string, maxLength = 58): string {
+  try {
+    const parsed = new URL(value)
+    const hostname = parsed.hostname.replace(/^www\./i, '')
+    const pathname = parsed.pathname === '/' ? '' : parsed.pathname.replace(/\/$/, '')
+    const decodedPath = pathname
+      ? (() => {
+          try {
+            return decodeURIComponent(pathname)
+          } catch {
+            return pathname
+          }
+        })()
+      : ''
+    const suffix = parsed.search || parsed.hash ? '…' : ''
+    const display = `${hostname}${decodedPath}${suffix}` || hostname || value
+
+    return truncateText(display, maxLength)
+  } catch {
+    return truncateText(value, maxLength)
+  }
+}
+
+function deriveLinkTitle(url: string): string {
+  return formatLinkDisplayURL(url, 92)
+}
+
+function formatLinkTitle(value: string): string {
+  return truncateText(value, 92)
+}
+
+function formatLinkSummary(value: string): string {
+  return formatLinkDisplayURL(value, 58)
+}
+
+function formatLinkHost(value: string): string {
+  try {
+    return new URL(value).hostname.replace(/^www\./i, '') || value
+  } catch {
+    return value
+  }
+}
+
+function extractSingleAnchorFromHTML(html: string): { href: string; text: string } | null {
+  const trimmed = html.trim()
+  if (!trimmed) {
+    return null
+  }
+
+  const document = new DOMParser().parseFromString(trimmed, 'text/html')
+  const anchors = Array.from(document.body.querySelectorAll('a[href]'))
+  if (anchors.length !== 1) {
+    return null
+  }
+
+  const [anchor] = anchors
+  const bodyText = normalizeText(document.body.textContent ?? '')
+  const anchorText = normalizeText(anchor.textContent ?? '')
+
+  if (bodyText && anchorText && bodyText !== anchorText) {
+    return null
+  }
+
+  return {
+    href: anchor.href,
+    text: anchorText,
+  }
+}
+
+function firstURIListEntry(value: string): string {
+  return value
+    .split(/\r?\n/)
+    .map((entry) => entry.trim())
+    .find((entry) => entry.length > 0 && !entry.startsWith('#')) ?? ''
+}
+
+function extractLinkCardPayload(
+  plainText: string,
+  html = '',
+  uriList = '',
+): LinkCardPayload | null {
+  const anchor = extractSingleAnchorFromHTML(html)
+  const plainURL = normalizeLinkURL(normalizeText(plainText))
+  const uriListURL = normalizeLinkURL(firstURIListEntry(uriList))
+  const anchorURL = normalizeLinkURL(anchor?.href ?? '')
+  const url = plainURL ?? anchorURL ?? uriListURL
+
+  if (!url) {
+    return null
+  }
+
+  if (anchorURL && plainURL && anchorURL !== plainURL) {
+    return null
+  }
+
+  const anchorTitle = normalizeText(anchor?.text ?? '')
+  const title = anchorTitle && anchorTitle !== url ? formatLinkTitle(anchorTitle) : deriveLinkTitle(url)
+
+  return {
+    title,
+    url,
+  }
+}
+
+function selectionCanInsertTopLevelBlock(editor: Editor): boolean {
+  const { selection } = editor.state
+  if (!selection.empty) {
+    return false
+  }
+
+  const { $from } = selection
+  return $from.depth === 1 && $from.parent.type.name === 'paragraph' && $from.parent.textContent.trim().length === 0
+}
+
+function currentTopLevelParagraphRange(editor: Editor): Range | null {
+  if (!selectionCanInsertTopLevelBlock(editor)) {
+    return null
+  }
+
+  const { $from } = editor.state.selection
+  return {
+    from: $from.before(),
+    to: $from.after(),
+  }
+}
+
+function isSupportedImageFile(file: File): boolean {
+  const normalizedType = file.type.trim().toLowerCase()
+  if (normalizedType.startsWith('image/')) {
+    return true
+  }
+
+  const extensionMatch = file.name.toLowerCase().match(/\.([a-z0-9]+)$/)
+  return Boolean(extensionMatch && supportedImageExtensions.has(extensionMatch[1]))
+}
+
+function readFileAsDataURL(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader()
+
+    reader.onerror = () => {
+      reject(new Error(`Failed to read ${file.name || 'image file'}.`))
+    }
+
+    reader.onload = () => {
+      if (typeof reader.result === 'string') {
+        resolve(reader.result)
+        return
+      }
+
+      reject(new Error(`Failed to decode ${file.name || 'image file'}.`))
+    }
+
+    reader.readAsDataURL(file)
+  })
+}
+
+function buildImageContent(
+  images: Array<{ src: string; alt: string }>,
+): JSONObject[] {
+  const content: JSONObject[] = []
+
+  images.forEach((image) => {
+    content.push({
+      type: 'image',
+      attrs: {
+        src: image.src,
+        alt: image.alt,
+        title: image.alt,
+      },
+    })
+    content.push({ type: 'paragraph' })
+  })
+
+  return content
+}
+
+function buildLinkCardContent(link: LinkCardPayload): JSONObject[] {
+  return [
+    {
+      type: 'linkCard',
+      attrs: {
+        title: link.title,
+        url: link.url,
+      },
+    },
+    {
+      type: 'paragraph',
+    },
+  ]
+}
+
+async function insertImageFiles(
+  editor: Editor,
+  files: File[],
+  target?: number | Range,
+): Promise<boolean> {
+  const imageFiles = files.filter(isSupportedImageFile)
+  if (imageFiles.length === 0) {
+    return false
+  }
+
+  try {
+    const images = await Promise.all(
+      imageFiles.map(async (file) => ({
+        src: await readFileAsDataURL(file),
+        alt: file.name || 'Image',
+      })),
+    )
+    const content = buildImageContent(images)
+
+    if (isEmptyEditor(editor)) {
+      editor.commands.setContent({ type: 'doc', content }, false)
+      editor.commands.focus('end')
+      return true
+    }
+
+    const insertionTarget = typeof target === 'number'
+      ? { from: target, to: target }
+      : target ?? { from: editor.state.selection.from, to: editor.state.selection.to }
+
+    editor
+      .chain()
+      .focus()
+      .insertContentAt(insertionTarget, content)
+      .run()
+
+    return true
+  } catch (error) {
+    sendBridgeMessage('editorError', {
+      message: error instanceof Error ? error.message : 'Failed to insert dropped image.',
+    })
+    return false
+  }
+}
+
+function makeDebugImageFile(mimeType: string, fileName?: string): File {
+  const normalizedMimeType = mimeType.trim().toLowerCase()
+  const fallbackName = normalizedMimeType === 'image/jpeg' ? 'debug-image.jpg' : 'debug-image.png'
+  const bytes = normalizedMimeType === 'image/jpeg'
+    ? new Uint8Array([0xff, 0xd8, 0xff, 0xd9])
+    : new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a])
+
+  return new File([bytes], fileName || fallbackName, {
+    type: normalizedMimeType || 'image/png',
+  })
+}
+
+function insertLinkCard(editor: Editor, link: LinkCardPayload): boolean {
+  if (!selectionCanInsertTopLevelBlock(editor)) {
+    return false
+  }
+
+  const content = buildLinkCardContent(link)
+
+  if (isEmptyEditor(editor)) {
+    editor.commands.setContent({ type: 'doc', content }, false)
+    editor.commands.focus('end')
+    return true
+  }
+
+  const insertionTarget = currentTopLevelParagraphRange(editor)
+  if (!insertionTarget) {
+    return false
+  }
+
+  editor
+    .chain()
+    .focus()
+    .insertContentAt(insertionTarget, content)
+    .run()
+
+  return true
+}
+
+function deleteAtomicBlock(
+  editor: Editor,
+  getPos: (() => number) | boolean,
+  nodeTypeName: string,
+): boolean {
   if (typeof getPos !== 'function') {
     return false
   }
 
   const position = getPos()
-  const sourceNode = editor.state.doc.nodeAt(position)
+  const blockNode = editor.state.doc.nodeAt(position)
 
-  if (!sourceNode || sourceNode.type.name !== 'pageSource') {
+  if (!blockNode || blockNode.type.name !== nodeTypeName) {
     return false
   }
 
   let from = position
-  let to = position + sourceNode.nodeSize
+  let to = position + blockNode.nodeSize
 
   const before = editor.state.doc.resolve(position).nodeBefore
   if (isEmptyParagraphNode(before)) {
     from -= before.nodeSize
   }
 
-  const after = editor.state.doc.resolve(position + sourceNode.nodeSize).nodeAfter
+  const after = editor.state.doc.resolve(position + blockNode.nodeSize).nodeAfter
   if (isEmptyParagraphNode(after)) {
     to += after.nodeSize
   }
@@ -221,13 +571,92 @@ const PageSource = Node.create({
       const handleRemove = (event: MouseEvent) => {
         event.preventDefault()
         event.stopPropagation()
-        deleteSourceBlock(editor, getPos)
+        deleteAtomicBlock(editor, getPos, 'pageSource')
       }
       remove.onmousedown = handleRemove
       remove.onclick = handleRemove
 
       meta.append(link, url)
       actions.append(time, remove)
+      dom.append(icon, meta, actions)
+
+      return {
+        dom,
+        selectNode: () => dom.classList.add('is-selected'),
+        deselectNode: () => dom.classList.remove('is-selected'),
+      }
+    }
+  },
+})
+
+const LinkCard = Node.create({
+  name: 'linkCard',
+  group: 'block',
+  atom: true,
+  selectable: true,
+  draggable: false,
+
+  addAttributes() {
+    return {
+      title: { default: '' },
+      url: { default: '' },
+    }
+  },
+
+  parseHTML() {
+    return [{ tag: 'div[data-type="link-card"]' }]
+  },
+
+  renderHTML({ HTMLAttributes }) {
+    return ['div', mergeAttributes(HTMLAttributes, { 'data-type': 'link-card' })]
+  },
+
+  addNodeView() {
+    return ({ editor, getPos, node }) => {
+      const dom = document.createElement('div')
+      dom.className = 'link-card'
+      dom.dataset.type = 'link-card'
+
+      const icon = document.createElement('div')
+      icon.className = 'link-card__icon'
+      icon.textContent = '↗'
+
+      const meta = document.createElement('div')
+      meta.className = 'link-card__meta'
+
+      const link = document.createElement('a')
+      link.className = 'link-card__title'
+      link.href = String(node.attrs.url ?? '')
+      link.target = '_blank'
+      link.rel = 'noreferrer'
+      link.textContent = String(node.attrs.title ?? node.attrs.url ?? 'Link')
+
+      const url = document.createElement('span')
+      url.className = 'link-card__url'
+      url.textContent = formatLinkSummary(String(node.attrs.url ?? ''))
+
+      const actions = document.createElement('div')
+      actions.className = 'link-card__actions'
+
+      const host = document.createElement('span')
+      host.className = 'link-card__host'
+      host.textContent = formatLinkHost(String(node.attrs.url ?? ''))
+
+      const remove = document.createElement('button')
+      remove.type = 'button'
+      remove.className = 'link-card__remove'
+      remove.textContent = 'Remove'
+      remove.setAttribute('aria-label', 'Remove link block')
+      const handleRemove = (event: MouseEvent) => {
+        event.preventDefault()
+        event.stopPropagation()
+        deleteAtomicBlock(editor, getPos, 'linkCard')
+      }
+      remove.onmousedown = handleRemove
+      remove.onclick = handleRemove
+
+      meta.append(link, url)
+      actions.append(host, remove)
       dom.append(icon, meta, actions)
 
       return {
@@ -501,10 +930,18 @@ const editor = new Editor({
     TableRow,
     TableHeader,
     TableCell,
+    Image.configure({
+      allowBase64: true,
+      inline: false,
+      HTMLAttributes: {
+        loading: 'lazy',
+      },
+    }),
     Placeholder.configure({
-      placeholder: 'First line becomes the title. Type / for blocks, or use markdown like #, -, [], >, and ```',
+      placeholder: 'First line becomes the title. Type / for blocks, use markdown like #, -, [], >, and ```, or drop images here.',
     }),
     PageSource,
+    LinkCard,
     MarkdownShortcuts,
     SlashCommand,
   ],
@@ -512,6 +949,40 @@ const editor = new Editor({
     attributes: {
       class: 'wheel-note-editor',
       spellcheck: 'true',
+    },
+    handleDrop: (_view, event) => {
+      const files = Array.from(event.dataTransfer?.files ?? [])
+      if (files.length === 0 || files.every((file) => !isSupportedImageFile(file))) {
+        return false
+      }
+
+      event.preventDefault()
+      const position = editor.view.posAtCoords({
+        left: event.clientX,
+        top: event.clientY,
+      })?.pos
+      void insertImageFiles(editor, files, position)
+      return true
+    },
+    handlePaste: (_view, event) => {
+      const files = Array.from(event.clipboardData?.files ?? [])
+      if (files.length > 0 && files.some(isSupportedImageFile)) {
+        event.preventDefault()
+        void insertImageFiles(editor, files)
+        return true
+      }
+
+      const link = extractLinkCardPayload(
+        event.clipboardData?.getData('text/plain') ?? '',
+        event.clipboardData?.getData('text/html') ?? '',
+        event.clipboardData?.getData('text/uri-list') ?? '',
+      )
+      if (!link || !selectionCanInsertTopLevelBlock(editor)) {
+        return false
+      }
+
+      event.preventDefault()
+      return insertLinkCard(editor, link)
     },
   },
   content: {
@@ -640,6 +1111,39 @@ window.NoteEditor = {
       visible: Boolean(document.querySelector('.slash-menu')),
       itemCount: items.length,
       items,
+    }
+  },
+  async debugInsertImage(mimeType: string, fileName?: string) {
+    setDocument({
+      type: 'doc',
+      content: [{ type: 'paragraph' }],
+    })
+    editor.commands.focus('end')
+    await insertImageFiles(editor, [makeDebugImageFile(mimeType, fileName)])
+
+    const images = Array.from(document.querySelectorAll('.ProseMirror img'))
+    return {
+      imageCount: images.length,
+      sources: images.map((image) => image.getAttribute('src') ?? ''),
+      alts: images.map((image) => image.getAttribute('alt') ?? ''),
+    }
+  },
+  debugPasteLink(plainText: string, html = '', uriList = '') {
+    setDocument({
+      type: 'doc',
+      content: [{ type: 'paragraph' }],
+    })
+    editor.commands.focus('end')
+
+    const link = extractLinkCardPayload(plainText, html, uriList)
+    const inserted = link ? insertLinkCard(editor, link) : false
+    const links = Array.from(document.querySelectorAll('.link-card'))
+
+    return {
+      inserted,
+      title: document.querySelector('.link-card__title')?.textContent ?? '',
+      url: document.querySelector('.link-card__url')?.textContent ?? '',
+      linkCount: links.length,
     }
   },
 }

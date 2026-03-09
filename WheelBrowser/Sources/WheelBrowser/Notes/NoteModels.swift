@@ -176,6 +176,12 @@ struct NoteDocument: Codable, Sendable {
                         let text = [title, url].filter { !$0.isEmpty }.joined(separator: " ")
                         return text.isEmpty ? [] : [text]
                     }
+                case "linkCard":
+                    if let attrs = dictionary["attrs"] as? [String: Any] {
+                        let title = normalizeLine(attrs["title"] as? String ?? "")
+                        let url = displayLinkSummary(attrs["url"] as? String ?? "")
+                        return [title, url].filter { !$0.isEmpty }
+                    }
                 default:
                     break
                 }
@@ -212,6 +218,12 @@ struct NoteDocument: Codable, Sendable {
                     if let attrs = dictionary["attrs"] as? [String: Any] {
                         let title = attrs["title"] as? String ?? "Source"
                         let url = attrs["url"] as? String ?? ""
+                        return [title, url].filter { !$0.isEmpty }.joined(separator: " ")
+                    }
+                case "linkCard":
+                    if let attrs = dictionary["attrs"] as? [String: Any] {
+                        let title = normalizeLine(attrs["title"] as? String ?? "")
+                        let url = displayLinkSummary(attrs["url"] as? String ?? "")
                         return [title, url].filter { !$0.isEmpty }.joined(separator: " ")
                     }
                 default:
@@ -282,6 +294,24 @@ struct NoteDocument: Codable, Sendable {
         text
             .replacingOccurrences(of: "\\s+", with: " ", options: .regularExpression)
             .trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private static func displayLinkSummary(_ text: String, maxLength: Int = 58) -> String {
+        let normalized = normalizeLine(text)
+        guard !normalized.isEmpty else { return "" }
+
+        guard let components = URLComponents(string: normalized) else {
+            return truncated(normalized, maxLength: maxLength)
+        }
+
+        let host = (components.host ?? normalized)
+            .replacingOccurrences(of: "^www\\.", with: "", options: .regularExpression)
+        let path = components.percentEncodedPath == "/" ? "" : components.percentEncodedPath
+        let decodedPath = path.removingPercentEncoding ?? path
+        let suffix = ((components.percentEncodedQuery?.isEmpty == false) || (components.fragment?.isEmpty == false)) ? "…" : ""
+        let display = "\(host)\(decodedPath)\(suffix)"
+
+        return truncated(display.isEmpty ? normalized : display, maxLength: maxLength)
     }
 
     private static func truncated(_ text: String, maxLength: Int) -> String {
