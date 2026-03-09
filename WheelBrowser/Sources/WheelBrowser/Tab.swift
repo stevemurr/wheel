@@ -103,11 +103,19 @@ class Tab: Identifiable {
 
     /// Creates a fully-configured WKWebView for browsing.
     private static func createWebView() -> WKWebView {
-        let config = BrowserWebViewConfigurationFactory.shared.makeConfiguration(surface: .tab)
-        let webView = BrowserWebView(frame: .zero, configuration: config)
-        webView.allowsBackForwardNavigationGestures = true
-
-        return webView
+        WKWebViewHost.build(
+            spec: HostedWKWebViewSpec(
+                makeConfiguration: {
+                    BrowserWebViewConfigurationFactory.shared.makeConfiguration(surface: .tab)
+                },
+                makeWebView: { configuration in
+                    BrowserWebView(frame: .zero, configuration: configuration)
+                },
+                configure: { webView in
+                    webView.allowsBackForwardNavigationGestures = true
+                }
+            )
+        )
     }
 
     func load(_ urlString: String) {

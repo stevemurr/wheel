@@ -24,13 +24,13 @@ private struct HackerNewsPromptIntent {
 
     init?(prompt: String) {
         let trimmedPrompt = prompt.trimmingCharacters(in: .whitespacesAndNewlines)
-        let normalizedPrompt = Self.normalize(trimmedPrompt)
+        let normalizedPrompt = PromptText.normalize(trimmedPrompt)
 
         guard Self.referencesHackerNews(in: normalizedPrompt) else { return nil }
         guard Self.containsStoryIntent(in: normalizedPrompt) else { return nil }
 
         self.prompt = trimmedPrompt
-        self.limit = Self.extractLimit(from: normalizedPrompt) ?? 5
+        self.limit = PromptText.extractInteger(in: #"\b([1-9]|1[0-9]|20)\b"#, from: normalizedPrompt) ?? 5
     }
 
     var plan: GeneratedWidgetPlan {
@@ -79,50 +79,21 @@ private struct HackerNewsPromptIntent {
     private static func referencesHackerNews(in prompt: String) -> Bool {
         prompt.contains("hacker news")
             || prompt.contains("hackernews")
-            || containsWord("hn", in: prompt)
+            || PromptText.containsWord("hn", in: prompt)
     }
 
     private static func containsStoryIntent(in prompt: String) -> Bool {
         prompt.contains("front page")
-            || containsWord("headline", in: prompt)
-            || containsWord("headlines", in: prompt)
-            || containsWord("story", in: prompt)
-            || containsWord("stories", in: prompt)
-            || containsWord("article", in: prompt)
-            || containsWord("articles", in: prompt)
-            || containsWord("post", in: prompt)
-            || containsWord("posts", in: prompt)
-            || containsWord("top", in: prompt)
-            || containsWord("best", in: prompt)
-    }
-
-    private static func extractLimit(from prompt: String) -> Int? {
-        guard let match = prompt.range(of: #"\b([1-9]|1[0-9]|20)\b"#, options: .regularExpression),
-              let value = Int(prompt[match]) else {
-            return nil
-        }
-        return value
-    }
-
-    private static func containsWord(_ word: String, in prompt: String) -> Bool {
-        prompt == word
-            || prompt.hasPrefix("\(word) ")
-            || prompt.hasSuffix(" \(word)")
-            || prompt.contains(" \(word) ")
-    }
-
-    private static func normalize(_ value: String) -> String {
-        value
-            .lowercased()
-            .replacingOccurrences(of: "-", with: " ")
-            .replacingOccurrences(of: "_", with: " ")
-            .replacingOccurrences(
-                of: #"[^a-z0-9 ]+"#,
-                with: " ",
-                options: .regularExpression
-            )
-            .replacingOccurrences(of: #"\s+"#, with: " ", options: .regularExpression)
-            .trimmingCharacters(in: .whitespacesAndNewlines)
+            || PromptText.containsWord("headline", in: prompt)
+            || PromptText.containsWord("headlines", in: prompt)
+            || PromptText.containsWord("story", in: prompt)
+            || PromptText.containsWord("stories", in: prompt)
+            || PromptText.containsWord("article", in: prompt)
+            || PromptText.containsWord("articles", in: prompt)
+            || PromptText.containsWord("post", in: prompt)
+            || PromptText.containsWord("posts", in: prompt)
+            || PromptText.containsWord("top", in: prompt)
+            || PromptText.containsWord("best", in: prompt)
     }
 }
 
@@ -140,7 +111,7 @@ private struct SubredditPromptIntent {
 
     init?(prompt: String) {
         let trimmedPrompt = prompt.trimmingCharacters(in: .whitespacesAndNewlines)
-        let normalizedPrompt = Self.normalize(trimmedPrompt)
+        let normalizedPrompt = PromptText.normalize(trimmedPrompt, preservingSlash: true)
 
         guard Self.referencesSubreddit(in: trimmedPrompt, normalizedPrompt: normalizedPrompt) else { return nil }
         guard Self.containsStoryIntent(in: normalizedPrompt) else { return nil }
@@ -148,7 +119,7 @@ private struct SubredditPromptIntent {
 
         self.prompt = trimmedPrompt
         self.subreddit = subreddit
-        self.limit = Self.extractLimit(from: normalizedPrompt) ?? 5
+        self.limit = PromptText.extractInteger(in: #"\b([1-9]|1[0-9]|2[0-5])\b"#, from: normalizedPrompt) ?? 5
         self.sort = Self.resolveSort(from: normalizedPrompt)
     }
 
@@ -212,15 +183,15 @@ private struct SubredditPromptIntent {
     }
 
     private static func resolveSort(from prompt: String) -> Sort {
-        if containsWord("new", in: prompt)
-            || containsWord("latest", in: prompt)
-            || containsWord("recent", in: prompt)
-            || containsWord("fresh", in: prompt) {
+        if PromptText.containsWord("new", in: prompt)
+            || PromptText.containsWord("latest", in: prompt)
+            || PromptText.containsWord("recent", in: prompt)
+            || PromptText.containsWord("fresh", in: prompt) {
             return .new
         }
-        if containsWord("hot", in: prompt)
-            || containsWord("trending", in: prompt)
-            || containsWord("popular", in: prompt) {
+        if PromptText.containsWord("hot", in: prompt)
+            || PromptText.containsWord("trending", in: prompt)
+            || PromptText.containsWord("popular", in: prompt) {
             return .hot
         }
         return .top
@@ -238,20 +209,20 @@ private struct SubredditPromptIntent {
 
     private static func containsStoryIntent(in prompt: String) -> Bool {
         prompt.contains("front page")
-            || containsWord("headline", in: prompt)
-            || containsWord("headlines", in: prompt)
-            || containsWord("story", in: prompt)
-            || containsWord("stories", in: prompt)
-            || containsWord("article", in: prompt)
-            || containsWord("articles", in: prompt)
-            || containsWord("post", in: prompt)
-            || containsWord("posts", in: prompt)
-            || containsWord("top", in: prompt)
-            || containsWord("best", in: prompt)
-            || containsWord("hot", in: prompt)
-            || containsWord("latest", in: prompt)
-            || containsWord("recent", in: prompt)
-            || containsWord("new", in: prompt)
+            || PromptText.containsWord("headline", in: prompt)
+            || PromptText.containsWord("headlines", in: prompt)
+            || PromptText.containsWord("story", in: prompt)
+            || PromptText.containsWord("stories", in: prompt)
+            || PromptText.containsWord("article", in: prompt)
+            || PromptText.containsWord("articles", in: prompt)
+            || PromptText.containsWord("post", in: prompt)
+            || PromptText.containsWord("posts", in: prompt)
+            || PromptText.containsWord("top", in: prompt)
+            || PromptText.containsWord("best", in: prompt)
+            || PromptText.containsWord("hot", in: prompt)
+            || PromptText.containsWord("latest", in: prompt)
+            || PromptText.containsWord("recent", in: prompt)
+            || PromptText.containsWord("new", in: prompt)
     }
 
     private static func extractSubreddit(from prompt: String, normalizedPrompt: String) -> String? {
@@ -277,34 +248,6 @@ private struct SubredditPromptIntent {
         return nil
     }
 
-    private static func extractLimit(from prompt: String) -> Int? {
-        guard let match = prompt.range(of: #"\b([1-9]|1[0-9]|2[0-5])\b"#, options: .regularExpression),
-              let value = Int(prompt[match]) else {
-            return nil
-        }
-        return value
-    }
-
-    private static func containsWord(_ word: String, in prompt: String) -> Bool {
-        prompt == word
-            || prompt.hasPrefix("\(word) ")
-            || prompt.hasSuffix(" \(word)")
-            || prompt.contains(" \(word) ")
-    }
-
-    private static func normalize(_ value: String) -> String {
-        value
-            .lowercased()
-            .replacingOccurrences(of: "-", with: " ")
-            .replacingOccurrences(of: "_", with: " ")
-            .replacingOccurrences(
-                of: #"[^a-z0-9/ ]+"#,
-                with: " ",
-                options: .regularExpression
-            )
-            .replacingOccurrences(of: #"\s+"#, with: " ", options: .regularExpression)
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-    }
 }
 
 private struct CryptoPromptIntent {
@@ -320,8 +263,8 @@ private struct CryptoPromptIntent {
 
     init?(prompt: String) {
         let trimmedPrompt = prompt.trimmingCharacters(in: .whitespacesAndNewlines)
-        let normalizedPrompt = Self.normalize(trimmedPrompt)
-        let assets = Self.deduplicate(Self.catalog.filter { asset in
+        let normalizedPrompt = PromptText.normalize(trimmedPrompt)
+        let assets = PromptText.deduplicated(Self.catalog.filter { asset in
             asset.aliases.contains { alias in
                 Self.contains(alias: alias, in: normalizedPrompt)
             }
@@ -410,17 +353,17 @@ private struct CryptoPromptIntent {
     }
 
     private static func containsFinanceIntent(in prompt: String) -> Bool {
-        containsWord("price", in: prompt)
-            || containsWord("prices", in: prompt)
-            || containsWord("watchlist", in: prompt)
-            || containsWord("track", in: prompt)
-            || containsWord("quote", in: prompt)
-            || containsWord("quotes", in: prompt)
-            || containsWord("crypto", in: prompt)
-            || containsWord("coin", in: prompt)
-            || containsWord("coins", in: prompt)
-            || containsWord("token", in: prompt)
-            || containsWord("tokens", in: prompt)
+        PromptText.containsWord("price", in: prompt)
+            || PromptText.containsWord("prices", in: prompt)
+            || PromptText.containsWord("watchlist", in: prompt)
+            || PromptText.containsWord("track", in: prompt)
+            || PromptText.containsWord("quote", in: prompt)
+            || PromptText.containsWord("quotes", in: prompt)
+            || PromptText.containsWord("crypto", in: prompt)
+            || PromptText.containsWord("coin", in: prompt)
+            || PromptText.containsWord("coins", in: prompt)
+            || PromptText.containsWord("token", in: prompt)
+            || PromptText.containsWord("tokens", in: prompt)
     }
 
     private static func coinGeckoMarketsURL(ids: [String]) -> String {
@@ -438,41 +381,11 @@ private struct CryptoPromptIntent {
     }
 
     private static func contains(alias: String, in prompt: String) -> Bool {
-        let normalizedAlias = normalize(alias)
+        let normalizedAlias = PromptText.normalize(alias)
         if normalizedAlias.contains(" ") {
             return prompt.contains(normalizedAlias)
         }
-        return containsWord(normalizedAlias, in: prompt)
-    }
-
-    private static func containsWord(_ word: String, in prompt: String) -> Bool {
-        prompt == word
-            || prompt.hasPrefix("\(word) ")
-            || prompt.hasSuffix(" \(word)")
-            || prompt.contains(" \(word) ")
-    }
-
-    private static func deduplicate(_ assets: [Asset]) -> [Asset] {
-        var seen = Set<Asset>()
-        var result: [Asset] = []
-        for asset in assets where seen.insert(asset).inserted {
-            result.append(asset)
-        }
-        return result
-    }
-
-    private static func normalize(_ value: String) -> String {
-        value
-            .lowercased()
-            .replacingOccurrences(of: "-", with: " ")
-            .replacingOccurrences(of: "_", with: " ")
-            .replacingOccurrences(
-                of: #"[^a-z0-9 ]+"#,
-                with: " ",
-                options: .regularExpression
-            )
-            .replacingOccurrences(of: #"\s+"#, with: " ", options: .regularExpression)
-            .trimmingCharacters(in: .whitespacesAndNewlines)
+        return PromptText.containsWord(normalizedAlias, in: prompt)
     }
 
     private static let catalog: [Asset] = [
@@ -497,10 +410,10 @@ private struct FXPromptIntent {
 
     init?(prompt: String) {
         let trimmedPrompt = prompt.trimmingCharacters(in: .whitespacesAndNewlines)
-        let normalizedPrompt = Self.normalize(trimmedPrompt)
+        let normalizedPrompt = PromptText.normalize(trimmedPrompt)
         guard !normalizedPrompt.contains(where: \.isNumber) else { return nil }
 
-        let matches = Self.deduplicate(Self.catalog.filter { currency in
+        let matches = PromptText.deduplicated(Self.catalog.filter { currency in
             currency.aliases.contains { alias in
                 Self.contains(alias: alias, in: normalizedPrompt)
             }
@@ -556,48 +469,18 @@ private struct FXPromptIntent {
     }
 
     private static func containsFXIntent(in prompt: String) -> Bool {
-        containsWord("exchange", in: prompt)
-            || containsWord("rate", in: prompt)
-            || containsWord("fx", in: prompt)
-            || containsWord("forex", in: prompt)
-            || containsWord("currency", in: prompt)
+        PromptText.containsWord("exchange", in: prompt)
+            || PromptText.containsWord("rate", in: prompt)
+            || PromptText.containsWord("fx", in: prompt)
+            || PromptText.containsWord("forex", in: prompt)
+            || PromptText.containsWord("currency", in: prompt)
             || prompt.contains(" to ")
             || prompt.contains(" against ")
     }
 
     private static func contains(alias: String, in prompt: String) -> Bool {
-        let normalizedAlias = normalize(alias)
-        return containsWord(normalizedAlias, in: prompt)
-    }
-
-    private static func containsWord(_ word: String, in prompt: String) -> Bool {
-        prompt == word
-            || prompt.hasPrefix("\(word) ")
-            || prompt.hasSuffix(" \(word)")
-            || prompt.contains(" \(word) ")
-    }
-
-    private static func deduplicate(_ currencies: [Currency]) -> [Currency] {
-        var seen = Set<Currency>()
-        var result: [Currency] = []
-        for currency in currencies where seen.insert(currency).inserted {
-            result.append(currency)
-        }
-        return result
-    }
-
-    private static func normalize(_ value: String) -> String {
-        value
-            .lowercased()
-            .replacingOccurrences(of: "-", with: " ")
-            .replacingOccurrences(of: "_", with: " ")
-            .replacingOccurrences(
-                of: #"[^a-z0-9 ]+"#,
-                with: " ",
-                options: .regularExpression
-            )
-            .replacingOccurrences(of: #"\s+"#, with: " ", options: .regularExpression)
-            .trimmingCharacters(in: .whitespacesAndNewlines)
+        let normalizedAlias = PromptText.normalize(alias)
+        return PromptText.containsWord(normalizedAlias, in: prompt)
     }
 
     private static let catalog: [Currency] = [

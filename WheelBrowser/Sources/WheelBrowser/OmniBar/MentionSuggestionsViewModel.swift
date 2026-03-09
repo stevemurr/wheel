@@ -145,28 +145,35 @@ import SwiftUI
         )
         allSuggestions.append(contentsOf: overlaySuggestions)
 
-        // Search semantic results (from history)
+        guard !Task.isCancelled else { return }
+
+        applySuggestions(allSuggestions, isSearching: !query.isEmpty)
+
+        guard !query.isEmpty else { return }
+
         let semanticSuggestions = await searchSemanticHistory(
             query: query,
             excludedIds: excludedIds
         )
-        allSuggestions.append(contentsOf: semanticSuggestions)
 
-        // Sort by score (higher first), tabs before semantic results at equal score
-        allSuggestions.sort { a, b in
+        guard !Task.isCancelled else { return }
+
+        allSuggestions.append(contentsOf: semanticSuggestions)
+        applySuggestions(allSuggestions, isSearching: false)
+    }
+
+    private func applySuggestions(_ suggestions: [MentionSuggestion], isSearching: Bool) {
+        var sortedSuggestions = suggestions
+        sortedSuggestions.sort { a, b in
             if a.score != b.score {
                 return a.score > b.score
             }
             return suggestionRank(for: a.mention) < suggestionRank(for: b.mention)
         }
 
-        allSuggestions = Array(allSuggestions.prefix(10))
-
-        guard !Task.isCancelled else { return }
-
-        suggestions = allSuggestions
-        selectedIndex = suggestions.isEmpty ? -1 : 0
-        isSearching = false
+        self.suggestions = Array(sortedSuggestions.prefix(10))
+        selectedIndex = self.suggestions.isEmpty ? -1 : 0
+        self.isSearching = isSearching
     }
 
     private func searchNotes(

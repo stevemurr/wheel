@@ -224,12 +224,12 @@ private struct ClockIntent {
 
     init?(prompt: String) {
         let trimmedPrompt = prompt.trimmingCharacters(in: .whitespacesAndNewlines)
-        let normalizedPrompt = ClockLocation.normalize(trimmedPrompt)
-        let locations = Self.deduplicate(ClockLocation.catalog.filter { $0.matches(in: normalizedPrompt) })
+        let normalizedPrompt = PromptText.normalize(trimmedPrompt, preservingSlash: true)
+        let locations = PromptText.deduplicated(ClockLocation.catalog.filter { $0.matches(in: normalizedPrompt) })
 
         let hasExplicitClockIntent = Self.containsClockIntent(in: normalizedPrompt)
-        let mentionsTimeWord = Self.containsWord("time", in: normalizedPrompt)
-            || Self.containsWord("times", in: normalizedPrompt)
+        let mentionsTimeWord = PromptText.containsWord("time", in: normalizedPrompt)
+            || PromptText.containsWord("times", in: normalizedPrompt)
         guard hasExplicitClockIntent || (!locations.isEmpty && mentionsTimeWord) else {
             return nil
         }
@@ -239,32 +239,12 @@ private struct ClockIntent {
     }
 
     private static func containsClockIntent(in prompt: String) -> Bool {
-        containsWord("clock", in: prompt)
-            || containsPhrase("current time", in: prompt)
-            || containsPhrase("time now", in: prompt)
-            || containsPhrase("time in", in: prompt)
-            || containsPhrase("times in", in: prompt)
-            || containsPhrase("world clock", in: prompt)
-    }
-
-    private static func containsWord(_ word: String, in prompt: String) -> Bool {
-        prompt == word
-            || prompt.hasPrefix("\(word) ")
-            || prompt.hasSuffix(" \(word)")
-            || prompt.contains(" \(word) ")
-    }
-
-    private static func containsPhrase(_ phrase: String, in prompt: String) -> Bool {
-        prompt.contains(phrase)
-    }
-
-    private static func deduplicate(_ locations: [ClockLocation]) -> [ClockLocation] {
-        var seen = Set<ClockLocation>()
-        var result: [ClockLocation] = []
-        for location in locations where seen.insert(location).inserted {
-            result.append(location)
-        }
-        return result
+        PromptText.containsWord("clock", in: prompt)
+            || PromptText.containsPhrase("current time", in: prompt)
+            || PromptText.containsPhrase("time now", in: prompt)
+            || PromptText.containsPhrase("time in", in: prompt)
+            || PromptText.containsPhrase("times in", in: prompt)
+            || PromptText.containsPhrase("world clock", in: prompt)
     }
 }
 
@@ -288,29 +268,12 @@ private struct ClockLocation: Hashable {
     }
 
     private static func contains(alias: String, in prompt: String) -> Bool {
-        let normalizedAlias = normalize(alias)
+        let normalizedAlias = PromptText.normalize(alias, preservingSlash: true)
         if normalizedAlias.contains(" ") || normalizedAlias.contains("/") {
             return prompt.contains(normalizedAlias)
         }
 
-        return prompt == normalizedAlias
-            || prompt.hasPrefix("\(normalizedAlias) ")
-            || prompt.hasSuffix(" \(normalizedAlias)")
-            || prompt.contains(" \(normalizedAlias) ")
-    }
-
-    static func normalize(_ value: String) -> String {
-        value
-            .lowercased()
-            .replacingOccurrences(of: "-", with: " ")
-            .replacingOccurrences(of: "_", with: " ")
-            .replacingOccurrences(
-                of: #"[^a-z0-9/ ]+"#,
-                with: " ",
-                options: .regularExpression
-            )
-            .replacingOccurrences(of: #"\s+"#, with: " ", options: .regularExpression)
-            .trimmingCharacters(in: .whitespacesAndNewlines)
+        return PromptText.containsWord(normalizedAlias, in: prompt)
     }
 
     static let catalog: [ClockLocation] = [
@@ -414,12 +377,12 @@ private struct StockTrendIntent {
         }
 
         private static func contains(alias: String, in prompt: String) -> Bool {
-            let normalizedAlias = normalize(alias)
+            let normalizedAlias = PromptText.normalize(alias)
             if normalizedAlias.contains(" ") {
                 return prompt.contains(normalizedAlias)
             }
 
-            return containsWord(normalizedAlias, in: prompt)
+            return PromptText.containsWord(normalizedAlias, in: prompt)
         }
     }
 
@@ -429,14 +392,14 @@ private struct StockTrendIntent {
 
     init?(prompt: String) {
         let trimmedPrompt = prompt.trimmingCharacters(in: .whitespacesAndNewlines)
-        let normalizedPrompt = Self.normalize(trimmedPrompt)
+        let normalizedPrompt = PromptText.normalize(trimmedPrompt)
         let range = Self.extractRange(from: normalizedPrompt) ?? RangeSelection(label: "30D", pointLimit: 30)
 
         guard Self.containsTrendIntent(in: normalizedPrompt, hasExplicitRange: Self.extractRange(from: normalizedPrompt) != nil) else {
             return nil
         }
 
-        let matchedStocks = Self.deduplicate(Self.catalog.filter { $0.matches(in: normalizedPrompt) })
+        let matchedStocks = PromptText.deduplicated(Self.catalog.filter { $0.matches(in: normalizedPrompt) })
         if let stock = matchedStocks.first {
             self.prompt = trimmedPrompt
             self.stock = stock
@@ -460,24 +423,24 @@ private struct StockTrendIntent {
     }
 
     private static func containsTrendIntent(in prompt: String, hasExplicitRange: Bool) -> Bool {
-        containsWord("chart", in: prompt)
-            || containsWord("graph", in: prompt)
-            || containsWord("trend", in: prompt)
-            || containsWord("history", in: prompt)
-            || containsWord("historical", in: prompt)
-            || containsPhrase("over time", in: prompt)
-            || (hasExplicitRange && containsWord("price", in: prompt))
+        PromptText.containsWord("chart", in: prompt)
+            || PromptText.containsWord("graph", in: prompt)
+            || PromptText.containsWord("trend", in: prompt)
+            || PromptText.containsWord("history", in: prompt)
+            || PromptText.containsWord("historical", in: prompt)
+            || PromptText.containsPhrase("over time", in: prompt)
+            || (hasExplicitRange && PromptText.containsWord("price", in: prompt))
             || (hasExplicitRange && containsStockContext(in: prompt))
     }
 
     private static func containsStockContext(in prompt: String) -> Bool {
-        containsWord("stock", in: prompt)
-            || containsWord("stocks", in: prompt)
-            || containsWord("ticker", in: prompt)
-            || containsWord("share", in: prompt)
-            || containsWord("shares", in: prompt)
-            || containsWord("equity", in: prompt)
-            || containsWord("equities", in: prompt)
+        PromptText.containsWord("stock", in: prompt)
+            || PromptText.containsWord("stocks", in: prompt)
+            || PromptText.containsWord("ticker", in: prompt)
+            || PromptText.containsWord("share", in: prompt)
+            || PromptText.containsWord("shares", in: prompt)
+            || PromptText.containsWord("equity", in: prompt)
+            || PromptText.containsWord("equities", in: prompt)
             || prompt.contains("nasdaq")
             || prompt.contains("nyse")
     }
@@ -531,40 +494,6 @@ private struct StockTrendIntent {
         return nil
     }
 
-    private static func containsWord(_ word: String, in prompt: String) -> Bool {
-        prompt == word
-            || prompt.hasPrefix("\(word) ")
-            || prompt.hasSuffix(" \(word)")
-            || prompt.contains(" \(word) ")
-    }
-
-    private static func containsPhrase(_ phrase: String, in prompt: String) -> Bool {
-        prompt.contains(phrase)
-    }
-
-    private static func deduplicate(_ stocks: [Stock]) -> [Stock] {
-        var seen = Set<Stock>()
-        var result: [Stock] = []
-        for stock in stocks where seen.insert(stock).inserted {
-            result.append(stock)
-        }
-        return result
-    }
-
-    private static func normalize(_ value: String) -> String {
-        value
-            .lowercased()
-            .replacingOccurrences(of: "-", with: " ")
-            .replacingOccurrences(of: "_", with: " ")
-            .replacingOccurrences(
-                of: #"[^a-z0-9 ]+"#,
-                with: " ",
-                options: .regularExpression
-            )
-            .replacingOccurrences(of: #"\s+"#, with: " ", options: .regularExpression)
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-    }
-
     private static let catalog: [Stock] = [
         Stock(symbol: "AMD", name: "Advanced Micro Devices", aliases: ["amd", "advanced micro devices"], color: "#ff6b35"),
         Stock(symbol: "AAPL", name: "Apple", aliases: ["aapl", "apple"], color: "#4f7cff"),
@@ -576,27 +505,4 @@ private struct StockTrendIntent {
         Stock(symbol: "NVDA", name: "NVIDIA", aliases: ["nvda", "nvidia"], color: "#76b900"),
         Stock(symbol: "TSLA", name: "Tesla", aliases: ["tsla", "tesla"], color: "#cc2d2d"),
     ]
-}
-
-private extension StockTrendIntent.Stock {
-    static func containsWord(_ word: String, in prompt: String) -> Bool {
-        prompt == word
-            || prompt.hasPrefix("\(word) ")
-            || prompt.hasSuffix(" \(word)")
-            || prompt.contains(" \(word) ")
-    }
-
-    static func normalize(_ value: String) -> String {
-        value
-            .lowercased()
-            .replacingOccurrences(of: "-", with: " ")
-            .replacingOccurrences(of: "_", with: " ")
-            .replacingOccurrences(
-                of: #"[^a-z0-9 ]+"#,
-                with: " ",
-                options: .regularExpression
-            )
-            .replacingOccurrences(of: #"\s+"#, with: " ", options: .regularExpression)
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-    }
 }

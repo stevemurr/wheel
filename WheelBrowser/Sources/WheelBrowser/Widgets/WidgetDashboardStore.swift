@@ -9,7 +9,7 @@ final class WidgetDashboardStore {
     private(set) var pendingRefreshIDs: [UUID] = []
 
     @ObservationIgnored private nonisolated(unsafe) var activationObserver: NSObjectProtocol?
-    @ObservationIgnored private let storageURL: URL
+    @ObservationIgnored private let store: JSONBackedStore<[WidgetRecord]>
     @ObservationIgnored private let legacyCleanupPaths: [URL]
 
     private static let storePath: URL = {
@@ -39,7 +39,12 @@ final class WidgetDashboardStore {
         legacyCleanupPaths: [URL]? = nil,
         observeActivation: Bool = true
     ) {
-        self.storageURL = storageURL ?? Self.storePath
+        let resolvedStorageURL = storageURL ?? Self.storePath
+        self.store = JSONBackedStore(
+            backend: FileSystemStoreBackend(rootURL: resolvedStorageURL.deletingLastPathComponent()),
+            key: StoreKey(resolvedStorageURL.lastPathComponent),
+            codingConfiguration: .prettyPrintedSortedKeys
+        )
         self.legacyCleanupPaths = legacyCleanupPaths ?? [
             Self.legacyWidgetPath,
             Self.legacyModulesPath,
@@ -65,14 +70,8 @@ final class WidgetDashboardStore {
     }
 
     func load() {
-        guard FileManager.default.fileExists(atPath: storageURL.path) else {
-            records = []
-            return
-        }
-
         do {
-            let data = try Data(contentsOf: storageURL)
-            let decoded = try JSONDecoder().decode([WidgetRecord].self, from: data)
+            let decoded = try store.load() ?? []
             var repairedExistingWidgets = false
             let repaired = decoded.map { record -> WidgetRecord in
                 let result = WidgetManifestRepair.repair(record.manifest)
@@ -201,10 +200,7 @@ final class WidgetDashboardStore {
     }
 
     private func save() throws {
-        let encoder = JSONEncoder()
-        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
-        let data = try encoder.encode(records)
-        try data.write(to: storageURL, options: .atomic)
+        try store.save(records)
     }
 
     private func persistIgnoringErrors() {

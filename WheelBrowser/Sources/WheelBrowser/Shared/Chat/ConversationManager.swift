@@ -36,17 +36,19 @@ class ConversationManager {
     private(set) var currentConversation: Conversation?
     private(set) var savedConversations: [Conversation] = []
 
-    @ObservationIgnored private var pendingSaveTask: Task<Void, Never>?
-    @ObservationIgnored private let saveDebounceInterval: TimeInterval = 2.0
+    @ObservationIgnored private let saveScheduler: StoreSaveScheduler
+    @ObservationIgnored private let store: JSONBackedDirectoryStore<Conversation>
 
-    private var conversationsDirectory: URL {
-        let dir = FileManager.appSupportDirectory
-            .appendingPathComponent("Conversations", isDirectory: true)
-        try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
-        return dir
-    }
-
-    private init() {
+    init(
+        store: JSONBackedDirectoryStore<Conversation> = JSONBackedDirectoryStore(
+            backend: FileSystemStoreBackend(rootURL: FileManager.appSupportDirectory),
+            namespace: "Conversations",
+            codingConfiguration: .iso8601
+        ),
+        saveDebounceInterval: Duration = .seconds(2)
+    ) {
+        self.store = store
+        self.saveScheduler = StoreSaveScheduler(delay: saveDebounceInterval)
         loadConversationsAsync()
     }
 
@@ -96,14 +98,7 @@ class ConversationManager {
             return savedConversation
         }
 
-        let fileURL = conversationsDirectory.appendingPathComponent("\(id.uuidString).json")
-        guard let data = try? Data(contentsOf: fileURL) else {
-            return nil
-        }
-
-        let decoder = JSONDecoder()
-        decoder.dateDecodingStrategy = .iso8601
-        return try? decoder.decode(Conversation.self, from: data)
+        return try? store.load(key: conversationKey(for: id))
     }
 
     /// Add a message to the current conversation, creating one if needed
@@ -179,76 +174,57 @@ class ConversationManager {
     /// Delete a saved conversation
     func deleteConversation(_ id: UUID) {
         savedConversations.removeAll { $0.id == id }
-        let fileURL = conversationsDirectory.appendingPathComponent("\(id.uuidString).json")
-        try? FileManager.default.removeItem(at: fileURL)
+        try? store.delete(key: conversationKey(for: id))
     }
 
     /// Force save the current conversation immediately
     func saveCurrentConversation() {
         guard let conversation = currentConversation else { return }
-        pendingSaveTask?.cancel()
-        pendingSaveTask = nil
+        saveScheduler.cancel()
         saveConversationImmediately(conversation)
     }
 
     // MARK: - Private
 
     private func scheduleDebouncedSave() {
-        pendingSaveTask?.cancel()
-        let interval = saveDebounceInterval
-        pendingSaveTask = Task { @MainActor [weak self] in
-            try? await Task.sleep(nanoseconds: UInt64(interval * 1_000_000_000))
-            guard !Task.isCancelled, let self else { return }
-            guard let conversation = currentConversation else { return }
-            saveConversationImmediately(conversation)
+        saveScheduler.schedule { [weak self] in
+            guard let self, let conversation = self.currentConversation else { return }
+            self.saveConversationImmediately(conversation)
         }
     }
 
     private func saveConversationImmediately(_ conversation: Conversation) {
-        let fileURL = conversationsDirectory.appendingPathComponent("\(conversation.id.uuidString).json")
-        Task.detached {
-            do {
-                let encoder = JSONEncoder()
-                encoder.dateEncodingStrategy = .iso8601
-                let data = try encoder.encode(conversation)
-                try data.write(to: fileURL, options: .atomic)
-            } catch {
-                Log.Chat.error("Failed to save conversation: \(error.localizedDescription)")
-            }
+        do {
+            try store.save(conversation, for: conversationKey(for: conversation.id))
+        } catch {
+            Log.Chat.error("Failed to save conversation: \(error.localizedDescription)")
         }
     }
 
     private func loadConversationsAsync() {
-        let dir = conversationsDirectory
+        let store = self.store
         Task { @MainActor [weak self] in
             guard let self else { return }
-            savedConversations = await Self.loadConversations(from: dir)
+            savedConversations = await Self.loadConversations(from: store)
         }
     }
 
-    nonisolated private static func loadConversations(from directory: URL) async -> [Conversation] {
+    nonisolated private static func loadConversations(from store: JSONBackedDirectoryStore<Conversation>) async -> [Conversation] {
         await Task.detached(priority: .utility) {
-            guard FileManager.default.fileExists(atPath: directory.path) else { return [] }
-
-            let decoder = JSONDecoder()
-            decoder.dateDecodingStrategy = .iso8601
             var loaded: [Conversation] = []
 
-            if let files = try? FileManager.default.contentsOfDirectory(
-                at: directory,
-                includingPropertiesForKeys: [.contentModificationDateKey],
-                options: .skipsHiddenFiles
-            ) {
-                for file in files where file.pathExtension == "json" {
-                    if let data = try? Data(contentsOf: file),
-                       let conversation = try? decoder.decode(Conversation.self, from: data) {
-                        loaded.append(conversation)
-                    }
+            for key in (try? store.keys()) ?? [] {
+                if let conversation = try? store.load(key: key) {
+                    loaded.append(conversation)
                 }
             }
 
             loaded.sort { $0.updatedAt > $1.updatedAt }
             return loaded
         }.value
+    }
+
+    private func conversationKey(for id: UUID) -> StoreKey {
+        StoreKey("\(id.uuidString).json")
     }
 }

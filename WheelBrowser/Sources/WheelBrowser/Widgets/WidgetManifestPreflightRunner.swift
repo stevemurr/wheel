@@ -52,7 +52,8 @@ struct WidgetManifestPreflightRunner: Sendable {
 @MainActor
 private final class WidgetManifestPreflightSession {
     private let manifest: WidgetManifest
-    private let bridge = WidgetRuntimeBridge()
+    private let bridge: WidgetRuntimeBridge
+    private let hostSpec: HostedWKWebViewSpec
     private let schemeHandler: WidgetFetchSchemeHandler
     private let webView: WKWebView
     private var isReady = false
@@ -62,16 +63,26 @@ private final class WidgetManifestPreflightSession {
 
     init(manifest: WidgetManifest, urlSession: URLSession) {
         self.manifest = manifest
+        let bridge = WidgetRuntimeBridge()
+        self.bridge = bridge
         schemeHandler = WidgetFetchSchemeHandler(session: urlSession)
-
-        let configuration = WKWebViewConfiguration()
-        configuration.websiteDataStore = .nonPersistent()
-        configuration.setURLSchemeHandler(schemeHandler, forURLScheme: "widget-fetch")
-        configuration.userContentController.add(bridge, name: "widgetBridge")
-
-        webView = WKWebView(frame: .zero, configuration: configuration)
-        webView.setValue(false, forKey: "drawsBackground")
-        bridge.attach(to: webView)
+        hostSpec = HostedWKWebViewSpec(
+            dataStorePolicy: .nonPersistent,
+            schemeHandlers: [
+                .init(scheme: "widget-fetch", handler: schemeHandler),
+            ],
+            scriptMessageHandlers: [
+                .init(name: bridge.messageHandlerName, handler: bridge),
+            ],
+            configure: { webView in
+                webView.setValue(false, forKey: "drawsBackground")
+                bridge.attach(to: webView)
+            },
+            teardown: { _ in
+                bridge.detach()
+            }
+        )
+        webView = WKWebViewHost.build(spec: hostSpec)
 
         bridge.onReady = { [weak self] in
             self?.isReady = true
@@ -137,9 +148,8 @@ private final class WidgetManifestPreflightSession {
     }
 
     func invalidate() {
-        bridge.detach()
         webView.stopLoading()
-        webView.configuration.userContentController.removeScriptMessageHandler(forName: "widgetBridge")
+        WKWebViewHost.dismantle(webView, spec: hostSpec)
     }
 
     private func waitUntil(

@@ -9,12 +9,15 @@ class AgentStudioManager {
     private(set) var agents: [AgentConfig] = []
     var activeAgentID: UUID?
 
-    /// File URL for persisting agents
-    private var agentsFileURL: URL {
-        FileManager.appSupportDirectory.appendingPathComponent("agents.json")
-    }
+    @ObservationIgnored private let store: JSONBackedStore<AgentsData>
 
-    private init() {
+    private init(
+        store: JSONBackedStore<AgentsData> = JSONBackedStore(
+            backend: FileSystemStoreBackend(rootURL: FileManager.appSupportDirectory),
+            key: "agents.json"
+        )
+    ) {
+        self.store = store
         loadAgents()
 
         // Ensure there's always a default agent
@@ -128,11 +131,8 @@ class AgentStudioManager {
     // MARK: - Persistence
 
     private func loadAgents() {
-        guard FileManager.default.fileExists(atPath: agentsFileURL.path) else { return }
-
         do {
-            let data = try Data(contentsOf: agentsFileURL)
-            let decoded = try JSONDecoder().decode(AgentsData.self, from: data)
+            guard let decoded = try store.load() else { return }
             agents = decoded.agents
             activeAgentID = decoded.activeAgentID
         } catch {
@@ -143,8 +143,7 @@ class AgentStudioManager {
     private func saveAgents() async {
         do {
             let data = AgentsData(agents: agents, activeAgentID: activeAgentID)
-            let encoded = try JSONEncoder().encode(data)
-            try encoded.write(to: agentsFileURL, options: .atomic)
+            try store.save(data)
         } catch {
             Log.Agent.error("Failed to save agents: \(error.localizedDescription)")
         }

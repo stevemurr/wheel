@@ -7,21 +7,18 @@ final class NoteStore {
     private(set) var currentWorkspaceID: UUID?
 
     @ObservationIgnored private let storageRoot: URL
-    @ObservationIgnored private let saveDebounceInterval: Duration
+    @ObservationIgnored private let backend: FileSystemStoreBackend
+    @ObservationIgnored private let saveScheduler: StoreSaveScheduler
     @ObservationIgnored private var dirtyNoteIDs: Set<UUID> = []
-    @ObservationIgnored private var pendingSaveTask: Task<Void, Never>?
 
     init(
         storageRoot: URL = FileManager.appSupportDirectory.appendingPathComponent("Notes", isDirectory: true),
         saveDebounceInterval: Duration = .milliseconds(700)
     ) {
         self.storageRoot = storageRoot
-        self.saveDebounceInterval = saveDebounceInterval
+        self.backend = FileSystemStoreBackend(rootURL: storageRoot)
+        self.saveScheduler = StoreSaveScheduler(delay: saveDebounceInterval)
         try? FileManager.default.createDirectory(at: storageRoot, withIntermediateDirectories: true)
-    }
-
-    deinit {
-        pendingSaveTask?.cancel()
     }
 
     var orderedNotes: [NoteRecord] {
@@ -114,9 +111,9 @@ final class NoteStore {
     }
 
     func flushPendingSaves() {
-        pendingSaveTask?.cancel()
-        pendingSaveTask = nil
-        persistDirtyNotes()
+        saveScheduler.flush { [weak self] in
+            self?.persistDirtyNotes()
+        }
     }
 
     private func insert(_ note: NoteRecord) {
@@ -129,11 +126,7 @@ final class NoteStore {
     }
 
     private func scheduleDebouncedSave() {
-        pendingSaveTask?.cancel()
-        let delay = saveDebounceInterval
-        pendingSaveTask = Task { @MainActor [weak self] in
-            try? await Task.sleep(for: delay)
-            guard !Task.isCancelled else { return }
+        saveScheduler.schedule { [weak self] in
             self?.persistDirtyNotes()
         }
     }
@@ -153,23 +146,9 @@ final class NoteStore {
         notes.removeAll()
         dirtyNoteIDs.removeAll()
 
-        let directory = workspaceDirectory(for: workspaceID)
-        try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-
-        guard let files = try? FileManager.default.contentsOfDirectory(
-            at: directory,
-            includingPropertiesForKeys: nil,
-            options: [.skipsHiddenFiles]
-        ) else {
-            return
-        }
-
-        let decoder = JSONDecoder()
-        decoder.dateDecodingStrategy = .iso8601
-
-        for file in files where file.pathExtension == "json" {
-            guard let data = try? Data(contentsOf: file),
-                  let note = try? decoder.decode(NoteRecord.self, from: data) else {
+        let store = noteStore(for: workspaceID)
+        for key in (try? store.keys()) ?? [] {
+            guard let note = try? store.load(key: key) else {
                 continue
             }
             notes.append(normalizedRecord(note))
@@ -177,35 +156,31 @@ final class NoteStore {
     }
 
     private func persistNoteImmediately(_ note: NoteRecord) {
-        let encoder = JSONEncoder()
-        encoder.dateEncodingStrategy = .iso8601
-        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
-
         do {
-            let data = try encoder.encode(note)
-            let directory = workspaceDirectory(for: note.workspaceID)
-            try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-            try data.write(to: directory.appendingPathComponent("\(note.id.uuidString).json"), options: .atomic)
+            try noteStore(for: note.workspaceID).save(note, for: noteKey(for: note.id))
         } catch {
             Log.Workspace.error("Failed to save note", error: error)
         }
     }
 
     private func deletePersistedNote(_ note: NoteRecord) {
-        let fileURL = workspaceDirectory(for: note.workspaceID)
-            .appendingPathComponent("\(note.id.uuidString).json")
-
         do {
-            if FileManager.default.fileExists(atPath: fileURL.path) {
-                try FileManager.default.removeItem(at: fileURL)
-            }
+            try noteStore(for: note.workspaceID).delete(key: noteKey(for: note.id))
         } catch {
             Log.Workspace.error("Failed to delete note", error: error)
         }
     }
 
-    private func workspaceDirectory(for workspaceID: UUID) -> URL {
-        storageRoot.appendingPathComponent(workspaceID.uuidString, isDirectory: true)
+    private func noteStore(for workspaceID: UUID) -> JSONBackedDirectoryStore<NoteRecord> {
+        JSONBackedDirectoryStore(
+            backend: backend,
+            namespace: StoreNamespace(workspaceID.uuidString),
+            codingConfiguration: .prettyPrintedSortedKeysISO8601
+        )
+    }
+
+    private func noteKey(for id: UUID) -> StoreKey {
+        StoreKey("\(id.uuidString).json")
     }
 
     private func preconditionWorkspace() {

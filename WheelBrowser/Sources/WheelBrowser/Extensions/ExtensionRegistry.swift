@@ -19,8 +19,8 @@ final class ExtensionRegistry {
     private let fileManager: FileManager
     private let bundledExtensionsURL: URL?
     private let sideloadedExtensionsURL: URL
-    private let stateFileURL: URL
     private let contentBlockerManager: ContentBlockerManager
+    private let stateStore: JSONBackedStore<PersistedStateFile>
 
     private var persistedStates: [String: InstalledExtensionState] = [:]
     private var runtimeSnapshot: ExtensionRuntimeSnapshot = .empty
@@ -38,9 +38,13 @@ final class ExtensionRegistry {
     ) {
         self.bundledExtensionsURL = bundledExtensionsURL
         self.sideloadedExtensionsURL = sideloadedExtensionsURL
-        self.stateFileURL = stateFileURL
         self.contentBlockerManager = contentBlockerManager
         self.fileManager = fileManager
+        self.stateStore = JSONBackedStore(
+            backend: FileSystemStoreBackend(rootURL: stateFileURL.deletingLastPathComponent()),
+            key: StoreKey(stateFileURL.lastPathComponent),
+            codingConfiguration: .prettyPrintedSortedKeys
+        )
         loadPersistedStates()
     }
 
@@ -472,9 +476,7 @@ final class ExtensionRegistry {
     }
 
     private func loadPersistedStates() {
-        guard fileManager.fileExists(atPath: stateFileURL.path),
-              let data = try? Data(contentsOf: stateFileURL),
-              let decoded = try? JSONDecoder().decode(PersistedStateFile.self, from: data) else {
+        guard let decoded = try? stateStore.load() else {
             persistedStates = [:]
             return
         }
@@ -486,11 +488,7 @@ final class ExtensionRegistry {
         let state = PersistedStateFile(
             extensions: persistedStates.values.sorted { $0.id < $1.id }
         )
-        let encoder = JSONEncoder()
-        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
-
-        guard let data = try? encoder.encode(state) else { return }
-        try? data.write(to: stateFileURL, options: .atomic)
+        try? stateStore.save(state)
     }
 }
 

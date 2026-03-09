@@ -49,7 +49,17 @@ struct MentionSuggestionsViewModelTests {
         viewModel.noteStore = store
         viewModel.updateSuggestions(for: "roadmap", excluding: [], currentTabId: nil)
 
-        try await Task.sleep(for: .milliseconds(120))
+        for _ in 0..<20 {
+            if viewModel.suggestions.contains(where: {
+                if case .note(let id, _, _) = $0.mention {
+                    return id == note.id
+                }
+                return false
+            }) {
+                break
+            }
+            try await Task.sleep(for: .milliseconds(25))
+        }
 
         #expect(
             viewModel.suggestions.contains {

@@ -288,39 +288,52 @@ private struct DashboardPrimaryActionButtonStyle: ButtonStyle {
     }
 }
 
-private struct WidgetDashboardWebView: NSViewRepresentable {
+private struct WidgetDashboardWebView: View {
     let records: [WidgetRecord]
     let isEditing: Bool
     let bridge: WidgetRuntimeBridge
     let schemeHandler: WidgetFetchSchemeHandler
 
-    func makeNSView(context: Context) -> WKWebView {
-        let configuration = WKWebViewConfiguration()
-        configuration.websiteDataStore = .nonPersistent()
-        configuration.setURLSchemeHandler(schemeHandler, forURLScheme: "widget-fetch")
-        configuration.userContentController.add(bridge, name: "widgetBridge")
+    var body: some View {
+        HostedWKWebView(
+            spec: spec,
+            update: { _ in
+                // Runtime state is synced explicitly from the parent view to avoid clobbering
+                // in-webview interactions during unrelated SwiftUI updates like height changes.
+                schemeHandler.updateAllowedHosts(for: records.map(\.manifest))
+            }
+        )
+    }
 
-        let webView = BrowserWebView(frame: .zero, configuration: configuration)
-        webView.setValue(false, forKey: "drawsBackground")
-        bridge.attach(to: webView)
+    private var spec: HostedWKWebViewSpec {
+        HostedWKWebViewSpec(
+            dataStorePolicy: .nonPersistent,
+            schemeHandlers: [
+                .init(scheme: "widget-fetch", handler: schemeHandler),
+            ],
+            scriptMessageHandlers: [
+                .init(name: bridge.messageHandlerName, handler: bridge),
+            ],
+            makeWebView: { configuration in
+                BrowserWebView(frame: .zero, configuration: configuration)
+            },
+            configure: { webView in
+                webView.setValue(false, forKey: "drawsBackground")
+                bridge.attach(to: webView)
+            },
+            initialLoad: initialLoad,
+            teardown: { _ in
+                bridge.detach()
+            }
+        )
+    }
 
+    private var initialLoad: HostedWKWebViewLoad {
         if let baseURL = WidgetRuntimeResources.runtimeDirectoryURL(),
            let html = try? WidgetRuntimeResources.inlineRuntimeHTML() {
-            webView.loadHTMLString(html, baseURL: baseURL)
-        } else {
-            webView.loadHTMLString("<html><body>Widget runtime not found.</body></html>", baseURL: nil)
+            return .htmlString(html, baseURL: baseURL)
         }
 
-        return webView
-    }
-
-    func updateNSView(_ nsView: WKWebView, context: Context) {
-        // Runtime state is synced explicitly from the parent view to avoid clobbering
-        // in-webview interactions during unrelated SwiftUI updates like height changes.
-        schemeHandler.updateAllowedHosts(for: records.map(\.manifest))
-    }
-
-    static func dismantleNSView(_ nsView: WKWebView, coordinator: ()) {
-        nsView.configuration.userContentController.removeScriptMessageHandler(forName: "widgetBridge")
+        return .htmlString("<html><body>Widget runtime not found.</body></html>", baseURL: nil)
     }
 }

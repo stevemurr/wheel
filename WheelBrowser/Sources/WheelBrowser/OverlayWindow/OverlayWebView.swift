@@ -10,16 +10,9 @@ struct OverlayWebView: NSViewRepresentable {
     @Binding var isReaderMode: Bool
 
     func makeNSView(context: Context) -> WKWebView {
-        let config = BrowserWebViewConfigurationFactory.shared.makeConfiguration(surface: .overlay)
-        let webView = WKWebView(frame: .zero, configuration: config)
-        webView.allowsBackForwardNavigationGestures = true
-        webView.navigationDelegate = context.coordinator
-        webView.uiDelegate = context.coordinator
-
-        // Load the initial URL
-        webView.load(URLRequest(url: url))
-
-        return webView
+        let hostSpec = context.coordinator.makeHostSpec(initialURL: url)
+        context.coordinator.hostSpec = hostSpec
+        return WKWebViewHost.build(spec: hostSpec)
     }
 
     func updateNSView(_ webView: WKWebView, context: Context) {
@@ -38,12 +31,18 @@ struct OverlayWebView: NSViewRepresentable {
         Coordinator(item: item, isLoading: $isLoading, isReaderMode: $isReaderMode)
     }
 
+    static func dismantleNSView(_ nsView: WKWebView, coordinator: Coordinator) {
+        guard let hostSpec = coordinator.hostSpec else { return }
+        WKWebViewHost.dismantle(nsView, spec: hostSpec)
+    }
+
     // MARK: - Coordinator
 
     class Coordinator: NSObject, WKNavigationDelegate, WKUIDelegate {
         let item: OverlayWindowItem
         @Binding var isLoading: Bool
         @Binding var isReaderMode: Bool
+        var hostSpec: HostedWKWebViewSpec?
         var lastReaderModeState: Bool = false
         private let articleExtractionService = ArticleExtractionService()
         private var originalDocumentHTML: String?
@@ -56,6 +55,25 @@ struct OverlayWebView: NSViewRepresentable {
             self.item = item
             self._isLoading = isLoading
             self._isReaderMode = isReaderMode
+        }
+
+        func makeHostSpec(initialURL: URL) -> HostedWKWebViewSpec {
+            HostedWKWebViewSpec(
+                makeConfiguration: {
+                    BrowserWebViewConfigurationFactory.shared.makeConfiguration(surface: .overlay)
+                },
+                configure: { [weak self] webView in
+                    guard let self else { return }
+                    webView.allowsBackForwardNavigationGestures = true
+                    webView.navigationDelegate = self
+                    webView.uiDelegate = self
+                },
+                initialLoad: .request(URLRequest(url: initialURL)),
+                teardown: { webView in
+                    webView.navigationDelegate = nil
+                    webView.uiDelegate = nil
+                }
+            )
         }
 
         // MARK: - WKNavigationDelegate
@@ -122,35 +140,21 @@ struct OverlayWebView: NSViewRepresentable {
                      runJavaScriptAlertPanelWithMessage message: String,
                      initiatedByFrame frame: WKFrameInfo,
                      completionHandler: @escaping () -> Void) {
-            let alert = NSAlert()
-            alert.messageText = "Alert"
-            alert.informativeText = message
-            alert.addButton(withTitle: "OK")
-            alert.runModal()
-            completionHandler()
+            WebViewUIDelegateSupport.presentAlert(message: message, completionHandler: completionHandler)
         }
 
         func webView(_ webView: WKWebView,
                      runJavaScriptConfirmPanelWithMessage message: String,
                      initiatedByFrame frame: WKFrameInfo,
                      completionHandler: @escaping (Bool) -> Void) {
-            let alert = NSAlert()
-            alert.messageText = "Confirm"
-            alert.informativeText = message
-            alert.addButton(withTitle: "OK")
-            alert.addButton(withTitle: "Cancel")
-            completionHandler(alert.runModal() == .alertFirstButtonReturn)
+            WebViewUIDelegateSupport.presentConfirmation(message: message, completionHandler: completionHandler)
         }
 
         func webView(_ webView: WKWebView,
                      createWebViewWith configuration: WKWebViewConfiguration,
                      for navigationAction: WKNavigationAction,
                      windowFeatures: WKWindowFeatures) -> WKWebView? {
-            // Handle popup windows - load in the same overlay instead of opening new window
-            if navigationAction.targetFrame == nil {
-                webView.load(navigationAction.request)
-            }
-            return nil
+            WebViewUIDelegateSupport.handlePopup(in: webView, navigationAction: navigationAction)
         }
 
         // MARK: - Reader Mode

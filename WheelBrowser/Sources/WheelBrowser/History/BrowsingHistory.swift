@@ -49,18 +49,20 @@ class BrowsingHistory {
 
     /// Debounce interval for batching saves
     @ObservationIgnored
-    private let saveDebounceInterval: TimeInterval = 2.0
+    private let saveScheduler: StoreSaveScheduler
 
-    /// Pending save task, cancelled and replaced on each mutation
     @ObservationIgnored
-    private var pendingSaveTask: Task<Void, Never>?
+    private let store: JSONBackedStore<[HistoryEntry]>
 
-    /// File URL for persisting history
-    private var historyFileURL: URL {
-        FileManager.appSupportDirectory.appendingPathComponent("history.json")
-    }
-
-    private init() {
+    init(
+        store: JSONBackedStore<[HistoryEntry]> = JSONBackedStore(
+            backend: FileSystemStoreBackend(rootURL: FileManager.appSupportDirectory),
+            key: "history.json"
+        ),
+        saveDelay: Duration = .seconds(2)
+    ) {
+        self.store = store
+        self.saveScheduler = StoreSaveScheduler(delay: saveDelay)
         loadHistoryAsync()
     }
 
@@ -181,11 +183,8 @@ class BrowsingHistory {
     func clearHistory() {
         entries.removeAll()
         urlIndex.removeAll()
-        // Clear immediately, no debounce
-        pendingSaveTask?.cancel()
-        pendingSaveTask = nil
-        Task {
-            await saveHistory()
+        saveScheduler.flush { [weak self] in
+            self?.saveHistory()
         }
     }
 
@@ -215,21 +214,21 @@ class BrowsingHistory {
 
     /// Load history asynchronously to avoid blocking the main thread at init
     private func loadHistoryAsync() {
-        let fileURL = historyFileURL
+        let store = self.store
+        let fileURL = store.fileURL
         Task.detached { [weak self] in
-            guard FileManager.default.fileExists(atPath: fileURL.path) else { return }
-
             do {
-                let data = try Data(contentsOf: fileURL)
-                let decoded = try JSONDecoder().decode([HistoryEntry].self, from: data)
+                let decoded = try store.load() ?? []
                 await self?.applyLoadedEntries(decoded)
             } catch {
                 Log.History.error("Failed to decode history, attempting recovery", error: error)
                 // Back up corrupted file
-                let backupURL = fileURL.deletingLastPathComponent()
-                    .appendingPathComponent("history_corrupted_\(Int(Date().timeIntervalSince1970)).json")
-                try? FileManager.default.copyItem(at: fileURL, to: backupURL)
-                Log.History.info("Backed up corrupted history to \(backupURL.lastPathComponent)")
+                if let fileURL {
+                    let backupURL = fileURL.deletingLastPathComponent()
+                        .appendingPathComponent("history_corrupted_\(Int(Date().timeIntervalSince1970)).json")
+                    try? FileManager.default.copyItem(at: fileURL, to: backupURL)
+                    Log.History.info("Backed up corrupted history to \(backupURL.lastPathComponent)")
+                }
                 // Fall back to empty history
                 await self?.applyLoadedEntries([])
             }
@@ -252,21 +251,15 @@ class BrowsingHistory {
 
     /// Cancel any pending save and schedule a new one after the debounce interval
     private func scheduleDebouncedSave() {
-        pendingSaveTask?.cancel()
-        let interval = saveDebounceInterval
-        pendingSaveTask = Task { [weak self] in
-            try? await Task.sleep(nanoseconds: UInt64(interval * 1_000_000_000))
-            guard !Task.isCancelled else { return }
-            await self?.saveHistory()
+        saveScheduler.schedule { [weak self] in
+            self?.saveHistory()
         }
     }
 
-    private func saveHistory() async {
+    private func saveHistory() {
         let entriesToSave = entries
-        let fileURL = historyFileURL
         do {
-            let data = try JSONEncoder().encode(entriesToSave)
-            try data.write(to: fileURL, options: .atomic)
+            try store.save(entriesToSave)
         } catch {
             Log.History.error("Failed to save history", error: error)
         }

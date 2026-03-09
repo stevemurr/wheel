@@ -6,15 +6,11 @@ struct WebViewRepresentable: NSViewRepresentable {
     let isActive: Bool
 
     func makeNSView(context: Context) -> WKWebView {
-        tab.webView.navigationDelegate = context.coordinator
-        tab.webView.uiDelegate = context.coordinator
-
-        // Register link hover message handler
-        let contentController = tab.webView.configuration.userContentController
-        contentController.add(context.coordinator, name: "linkHover")
-        contentController.add(context.coordinator, name: "overlayWindow")
-
-        return tab.webView
+        let webView = tab.webView
+        let hostSpec = context.coordinator.makeHostSpec()
+        context.coordinator.hostSpec = hostSpec
+        WKWebViewHost.attach(webView, spec: hostSpec)
+        return webView
     }
 
     func updateNSView(_ nsView: WKWebView, context: Context) {
@@ -22,14 +18,8 @@ struct WebViewRepresentable: NSViewRepresentable {
     }
 
     static func dismantleNSView(_ nsView: WKWebView, coordinator: Coordinator) {
-        // Unregister message handlers to break retain cycles
-        let contentController = nsView.configuration.userContentController
-        contentController.removeScriptMessageHandler(forName: "linkHover")
-        contentController.removeScriptMessageHandler(forName: "overlayWindow")
-
-        // Clear delegates to break retain cycles
-        nsView.navigationDelegate = nil
-        nsView.uiDelegate = nil
+        guard let hostSpec = coordinator.hostSpec else { return }
+        WKWebViewHost.dismantle(nsView, spec: hostSpec)
     }
 
     func makeCoordinator() -> Coordinator {
@@ -38,12 +28,31 @@ struct WebViewRepresentable: NSViewRepresentable {
 
     class Coordinator: NSObject, WKNavigationDelegate, WKUIDelegate, WKScriptMessageHandler {
         let tab: Tab
+        var hostSpec: HostedWKWebViewSpec?
         private let navigationPolicyHandler = NavigationPolicyHandler()
         private let downloadHandler = DownloadHandler()
         private lazy var pageLifecycleHandler = PageLifecycleHandler(tab: tab)
 
         init(tab: Tab) {
             self.tab = tab
+        }
+
+        func makeHostSpec() -> HostedWKWebViewSpec {
+            HostedWKWebViewSpec(
+                scriptMessageHandlers: [
+                    .init(name: "linkHover", handler: self),
+                    .init(name: "overlayWindow", handler: self),
+                ],
+                configure: { [weak self] webView in
+                    guard let self else { return }
+                    webView.navigationDelegate = self
+                    webView.uiDelegate = self
+                },
+                teardown: { webView in
+                    webView.navigationDelegate = nil
+                    webView.uiDelegate = nil
+                }
+            )
         }
 
         // MARK: - WKScriptMessageHandler (delegated to ScriptMessageHandler)
@@ -131,35 +140,21 @@ struct WebViewRepresentable: NSViewRepresentable {
                      runJavaScriptAlertPanelWithMessage message: String,
                      initiatedByFrame frame: WKFrameInfo,
                      completionHandler: @escaping () -> Void) {
-            let alert = NSAlert()
-            alert.messageText = "Alert"
-            alert.informativeText = message
-            alert.addButton(withTitle: "OK")
-            alert.runModal()
-            completionHandler()
+            WebViewUIDelegateSupport.presentAlert(message: message, completionHandler: completionHandler)
         }
 
         func webView(_ webView: WKWebView,
                      runJavaScriptConfirmPanelWithMessage message: String,
                      initiatedByFrame frame: WKFrameInfo,
                      completionHandler: @escaping (Bool) -> Void) {
-            let alert = NSAlert()
-            alert.messageText = "Confirm"
-            alert.informativeText = message
-            alert.addButton(withTitle: "OK")
-            alert.addButton(withTitle: "Cancel")
-            completionHandler(alert.runModal() == .alertFirstButtonReturn)
+            WebViewUIDelegateSupport.presentConfirmation(message: message, completionHandler: completionHandler)
         }
 
         func webView(_ webView: WKWebView,
                      createWebViewWith configuration: WKWebViewConfiguration,
                      for navigationAction: WKNavigationAction,
                      windowFeatures: WKWindowFeatures) -> WKWebView? {
-            // Handle popup windows for OAuth flows
-            if navigationAction.targetFrame == nil {
-                webView.load(navigationAction.request)
-            }
-            return nil
+            WebViewUIDelegateSupport.handlePopup(in: webView, navigationAction: navigationAction)
         }
     }
 }

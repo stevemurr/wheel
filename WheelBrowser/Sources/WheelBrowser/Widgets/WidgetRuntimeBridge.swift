@@ -1,5 +1,4 @@
 import Foundation
-import WebKit
 
 enum WidgetRuntimeAction: Equatable {
     case remove(UUID)
@@ -11,7 +10,7 @@ enum WidgetRuntimeAction: Equatable {
 }
 
 @MainActor
-final class WidgetRuntimeBridge: NSObject, WKScriptMessageHandler {
+final class WidgetRuntimeBridge: QueuedScriptBridge {
     var onReady: (() -> Void)?
     var onWidgetLoaded: ((UUID) -> Void)?
     var onWidgetError: ((UUID, String) -> Void)?
@@ -19,59 +18,34 @@ final class WidgetRuntimeBridge: NSObject, WKScriptMessageHandler {
     var onHeightChanged: ((CGFloat) -> Void)?
     var onRuntimeError: ((String) -> Void)?
 
-    private weak var webView: WKWebView?
-    private var isReady = false
-    private var queuedScripts: [String] = []
-
-    func attach(to webView: WKWebView) {
-        self.webView = webView
-    }
-
-    func detach() {
-        webView = nil
-        isReady = false
-        queuedScripts.removeAll()
+    init() {
+        super.init(messageHandlerName: "widgetBridge", javaScriptReceiver: "WidgetDashboard")
     }
 
     func bootstrapDashboard(records: [WidgetRecord], isEditing: Bool) {
-        send(
-            command: "bootstrapDashboard",
+        sendCommand(
+            "bootstrapDashboard",
             payload: DashboardPayload(widgets: records.map(DashboardWidgetPayload.init), isEditing: isEditing)
         )
     }
 
     func setDashboardState(records: [WidgetRecord], isEditing: Bool) {
-        send(
-            command: "setDashboardState",
+        sendCommand(
+            "setDashboardState",
             payload: DashboardPayload(widgets: records.map(DashboardWidgetPayload.init), isEditing: isEditing)
         )
     }
 
     func refreshWidget(id: UUID) {
-        send(command: "refreshWidget", payload: RefreshPayload(id: id))
+        sendCommand("refreshWidget", payload: RefreshPayload(id: id))
     }
 
-    func userContentController(_ userContentController: WKUserContentController, didReceive message: WKScriptMessage) {
-        guard message.name == "widgetBridge",
-              let body = message.body as? [String: Any] else {
-            return
-        }
-        handleMessage(named: message.name, body: body)
+    override func bridgeDidBecomeReady() {
+        onReady?()
     }
 
-    func handleMessage(named name: String, body: [String: Any]) {
-        guard name == "widgetBridge",
-              let type = body["type"] as? String else {
-            return
-        }
-
-        let payload = body["payload"] as? [String: Any] ?? [:]
-
+    override func didReceiveMessage(type: String, payload: [String: Any]) {
         switch type {
-        case "ready":
-            isReady = true
-            flushQueuedScripts()
-            onReady?()
         case "widgetLoaded":
             if let id = uuid(from: payload["id"]) {
                 onWidgetLoaded?(id)
@@ -95,33 +69,8 @@ final class WidgetRuntimeBridge: NSObject, WKScriptMessageHandler {
         }
     }
 
-    private func send<Payload: Encodable>(command: String, payload: Payload) {
-        guard let webView else { return }
-
-        do {
-            let encoder = JSONEncoder()
-            let data = try encoder.encode(payload)
-            let json = String(decoding: data, as: UTF8.self)
-            let escaped = JavaScriptEscaper.escape(json)
-            let script = "window.WidgetDashboard.receiveCommand('\(command)', JSON.parse('\(escaped)'));"
-
-            if isReady {
-                webView.evaluateJavaScript(script, completionHandler: nil)
-            } else {
-                queuedScripts.append(script)
-            }
-        } catch {
-            onRuntimeError?("Failed to encode widget runtime payload: \(error.localizedDescription)")
-        }
-    }
-
-    private func flushQueuedScripts() {
-        guard let webView else { return }
-        let scripts = queuedScripts
-        queuedScripts.removeAll()
-        for script in scripts {
-            webView.evaluateJavaScript(script, completionHandler: nil)
-        }
+    override func reportBridgeError(_ message: String) {
+        onRuntimeError?(message)
     }
 
     private func parseAction(_ payload: [String: Any]) -> WidgetRuntimeAction? {

@@ -22,15 +22,17 @@ class WorkspaceManager {
     /// Cached tab states per workspace for persistence
     private(set) var workspaceTabStates: [UUID: WorkspaceTabState] = [:]
 
-    @ObservationIgnored private let workspacesFileURL: URL
-    @ObservationIgnored private let tabStatesFileURL: URL
+    @ObservationIgnored private let workspacesStore: JSONBackedStore<WorkspacesData>
+    @ObservationIgnored private let tabStatesStore: JSONBackedStore<[UUID: WorkspaceTabState]>
 
     init(
         workspacesFileURL: URL? = nil,
         tabStatesFileURL: URL? = nil
     ) {
-        self.workspacesFileURL = workspacesFileURL ?? Self.defaultWorkspacesFileURL
-        self.tabStatesFileURL = tabStatesFileURL ?? Self.defaultTabStatesFileURL
+        let resolvedWorkspacesURL = workspacesFileURL ?? Self.defaultWorkspacesFileURL
+        let resolvedTabStatesURL = tabStatesFileURL ?? Self.defaultTabStatesFileURL
+        self.workspacesStore = Self.makeStore(fileURL: resolvedWorkspacesURL)
+        self.tabStatesStore = Self.makeStore(fileURL: resolvedTabStatesURL)
         loadWorkspaces()
         loadTabStates()
 
@@ -212,27 +214,24 @@ class WorkspaceManager {
     // MARK: - Persistence
 
     private func loadWorkspaces() {
-        guard FileManager.default.fileExists(atPath: workspacesFileURL.path) else {
-            // Create a default workspace if none exist
-            let defaultWorkspace = Workspace(
-                name: "Default",
-                icon: "house",
-                color: "#007AFF"
-            )
-            workspaces = [defaultWorkspace]
-            currentWorkspaceID = defaultWorkspace.id
-            saveWorkspaces()
-            return
-        }
-
         do {
-            let data = try Data(contentsOf: workspacesFileURL)
-            let decoded = try JSONDecoder().decode(WorkspacesData.self, from: data)
+            guard let decoded = try workspacesStore.load() else {
+                let defaultWorkspace = Workspace(
+                    name: "Default",
+                    icon: "house",
+                    color: "#007AFF"
+                )
+                workspaces = [defaultWorkspace]
+                currentWorkspaceID = defaultWorkspace.id
+                saveWorkspaces()
+                return
+            }
+
             workspaces = decoded.workspaces
             currentWorkspaceID = decoded.currentWorkspaceID
         } catch {
             Log.Workspace.error("Failed to load workspaces: \(error.localizedDescription)")
-            // Create a default workspace on error
+            // Create a default workspace if none exist
             let defaultWorkspace = Workspace(
                 name: "Default",
                 icon: "house",
@@ -244,11 +243,8 @@ class WorkspaceManager {
     }
 
     private func loadTabStates() {
-        guard FileManager.default.fileExists(atPath: tabStatesFileURL.path) else { return }
-
         do {
-            let data = try Data(contentsOf: tabStatesFileURL)
-            workspaceTabStates = try JSONDecoder().decode([UUID: WorkspaceTabState].self, from: data)
+            workspaceTabStates = try tabStatesStore.load() ?? [:]
         } catch {
             Log.Workspace.error("Failed to load tab states: \(error.localizedDescription)")
         }
@@ -272,8 +268,7 @@ class WorkspaceManager {
                 workspaces: workspaces,
                 currentWorkspaceID: currentWorkspaceID
             )
-            let encoded = try JSONEncoder().encode(data)
-            try encoded.write(to: workspacesFileURL, options: .atomic)
+            try workspacesStore.save(data)
         } catch {
             Log.Workspace.error("Failed to save workspaces: \(error.localizedDescription)")
         }
@@ -281,11 +276,17 @@ class WorkspaceManager {
 
     private func persistTabStates() async {
         do {
-            let encoded = try JSONEncoder().encode(workspaceTabStates)
-            try encoded.write(to: tabStatesFileURL, options: .atomic)
+            try tabStatesStore.save(workspaceTabStates)
         } catch {
             Log.Workspace.error("Failed to save tab states: \(error.localizedDescription)")
         }
+    }
+
+    private static func makeStore<Value: Codable>(fileURL: URL) -> JSONBackedStore<Value> {
+        JSONBackedStore(
+            backend: FileSystemStoreBackend(rootURL: fileURL.deletingLastPathComponent()),
+            key: StoreKey(fileURL.lastPathComponent)
+        )
     }
 }
 

@@ -243,8 +243,6 @@ WheelBrowser/
 └── Sources/WheelMCPBridge/               # MCP stdio bridge executable
 ```
 
-There are still legacy `ModuleSystem/` and `WidgetSystem/` directories in the tree, but they are not the primary path for the current blank-tab widget dashboard.
-
 ---
 
 ## License

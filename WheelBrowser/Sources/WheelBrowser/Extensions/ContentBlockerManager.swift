@@ -27,9 +27,9 @@ final class ContentBlockerManager: @unchecked Sendable {
     }
 
     private let session: URLSession
-    private let stateFileURL: URL
     private let cacheDirectoryURL: URL
     private let ruleListStore: WKContentRuleListStore
+    private let stateStore: JSONBackedStore<PersistedState>
     private var refreshTimer: Timer?
     private var knownRemoteSources: [String: RemoteSourceContext] = [:]
     private var knownLocalSources: [String: LocalSourceContext] = [:]
@@ -45,9 +45,13 @@ final class ContentBlockerManager: @unchecked Sendable {
         ruleListStore: WKContentRuleListStore = .default()
     ) {
         self.session = session
-        self.stateFileURL = stateFileURL
         self.cacheDirectoryURL = cacheDirectoryURL
         self.ruleListStore = ruleListStore
+        self.stateStore = JSONBackedStore(
+            backend: FileSystemStoreBackend(rootURL: stateFileURL.deletingLastPathComponent()),
+            key: StoreKey(stateFileURL.lastPathComponent),
+            codingConfiguration: .prettyPrintedSortedKeysISO8601
+        )
         try? FileManager.default.createDirectory(at: cacheDirectoryURL, withIntermediateDirectories: true)
         try? FileManager.default.createDirectory(
             at: stateFileURL.deletingLastPathComponent(),
@@ -508,9 +512,7 @@ final class ContentBlockerManager: @unchecked Sendable {
     }
 
     private func loadState() {
-        guard FileManager.default.fileExists(atPath: stateFileURL.path),
-              let data = try? Data(contentsOf: stateFileURL),
-              let decoded = try? JSONDecoder().decode(PersistedState.self, from: data) else {
+        guard let decoded = try? stateStore.load() else {
             return
         }
         subscriptions = decoded.subscriptions
@@ -518,16 +520,7 @@ final class ContentBlockerManager: @unchecked Sendable {
 
     private func saveState() {
         let state = PersistedState(subscriptions: subscriptions)
-        let encoder = JSONEncoder()
-        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
-        encoder.dateEncodingStrategy = .iso8601
-
-        guard let data = try? encoder.encode(state) else { return }
-        try? FileManager.default.createDirectory(
-            at: stateFileURL.deletingLastPathComponent(),
-            withIntermediateDirectories: true
-        )
-        try? data.write(to: stateFileURL, options: .atomic)
+        try? stateStore.save(state)
     }
 
     private func sha256Hex(for input: String) -> String {
