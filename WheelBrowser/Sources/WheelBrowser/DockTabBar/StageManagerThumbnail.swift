@@ -1,4 +1,5 @@
 import SwiftUI
+import AppKit
 
 /// Individual tab thumbnail in the Stage Manager strip.
 /// Rendered with a 3D Y-axis tilt so thumbnails appear "turned" like in macOS Stage Manager.
@@ -9,9 +10,11 @@ struct StageManagerThumbnail: View {
     var tab: Tab
     var screenshotManager: TabScreenshotManager
     let isActive: Bool
+    let isSelected: Bool
     let canClose: Bool
+    let selectionTint: Color
     let sizeScale: CGFloat
-    let onSelect: () -> Void
+    let onSelect: (NSEvent.ModifierFlags) -> Void
     let onClose: () -> Void
 
     @State private var isHovered = false
@@ -82,7 +85,9 @@ struct StageManagerThumbnail: View {
             x: isActive ? 3 : 2,
             y: isActive ? 3 : 2
         )
-        .onTapGesture(perform: onSelect)
+        .onTapGesture {
+            onSelect(NSApp.currentEvent?.modifierFlags ?? [])
+        }
         .onHover { hovering in
             isHovered = hovering
         }
@@ -182,6 +187,8 @@ struct StageManagerThumbnail: View {
             return Color.green.opacity(0.9)
         } else if isActive {
             return Color(nsColor: .controlAccentColor)
+        } else if isSelected {
+            return selectionTint.opacity(0.92)
         } else {
             return Color.white.opacity(0.15)
         }
@@ -192,6 +199,8 @@ struct StageManagerThumbnail: View {
             return 2
         } else if isActive {
             return 2.5
+        } else if isSelected {
+            return 1.6
         } else {
             return 0.5
         }

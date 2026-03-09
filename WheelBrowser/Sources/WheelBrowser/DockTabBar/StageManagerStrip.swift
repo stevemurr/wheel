@@ -1,13 +1,15 @@
 import SwiftUI
+import AppKit
 
 /// Always-visible left-side tab strip inspired by macOS Stage Manager.
 ///
-/// **Collapsed (default):** tiny binder-tab peeks along the left edge — color-coded
-/// slivers that look like notebook divider tabs.
+/// **Collapsed (default):** tiny binder-tab peeks along the left edge.
 /// **Expanded (on hover):** full 3D-tilted thumbnail previews slide in.
 struct StageManagerStrip: View {
     var browserState: BrowserState
     var screenshotManager: TabScreenshotManager
+    let onCreateFolder: ([UUID]) -> Void
+    let onRenameFolder: (UUID) -> Void
 
     @AppStorage(AppSettings.hiddenTabScaleKey)
     private var hiddenTabScale = AppSettings.defaultHiddenTabScale
@@ -16,8 +18,6 @@ struct StageManagerStrip: View {
     private var shownTabScale = AppSettings.defaultShownTabScale
 
     @State private var isExpanded = false
-
-    /// Delay timer so the strip doesn't collapse the instant the cursor wanders off.
     @State private var collapseWork: DispatchWorkItem?
 
     private let collapseDelay: TimeInterval = 0.42
@@ -25,13 +25,18 @@ struct StageManagerStrip: View {
     private let hotZoneVerticalForgiveness: CGFloat = 80
     private let expandedHotZoneTrailingPadding: CGFloat = 28
 
-    /// Narrow reveal strip when collapsed so the dock doesn't pop open from anywhere near the edge.
+    private var visibleTabs: [Tab] {
+        browserState.visibleTabs
+    }
+
+    private var selectionTint: Color {
+        browserState.activeFolder?.accentColor ?? Color(nsColor: .controlAccentColor)
+    }
+
     private var revealHotZoneWidth: CGFloat {
         max(24, collapsedPeekMaxWidth + 14)
     }
 
-    /// Wider interaction zone when expanded so the dock stays open while the pointer
-    /// moves around the visible thumbnails or just past their right edge.
     private var expandedHotZoneWidth: CGFloat {
         expandedDockWidth + expandedHotZoneTrailingPadding
     }
@@ -82,8 +87,6 @@ struct StageManagerStrip: View {
 
     var body: some View {
         GeometryReader { geometry in
-            // The hot zone stays centered around the actual tab stack instead of spanning
-            // the entire window height, which reduces accidental reveals near the corners.
             ZStack(alignment: .leading) {
                 Color.clear
                     .frame(
@@ -113,29 +116,56 @@ struct StageManagerStrip: View {
 
     private func expandedContent(containerHeight: CGFloat) -> some View {
         ScrollView(.vertical, showsIndicators: false) {
-            LazyVStack(spacing: expandedTabSpacing) {
-                ForEach(browserState.tabs) { tab in
-                    StageManagerThumbnail(
-                        tab: tab,
-                        screenshotManager: screenshotManager,
-                        isActive: tab.id == browserState.activeTabId,
-                        canClose: browserState.tabs.count > 1,
-                        sizeScale: shownScale,
-                        onSelect: {
-                            browserState.selectTab(tab.id)
-                        },
-                        onClose: {
-                            withAnimation(AppAnimation.springSnappy) {
-                                browserState.closeTab(tab.id)
+            if visibleTabs.isEmpty {
+                emptyFolderState
+                    .frame(width: expandedDockWidth)
+                    .frame(minHeight: containerHeight, alignment: .center)
+            } else {
+                ZStack(alignment: .topLeading) {
+                    LazyVStack(spacing: expandedTabSpacing) {
+                        ForEach(visibleTabs) { tab in
+                            StageManagerThumbnail(
+                                tab: tab,
+                                screenshotManager: screenshotManager,
+                                isActive: tab.id == browserState.activeTabId,
+                                isSelected: browserState.isTabSelected(tab.id),
+                                canClose: browserState.tabs.count > 1,
+                                selectionTint: selectionTint,
+                                sizeScale: shownScale,
+                                onSelect: { modifiers in
+                                    handleTabClick(tab.id, modifiers: modifiers)
+                                },
+                                onClose: {
+                                    withAnimation(AppAnimation.springSnappy) {
+                                        browserState.closeTab(tab.id)
+                                    }
+                                }
+                            )
+                            .contextMenu {
+                                tabContextMenu(for: tab)
                             }
+                            .background(
+                                GeometryReader { proxy in
+                                    Color.clear.preference(
+                                        key: SelectedTabFramePreferenceKey.self,
+                                        value: browserState.isTabSelected(tab.id)
+                                            ? [tab.id: proxy.frame(in: .named("stage-manager-expanded"))]
+                                            : [:]
+                                    )
+                                }
+                            )
                         }
-                    )
+                    }
+                    .frame(maxWidth: .infinity)
                 }
+                .coordinateSpace(name: "stage-manager-expanded")
+                .overlayPreferenceValue(SelectedTabFramePreferenceKey.self) { frames in
+                    selectionClusterOverlay(from: frames)
+                }
+                .padding(.vertical, 12)
+                .padding(.horizontal, 6)
+                .frame(minHeight: containerHeight, alignment: .center)
             }
-            .frame(maxWidth: .infinity)
-            .padding(.vertical, 12)
-            .padding(.horizontal, 6)
-            .frame(minHeight: containerHeight, alignment: .center)
         }
         .frame(width: expandedDockWidth)
     }
@@ -147,15 +177,18 @@ struct StageManagerStrip: View {
             Spacer(minLength: 0)
 
             VStack(spacing: collapsedTabSpacing) {
-                ForEach(browserState.tabs) { tab in
+                ForEach(visibleTabs) { tab in
                     BinderTabPeek(
                         tab: tab,
                         isActive: tab.id == browserState.activeTabId,
                         sizeScale: hiddenScale,
-                        onSelect: {
-                            browserState.selectTab(tab.id)
+                        onSelect: { modifiers in
+                            handleTabClick(tab.id, modifiers: modifiers)
                         }
                     )
+                    .contextMenu {
+                        tabContextMenu(for: tab)
+                    }
                 }
             }
 
@@ -163,6 +196,138 @@ struct StageManagerStrip: View {
         }
         .frame(width: revealHotZoneWidth, alignment: .leading)
         .frame(maxHeight: .infinity)
+    }
+
+    private var emptyFolderState: some View {
+        VStack(spacing: 10) {
+            Image(systemName: "folder")
+                .font(.system(size: 22, weight: .medium))
+                .foregroundStyle(.secondary)
+
+            Text("Empty Folder")
+                .font(.system(size: 12, weight: .semibold))
+
+            Text("Create a tab or move one here.")
+                .font(.system(size: 11))
+                .foregroundStyle(.secondary)
+                .multilineTextAlignment(.center)
+        }
+        .padding(16)
+        .background(
+            RoundedRectangle(cornerRadius: 14, style: .continuous)
+                .fill(selectionTint.opacity(0.08))
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 14, style: .continuous)
+                .stroke(selectionTint.opacity(0.18), lineWidth: 1)
+        )
+    }
+
+    @ViewBuilder
+    private func selectionClusterOverlay(from frames: [UUID: CGRect]) -> some View {
+        ZStack(alignment: .topLeading) {
+            ForEach(selectionClusterRects(from: frames)) { cluster in
+                RoundedRectangle(cornerRadius: 18, style: .continuous)
+                    .fill(selectionTint.opacity(0.12))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 18, style: .continuous)
+                            .stroke(selectionTint.opacity(0.24), lineWidth: 1)
+                    )
+                    .frame(width: expandedDockWidth - 4, height: cluster.rect.height)
+                    .offset(x: 2, y: cluster.rect.minY)
+            }
+        }
+        .allowsHitTesting(false)
+    }
+
+    private func selectionClusterRects(from frames: [UUID: CGRect]) -> [SelectionClusterRect] {
+        let selectedIndices = visibleTabs.enumerated().compactMap { index, tab -> Int? in
+            browserState.isTabSelected(tab.id) ? index : nil
+        }
+
+        guard !selectedIndices.isEmpty else { return [] }
+
+        var ranges: [ClosedRange<Int>] = []
+        var rangeStart = selectedIndices[0]
+        var previous = selectedIndices[0]
+
+        for index in selectedIndices.dropFirst() {
+            if index == previous + 1 {
+                previous = index
+            } else {
+                ranges.append(rangeStart...previous)
+                rangeStart = index
+                previous = index
+            }
+        }
+
+        ranges.append(rangeStart...previous)
+
+        return ranges.compactMap { range in
+            let rangeTabs = visibleTabs[range].compactMap { frames[$0.id] }
+            guard let minY = rangeTabs.map(\.minY).min(),
+                  let maxY = rangeTabs.map(\.maxY).max() else {
+                return nil
+            }
+
+            return SelectionClusterRect(rect: CGRect(
+                x: 0,
+                y: max(0, minY - 6),
+                width: expandedDockWidth - 4,
+                height: (maxY - minY) + 12
+            ))
+        }
+    }
+
+    private func handleTabClick(_ tabId: UUID, modifiers: NSEvent.ModifierFlags) {
+        browserState.handleTabActivation(tabId, selectionMode: selectionMode(for: modifiers))
+    }
+
+    private func selectionMode(for modifiers: NSEvent.ModifierFlags) -> TabSelectionMode {
+        if modifiers.contains(.shift) {
+            return .range
+        }
+        if modifiers.contains(.command) {
+            return .add
+        }
+        return .replace
+    }
+
+    @ViewBuilder
+    private func tabContextMenu(for tab: Tab) -> some View {
+        let targetTabIDs = browserState.contextActionTabIDs(for: tab.id)
+
+        Button("New Folder from Selection") {
+            onCreateFolder(targetTabIDs)
+        }
+
+        if !browserState.folders.isEmpty {
+            Menu("Move to Folder…") {
+                ForEach(browserState.folders) { folder in
+                    Button(folder.name) {
+                        browserState.moveTabs(targetTabIDs, toFolder: folder.id)
+                    }
+                }
+            }
+        }
+
+        if tab.folderID != nil {
+            Button("Remove from Folder") {
+                browserState.removeTabsFromFolders(targetTabIDs)
+            }
+        }
+
+        if let folderID = tab.folderID {
+            Divider()
+
+            Button("Rename Folder") {
+                onRenameFolder(folderID)
+            }
+
+            Button("Delete Folder", role: .destructive) {
+                browserState.deleteFolder(folderID)
+            }
+        }
     }
 
     private func handleHotZoneHover(_ hovering: Bool) {
@@ -190,7 +355,7 @@ struct StageManagerStrip: View {
     }
 
     private func stackHeight(itemHeight: CGFloat, spacing: CGFloat, verticalPadding: CGFloat) -> CGFloat {
-        let count = CGFloat(browserState.tabs.count)
+        let count = CGFloat(visibleTabs.count)
         guard count > 0 else { return minimumHotZoneHeight }
         let gaps = max(0, count - 1)
         return count * itemHeight + gaps * spacing + verticalPadding
@@ -199,13 +364,11 @@ struct StageManagerStrip: View {
 
 // MARK: - Binder Tab Peek
 
-/// A tiny sliver that sticks out from the left window edge — like a physical
-/// notebook divider tab. Color-coded by domain, with the active tab highlighted.
 private struct BinderTabPeek: View {
     var tab: Tab
     let isActive: Bool
     let sizeScale: CGFloat
-    let onSelect: () -> Void
+    let onSelect: (NSEvent.ModifierFlags) -> Void
 
     @State private var isHovered = false
 
@@ -291,7 +454,9 @@ private struct BinderTabPeek: View {
         .animation(AppAnimation.hoverSpring, value: isHovered)
         .animation(AppAnimation.hoverSpring, value: isActive)
         .animation(AppAnimation.hoverSpring, value: tab.hasActiveAgent)
-        .onTapGesture(perform: onSelect)
+        .onTapGesture {
+            onSelect(NSApp.currentEvent?.modifierFlags ?? [])
+        }
         .onHover { isHovered = $0 }
         .help(tab.hasActiveAgent ? "\(tab.displayTitle) (Agent running)" : tab.displayTitle)
     }
@@ -311,6 +476,19 @@ private struct BinderTabPeek: View {
         let time = date.timeIntervalSinceReferenceDate.truncatingRemainder(dividingBy: cycle)
         return (sin((time / cycle) * (.pi * 2)) + 1) / 2
     }
+}
+
+private struct SelectedTabFramePreferenceKey: PreferenceKey {
+    static let defaultValue: [UUID: CGRect] = [:]
+
+    static func reduce(value: inout [UUID: CGRect], nextValue: () -> [UUID: CGRect]) {
+        value.merge(nextValue(), uniquingKeysWith: { _, new in new })
+    }
+}
+
+private struct SelectionClusterRect: Identifiable {
+    let id = UUID()
+    let rect: CGRect
 }
 
 private func clamp(_ value: Double, to range: ClosedRange<Double>) -> Double {
