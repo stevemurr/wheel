@@ -300,7 +300,7 @@ private struct WidgetDashboardWebView: NSViewRepresentable {
         configuration.setURLSchemeHandler(schemeHandler, forURLScheme: "widget-fetch")
         configuration.userContentController.add(bridge, name: "widgetBridge")
 
-        let webView = WKWebView(frame: .zero, configuration: configuration)
+        let webView = BrowserWebView(frame: .zero, configuration: configuration)
         webView.setValue(false, forKey: "drawsBackground")
         bridge.attach(to: webView)
 

@@ -15,14 +15,17 @@ struct ContextMenuOverlay: View {
             if state.isVisible {
                 ContextMenuCardView(
                     sections: state.sections,
-                    canGoBack: state.canGoBack,
-                    canGoForward: state.canGoForward,
                     highlightedIndex: state.highlightedIndex,
                     onAction: { action in
+                        state.execute(action)
                         state.dismiss()
-                        state.sourceWebView?.executeContextAction(action)
                     },
-                    onHoverResetHighlight: { state.resetHighlight() }
+                    onHoverChange: { itemID in
+                        state.setHoveredItem(itemID)
+                        if itemID != nil {
+                            state.resetHighlight()
+                        }
+                    }
                 )
                 .fixedSize()
                 .background(GeometryReader { geo in
@@ -42,7 +45,8 @@ struct ContextMenuOverlay: View {
                 cardOrigin: adjustedOrigin,
                 cardSize: state.measuredCardSize,
                 onDismiss: { state.dismiss() },
-                onKeyDown: { handleKeyDown($0) }
+                onKeyDown: { handleKeyDown($0) },
+                onAlternateReleaseInsideCard: { handleAlternateReleaseInsideCard() }
             )
         )
         .onChange(of: containerSize) {
@@ -88,8 +92,8 @@ struct ContextMenuOverlay: View {
             if let index = state.highlightedIndex {
                 let enabledItems = state.sections.flatMap(\.items).filter(\.isEnabled)
                 if index < enabledItems.count {
+                    state.execute(enabledItems[index].action)
                     state.dismiss()
-                    state.sourceWebView?.executeContextAction(enabledItems[index].action)
                 }
             }
         case 53: // Escape
@@ -97,6 +101,14 @@ struct ContextMenuOverlay: View {
         default:
             break
         }
+    }
+
+    private func handleAlternateReleaseInsideCard() {
+        guard let action = state.hoveredAction() else {
+            return
+        }
+        state.execute(action)
+        state.dismiss()
     }
 }
 
@@ -117,11 +129,13 @@ private struct ContextMenuClickOutsideDetector: NSViewRepresentable {
     let cardSize: CGSize
     let onDismiss: () -> Void
     let onKeyDown: (NSEvent) -> Void
+    let onAlternateReleaseInsideCard: () -> Void
 
     func makeNSView(context: Context) -> ContextMenuDetectorNSView {
         let view = ContextMenuDetectorNSView()
         view.onDismiss = onDismiss
         view.onKeyDown = onKeyDown
+        view.onAlternateReleaseInsideCard = onAlternateReleaseInsideCard
         view.cardOrigin = cardOrigin
         view.cardSize = cardSize
         view.isMonitoringEnabled = isEnabled
@@ -131,6 +145,7 @@ private struct ContextMenuClickOutsideDetector: NSViewRepresentable {
     func updateNSView(_ nsView: ContextMenuDetectorNSView, context: Context) {
         nsView.onDismiss = onDismiss
         nsView.onKeyDown = onKeyDown
+        nsView.onAlternateReleaseInsideCard = onAlternateReleaseInsideCard
         nsView.cardOrigin = cardOrigin
         nsView.cardSize = cardSize
         nsView.isMonitoringEnabled = isEnabled
@@ -140,6 +155,7 @@ private struct ContextMenuClickOutsideDetector: NSViewRepresentable {
 class ContextMenuDetectorNSView: NSView {
     var onDismiss: (() -> Void)?
     var onKeyDown: ((NSEvent) -> Void)?
+    var onAlternateReleaseInsideCard: (() -> Void)?
     /// Card rect in SwiftUI coordinates (top-left origin), used for inside/outside test.
     var cardOrigin: CGPoint = .zero
     var cardSize: CGSize = .zero
@@ -177,7 +193,7 @@ class ContextMenuDetectorNSView: NSView {
         guard isMonitoringEnabled, window != nil else { return }
 
         let mask: NSEvent.EventTypeMask = [
-            .leftMouseDown, .rightMouseDown, .scrollWheel, .keyDown
+            .leftMouseDown, .rightMouseUp, .scrollWheel, .keyDown
         ]
 
         eventMonitor = NSEvent.addLocalMonitorForEvents(matching: mask) { [weak self] event in
@@ -189,8 +205,11 @@ class ContextMenuDetectorNSView: NSView {
                 if !self.isInsideCard(event: event) {
                     DispatchQueue.main.async { self.onDismiss?() }
                 }
-            case .rightMouseDown:
-                DispatchQueue.main.async { self.onDismiss?() }
+            case .rightMouseUp:
+                if self.isInsideCard(event: event) {
+                    DispatchQueue.main.async { self.onAlternateReleaseInsideCard?() }
+                }
+                return nil
             case .scrollWheel:
                 DispatchQueue.main.async { self.onDismiss?() }
             case .keyDown:

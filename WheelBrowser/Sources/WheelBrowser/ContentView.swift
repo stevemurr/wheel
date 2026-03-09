@@ -61,12 +61,6 @@ private struct BrowserContentArea: View {
                     containerSize: geometry.size
                 )
 
-                // Custom context menu overlay
-                ContextMenuOverlay(
-                    state: contextMenuState,
-                    containerSize: geometry.size
-                )
-
                 // Link preview overlay (Shift+Click links)
                 LinkPreviewOverlay(containerSize: geometry.size) { url in
                     browserState.addTab(withURL: url)
@@ -347,6 +341,7 @@ struct ContentView: View {
     @State private var noteStore = NoteStore()
     @State private var noteWindowState = NoteWindowState()
     @State private var folderEditorRequest: FolderEditorRequest?
+    private var contextMenuState = ContextMenuState.shared
     private let contentExtractor = ContentExtractor()
 
     init() {
@@ -370,55 +365,61 @@ struct ContentView: View {
 
     @ViewBuilder
     private var mainContent: some View {
-        ZStack {
-            VStack(spacing: 0) {
-                BrowserContentArea(
-                    activeTab: state.activeTab,
-                    agentManager: agentManager,
-                    browserState: state,
-                    noteStore: noteStore,
-                    onCopyNote: copyNote,
-                    onDeleteNote: deleteNote,
-                    settings: settings,
-                    agentEngine: agentEngine,
-                    wheelState: wheelState,
-                    noteWindowState: noteWindowState,
-                    contentExtractor: contentExtractor
-                )
-                .overlay {
-                    if state.activeTab == nil {
-                        EmptyFolderSurface(folderName: state.activeFolder?.name ?? "Loose") {
-                            state.addTab()
+        GeometryReader { geometry in
+            ZStack {
+                VStack(spacing: 0) {
+                    BrowserContentArea(
+                        activeTab: state.activeTab,
+                        agentManager: agentManager,
+                        browserState: state,
+                        noteStore: noteStore,
+                        onCopyNote: copyNote,
+                        onDeleteNote: deleteNote,
+                        settings: settings,
+                        agentEngine: agentEngine,
+                        wheelState: wheelState,
+                        noteWindowState: noteWindowState,
+                        contentExtractor: contentExtractor
+                    )
+                    .overlay {
+                        if state.activeTab == nil {
+                            EmptyFolderSurface(folderName: state.activeFolder?.name ?? "Loose") {
+                                state.addTab()
+                            }
                         }
                     }
                 }
+                .frame(minWidth: 400)
+
+                StageManagerStrip(
+                    browserState: state,
+                    screenshotManager: TabScreenshotManager.shared,
+                    onCreateFolder: presentCreateFolder,
+                    onRenameFolder: presentRenameFolder
+                )
+                .frame(maxWidth: .infinity, alignment: .leading)
+
+                NotesStrip(
+                    noteStore: noteStore,
+                    onOpenNote: openNote,
+                    onCopyNote: copyNote,
+                    onDeleteNote: deleteNote,
+                    onCreateNote: createNote
+                )
+                .frame(maxWidth: .infinity, alignment: .trailing)
+
+                ContextMenuOverlay(
+                    state: contextMenuState,
+                    containerSize: geometry.size
+                )
             }
-            .frame(minWidth: 400)
-
-            StageManagerStrip(
-                browserState: state,
-                screenshotManager: TabScreenshotManager.shared,
-                onCreateFolder: presentCreateFolder,
-                onRenameFolder: presentRenameFolder
-            )
-            .frame(maxWidth: .infinity, alignment: .leading)
-
-            NotesStrip(
-                noteStore: noteStore,
-                onOpenNote: openNote,
-                onCopyNote: copyNote,
-                onDeleteNote: deleteNote,
-                onCreateNote: createNote
-            )
-            .frame(maxWidth: .infinity, alignment: .trailing)
-
-        }
-        .overlay {
-            if state.activeTab?.hasActiveAgent == true {
-                AgentControlledWindowGlow()
+            .overlay {
+                if state.activeTab?.hasActiveAgent == true {
+                    AgentControlledWindowGlow()
+                }
             }
+            .background(WindowAccessor())
         }
-        .background(WindowAccessor())
     }
 
     // MARK: - Body

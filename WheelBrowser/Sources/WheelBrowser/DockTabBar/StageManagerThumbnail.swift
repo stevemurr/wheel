@@ -215,7 +215,7 @@ struct StageManagerThumbnail: View {
         if tab.hasActiveAgent {
             return Color.green.opacity(0.9)
         } else if let groupAccentColor {
-            return groupAccentColor.opacity(isActive ? 0.98 : (isSelected ? 0.9 : 0.72))
+            return groupAccentColor.opacity(isActive ? 0.92 : (isSelected ? 0.62 : 0.34))
         } else if isActive {
             return Color(nsColor: .controlAccentColor)
         } else if isSelected {
@@ -229,7 +229,7 @@ struct StageManagerThumbnail: View {
         if tab.hasActiveAgent {
             return 2
         } else if groupAccentColor != nil {
-            return isActive ? 2.4 : (isSelected ? 1.8 : 1.0)
+            return isActive ? 2.1 : (isSelected ? 1.4 : 0.7)
         } else if isActive {
             return 2.5
         } else if isSelected {

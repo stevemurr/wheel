@@ -15,6 +15,7 @@ final class ContextMenuState {
     var canGoBack = false
     var canGoForward = false
     var highlightedIndex: Int?
+    var hoveredItemID: UUID?
 
     /// Sections are computed once on `show()` and cached — not recomputed in body.
     private(set) var sections: [ContextMenuSection] = []
@@ -24,6 +25,7 @@ final class ContextMenuState {
 
     /// The web view that will execute actions.
     weak var sourceWebView: BrowserWebView?
+    @ObservationIgnored private var actionHandler: ((ContextMenuAction) -> Void)?
 
     private init() {}
 
@@ -40,12 +42,34 @@ final class ContextMenuState {
         self.canGoForward = canGoForward
         self.sourceWebView = source
         self.highlightedIndex = nil
+        self.hoveredItemID = nil
         // Build sections once and cache
         self.sections = ContextMenuBuilder.buildSections(
             for: hitTest,
             canGoBack: canGoBack,
             canGoForward: canGoForward
         )
+        self.actionHandler = { [weak source] action in
+            source?.executeContextAction(action)
+        }
+        withAnimation(AppAnimation.quick) {
+            self.isVisible = true
+        }
+    }
+
+    func show(
+        at point: CGPoint,
+        sections: [ContextMenuSection],
+        onAction: @escaping (ContextMenuAction) -> Void
+    ) {
+        self.position = point
+        self.canGoBack = false
+        self.canGoForward = false
+        self.sourceWebView = nil
+        self.highlightedIndex = nil
+        self.hoveredItemID = nil
+        self.sections = sections
+        self.actionHandler = onAction
         withAnimation(AppAnimation.quick) {
             self.isVisible = true
         }
@@ -58,6 +82,13 @@ final class ContextMenuState {
             isVisible = false
         }
         highlightedIndex = nil
+        hoveredItemID = nil
+        actionHandler = nil
+        sourceWebView = nil
+    }
+
+    func execute(_ action: ContextMenuAction) {
+        actionHandler?(action)
     }
 
     // MARK: - Keyboard navigation
@@ -82,5 +113,17 @@ final class ContextMenuState {
 
     func resetHighlight() {
         highlightedIndex = nil
+    }
+
+    func setHoveredItem(_ itemID: UUID?) {
+        hoveredItemID = itemID
+    }
+
+    func hoveredAction() -> ContextMenuAction? {
+        guard let hoveredItemID else { return nil }
+        return sections
+            .flatMap(\.items)
+            .first { $0.id == hoveredItemID && $0.isEnabled }?
+            .action
     }
 }

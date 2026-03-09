@@ -28,19 +28,35 @@ struct ContextMenuHitTest: Codable {
 /// Pure-logic menu construction from a `ContextMenuHitTest`.
 ///
 /// Returns structured `ContextMenuSection` data instead of `NSMenu` items.
-/// Navigation items (Back/Forward/Reload) are handled by the card's chip bar,
-/// so they are not included in the returned sections.
 enum ContextMenuBuilder {
 
     /// Build context menu sections for the given hit-test result.
-    ///
-    /// Navigation actions are excluded — the card renders those as chips.
     static func buildSections(
         for hitTest: ContextMenuHitTest,
         canGoBack: Bool,
         canGoForward: Bool
     ) -> [ContextMenuSection] {
         var sections: [ContextMenuSection] = []
+
+        sections.append(ContextMenuSection(items: [
+            ContextMenuItem(
+                title: "Back",
+                systemImage: "chevron.left",
+                isEnabled: canGoBack,
+                action: .goBack
+            ),
+            ContextMenuItem(
+                title: "Forward",
+                systemImage: "chevron.right",
+                isEnabled: canGoForward,
+                action: .goForward
+            ),
+            ContextMenuItem(
+                title: "Reload",
+                systemImage: "arrow.clockwise",
+                action: .reload
+            ),
+        ]))
 
         // --- Link items ---
         if !hitTest.linkURL.isEmpty {

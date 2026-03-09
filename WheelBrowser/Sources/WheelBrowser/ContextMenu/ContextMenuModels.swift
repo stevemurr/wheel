@@ -21,6 +21,11 @@ enum ContextMenuAction {
     case goBack
     case goForward
     case reload
+    case createFolderFromTabs([UUID])
+    case moveTabsToFolder(tabIDs: [UUID], folderID: UUID)
+    case removeTabsFromFolders([UUID])
+    case renameFolder(UUID)
+    case deleteFolder(UUID)
 }
 
 /// A single row in the context menu card.

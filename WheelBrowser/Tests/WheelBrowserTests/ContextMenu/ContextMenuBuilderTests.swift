@@ -4,6 +4,17 @@ import Testing
 
 @Suite("ContextMenuBuilder")
 struct ContextMenuBuilderTests {
+    @Test("Adds browser navigation actions as the first section")
+    func addsNavigationActionsAsFirstSection() throws {
+        let sections = ContextMenuBuilder.buildSections(for: .empty, canGoBack: false, canGoForward: true)
+        let firstSection = try #require(sections.first)
+
+        #expect(firstSection.items.map(\.title) == ["Back", "Forward", "Reload"])
+        #expect(firstSection.items[0].isEnabled == false)
+        #expect(firstSection.items[1].isEnabled == true)
+        #expect(firstSection.items[2].isEnabled == true)
+    }
+
     @Test("Adds note actions when page context is available")
     func addsNoteActionsForPageContext() {
         let hitTest = ContextMenuHitTest(

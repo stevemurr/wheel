@@ -10,6 +10,7 @@ struct StageManagerStrip: View {
     var screenshotManager: TabScreenshotManager
     let onCreateFolder: ([UUID]) -> Void
     let onRenameFolder: (UUID) -> Void
+    private let contextMenuState = ContextMenuState.shared
 
     @AppStorage(AppSettings.hiddenTabScaleKey)
     private var hiddenTabScale = AppSettings.defaultHiddenTabScale
@@ -19,6 +20,7 @@ struct StageManagerStrip: View {
 
     @State private var isExpanded = false
     @State private var collapseWork: DispatchWorkItem?
+    @State private var isHotZoneHovered = false
 
     private let collapseDelay: TimeInterval = 0.42
     private let minimumHotZoneHeight: CGFloat = 240
@@ -99,7 +101,10 @@ struct StageManagerStrip: View {
                     )
                     .contentShape(Rectangle())
                     .frame(maxHeight: .infinity, alignment: .center)
-                    .onHover(perform: handleHotZoneHover)
+                    .onHover { hovering in
+                        isHotZoneHovered = hovering
+                        handleHotZoneHover(hovering)
+                    }
 
                 if isExpanded {
                     expandedContent(containerHeight: geometry.size.height)
@@ -114,6 +119,14 @@ struct StageManagerStrip: View {
             .allowsHitTesting(true)
         }
         .frame(width: activeHotZoneWidth)
+        .onChange(of: contextMenuState.isVisible) { _, isVisible in
+            if isVisible {
+                collapseWork?.cancel()
+                collapseWork = nil
+            } else if !isHotZoneHovered {
+                scheduleCollapse()
+            }
+        }
     }
 
     // MARK: - Expanded (full thumbnails)
@@ -146,9 +159,11 @@ struct StageManagerStrip: View {
                                     }
                                 }
                             )
-                            .contextMenu {
-                                tabContextMenu(for: tab)
-                            }
+                            .overlay(
+                                RightClickContextMenuTrigger { point in
+                                    presentTabContextMenu(for: tab, at: point)
+                                }
+                            )
                             .background(
                                 GeometryReader { proxy in
                                     Color.clear.preference(
@@ -192,9 +207,11 @@ struct StageManagerStrip: View {
                             handleTabClick(tab.id, modifiers: modifiers)
                         }
                     )
-                    .contextMenu {
-                        tabContextMenu(for: tab)
-                    }
+                    .overlay(
+                        RightClickContextMenuTrigger { point in
+                            presentTabContextMenu(for: tab, at: point)
+                        }
+                    )
                 }
             }
 
@@ -251,7 +268,7 @@ struct StageManagerStrip: View {
             browserState.isTabSelected(tab.id) ? index : nil
         }
 
-        guard !selectedIndices.isEmpty else { return [] }
+        guard selectedIndices.count > 1 else { return [] }
 
         var ranges: [ClosedRange<Int>] = []
         var rangeStart = selectedIndices[0]
@@ -308,40 +325,86 @@ struct StageManagerStrip: View {
         return .replace
     }
 
-    @ViewBuilder
-    private func tabContextMenu(for tab: Tab) -> some View {
-        let targetTabIDs = browserState.contextActionTabIDs(for: tab.id)
+    private func presentTabContextMenu(for tab: Tab, at point: CGPoint) {
+        contextMenuState.show(
+            at: point,
+            sections: tabContextMenuSections(for: tab),
+            onAction: handleTabContextMenuAction
+        )
+    }
 
-        Button("New Folder from Selection") {
-            onCreateFolder(targetTabIDs)
-        }
+    private func tabContextMenuSections(for tab: Tab) -> [ContextMenuSection] {
+        let targetTabIDs = browserState.contextActionTabIDs(for: tab.id)
+        var sections: [ContextMenuSection] = [
+            ContextMenuSection(items: [
+                ContextMenuItem(
+                    title: "New Folder from Selection",
+                    systemImage: "folder.badge.plus",
+                    action: .createFolderFromTabs(targetTabIDs)
+                )
+            ])
+        ]
 
         if !browserState.folders.isEmpty {
-            Menu("Move to Folder…") {
-                ForEach(browserState.folders) { folder in
-                    Button(folder.name) {
-                        browserState.moveTabs(targetTabIDs, toFolder: folder.id)
+            sections.append(
+                ContextMenuSection(
+                    items: browserState.folders.map { folder in
+                        ContextMenuItem(
+                            title: "Move to \(folder.name)",
+                            systemImage: "folder",
+                            action: .moveTabsToFolder(tabIDs: targetTabIDs, folderID: folder.id)
+                        )
                     }
-                }
-            }
+                )
+            )
         }
 
         if tab.folderID != nil {
-            Button("Remove from Folder") {
-                browserState.removeTabsFromFolders(targetTabIDs)
-            }
+            sections.append(
+                ContextMenuSection(items: [
+                    ContextMenuItem(
+                        title: "Remove from Folder",
+                        systemImage: "folder.badge.minus",
+                        action: .removeTabsFromFolders(targetTabIDs)
+                    )
+                ])
+            )
         }
 
         if let folderID = tab.folderID {
-            Divider()
+            sections.append(
+                ContextMenuSection(items: [
+                    ContextMenuItem(
+                        title: "Rename Folder",
+                        systemImage: "pencil",
+                        action: .renameFolder(folderID)
+                    ),
+                    ContextMenuItem(
+                        title: "Delete Folder",
+                        systemImage: "trash",
+                        action: .deleteFolder(folderID)
+                    )
+                ])
+            )
+        }
 
-            Button("Rename Folder") {
-                onRenameFolder(folderID)
-            }
+        return sections
+    }
 
-            Button("Delete Folder", role: .destructive) {
-                browserState.deleteFolder(folderID)
-            }
+    private func handleTabContextMenuAction(_ action: ContextMenuAction) {
+        switch action {
+        case .createFolderFromTabs(let tabIDs):
+            onCreateFolder(tabIDs)
+        case .moveTabsToFolder(let tabIDs, let folderID):
+            browserState.moveTabs(tabIDs, toFolder: folderID)
+        case .removeTabsFromFolders(let tabIDs):
+            browserState.removeTabsFromFolders(tabIDs)
+        case .renameFolder(let folderID):
+            onRenameFolder(folderID)
+        case .deleteFolder(let folderID):
+            browserState.deleteFolder(folderID)
+        default:
+            break
         }
     }
 
@@ -353,14 +416,21 @@ struct StageManagerStrip: View {
                 isExpanded = true
             }
         } else {
-            let work = DispatchWorkItem { [self] in
-                withAnimation(AppAnimation.panelSpring) {
-                    isExpanded = false
-                }
-            }
-            collapseWork = work
-            DispatchQueue.main.asyncAfter(deadline: .now() + collapseDelay, execute: work)
+            scheduleCollapse()
         }
+    }
+
+    private func scheduleCollapse() {
+        guard !contextMenuState.isVisible else { return }
+        let work = DispatchWorkItem { [self] in
+            guard !contextMenuState.isVisible else { return }
+            withAnimation(AppAnimation.panelSpring) {
+                isExpanded = false
+            }
+        }
+        collapseWork?.cancel()
+        collapseWork = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + collapseDelay, execute: work)
     }
 
     private func activeHotZoneHeight(in containerHeight: CGFloat) -> CGFloat {
@@ -457,7 +527,7 @@ private struct BinderTabPeek: View {
                     .strokeBorder(
                         tab.hasActiveAgent
                             ? Color.green.opacity(0.82 + (0.12 * glowPhase))
-                            : (groupAccentColor?.opacity(isActive ? 0.98 : 0.8) ?? Color(nsColor: .controlAccentColor)),
+                            : (groupAccentColor?.opacity(isActive ? 0.88 : 0.5) ?? Color(nsColor: .controlAccentColor)),
                         lineWidth: max(1, 1.5 * sizeScale)
                     )
                 }
@@ -465,7 +535,7 @@ private struct BinderTabPeek: View {
             .shadow(
                 color: tab.hasActiveAgent
                     ? Color.green.opacity(0.28 + (0.16 * glowPhase))
-                    : (groupAccentColor?.opacity(isActive ? 0.28 : 0.2) ?? .black.opacity(0.25)),
+                    : (groupAccentColor?.opacity(isActive ? 0.22 : 0.12) ?? .black.opacity(0.25)),
                 radius: tab.hasActiveAgent ? (8 * sizeScale) + (3 * sizeScale * glowPhase) : 2 * sizeScale,
                 x: sizeScale,
                 y: sizeScale
@@ -512,6 +582,80 @@ private struct SelectedTabFramePreferenceKey: PreferenceKey {
 private struct SelectionClusterRect: Identifiable {
     let id = UUID()
     let rect: CGRect
+}
+
+private struct RightClickContextMenuTrigger: NSViewRepresentable {
+    let onRightClick: (CGPoint) -> Void
+
+    func makeNSView(context: Context) -> TabContextMenuTriggerView {
+        let view = TabContextMenuTriggerView()
+        view.onRightClick = onRightClick
+        return view
+    }
+
+    func updateNSView(_ nsView: TabContextMenuTriggerView, context: Context) {
+        nsView.onRightClick = onRightClick
+    }
+}
+
+private final class TabContextMenuTriggerView: NSView {
+    var onRightClick: ((CGPoint) -> Void)?
+    private var monitor: Any?
+
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        updateMonitor()
+    }
+
+    private func updateMonitor() {
+        if let monitor {
+            NSEvent.removeMonitor(monitor)
+            self.monitor = nil
+        }
+
+        guard window != nil else { return }
+
+        monitor = NSEvent.addLocalMonitorForEvents(matching: .rightMouseDown) { [weak self] event in
+            guard let self,
+                  let window = self.window,
+                  event.window == window else {
+                return event
+            }
+
+            let localPoint = self.convert(event.locationInWindow, from: nil)
+            guard self.bounds.contains(localPoint) else {
+                return event
+            }
+
+            let windowPoint = self.convert(localPoint, to: nil)
+            let content = window.contentLayoutRect
+            let swiftUIPoint = CGPoint(
+                x: windowPoint.x - content.origin.x,
+                y: content.height - (windowPoint.y - content.origin.y)
+            )
+
+            DispatchQueue.main.async {
+                self.onRightClick?(swiftUIPoint)
+            }
+            return nil
+        }
+    }
+
+    override func removeFromSuperview() {
+        if let monitor {
+            NSEvent.removeMonitor(monitor)
+            self.monitor = nil
+        }
+        super.removeFromSuperview()
+    }
+
+    deinit {
+        if let monitor {
+            NSEvent.removeMonitor(monitor)
+        }
+    }
+
+    override func hitTest(_ point: NSPoint) -> NSView? { nil }
 }
 
 private func clamp(_ value: Double, to range: ClosedRange<Double>) -> Double {

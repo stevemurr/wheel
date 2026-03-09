@@ -170,6 +170,12 @@ class BrowserWebView: WKWebView {
 
         case .reload:
             reload()
+        case .createFolderFromTabs,
+             .moveTabsToFolder,
+             .removeTabsFromFolders,
+             .renameFolder,
+             .deleteFolder:
+            break
         }
     }
 }
