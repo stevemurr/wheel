@@ -23,7 +23,7 @@ actor SummaryGenerator {
         let truncatedContent = String(content.prefix(3000))
         let prompt = "Summarize the following text:\n\n\(truncatedContent)"
         let requestID = UUID()
-        let threadID = WheelModelContextService.summaryThreadID(for: requestID)
+        let sessionID = WheelModelContextService.summarySessionID(for: requestID)
         let contextService = self.contextService
 
         Log.Services.info("Starting LMCK streaming summary generation")
@@ -47,7 +47,7 @@ actor SummaryGenerator {
                             continuation.yield(delta)
                             previousSummary = currentSummary
                         case .completed(let response):
-                            let currentSummary = response.content.summary
+                            let currentSummary = response.value.summary
                             if currentSummary.count > previousSummary.count {
                                 continuation.yield(String(currentSummary.dropFirst(previousSummary.count)))
                             }
@@ -60,13 +60,13 @@ actor SummaryGenerator {
                     continuation.finish(throwing: error)
                 }
 
-                try? await contextService.resetThread(threadID: threadID)
+                try? await contextService.resetSession(sessionID: sessionID)
             }
 
             continuation.onTermination = { _ in
                 task.cancel()
                 Task {
-                    try? await contextService.resetThread(threadID: threadID)
+                    try? await contextService.resetSession(sessionID: sessionID)
                 }
             }
         }
@@ -84,10 +84,10 @@ actor SummaryGenerator {
         let truncatedContent = String(content.prefix(3000))
         let prompt = "Summarize the following text:\n\n\(truncatedContent)"
         let requestID = UUID()
-        let threadID = WheelModelContextService.summaryThreadID(for: requestID)
+        let sessionID = WheelModelContextService.summarySessionID(for: requestID)
         defer {
             Task {
-                try? await contextService.resetThread(threadID: threadID)
+                try? await contextService.resetSession(sessionID: sessionID)
             }
         }
 
@@ -98,7 +98,7 @@ actor SummaryGenerator {
                 instructions: Self.instructions
             )
 
-            let summary = result.content.summary
+            let summary = result.value.summary
                 .trimmingCharacters(in: .whitespacesAndNewlines)
                 .replacingOccurrences(of: "\n", with: " ")
                 .replacingOccurrences(of: "\\s+", with: " ", options: .regularExpression)

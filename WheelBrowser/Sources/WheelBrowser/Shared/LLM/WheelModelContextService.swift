@@ -4,36 +4,45 @@ import LanguageModelContextKit
 
 typealias LMContextKit = LanguageModelContextKit
 typealias LMContextConfiguration = ContextManagerConfiguration
-typealias LMThreadConfiguration = ThreadConfiguration
+typealias LMSessionConfiguration = SessionConfiguration
 typealias LMAvailabilityStatus = AvailabilityStatus
 typealias LMBudgetPolicy = BudgetPolicy
 typealias LMPersistencePolicy = PersistencePolicy
-typealias LMManagedStructuredResponse<Content: Generable> = ManagedStructuredResponse<Content>
-typealias LMManagedTextResponse = ManagedTextResponse
-typealias LMManagedStructuredStreamEvent<Content: Generable> = ManagedStructuredStreamEvent<Content>
+typealias LMGeneratedReply<Content: Generable> = GeneratedReply<Content>
+typealias LMGeneratedStreamEvent<Content: Generable> = GeneratedStreamEvent<Content>
 typealias LMNormalizedTurn = NormalizedTurn
 typealias LMDurableMemoryRecord = DurableMemoryRecord
-typealias LMPersistedThreadState = PersistedThreadState
+
+struct WheelTurnMetadata: Sendable {
+    let compaction: CompactionReport?
+    let bridge: BridgeReport?
+}
+
+struct WheelGeneratedReply<Value: Sendable>: Sendable {
+    let value: Value
+    let transcriptText: String
+    let metadata: WheelTurnMetadata
+}
 
 enum WheelChatStreamEvent: Sendable {
     case partial(answer: String)
-    case completed(LMManagedStructuredResponse<GeneratedChatAssistantResponse>)
+    case completed(WheelGeneratedReply<GeneratedChatAssistantResponse>)
 }
 
 enum WheelAgentDecisionStreamEvent: Sendable {
     case partialThought(String)
-    case completed(LMManagedStructuredResponse<GeneratedAgentDecision>)
+    case completed(WheelGeneratedReply<GeneratedAgentDecision>)
 }
 
 enum WheelSummaryStreamEvent: Sendable {
     case partial(summary: String)
-    case completed(LMManagedStructuredResponse<GeneratedSummaryResponse>)
+    case completed(WheelGeneratedReply<GeneratedSummaryResponse>)
 }
 
 protocol WheelModelContextServing: Sendable {
     func availabilityStatus() async -> LMAvailabilityStatus
-    func openChatThread(conversationId: UUID, instructions: String) async throws
-    func importChatThread(
+    func openChatSession(conversationId: UUID, instructions: String) async throws
+    func importChatSession(
         conversationId: UUID,
         instructions: String,
         turns: [LMNormalizedTurn],
@@ -44,27 +53,27 @@ protocol WheelModelContextServing: Sendable {
         conversationId: UUID,
         prompt: String
     ) async throws -> AsyncThrowingStream<WheelChatStreamEvent, Error>
-    func openAgentThread(tabId: UUID, runId: UUID, instructions: String) async throws -> String
+    func openAgentSession(tabId: UUID, runId: UUID, instructions: String) async throws -> String
     func generateAgentTaskIntent(
         requestID: UUID,
         task: String,
         instructions: String
-    ) async throws -> LMManagedStructuredResponse<GeneratedAgentTaskIntent>
+    ) async throws -> WheelGeneratedReply<GeneratedAgentTaskIntent>
     func streamAgentDecision(
         prompt: String,
-        threadID: String
+        sessionID: String
     ) async throws -> AsyncThrowingStream<WheelAgentDecisionStreamEvent, Error>
     func generateAgentCompletionEvaluation(
         requestID: UUID,
         prompt: String,
         instructions: String
-    ) async throws -> LMManagedStructuredResponse<GeneratedAgentCompletionEvaluation>
-    func appendAgentTurns(_ turns: [LMNormalizedTurn], threadID: String) async throws
+    ) async throws -> WheelGeneratedReply<GeneratedAgentCompletionEvaluation>
+    func appendAgentToolTurn(text: String, tags: [String], sessionID: String) async throws
     func generateSummary(
         requestID: UUID,
         prompt: String,
         instructions: String
-    ) async throws -> LMManagedStructuredResponse<GeneratedSummaryResponse>
+    ) async throws -> WheelGeneratedReply<GeneratedSummaryResponse>
     func streamSummary(
         requestID: UUID,
         prompt: String,
@@ -75,9 +84,9 @@ protocol WheelModelContextServing: Sendable {
         prompt: String,
         instructions: String,
         transcriptRenderer: (@Sendable (GeneratedWidgetPlan) -> String)?
-    ) async throws -> LMManagedStructuredResponse<GeneratedWidgetPlan>
-    func threadState(threadID: String) async throws -> LMPersistedThreadState
-    func resetThread(threadID: String) async throws
+    ) async throws -> WheelGeneratedReply<GeneratedWidgetPlan>
+    func sessionExists(sessionID: String) async -> Bool
+    func resetSession(sessionID: String) async throws
 }
 
 actor WheelModelContextService: WheelModelContextServing {
@@ -86,6 +95,8 @@ actor WheelModelContextService: WheelModelContextServing {
     nonisolated let storageRootURL: URL
 
     private let contextKit: LMContextKit
+    private let threadStore: any ThreadStore
+    private var sessionConfigurations: [String: LMSessionConfiguration] = [:]
 
     init(
         storageRootURL: URL = FileManager.appSupportDirectory.appendingPathComponent(
@@ -96,53 +107,57 @@ actor WheelModelContextService: WheelModelContextServing {
     ) {
         self.storageRootURL = storageRootURL
 
+        let managedConfiguration: LMContextConfiguration
         if let configuration {
-            self.contextKit = LMContextKit(configuration: configuration)
-            return
+            managedConfiguration = configuration
+        } else {
+            let persistence = LMPersistencePolicy(
+                threads: FileThreadStore(
+                    directoryURL: storageRootURL.appendingPathComponent("threads", isDirectory: true)
+                ),
+                memories: FileMemoryStore(
+                    directoryURL: storageRootURL.appendingPathComponent("memories", isDirectory: true)
+                ),
+                blobs: FileBlobStore(
+                    directoryURL: storageRootURL.appendingPathComponent("blobs", isDirectory: true)
+                ),
+                retriever: nil
+            )
+
+            managedConfiguration = LMContextConfiguration(
+                budget: LMBudgetPolicy(defaultContextWindowTokens: 4096),
+                persistence: persistence
+            )
         }
 
-        let persistence = LMPersistencePolicy(
-            threads: FileThreadStore(
-                directoryURL: storageRootURL.appendingPathComponent("threads", isDirectory: true)
-            ),
-            memories: FileMemoryStore(
-                directoryURL: storageRootURL.appendingPathComponent("memories", isDirectory: true)
-            ),
-            blobs: FileBlobStore(
-                directoryURL: storageRootURL.appendingPathComponent("blobs", isDirectory: true)
-            ),
-            retriever: nil
-        )
-
-        let managedConfiguration = LMContextConfiguration(
-            budget: LMBudgetPolicy(defaultContextWindowTokens: 4096),
-            persistence: persistence
-        )
+        self.threadStore = managedConfiguration.persistence.threads
         self.contextKit = LMContextKit(configuration: managedConfiguration)
     }
 
     func availabilityStatus() async -> LMAvailabilityStatus {
-        await contextKit.availabilityStatus()
+        await contextKit.availability()
     }
 
-    func openChatThread(conversationId: UUID, instructions: String) async throws {
-        try await openThread(
-            id: Self.chatThreadID(for: conversationId),
+    func openChatSession(conversationId: UUID, instructions: String) async throws {
+        _ = try await openSession(
+            id: Self.chatSessionID(for: conversationId),
             instructions: instructions
         )
     }
 
-    func importChatThread(
+    func importChatSession(
         conversationId: UUID,
         instructions: String,
         turns: [LMNormalizedTurn],
         durableMemory: [LMDurableMemoryRecord],
         replaceExisting: Bool
     ) async throws {
-        try await contextKit.importThread(
-            id: Self.chatThreadID(for: conversationId),
-            configuration: LMThreadConfiguration(instructions: instructions),
-            turns: turns,
+        let session = try await openSession(
+            id: Self.chatSessionID(for: conversationId),
+            instructions: instructions
+        )
+        try await session.maintenance.importHistory(
+            turns,
             durableMemory: durableMemory,
             replaceExisting: replaceExisting
         )
@@ -152,82 +167,82 @@ actor WheelModelContextService: WheelModelContextServing {
         conversationId: UUID,
         prompt: String
     ) async throws -> AsyncThrowingStream<WheelChatStreamEvent, Error> {
-        let stream = await contextKit.streamManaged(
-            to: prompt,
-            generating: GeneratedChatAssistantResponse.self,
-            threadID: Self.chatThreadID(for: conversationId),
-            transcriptRenderer: { $0.answer }
-        )
-
-        return mapChatStream(stream)
+        let session = try await resolveSession(id: Self.chatSessionID(for: conversationId))
+        return mapChatStream(session.stream(prompt, as: GeneratedChatAssistantResponse.self))
     }
 
-    func openAgentThread(tabId: UUID, runId: UUID, instructions: String) async throws -> String {
-        let threadID = Self.agentThreadID(tabId: tabId, runId: runId)
-        try await openThread(id: threadID, instructions: instructions)
-        return threadID
+    func openAgentSession(tabId: UUID, runId: UUID, instructions: String) async throws -> String {
+        let sessionID = Self.agentSessionID(tabId: tabId, runId: runId)
+        _ = try await openSession(id: sessionID, instructions: instructions)
+        return sessionID
     }
 
     func generateAgentTaskIntent(
         requestID: UUID,
         task: String,
         instructions: String
-    ) async throws -> LMManagedStructuredResponse<GeneratedAgentTaskIntent> {
-        try await openIntentThread(requestID: requestID, instructions: instructions)
-        return try await contextKit.respondManaged(
-            to: task,
-            generating: GeneratedAgentTaskIntent.self,
-            threadID: Self.agentIntentThreadID(for: requestID),
-            transcriptRenderer: { _ in "Agent task intent extracted" }
+    ) async throws -> WheelGeneratedReply<GeneratedAgentTaskIntent> {
+        let session = try await openSession(
+            id: Self.agentIntentSessionID(for: requestID),
+            instructions: instructions
         )
+        let response = try await session.reply(to: task, as: GeneratedAgentTaskIntent.self)
+        return mapReply(response) { _ in
+            "Agent task intent extracted"
+        }
     }
 
     func streamAgentDecision(
         prompt: String,
-        threadID: String
+        sessionID: String
     ) async throws -> AsyncThrowingStream<WheelAgentDecisionStreamEvent, Error> {
-        let stream = await contextKit.streamManaged(
-            to: prompt,
-            generating: GeneratedAgentDecision.self,
-            threadID: threadID,
-            transcriptRenderer: { $0.transcriptSummary }
-        )
-
-        return mapAgentStream(stream)
+        let session = try await resolveSession(id: sessionID)
+        return mapAgentStream(session.stream(prompt, as: GeneratedAgentDecision.self))
     }
 
     func generateAgentCompletionEvaluation(
         requestID: UUID,
         prompt: String,
         instructions: String
-    ) async throws -> LMManagedStructuredResponse<GeneratedAgentCompletionEvaluation> {
-        try await openAgentCompletionThread(requestID: requestID, instructions: instructions)
-        return try await contextKit.respondManaged(
-            to: prompt,
-            generating: GeneratedAgentCompletionEvaluation.self,
-            threadID: Self.agentCompletionThreadID(for: requestID),
-            transcriptRenderer: { response in
-                response.isComplete ? "Completion accepted" : "Completion rejected"
-            }
+    ) async throws -> WheelGeneratedReply<GeneratedAgentCompletionEvaluation> {
+        let session = try await openSession(
+            id: Self.agentCompletionSessionID(for: requestID),
+            instructions: instructions
         )
+        let response = try await session.reply(to: prompt, as: GeneratedAgentCompletionEvaluation.self)
+        return mapReply(response) { response in
+            response.isComplete ? "Completion accepted" : "Completion rejected"
+        }
     }
 
-    func appendAgentTurns(_ turns: [LMNormalizedTurn], threadID: String) async throws {
-        try await contextKit.appendTurns(turns, threadID: threadID)
+    func appendAgentToolTurn(text: String, tags: [String], sessionID: String) async throws {
+        let session = try await resolveSession(id: sessionID)
+
+        guard let diagnostics = await session.inspection.diagnostics() else {
+            throw LanguageModelContextKitError.threadNotFound(sessionID)
+        }
+
+        let turn = LMNormalizedTurn(
+            role: .tool,
+            text: text,
+            priority: 700,
+            tags: tags,
+            windowIndex: diagnostics.windowIndex
+        )
+        try await session.maintenance.appendTurns([turn])
     }
 
     func generateSummary(
         requestID: UUID,
         prompt: String,
         instructions: String
-    ) async throws -> LMManagedStructuredResponse<GeneratedSummaryResponse> {
-        try await openSummaryThread(requestID: requestID, instructions: instructions)
-        return try await contextKit.respondManaged(
-            to: prompt,
-            generating: GeneratedSummaryResponse.self,
-            threadID: Self.summaryThreadID(for: requestID),
-            transcriptRenderer: { $0.summary }
+    ) async throws -> WheelGeneratedReply<GeneratedSummaryResponse> {
+        let session = try await openSession(
+            id: Self.summarySessionID(for: requestID),
+            instructions: instructions
         )
+        let response = try await session.reply(to: prompt, as: GeneratedSummaryResponse.self)
+        return mapReply(response) { $0.summary }
     }
 
     func streamSummary(
@@ -235,14 +250,11 @@ actor WheelModelContextService: WheelModelContextServing {
         prompt: String,
         instructions: String
     ) async throws -> AsyncThrowingStream<WheelSummaryStreamEvent, Error> {
-        try await openSummaryThread(requestID: requestID, instructions: instructions)
-        let stream = await contextKit.streamManaged(
-            to: prompt,
-            generating: GeneratedSummaryResponse.self,
-            threadID: Self.summaryThreadID(for: requestID),
-            transcriptRenderer: { $0.summary }
+        let session = try await openSession(
+            id: Self.summarySessionID(for: requestID),
+            instructions: instructions
         )
-        return mapSummaryStream(stream)
+        return mapSummaryStream(session.stream(prompt, as: GeneratedSummaryResponse.self))
     }
 
     func generateWidgetPlan(
@@ -250,75 +262,99 @@ actor WheelModelContextService: WheelModelContextServing {
         prompt: String,
         instructions: String,
         transcriptRenderer: (@Sendable (GeneratedWidgetPlan) -> String)? = nil
-    ) async throws -> LMManagedStructuredResponse<GeneratedWidgetPlan> {
-        try await openWidgetThread(requestID: requestID, instructions: instructions)
-        return try await contextKit.respondManaged(
-            to: prompt,
-            generating: GeneratedWidgetPlan.self,
-            threadID: Self.widgetThreadID(for: requestID),
-            transcriptRenderer: transcriptRenderer
-        )
-    }
-
-    func threadState(threadID: String) async throws -> LMPersistedThreadState {
-        try await contextKit.threadState(threadID: threadID)
-    }
-
-    func resetThread(threadID: String) async throws {
-        try await contextKit.resetThread(threadID: threadID)
-    }
-
-    private func openSummaryThread(requestID: UUID, instructions: String) async throws {
-        try await openThread(
-            id: Self.summaryThreadID(for: requestID),
+    ) async throws -> WheelGeneratedReply<GeneratedWidgetPlan> {
+        let session = try await openSession(
+            id: Self.widgetSessionID(for: requestID),
             instructions: instructions
         )
+        let response = try await session.reply(to: prompt, as: GeneratedWidgetPlan.self)
+        return mapReply(response, transcriptRenderer: transcriptRenderer)
     }
 
-    private func openIntentThread(requestID: UUID, instructions: String) async throws {
-        try await openThread(
-            id: Self.agentIntentThreadID(for: requestID),
-            instructions: instructions
-        )
+    func sessionExists(sessionID: String) async -> Bool {
+        (try? await threadStore.load(threadID: sessionID)) != nil
     }
 
-    private func openAgentCompletionThread(requestID: UUID, instructions: String) async throws {
-        try await openThread(
-            id: Self.agentCompletionThreadID(for: requestID),
-            instructions: instructions
-        )
+    func resetSession(sessionID: String) async throws {
+        let session = try await resolveSession(id: sessionID)
+        try await session.maintenance.reset()
+        sessionConfigurations.removeValue(forKey: sessionID)
     }
 
-    private func openWidgetThread(requestID: UUID, instructions: String) async throws {
-        try await openThread(
-            id: Self.widgetThreadID(for: requestID),
-            instructions: instructions
-        )
-    }
-
-    private func openThread(id: String, instructions: String) async throws {
-        try await contextKit.openThread(
+    private func openSession(
+        id: String,
+        instructions: String
+    ) async throws -> ContextSession {
+        try await openSession(
             id: id,
-            configuration: LMThreadConfiguration(instructions: instructions)
+            configuration: LMSessionConfiguration(instructions: instructions)
+        )
+    }
+
+    private func openSession(
+        id: String,
+        configuration: LMSessionConfiguration
+    ) async throws -> ContextSession {
+        let session = try await contextKit.session(id: id, configuration: configuration)
+        sessionConfigurations[id] = configuration
+        return session
+    }
+
+    private func resolveSession(id: String) async throws -> ContextSession {
+        let configuration = try await sessionConfiguration(for: id)
+        return try await openSession(id: id, configuration: configuration)
+    }
+
+    private func sessionConfiguration(for id: String) async throws -> LMSessionConfiguration {
+        if let configuration = sessionConfigurations[id] {
+            return configuration
+        }
+
+        guard let state = try await threadStore.load(threadID: id) else {
+            throw LanguageModelContextKitError.threadNotFound(id)
+        }
+
+        let configuration = LMSessionConfiguration(
+            instructions: state.instructions,
+            locale: state.localeIdentifier.map(Locale.init(identifier:)),
+            model: state.model
+        )
+        sessionConfigurations[id] = configuration
+        return configuration
+    }
+
+    private func mapReply<Content: Generable & Sendable>(
+        _ response: LMGeneratedReply<Content>,
+        transcriptRenderer: (@Sendable (Content) -> String)? = nil
+    ) -> WheelGeneratedReply<Content> {
+        WheelGeneratedReply(
+            value: response.value,
+            transcriptText: transcriptRenderer?(response.value) ?? response.transcriptText,
+            metadata: WheelTurnMetadata(
+                compaction: response.metadata.compaction,
+                bridge: response.metadata.bridge
+            )
         )
     }
 
     private func mapChatStream(
-        _ stream: AsyncThrowingStream<LMManagedStructuredStreamEvent<GeneratedChatAssistantResponse>, Error>
+        _ stream: AsyncThrowingStream<LMGeneratedStreamEvent<GeneratedChatAssistantResponse>, Error>
     ) -> AsyncThrowingStream<WheelChatStreamEvent, Error> {
         AsyncThrowingStream { continuation in
             let task = Task {
                 do {
                     for try await event in stream {
                         switch event {
-                        case .partial(let partial, _):
+                        case .partial(let partial):
                             guard let answer = partial.answer?.trimmingCharacters(in: .whitespacesAndNewlines),
                                   !answer.isEmpty else {
                                 continue
                             }
                             continuation.yield(.partial(answer: answer))
                         case .completed(let response):
-                            continuation.yield(.completed(response))
+                            continuation.yield(
+                                .completed(mapReply(response, transcriptRenderer: { $0.answer }))
+                            )
                         }
                     }
                     continuation.finish()
@@ -334,21 +370,23 @@ actor WheelModelContextService: WheelModelContextServing {
     }
 
     private func mapAgentStream(
-        _ stream: AsyncThrowingStream<LMManagedStructuredStreamEvent<GeneratedAgentDecision>, Error>
+        _ stream: AsyncThrowingStream<LMGeneratedStreamEvent<GeneratedAgentDecision>, Error>
     ) -> AsyncThrowingStream<WheelAgentDecisionStreamEvent, Error> {
         AsyncThrowingStream { continuation in
             let task = Task {
                 do {
                     for try await event in stream {
                         switch event {
-                        case .partial(let partial, _):
+                        case .partial(let partial):
                             guard let thought = partial.thought?.trimmingCharacters(in: .whitespacesAndNewlines),
                                   !thought.isEmpty else {
                                 continue
                             }
                             continuation.yield(.partialThought(thought))
                         case .completed(let response):
-                            continuation.yield(.completed(response))
+                            continuation.yield(
+                                .completed(mapReply(response, transcriptRenderer: { $0.transcriptSummary }))
+                            )
                         }
                     }
                     continuation.finish()
@@ -364,21 +402,23 @@ actor WheelModelContextService: WheelModelContextServing {
     }
 
     private func mapSummaryStream(
-        _ stream: AsyncThrowingStream<LMManagedStructuredStreamEvent<GeneratedSummaryResponse>, Error>
+        _ stream: AsyncThrowingStream<LMGeneratedStreamEvent<GeneratedSummaryResponse>, Error>
     ) -> AsyncThrowingStream<WheelSummaryStreamEvent, Error> {
         AsyncThrowingStream { continuation in
             let task = Task {
                 do {
                     for try await event in stream {
                         switch event {
-                        case .partial(let partial, _):
+                        case .partial(let partial):
                             guard let summary = partial.summary?.trimmingCharacters(in: .whitespacesAndNewlines),
                                   !summary.isEmpty else {
                                 continue
                             }
                             continuation.yield(.partial(summary: summary))
                         case .completed(let response):
-                            continuation.yield(.completed(response))
+                            continuation.yield(
+                                .completed(mapReply(response, transcriptRenderer: { $0.summary }))
+                            )
                         }
                     }
                     continuation.finish()
@@ -393,27 +433,27 @@ actor WheelModelContextService: WheelModelContextServing {
         }
     }
 
-    nonisolated static func chatThreadID(for conversationId: UUID) -> String {
+    nonisolated static func chatSessionID(for conversationId: UUID) -> String {
         "chat:\(conversationId.uuidString.lowercased())"
     }
 
-    nonisolated static func agentThreadID(tabId: UUID, runId: UUID) -> String {
+    nonisolated static func agentSessionID(tabId: UUID, runId: UUID) -> String {
         "agent:\(tabId.uuidString.lowercased()):\(runId.uuidString.lowercased())"
     }
 
-    nonisolated static func agentIntentThreadID(for requestID: UUID) -> String {
+    nonisolated static func agentIntentSessionID(for requestID: UUID) -> String {
         "agent-intent:\(requestID.uuidString.lowercased())"
     }
 
-    nonisolated static func summaryThreadID(for requestID: UUID) -> String {
+    nonisolated static func summarySessionID(for requestID: UUID) -> String {
         "summary:\(requestID.uuidString.lowercased())"
     }
 
-    nonisolated static func agentCompletionThreadID(for requestID: UUID) -> String {
+    nonisolated static func agentCompletionSessionID(for requestID: UUID) -> String {
         "agent-completion:\(requestID.uuidString.lowercased())"
     }
 
-    nonisolated static func widgetThreadID(for requestID: UUID) -> String {
+    nonisolated static func widgetSessionID(for requestID: UUID) -> String {
         "widget:\(requestID.uuidString.lowercased())"
     }
 }

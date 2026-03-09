@@ -106,11 +106,11 @@ final class OnDeviceWidgetManifestGenerator: @unchecked Sendable, WidgetManifest
         let instructions = WidgetPlanSystemPrompt.build()
         let requestID = UUID()
         let usingContextService = completionProvider == nil
-        let widgetThreadID = WheelModelContextService.widgetThreadID(for: requestID)
+        let widgetSessionID = WheelModelContextService.widgetSessionID(for: requestID)
         defer {
             if usingContextService {
                 Task {
-                    try? await contextService.resetThread(threadID: widgetThreadID)
+                    try? await contextService.resetSession(sessionID: widgetSessionID)
                 }
             }
         }
@@ -189,7 +189,7 @@ final class OnDeviceWidgetManifestGenerator: @unchecked Sendable, WidgetManifest
                     self.rawPlanDebugString(from: response)
                 }
             )
-            return response.content
+            return response.value
         } catch {
             throw WidgetManifestGenerationError.llmFailed(error.localizedDescription)
         }

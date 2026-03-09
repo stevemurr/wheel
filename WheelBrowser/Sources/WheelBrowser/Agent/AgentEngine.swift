@@ -180,7 +180,7 @@ class AgentEngine {
     @ObservationIgnored private weak var boundTab: Tab?
     @ObservationIgnored private var tabClosureObserverTask: Task<Void, Never>?
     @ObservationIgnored private var currentRunID: UUID?
-    @ObservationIgnored private var currentThreadID: String?
+    @ObservationIgnored private var currentSessionID: String?
     @ObservationIgnored private var taskIntent = AgentTaskIntent.empty
     @ObservationIgnored private var collectionAccumulator = AgentCollectionAccumulator()
     @ObservationIgnored private var crawlSession: AgentCrawlSession?
@@ -338,9 +338,9 @@ class AgentEngine {
 
     /// Atomically reset all mutable state after a task completes
     private func resetState() {
-        if let threadID = currentThreadID {
+        if let sessionID = currentSessionID {
             Task {
-                try? await contextService.resetThread(threadID: threadID)
+                try? await contextService.resetSession(sessionID: sessionID)
             }
         }
         cleanupTabBinding()
@@ -349,7 +349,7 @@ class AgentEngine {
         streamingThought = nil
         currentStepCount = 0
         currentRunID = nil
-        currentThreadID = nil
+        currentSessionID = nil
         taskIntent = .empty
         collectionAccumulator = AgentCollectionAccumulator()
         crawlSession = nil
@@ -363,7 +363,7 @@ class AgentEngine {
             task: task,
             instructions: AgentTaskIntentExtractionPrompt.instructions
         )
-        let intent = try response.content.toTaskIntent()
+        let intent = try response.value.toTaskIntent()
         Log.Agent.info("Resolved agent task intent: \(intent)")
         return intent
     }
@@ -415,17 +415,17 @@ class AgentEngine {
 
     /// Call the LLM with streaming, providing real-time thought feedback.
     private func callLLMWithStreaming(prompt: String) async throws -> GeneratedAgentDecision {
-        guard let threadID = currentThreadID else {
-            throw AgentError.invalidLLMResponse("Agent LM context thread was not initialized")
+        guard let sessionID = currentSessionID else {
+            throw AgentError.invalidLLMResponse("Agent LM context session was not initialized")
         }
 
         defer { streamingThought = nil }
 
         let stream = try await contextService.streamAgentDecision(
             prompt: prompt,
-            threadID: threadID
+            sessionID: sessionID
         )
-        var completedResponse: LMManagedStructuredResponse<GeneratedAgentDecision>?
+        var completedResponse: WheelGeneratedReply<GeneratedAgentDecision>?
 
         for try await event in stream {
             switch event {
@@ -440,7 +440,7 @@ class AgentEngine {
             throw AgentError.invalidLLMResponse("Empty streaming response")
         }
 
-        return completedResponse.content
+        return completedResponse.value
     }
 
     // MARK: - Task Execution
@@ -475,7 +475,7 @@ class AgentEngine {
             throw AgentError.invalidLLMResponse("Agent run ID was not initialized")
         }
 
-        currentThreadID = try await contextService.openAgentThread(
+        currentSessionID = try await contextService.openAgentSession(
             tabId: tabId,
             runId: runID,
             instructions: AgentPromptBuilder.threadInstructions
@@ -910,7 +910,7 @@ class AgentEngine {
             prompt: prompt,
             instructions: AgentCompletionEvaluationPrompt.instructions
         )
-        return try response.content.toEvaluation()
+        return try response.value.toEvaluation()
     }
 
     private func ensureObservedPageCollection(
@@ -986,23 +986,15 @@ class AgentEngine {
     }
 
     private func appendAgentExternalTurn(text: String, tags: [String]) async {
-        guard let threadID = currentThreadID else {
+        guard let sessionID = currentSessionID else {
             return
         }
 
-        guard let state = try? await contextService.threadState(threadID: threadID) else {
-            return
-        }
-
-        let turn = LMNormalizedTurn(
-            role: .tool,
+        try? await contextService.appendAgentToolTurn(
             text: text,
-            priority: 700,
             tags: tags,
-            windowIndex: state.activeWindowIndex
+            sessionID: sessionID
         )
-
-        try? await contextService.appendAgentTurns([turn], threadID: threadID)
     }
 
     // MARK: - Action Execution

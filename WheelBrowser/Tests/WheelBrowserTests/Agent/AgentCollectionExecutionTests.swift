@@ -725,9 +725,9 @@ private actor MockWheelModelContextService: WheelModelContextServing {
         .available
     }
 
-    func openChatThread(conversationId: UUID, instructions: String) async throws {}
+    func openChatSession(conversationId: UUID, instructions: String) async throws {}
 
-    func importChatThread(
+    func importChatSession(
         conversationId: UUID,
         instructions: String,
         turns: [LMNormalizedTurn],
@@ -744,36 +744,28 @@ private actor MockWheelModelContextService: WheelModelContextServing {
         }
     }
 
-    func openAgentThread(tabId: UUID, runId: UUID, instructions: String) async throws -> String {
-        WheelModelContextService.agentThreadID(tabId: tabId, runId: runId)
+    func openAgentSession(tabId: UUID, runId: UUID, instructions: String) async throws -> String {
+        WheelModelContextService.agentSessionID(tabId: tabId, runId: runId)
     }
 
     func generateAgentTaskIntent(
         requestID: UUID,
         task: String,
         instructions: String
-    ) async throws -> LMManagedStructuredResponse<GeneratedAgentTaskIntent> {
-        LMManagedStructuredResponse(
-            content: intent,
+    ) async throws -> WheelGeneratedReply<GeneratedAgentTaskIntent> {
+        WheelGeneratedReply(
+            value: intent,
             transcriptText: "Intent extracted",
-            budget: BudgetReport(
-                accuracy: .exact,
-                contextWindowTokens: 4096,
-                estimatedInputTokens: 0,
-                reservedOutputTokens: 0,
-                projectedTotalTokens: 0,
-                softLimitTokens: 4096,
-                emergencyLimitTokens: 4096,
-                breakdown: [:]
+            metadata: WheelTurnMetadata(
+                compaction: nil,
+                bridge: nil
             ),
-            compaction: nil,
-            bridge: nil
         )
     }
 
     func streamAgentDecision(
         prompt: String,
-        threadID: String
+        sessionID: String
     ) async throws -> AsyncThrowingStream<WheelAgentDecisionStreamEvent, Error> {
         servedDecisions += 1
         if let onDecisionServed {
@@ -782,21 +774,13 @@ private actor MockWheelModelContextService: WheelModelContextServing {
         let nextDecision = decisions.isEmpty
             ? decision(thought: "Stop after exhausting test decisions.", action: .done(summary: "No more decisions"))
             : decisions.removeFirst()
-        let response = LMManagedStructuredResponse(
-            content: nextDecision,
+        let response = WheelGeneratedReply(
+            value: nextDecision,
             transcriptText: nextDecision.transcriptSummary,
-            budget: BudgetReport(
-                accuracy: .exact,
-                contextWindowTokens: 4096,
-                estimatedInputTokens: 0,
-                reservedOutputTokens: 0,
-                projectedTotalTokens: 0,
-                softLimitTokens: 4096,
-                emergencyLimitTokens: 4096,
-                breakdown: [:]
+            metadata: WheelTurnMetadata(
+                compaction: nil,
+                bridge: nil
             ),
-            compaction: nil,
-            bridge: nil
         )
 
         return AsyncThrowingStream { continuation in
@@ -809,7 +793,7 @@ private actor MockWheelModelContextService: WheelModelContextServing {
         requestID: UUID,
         prompt: String,
         instructions: String
-    ) async throws -> LMManagedStructuredResponse<GeneratedAgentCompletionEvaluation> {
+    ) async throws -> WheelGeneratedReply<GeneratedAgentCompletionEvaluation> {
         servedCompletionEvaluations += 1
         let evaluation = completionEvaluations.isEmpty
             ? GeneratedAgentCompletionEvaluation(
@@ -819,21 +803,13 @@ private actor MockWheelModelContextService: WheelModelContextServing {
             )
             : completionEvaluations.removeFirst()
 
-        return LMManagedStructuredResponse(
-            content: evaluation,
+        return WheelGeneratedReply(
+            value: evaluation,
             transcriptText: evaluation.reason,
-            budget: BudgetReport(
-                accuracy: .exact,
-                contextWindowTokens: 4096,
-                estimatedInputTokens: 0,
-                reservedOutputTokens: 0,
-                projectedTotalTokens: 0,
-                softLimitTokens: 4096,
-                emergencyLimitTokens: 4096,
-                breakdown: [:]
+            metadata: WheelTurnMetadata(
+                compaction: nil,
+                bridge: nil
             ),
-            compaction: nil,
-            bridge: nil
         )
     }
 
@@ -845,13 +821,13 @@ private actor MockWheelModelContextService: WheelModelContextServing {
         servedCompletionEvaluations
     }
 
-    func appendAgentTurns(_ turns: [LMNormalizedTurn], threadID: String) async throws {}
+    func appendAgentToolTurn(text: String, tags: [String], sessionID: String) async throws {}
 
     func generateSummary(
         requestID: UUID,
         prompt: String,
         instructions: String
-    ) async throws -> LMManagedStructuredResponse<GeneratedSummaryResponse> {
+    ) async throws -> WheelGeneratedReply<GeneratedSummaryResponse> {
         fatalError("Not used in agent execution tests")
     }
 
@@ -868,15 +844,13 @@ private actor MockWheelModelContextService: WheelModelContextServing {
         prompt: String,
         instructions: String,
         transcriptRenderer: (@Sendable (GeneratedWidgetPlan) -> String)?
-    ) async throws -> LMManagedStructuredResponse<GeneratedWidgetPlan> {
+    ) async throws -> WheelGeneratedReply<GeneratedWidgetPlan> {
         fatalError("Not used in agent execution tests")
     }
 
-    func threadState(threadID: String) async throws -> LMPersistedThreadState {
-        LMPersistedThreadState(threadID: threadID, instructions: nil, localeIdentifier: nil, model: .default)
-    }
+    func sessionExists(sessionID: String) async -> Bool { true }
 
-    func resetThread(threadID: String) async throws {}
+    func resetSession(sessionID: String) async throws {}
 }
 
 private func decision(thought: String, action: AgentAction) -> GeneratedAgentDecision {

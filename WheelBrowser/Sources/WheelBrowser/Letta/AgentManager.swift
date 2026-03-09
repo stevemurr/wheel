@@ -316,7 +316,7 @@ class AgentManager {
                     prompt: prompt
                 )
 
-                var latestResponse: LMManagedStructuredResponse<GeneratedChatAssistantResponse>?
+                var latestResponse: WheelGeneratedReply<GeneratedChatAssistantResponse>?
                 var latestAnswer = ""
                 var lastStreamedAnswer = ""
                 var pendingChunk = ""
@@ -347,7 +347,7 @@ class AgentManager {
                         }
                     case .completed(let response):
                         latestResponse = response
-                        latestAnswer = response.content.answer
+                        latestAnswer = response.value.answer
                     }
                 }
 
@@ -355,10 +355,10 @@ class AgentManager {
                     throw AgentError.invalidLLMResponse("Structured chat response stream produced no content")
                 }
 
-                let displayContent = latestResponse.content.answer
+                let displayContent = latestResponse.value.answer
                     .trimmingCharacters(in: .whitespacesAndNewlines)
                 let followUps = FollowUpSuggestionNormalizer.normalize(
-                    latestResponse.content.suggestions
+                    latestResponse.value.suggestions
                 )
                 let artifacts = ArtifactExtractor.extract(from: displayContent)
 
@@ -405,21 +405,21 @@ class AgentManager {
             return
         }
 
-        let threadID = WheelModelContextService.chatThreadID(for: conversationId)
+        let sessionID = WheelModelContextService.chatSessionID(for: conversationId)
         let filteredMessages = modelVisibleMessages(excludingPendingUserMessageID: excludingPendingUserMessageID)
         let turns = filteredMessages.map { Self.normalizedTurn(from: $0) }
-        let threadExists = (try? await contextService.threadState(threadID: threadID)) != nil
+        let sessionExists = await contextService.sessionExists(sessionID: sessionID)
 
         if replaceExisting {
-            try await contextService.importChatThread(
+            try await contextService.importChatSession(
                 conversationId: conversationId,
                 instructions: systemPrompt,
                 turns: turns,
                 durableMemory: [],
                 replaceExisting: true
             )
-        } else if !threadExists && !turns.isEmpty {
-            try await contextService.importChatThread(
+        } else if !sessionExists && !turns.isEmpty {
+            try await contextService.importChatSession(
                 conversationId: conversationId,
                 instructions: systemPrompt,
                 turns: turns,
@@ -428,7 +428,7 @@ class AgentManager {
             )
         }
 
-        try await contextService.openChatThread(
+        try await contextService.openChatSession(
             conversationId: conversationId,
             instructions: systemPrompt
         )
@@ -504,9 +504,9 @@ class AgentManager {
 
     func clearMessages() {
         if let activeConversationId {
-            let threadID = WheelModelContextService.chatThreadID(for: activeConversationId)
+            let sessionID = WheelModelContextService.chatSessionID(for: activeConversationId)
             Task {
-                try? await contextService.resetThread(threadID: threadID)
+                try? await contextService.resetSession(sessionID: sessionID)
             }
         }
 

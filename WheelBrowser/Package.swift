@@ -12,7 +12,7 @@ let package = Package(
         .package(url: "https://github.com/rryam/VecturaKit", from: "3.0.0"),
         .package(
             url: "https://github.com/stevemurr/LanguageModelContextKit.git",
-            revision: "136ee8ec1c3e95b7cb3e39c116ac940d64ae96c2"
+            revision: "5382c100a63f60b95b018188a3d0ade82de26be4"
         ),
     ],
     targets: [
