@@ -142,6 +142,66 @@ struct NoteStoreTests {
         #expect(updated.excerpt == "Tighten slash commands and task styling.")
     }
 
+    @Test("Equivalent document updates do not bump note timestamps")
+    func ignoresEquivalentDocumentUpdates() throws {
+        let store = makeStore()
+        let workspaceID = UUID()
+        store.bindToWorkspace(workspaceID)
+
+        let note = store.createNote()
+        let first = NoteDocument(
+            root: [
+                "type": AnyCodable("doc"),
+                "content": AnyCodable([
+                    [
+                        "type": "paragraph",
+                        "attrs": [
+                            "level": 2,
+                            "kind": "section",
+                        ],
+                        "content": [
+                            [
+                                "type": "text",
+                                "text": "Release notes",
+                            ],
+                        ],
+                    ],
+                ]),
+            ]
+        )
+
+        let second = NoteDocument(
+            root: [
+                "content": AnyCodable([
+                    [
+                        "content": [
+                            [
+                                "text": "Release notes",
+                                "type": "text",
+                            ],
+                        ],
+                        "attrs": [
+                            "kind": "section",
+                            "level": 2,
+                        ],
+                        "type": "paragraph",
+                    ],
+                ]),
+                "type": AnyCodable("doc"),
+            ]
+        )
+
+        store.updateDocument(id: note.id, document: first)
+        let updated = try #require(store.note(with: note.id))
+        let firstUpdatedAt = updated.updatedAt
+
+        store.updateDocument(id: note.id, document: second)
+        let resolved = try #require(store.note(with: note.id))
+
+        #expect(resolved.updatedAt == firstUpdatedAt)
+        #expect(resolved.title == "Release notes")
+    }
+
     @Test("Duplicating a note copies the full document into a new record")
     func duplicatesNote() {
         let store = makeStore()

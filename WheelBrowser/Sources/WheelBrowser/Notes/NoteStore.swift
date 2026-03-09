@@ -65,6 +65,9 @@ final class NoteStore {
 
     func updateDocument(id: UUID, document: NoteDocument) {
         guard let index = notes.firstIndex(where: { $0.id == id }) else { return }
+        if notes[index].document.canonicalJSONString == document.canonicalJSONString {
+            return
+        }
 
         notes[index].document = document
         notes[index].title = document.titleLine(maxLength: Int.max)

@@ -67,6 +67,16 @@ struct NoteDocument: Codable, Sendable {
         return Self.truncated(text, maxLength: maxLength)
     }
 
+    var canonicalJSONString: String? {
+        let normalized = Self.normalizedJSON(root)
+        guard JSONSerialization.isValidJSONObject(normalized),
+              let data = try? JSONSerialization.data(withJSONObject: normalized, options: [.sortedKeys]) else {
+            return nil
+        }
+
+        return String(decoding: data, as: UTF8.self)
+    }
+
     func migratedForInlineTitle(_ legacyTitle: String) -> NoteDocument {
         let normalizedTitle = Self.normalizeLine(legacyTitle)
         guard !normalizedTitle.isEmpty, titleLine(maxLength: Int.max).isEmpty else {

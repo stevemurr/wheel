@@ -120,10 +120,7 @@ final class NoteEditorBridge: NSObject, WKScriptMessageHandler {
     }
 
     private func fingerprint(for document: NoteDocument) -> String? {
-        guard let data = try? JSONEncoder().encode(DocumentPayload(document: document.root)) else {
-            return nil
-        }
-        return String(decoding: data, as: UTF8.self)
+        document.canonicalJSONString
     }
 }
 

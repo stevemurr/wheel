@@ -94,4 +94,51 @@ struct NoteModelsTests {
         let thirdNode = try #require(content[2] as? [String: Any])
         #expect(thirdNode["type"] as? String == "pageSource")
     }
+
+    @Test("Canonical JSON stays stable when equivalent document keys are ordered differently")
+    func canonicalJSONStringNormalizesKeyOrdering() {
+        let first = NoteDocument(
+            root: [
+                "type": AnyCodable("doc"),
+                "content": AnyCodable([
+                    [
+                        "type": "paragraph",
+                        "attrs": [
+                            "level": 2,
+                            "kind": "section",
+                        ],
+                        "content": [
+                            [
+                                "type": "text",
+                                "text": "Roadmap",
+                            ],
+                        ],
+                    ],
+                ]),
+            ]
+        )
+
+        let second = NoteDocument(
+            root: [
+                "content": AnyCodable([
+                    [
+                        "content": [
+                            [
+                                "text": "Roadmap",
+                                "type": "text",
+                            ],
+                        ],
+                        "attrs": [
+                            "kind": "section",
+                            "level": 2,
+                        ],
+                        "type": "paragraph",
+                    ],
+                ]),
+                "type": AnyCodable("doc"),
+            ]
+        )
+
+        #expect(first.canonicalJSONString == second.canonicalJSONString)
+    }
 }
