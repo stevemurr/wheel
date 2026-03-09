@@ -1,4 +1,5 @@
 import Foundation
+import LanguageModelContextKit
 import Observation
 
 @MainActor
@@ -88,23 +89,29 @@ class AgentManager {
         isLoading = true
         lastFailedPageContexts = pageContexts
 
+        let injectedPageContexts = ConversationHistoryBuilder.pageContextsRequiringInjection(
+            pageContexts,
+            previouslyInjectedContextKeys: previouslyInjectedContextKeys()
+        )
         let fullMessage = ConversationHistoryBuilder.buildFullMessage(
             content: content,
-            pageContexts: pageContexts
+            pageContexts: injectedPageContexts
         )
         let contextBadges = ChatContextBadge.deduplicated(pageContexts.map(\.contextBadge))
+        let injectedContextKeys = ConversationHistoryBuilder.injectedContextKeys(for: injectedPageContexts)
 
         do {
             try await prepareActiveConversationThread(replaceExisting: false)
         } catch {
-            self.error = error.localizedDescription
+            self.error = Self.userFacingErrorMessage(for: error)
         }
 
         await sendMessageInternal(
             content: content,
             fullMessage: fullMessage,
             pageContexts: pageContexts,
-            contextBadges: contextBadges
+            contextBadges: contextBadges,
+            injectedContextKeys: injectedContextKeys
         )
     }
 
@@ -157,10 +164,15 @@ class AgentManager {
             : pageContexts
         let contextBadges = originalMessage.contextBadges
             ?? ChatContextBadge.deduplicated(effectivePageContexts.map(\.contextBadge))
+        let injectedPageContexts = ConversationHistoryBuilder.pageContextsRequiringInjection(
+            effectivePageContexts,
+            previouslyInjectedContextKeys: previouslyInjectedContextKeys(excludingUserMessageID: messageID)
+        )
         let fullMessage = ConversationHistoryBuilder.buildFullMessage(
             content: newContent,
-            pageContexts: effectivePageContexts
+            pageContexts: injectedPageContexts
         )
+        let injectedContextKeys = ConversationHistoryBuilder.injectedContextKeys(for: injectedPageContexts)
 
         messages = ConversationBranchManager.editMessage(
             at: messageIndex,
@@ -175,6 +187,7 @@ class AgentManager {
         safeUpdateMessage(id: editedMessageId) { message in
             message.contextBadges = contextBadges
             message.modelContent = fullMessage
+            message.injectedContextKeys = injectedContextKeys.isEmpty ? nil : injectedContextKeys
             message.modelUsed = "Apple Intelligence"
         }
 
@@ -191,7 +204,7 @@ class AgentManager {
                 replaceExisting: true
             )
         } catch {
-            self.error = error.localizedDescription
+            self.error = Self.userFacingErrorMessage(for: error)
         }
 
         await performStreaming(
@@ -231,7 +244,7 @@ class AgentManager {
                 replaceExisting: true
             )
         } catch {
-            self.error = error.localizedDescription
+            self.error = Self.userFacingErrorMessage(for: error)
         }
 
         await performStreaming(
@@ -244,7 +257,8 @@ class AgentManager {
         content: String,
         fullMessage: String,
         pageContexts: [PageContext],
-        contextBadges: [ChatContextBadge]
+        contextBadges: [ChatContextBadge],
+        injectedContextKeys: [String]
     ) async {
         isLoading = true
         isStreamingActive = true
@@ -258,7 +272,8 @@ class AgentManager {
             timestamp: Date(),
             modelUsed: "Apple Intelligence",
             conversationId: conversation.id,
-            contextBadges: contextBadges.isEmpty ? nil : contextBadges
+            contextBadges: contextBadges.isEmpty ? nil : contextBadges,
+            injectedContextKeys: injectedContextKeys.isEmpty ? nil : injectedContextKeys
         )
         messages.append(userMessage)
 
@@ -366,7 +381,7 @@ class AgentManager {
                 syncConversationMessages()
             } catch {
                 safeUpdateMessage(id: assistantMessageId) { msg in
-                    msg.content = "Error: \(error.localizedDescription)"
+                    msg.content = "Error: \(Self.userFacingErrorMessage(for: error))"
                     msg.isStreaming = false
                     msg.isFailed = true
                 }
@@ -481,6 +496,12 @@ class AgentManager {
         conversationManager.replaceMessages(messages, conversationID: activeConversationId)
     }
 
+    private func previouslyInjectedContextKeys(excludingUserMessageID: UUID? = nil) -> Set<String> {
+        Set(messages
+            .filter { $0.role == .user && $0.id != excludingUserMessageID }
+            .flatMap { $0.injectedContextKeys ?? [] })
+    }
+
     func clearMessages() {
         if let activeConversationId {
             let threadID = WheelModelContextService.chatThreadID(for: activeConversationId)
@@ -504,6 +525,29 @@ class AgentManager {
     func resetAgent() async {
         clearMessages()
         isReady = true
+    }
+
+    static func userFacingErrorMessage(for error: Error) -> String {
+        switch error {
+        case let error as LanguageModelContextKitError:
+            switch error {
+            case .threadNotFound:
+                return "The chat thread could not be found. Starting a new conversation should fix it."
+            case .modelUnavailable(let message),
+                 .unsupportedLocale(let message),
+                 .persistenceFailed(let message):
+                return message
+            case .exceededBudget, .budgetExhausted:
+                return "The chat ran out of context budget. Start a new conversation or remove some attached context."
+            case .refusal(let message):
+                return message.isEmpty ? "The model refused to answer that request." : message
+            case .generationFailed(let message):
+                let trimmed = message.trimmingCharacters(in: .whitespacesAndNewlines)
+                return trimmed.isEmpty ? "The model failed to generate a response." : trimmed
+            }
+        default:
+            return error.localizedDescription
+        }
     }
 }
 

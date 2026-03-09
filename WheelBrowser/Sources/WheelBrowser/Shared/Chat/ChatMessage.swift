@@ -33,6 +33,9 @@ public struct ChatMessage: Identifiable, Equatable, Hashable, Codable {
     /// Structured context sources shown alongside the message in the chat UI.
     public var contextBadges: [ChatContextBadge]?
 
+    /// Context fingerprints that were actually injected into the model-visible prompt.
+    public var injectedContextKeys: [String]?
+
     // MARK: - Stop generation
 
     /// Whether the user stopped generation mid-stream
@@ -75,6 +78,7 @@ public struct ChatMessage: Identifiable, Equatable, Hashable, Codable {
         thinkingStartTime: Date? = nil,
         suggestedFollowUps: [String] = [],
         contextBadges: [ChatContextBadge]? = nil,
+        injectedContextKeys: [String]? = nil,
         wasStoppedByUser: Bool = false,
         artifacts: [ChatArtifact] = [],
         parentId: UUID? = nil,
@@ -95,6 +99,7 @@ public struct ChatMessage: Identifiable, Equatable, Hashable, Codable {
         self.thinkingStartTime = thinkingStartTime
         self.suggestedFollowUps = suggestedFollowUps
         self.contextBadges = contextBadges
+        self.injectedContextKeys = injectedContextKeys
         self.wasStoppedByUser = wasStoppedByUser
         self.artifacts = artifacts
         self.parentId = parentId
@@ -132,7 +137,8 @@ public struct ChatMessage: Identifiable, Equatable, Hashable, Codable {
         lhs.modelContent == rhs.modelContent &&
         lhs.isStreaming == rhs.isStreaming &&
         lhs.isFailed == rhs.isFailed &&
-        lhs.contextBadges == rhs.contextBadges
+        lhs.contextBadges == rhs.contextBadges &&
+        lhs.injectedContextKeys == rhs.injectedContextKeys
     }
 
     // MARK: - Hashable
@@ -144,6 +150,7 @@ public struct ChatMessage: Identifiable, Equatable, Hashable, Codable {
         hasher.combine(isStreaming)
         hasher.combine(isFailed)
         hasher.combine(contextBadges)
+        hasher.combine(injectedContextKeys)
     }
 }
 

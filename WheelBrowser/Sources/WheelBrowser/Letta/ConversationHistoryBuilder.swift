@@ -59,6 +59,25 @@ struct ConversationHistoryBuilder {
         """
     }
 
+    static func pageContextsRequiringInjection(
+        _ pageContexts: [PageContext],
+        previouslyInjectedContextKeys: Set<String>
+    ) -> [PageContext] {
+        var seenContextKeys = previouslyInjectedContextKeys
+
+        return pageContexts.filter { context in
+            guard let contextKey = injectedContextKey(for: context) else {
+                return true
+            }
+
+            return seenContextKeys.insert(contextKey).inserted
+        }
+    }
+
+    static func injectedContextKeys(for pageContexts: [PageContext]) -> [String] {
+        pageContexts.compactMap(injectedContextKey(for:))
+    }
+
     /// Rebuild conversation history from persisted messages.
     ///
     /// Filters to only user and assistant messages, converting them to the
@@ -70,5 +89,23 @@ struct ConversationHistoryBuilder {
         messages
             .filter { $0.role == .user || $0.role == .assistant }
             .map { ["role": $0.role.rawValue, "content": $0.content] }
+    }
+
+    private static func injectedContextKey(for context: PageContext) -> String? {
+        guard context.contextBadge.kind == .website else {
+            return nil
+        }
+
+        let normalizedText = context.textContent
+            .replacingOccurrences(of: "\\s+", with: " ", options: .regularExpression)
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        let truncatedText = String(normalizedText.prefix(4000))
+
+        return [
+            context.contextBadge.kind.rawValue,
+            context.url,
+            context.title,
+            truncatedText,
+        ].joined(separator: "\n")
     }
 }
