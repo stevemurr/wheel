@@ -19,11 +19,25 @@ enum ContextMenuScripts {
                 imageAlt: '',
                 mediaSrc: '',
                 mediaTagName: '',
+                mediaCurrentTime: null,
                 selectedText: '',
                 isEditable: false,
+                pageCanonicalURL: '',
                 pageURL: location.href,
                 pageTitle: document.title
             };
+
+            try {
+                var canonicalLink = document.querySelector('link[rel="canonical"]');
+                if (canonicalLink && canonicalLink.href) {
+                    result.pageCanonicalURL = canonicalLink.href;
+                } else {
+                    var ogURL = document.querySelector('meta[property="og:url"], meta[name="og:url"]');
+                    if (ogURL && ogURL.content) {
+                        result.pageCanonicalURL = ogURL.content;
+                    }
+                }
+            } catch(e) {}
 
             // Selected text
             var sel = window.getSelection();
@@ -56,10 +70,27 @@ enum ContextMenuScripts {
                 } catch(e) {}
             }
 
-            // Media check — <video> or <audio>
-            if (el.tagName === 'VIDEO' || el.tagName === 'AUDIO') {
-                result.mediaSrc = el.currentSrc || el.src || '';
-                result.mediaTagName = el.tagName.toLowerCase();
+            // Media check — nearest <video> or <audio>
+            var mediaEl = el;
+            while (mediaEl) {
+                if (mediaEl.tagName === 'VIDEO' || mediaEl.tagName === 'AUDIO') {
+                    result.mediaSrc = mediaEl.currentSrc || mediaEl.src || '';
+                    result.mediaTagName = mediaEl.tagName.toLowerCase();
+                    if (typeof mediaEl.currentTime === 'number' && isFinite(mediaEl.currentTime)) {
+                        result.mediaCurrentTime = mediaEl.currentTime;
+                    }
+                    break;
+                }
+                if (mediaEl.parentElement) {
+                    mediaEl = mediaEl.parentElement;
+                } else {
+                    var mediaRoot = mediaEl.getRootNode();
+                    if (mediaRoot && mediaRoot !== document && mediaRoot.host) {
+                        mediaEl = mediaRoot.host;
+                    } else {
+                        break;
+                    }
+                }
             }
 
             // Walk up DOM (including shadow DOM) to find nearest <a>

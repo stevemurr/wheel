@@ -7,6 +7,7 @@ import WebKit
 /// `SemanticSearchManagerV2` for local embedding and storage.
 enum SemanticIndexingHandler {
     private static let articleExtractionService = ArticleExtractionService()
+    private static let minimumFastPathLength = 280
 
     /// URL prefixes that should be skipped for indexing.
     private static let skipPrefixes = ["about:", "data:", "javascript:", "blob:", "chrome:", "file:"]
@@ -68,6 +69,12 @@ enum SemanticIndexingHandler {
     @MainActor
     static func extractIndexableContent(from webView: WKWebView, url: URL, title: String) async -> String? {
         do {
+            if let fastContent = try await fastPageText(from: webView),
+               let normalized = normalizedIndexableContent(from: fastContent),
+               normalized.count >= minimumFastPathLength {
+                return normalized
+            }
+
             let article = try await articleExtractionService.extract(from: webView)
             return normalizedIndexableContent(from: article)
         } catch {
@@ -92,5 +99,44 @@ enum SemanticIndexingHandler {
             return nil
         }
         return text
+    }
+
+    private static func normalizedIndexableContent(from text: String?) -> String? {
+        guard let text else { return nil }
+        let normalized = text
+            .replacingOccurrences(of: "\r\n", with: "\n")
+            .replacingOccurrences(of: "\r", with: "\n")
+            .components(separatedBy: .newlines)
+            .map {
+                $0.replacingOccurrences(of: "\\s+", with: " ", options: .regularExpression)
+                    .trimmingCharacters(in: .whitespacesAndNewlines)
+            }
+            .filter { !$0.isEmpty }
+            .joined(separator: "\n")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+
+        return normalized.isEmpty ? nil : normalized
+    }
+
+    @MainActor
+    private static func fastPageText(from webView: WKWebView) async throws -> String? {
+        let script = """
+        (() => {
+            const root =
+                document.querySelector('article') ||
+                document.querySelector('main') ||
+                document.querySelector('[role="main"]') ||
+                document.body;
+
+            if (!root) {
+                return '';
+            }
+
+            const text = root.innerText || root.textContent || '';
+            return text;
+        })();
+        """
+
+        return try await webView.evaluateJavaScript(script) as? String
     }
 }

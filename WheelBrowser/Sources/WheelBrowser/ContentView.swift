@@ -21,8 +21,8 @@ private struct BrowserContentArea: View {
             ZStack {
                 // Main content area - full width
                 ZStack(alignment: .bottom) {
-                    // Web content - render ALL tabs to keep webviews in hierarchy
-                    // This is critical for agent automation on background tabs
+                    // Web content - keep instantiated webviews in the hierarchy so
+                    // background tabs stay alive, but don't cold-start every restored tab.
                     ZStack {
                         ForEach(browserState.tabs) { tab in
                             TabWebViewContainer(
@@ -115,9 +115,11 @@ private struct TabWebViewContainer: View {
                     WidgetDashboardPageView { url in
                         browserState.addTab(withURL: url)
                     }
-                } else {
+                } else if tab.hasWebView || isActive {
                     WebViewRepresentable(tab: tab, isActive: isActive)
                         .id(tab.webViewRevision)
+                } else {
+                    Color.clear
                 }
             }
 

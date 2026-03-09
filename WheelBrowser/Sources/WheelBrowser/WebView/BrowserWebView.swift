@@ -136,6 +136,9 @@ class BrowserWebView: WKWebView {
         case .copyMediaAddress(let url):
             PasteboardHelper.copy(url)
 
+        case .copyMediaAtTimestamp(let url):
+            PasteboardHelper.copy(url)
+
         case .cut:
             NSApp.sendAction(#selector(NSText.cut(_:)), to: nil, from: self)
 

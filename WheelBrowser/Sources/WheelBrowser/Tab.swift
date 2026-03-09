@@ -108,23 +108,21 @@ class Tab: Identifiable {
     }
 
     func load(_ urlString: String) {
-        var urlToLoad = urlString.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let resolvedURL = Self.resolvedURL(from: urlString) else { return }
+        url = resolvedURL
+        pendingReloadURL = nil
+        webView.load(URLRequest(url: resolvedURL))
+    }
 
-        // Add https if no scheme provided
-        if !urlToLoad.contains("://") {
-            // Check if it looks like a URL or a search query
-            if urlToLoad.contains(".") && !urlToLoad.contains(" ") {
-                urlToLoad = "https://\(urlToLoad)"
-            } else {
-                // Treat as search query
-                let encoded = urlToLoad.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? urlToLoad
-                urlToLoad = "https://duckduckgo.com/?q=\(encoded)"
-            }
-        }
+    func restore(_ urlString: String, eagerly: Bool) {
+        guard let resolvedURL = Self.resolvedURL(from: urlString) else { return }
+        url = resolvedURL
 
-        if let url = URL(string: urlToLoad) {
-            self.url = url
-            webView.load(URLRequest(url: url))
+        if eagerly {
+            pendingReloadURL = nil
+            webView.load(URLRequest(url: resolvedURL))
+        } else {
+            pendingReloadURL = resolvedURL
         }
     }
 
@@ -454,5 +452,20 @@ class Tab: Identifiable {
 
     private enum ReaderModeNavigationError: Error {
         case navigationAlreadyInProgress
+    }
+
+    private static func resolvedURL(from urlString: String) -> URL? {
+        var urlToLoad = urlString.trimmingCharacters(in: .whitespacesAndNewlines)
+
+        if !urlToLoad.contains("://") {
+            if urlToLoad.contains(".") && !urlToLoad.contains(" ") {
+                urlToLoad = "https://\(urlToLoad)"
+            } else {
+                let encoded = urlToLoad.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? urlToLoad
+                urlToLoad = "https://duckduckgo.com/?q=\(encoded)"
+            }
+        }
+
+        return URL(string: urlToLoad)
     }
 }

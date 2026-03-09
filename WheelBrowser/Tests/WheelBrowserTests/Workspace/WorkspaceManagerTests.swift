@@ -333,6 +333,64 @@ struct WorkspaceIntegrationTests {
         #expect(browserState.activeTab != nil)
     }
 
+    @Test("BrowserState restores background tabs without eagerly creating web views")
+    func restoresBackgroundTabsLazily() throws {
+        let (manager, directory) = makeWorkspaceManager()
+        defer { try? FileManager.default.removeItem(at: directory) }
+
+        let browserState = BrowserState(
+            workspaceStateStore: WorkspaceStateStore(
+                saveTabState: { state, workspaceID in
+                    manager.saveTabState(state, for: workspaceID)
+                },
+                getTabState: { workspaceID in
+                    manager.getTabState(for: workspaceID)
+                },
+                clearTabState: { workspaceID in
+                    manager.clearTabState(for: workspaceID)
+                }
+            )
+        )
+
+        let workspaceID = manager.currentWorkspaceID!
+        let activeID = UUID()
+        let backgroundID = UUID()
+
+        manager.saveTabState(
+            WorkspaceTabState(
+                tabData: [
+                    PersistedTab(
+                        id: activeID,
+                        url: "https://example.com/active",
+                        title: "Active",
+                        isChatTab: false,
+                        hasConversationStarted: false,
+                        conversationId: UUID()
+                    ),
+                    PersistedTab(
+                        id: backgroundID,
+                        url: "https://example.com/background",
+                        title: "Background",
+                        isChatTab: false,
+                        hasConversationStarted: false,
+                        conversationId: UUID()
+                    )
+                ],
+                activeTabId: activeID
+            ),
+            for: workspaceID
+        )
+
+        browserState.bindToWorkspace(workspaceID)
+
+        let activeTab = try #require(browserState.tab(for: activeID))
+        let backgroundTab = try #require(browserState.tab(for: backgroundID))
+
+        #expect(activeTab.hasWebView)
+        #expect(backgroundTab.hasWebView == false)
+        #expect(backgroundTab.url?.absoluteString == "https://example.com/background")
+    }
+
     @Test("Workspace tab count reflects saved tab state")
     func tabCountUsesSavedState() {
         let (manager, directory) = makeWorkspaceManager()

@@ -380,6 +380,14 @@ class BrowserState: BrowserBridgeProvider {
     private func restoreTabs(from state: WorkspaceTabState) {
         clearAllTabs()
 
+        let restoredActiveTabId: UUID? = {
+            if let activeTabId = state.activeTabId,
+               state.tabData.contains(where: { $0.id == activeTabId }) {
+                return activeTabId
+            }
+            return state.tabData.first?.id
+        }()
+
         for persistedTab in state.tabData {
             let tab = Tab(
                 id: persistedTab.id,
@@ -392,11 +400,11 @@ class BrowserState: BrowserBridgeProvider {
             tabsByID[tab.id] = tab
 
             if let urlString = persistedTab.url {
-                tab.load(urlString)
+                tab.restore(urlString, eagerly: persistedTab.id == restoredActiveTabId)
             }
         }
 
-        if let restoredActiveTabId = state.activeTabId, tabsByID[restoredActiveTabId] != nil {
+        if let restoredActiveTabId, tabsByID[restoredActiveTabId] != nil {
             activeTabId = restoredActiveTabId
         } else {
             activeTabId = tabs.first?.id

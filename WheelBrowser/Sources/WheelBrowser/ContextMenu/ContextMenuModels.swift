@@ -10,6 +10,7 @@ enum ContextMenuAction {
     case copyImageAddress(url: String)
     case openMediaInNewTab(url: String, label: String)
     case copyMediaAddress(url: String)
+    case copyMediaAtTimestamp(url: String)
     case cut
     case copy
     case paste

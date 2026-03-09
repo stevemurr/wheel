@@ -8,16 +8,19 @@ struct ContextMenuHitTest: Codable {
     var imageAlt: String
     var mediaSrc: String
     var mediaTagName: String
+    var mediaCurrentTime: Double?
     var selectedText: String
     var isEditable: Bool
+    var pageCanonicalURL: String
     var pageURL: String
     var pageTitle: String
 
     static let empty = ContextMenuHitTest(
         linkURL: "", linkText: "",
         imageSrc: "", imageAlt: "",
-        mediaSrc: "", mediaTagName: "",
+        mediaSrc: "", mediaTagName: "", mediaCurrentTime: nil,
         selectedText: "", isEditable: false,
+        pageCanonicalURL: "",
         pageURL: "", pageTitle: ""
     )
 }
@@ -84,18 +87,40 @@ enum ContextMenuBuilder {
         // --- Media items ---
         if !hitTest.mediaSrc.isEmpty {
             let label = hitTest.mediaTagName == "audio" ? "Audio" : "Video"
-            sections.append(ContextMenuSection(items: [
-                ContextMenuItem(
-                    title: "Open \(label) in New Tab",
-                    systemImage: "plus.rectangle.on.rectangle",
-                    action: .openMediaInNewTab(url: hitTest.mediaSrc, label: label)
-                ),
-                ContextMenuItem(
-                    title: "Copy \(label) Address",
-                    systemImage: "doc.on.doc",
-                    action: .copyMediaAddress(url: hitTest.mediaSrc)
-                ),
-            ]))
+            let resolvedMediaURL = resolvedMediaURL(for: hitTest)
+            var mediaItems: [ContextMenuItem] = []
+
+            if let resolvedMediaURL {
+                mediaItems.append(
+                    ContextMenuItem(
+                        title: "Open \(label) in New Tab",
+                        systemImage: "plus.rectangle.on.rectangle",
+                        action: .openMediaInNewTab(url: resolvedMediaURL, label: label)
+                    )
+                )
+                mediaItems.append(
+                    ContextMenuItem(
+                        title: "Copy \(label) Address",
+                        systemImage: "doc.on.doc",
+                        action: .copyMediaAddress(url: resolvedMediaURL)
+                    )
+                )
+            }
+
+            if label == "Video",
+               let timestampedURL = timestampedMediaURL(for: hitTest) {
+                mediaItems.append(
+                    ContextMenuItem(
+                        title: "Copy Video at Current Timestamp",
+                        systemImage: "clock",
+                        action: .copyMediaAtTimestamp(url: timestampedURL)
+                    )
+                )
+            }
+
+            if !mediaItems.isEmpty {
+                sections.append(ContextMenuSection(items: mediaItems))
+            }
         }
 
         // --- Editable items ---
@@ -139,5 +164,72 @@ enum ContextMenuBuilder {
         }
 
         return sections
+    }
+
+    private static func resolvedMediaURL(for hitTest: ContextMenuHitTest) -> String? {
+        let candidates = [
+            hitTest.mediaSrc,
+            hitTest.linkURL,
+            hitTest.pageCanonicalURL,
+            hitTest.pageURL,
+        ]
+
+        return candidates
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .first { candidate in
+                !candidate.isEmpty && !isEphemeralMediaURL(candidate)
+            }
+    }
+
+    private static func timestampedMediaURL(for hitTest: ContextMenuHitTest) -> String? {
+        guard hitTest.mediaTagName == "video",
+              let baseURLString = resolvedMediaURL(for: hitTest),
+              let seconds = sanitizedTimestamp(from: hitTest.mediaCurrentTime) else {
+            return nil
+        }
+
+        guard let baseURL = URL(string: baseURLString) else {
+            return nil
+        }
+
+        if isYouTubeURL(baseURL) {
+            guard var components = URLComponents(url: baseURL, resolvingAgainstBaseURL: false) else {
+                return nil
+            }
+
+            var queryItems = components.queryItems ?? []
+            queryItems.removeAll { $0.name == "t" || $0.name == "time_continue" }
+            queryItems.append(URLQueryItem(name: "t", value: "\(seconds)s"))
+            components.queryItems = queryItems
+            return components.url?.absoluteString
+        }
+
+        guard !isEphemeralMediaURL(hitTest.mediaSrc),
+              var components = URLComponents(url: baseURL, resolvingAgainstBaseURL: false) else {
+            return nil
+        }
+
+        components.fragment = "t=\(seconds)"
+        return components.url?.absoluteString
+    }
+
+    private static func sanitizedTimestamp(from value: Double?) -> Int? {
+        guard let value, value.isFinite, value >= 0 else { return nil }
+        return max(Int(value.rounded(.down)), 0)
+    }
+
+    private static func isEphemeralMediaURL(_ urlString: String) -> Bool {
+        let normalized = urlString.lowercased()
+        return normalized.hasPrefix("blob:") ||
+            normalized.hasPrefix("data:") ||
+            normalized.hasPrefix("javascript:")
+    }
+
+    private static func isYouTubeURL(_ url: URL) -> Bool {
+        guard let host = url.host?.lowercased() else { return false }
+        return host == "youtube.com" ||
+            host.hasSuffix(".youtube.com") ||
+            host == "youtu.be" ||
+            host.hasSuffix(".youtu.be")
     }
 }
