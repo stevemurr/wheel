@@ -117,6 +117,8 @@ class BrowserState: BrowserBridgeProvider {
     @ObservationIgnored private let tabCollectionController: TabCollectionController
     @ObservationIgnored private let tabSelectionController: TabSelectionController
     @ObservationIgnored private let browserStateEffects: BrowserStateEffects
+    @ObservationIgnored private let browserLifecycleController: BrowserLifecycleController
+    @ObservationIgnored private let browserFolderController: BrowserFolderController
     @ObservationIgnored private var workspaceSessionController: WorkspaceSessionController
 
     var tabs: [Tab] {
@@ -157,10 +159,6 @@ class BrowserState: BrowserBridgeProvider {
     private var tabSelectionAnchorId: UUID? {
         get { selectionModel.tabSelectionAnchorId }
         set { selectionModel.tabSelectionAnchorId = newValue }
-    }
-
-    private var maxClosedTabsHistory: Int {
-        BrowserTabModel.maxClosedTabsHistory
     }
 
     /// Current workspace ID being managed
@@ -272,6 +270,14 @@ class BrowserState: BrowserBridgeProvider {
         self.tabCollectionController = tabCollectionController
         self.tabSelectionController = tabSelectionController
         self.browserStateEffects = browserStateEffects
+        self.browserLifecycleController = BrowserLifecycleController(
+            tabCollectionController: tabCollectionController,
+            tabSelectionController: tabSelectionController
+        )
+        self.browserFolderController = BrowserFolderController(
+            tabCollectionController: tabCollectionController,
+            tabSelectionController: tabSelectionController
+        )
         self.workspaceSessionController = WorkspaceSessionController(workspaceStateStore: workspaceStateStore)
         addTab()
     }
@@ -292,12 +298,12 @@ class BrowserState: BrowserBridgeProvider {
         }
 
         if let state = workspaceSessionController.loadState(for: workspaceId), !state.tabData.isEmpty {
-            restoreTabs(from: state)
+            browserLifecycleController.restoreState(state, model: &tabModel, selection: &selectionModel)
+            ensureActiveTabLoadedIfNeeded()
+            assertTabIntegrity()
         } else {
-            clearAllTabs()
-            folders = []
-            activeFolderId = nil
-            addTab()
+            browserLifecycleController.loadEmptyWorkspace(model: &tabModel, selection: &selectionModel)
+            assertTabIntegrity()
         }
     }
 
@@ -320,18 +326,13 @@ class BrowserState: BrowserBridgeProvider {
     }
 
     func addTab(in folderId: UUID?, activate: Bool = true) {
-        let resolvedFolderId = validFolderId(folderId)
-        let tab = tabCollectionController.appendTab(
-            folderID: resolvedFolderId,
-            model: &tabModel
+        _ = browserLifecycleController.addTab(
+            in: folderId,
+            activate: activate,
+            model: &tabModel,
+            selection: &selectionModel
         )
-
-        if activate {
-            activateTab(tab.id, selectionMode: .replace, followTabFolder: true, captureCurrent: true)
-        } else {
-            persistCurrentWorkspaceState()
-        }
-
+        persistCurrentWorkspaceState()
         assertTabIntegrity()
     }
 
@@ -341,47 +342,23 @@ class BrowserState: BrowserBridgeProvider {
     }
 
     func addTab(withURL url: URL, in folderId: UUID?, activate: Bool = true) {
-        let resolvedFolderId = validFolderId(folderId)
-        let tab = tabCollectionController.appendTab(
-            url: url,
-            folderID: resolvedFolderId,
-            loadURLImmediately: true,
-            model: &tabModel
+        _ = browserLifecycleController.addTab(
+            withURL: url,
+            in: folderId,
+            activate: activate,
+            model: &tabModel,
+            selection: &selectionModel
         )
-
-        if activate {
-            activateTab(tab.id, selectionMode: .replace, followTabFolder: true, captureCurrent: true)
-        } else {
-            persistCurrentWorkspaceState()
-        }
-
+        persistCurrentWorkspaceState()
         assertTabIntegrity()
     }
 
     func closeTab(_ id: UUID) {
-        guard tabs.count > 1 else { return }
-        guard let removal = tabCollectionController.removeTab(id, from: &tabModel) else { return }
-        let tab = removal.tab
-        let wasActive = activeTabId == id
-
-        tabCollectionController.pushClosedTab(tab, into: &tabModel)
+        guard let tab = browserLifecycleController.closeTab(id, model: &tabModel, selection: &selectionModel) else {
+            return
+        }
         browserStateEffects.handleClosing(tab: tab)
-        selectedTabIDs.remove(id)
-        if tabSelectionAnchorId == id {
-            tabSelectionAnchorId = nil
-        }
-
-        if wasActive {
-            activeTabId = replacementVisibleTabID(afterRemovingAt: removal.index)
-            ensureActiveTabLoadedIfNeeded()
-            if let activeTabId {
-                recordLastActiveTab(activeTabId)
-            }
-            setSingleSelection(activeTabId)
-        } else {
-            sanitizeSelection()
-        }
-
+        ensureActiveTabLoadedIfNeeded()
         assertTabIntegrity()
         persistCurrentWorkspaceState()
     }
@@ -399,81 +376,55 @@ class BrowserState: BrowserBridgeProvider {
     }
 
     func selectFolder(_ folderId: UUID?) {
-        let resolvedFolderId = validFolderId(folderId)
+        let resolvedFolderId = tabCollectionController.validFolderId(folderId, model: tabModel)
         if resolvedFolderId != activeFolderId {
             captureScreenshotOfActiveTab()
         }
 
-        activeFolderId = resolvedFolderId
-        activeTabId = resolvedTabIDForFolderSelection(resolvedFolderId, preferredTabID: activeTabId)
+        browserFolderController.selectFolder(folderId, model: &tabModel, selection: &selectionModel)
         ensureActiveTabLoadedIfNeeded()
-        if let activeTabId {
-            recordLastActiveTab(activeTabId)
-        }
-        setSingleSelection(activeTabId)
         persistCurrentWorkspaceState()
     }
 
     @discardableResult
     func createFolder(name: String, color: String, movingTabIDs: [UUID] = []) -> UUID {
-        let folderID = tabCollectionController.createFolder(name: name, color: color, in: &tabModel)
-
-        let orderedTargetIDs = orderedTabIDs(from: movingTabIDs)
-        if orderedTargetIDs.isEmpty {
-            activeFolderId = folderID
-            activeTabId = resolvedVisibleTabID(preferredTabID: activeTabId)
-            setSingleSelection(activeTabId)
-        } else {
-            applyFolderMembership(for: orderedTargetIDs, folderId: folderID)
-            activeFolderId = folderID
-            activeTabId = resolvedVisibleTabID(preferredTabID: activeTabId ?? orderedTargetIDs.first)
-            ensureActiveTabLoadedIfNeeded()
-            if let activeTabId {
-                recordLastActiveTab(activeTabId)
-            }
-            setSingleSelection(activeTabId)
-        }
-
+        let folderID = browserFolderController.createFolder(
+            name: name,
+            color: color,
+            movingTabIDs: movingTabIDs,
+            model: &tabModel,
+            selection: &selectionModel
+        )
+        ensureActiveTabLoadedIfNeeded()
         persistCurrentWorkspaceState()
         return folderID
     }
 
     func updateFolder(id: UUID, name: String, color: String) {
-        tabCollectionController.updateFolder(id: id, name: name, color: color, in: &tabModel)
+        browserFolderController.updateFolder(id: id, name: name, color: color, model: &tabModel)
         persistCurrentWorkspaceState()
     }
 
     func deleteFolder(_ id: UUID) {
         guard folders.contains(where: { $0.id == id }) else { return }
-
         captureScreenshotOfActiveTab()
-        applyFolderMembership(for: tabs(in: id).map(\.id), folderId: nil)
-        tabCollectionController.deleteFolder(id, in: &tabModel)
-
-        if activeFolderId == id {
-            activeFolderId = nil
+        guard browserFolderController.deleteFolder(id, model: &tabModel, selection: &selectionModel) else {
+            return
         }
-
-        activeTabId = resolvedVisibleTabID(preferredTabID: activeTabId)
         ensureActiveTabLoadedIfNeeded()
-        if let activeTabId {
-            recordLastActiveTab(activeTabId)
-        }
-        setSingleSelection(activeTabId)
         persistCurrentWorkspaceState()
     }
 
     func moveTabs(_ tabIDs: [UUID], toFolder folderId: UUID?) {
-        let orderedTargetIDs = orderedTabIDs(from: tabIDs)
-        guard !orderedTargetIDs.isEmpty else { return }
-
-        applyFolderMembership(for: orderedTargetIDs, folderId: validFolderId(folderId))
-        activeTabId = resolvedVisibleTabID(preferredTabID: activeTabId)
-        ensureActiveTabLoadedIfNeeded()
-        if let activeTabId {
-            recordLastActiveTab(activeTabId)
+        guard browserFolderController.moveTabs(
+            tabIDs,
+            toFolder: folderId,
+            model: &tabModel,
+            selection: &selectionModel
+        ) else {
+            return
         }
-        setSingleSelection(activeTabId)
+        ensureActiveTabLoadedIfNeeded()
         persistCurrentWorkspaceState()
     }
 
@@ -526,25 +477,11 @@ class BrowserState: BrowserBridgeProvider {
     /// Returns true if a tab was reopened
     @discardableResult
     func reopenLastClosedTab() -> Bool {
-        guard let closedInfo = tabCollectionController.reopenLastClosedTab(in: &tabModel) else { return false }
-
-        let restoredFolderId = validFolderId(closedInfo.folderID)
-        let tab = tabCollectionController.appendTab(
-            title: closedInfo.title,
-            folderID: restoredFolderId,
-            isChatTab: closedInfo.isChatTab,
-            hasConversationStarted: closedInfo.hasConversationStarted,
-            conversationId: closedInfo.conversationId,
-            model: &tabModel
-        )
-
-        if let url = closedInfo.url {
-            tab.load(url.absoluteString)
+        guard browserLifecycleController.reopenLastClosedTab(model: &tabModel, selection: &selectionModel) != nil else {
+            return false
         }
-
-        activateTab(tab.id, selectionMode: .replace, followTabFolder: true, captureCurrent: true)
-
         assertTabIntegrity()
+        persistCurrentWorkspaceState()
         return true
     }
 
@@ -570,19 +507,14 @@ class BrowserState: BrowserBridgeProvider {
             captureScreenshotOfActiveTab()
         }
 
-        tabSelectionController.activateTab(
+        browserLifecycleController.activateTab(
             id,
             selectionMode: selectionMode,
             followTabFolder: followTabFolder,
-            model: tabModel,
-            selection: &selectionModel,
-            validFolderID: { [weak self] folderID in
-                guard let self else { return nil }
-                return self.validFolderId(folderID)
-            }
+            model: &tabModel,
+            selection: &selectionModel
         )
         ensureActiveTabLoadedIfNeeded()
-        recordLastActiveTab(id)
 
         persistCurrentWorkspaceState()
     }
@@ -594,87 +526,8 @@ class BrowserState: BrowserBridgeProvider {
         )
     }
 
-    private func clearAllTabs() {
-        tabCollectionController.clearAllTabs(in: &tabModel)
-        activeTabId = nil
-        activeFolderId = nil
-        selectedTabIDs = []
-        tabSelectionAnchorId = nil
-    }
-
-    private func restoreTabs(from state: WorkspaceTabState) {
-        tabCollectionController.restoreTabs(from: state, in: &tabModel)
-        activeFolderId = validFolderId(state.activeFolderId)
-
-        if activeFolderId == nil,
-           let restoredActiveTab = state.activeTabId.flatMap({ tabsByID[$0] }) {
-            activeFolderId = validFolderId(restoredActiveTab.folderID)
-        }
-
-        activeTabId = resolvedVisibleTabID(preferredTabID: state.activeTabId)
-        ensureActiveTabLoadedIfNeeded()
-        if let activeTabId {
-            recordLastActiveTab(activeTabId)
-        }
-        setSingleSelection(activeTabId)
-        assertTabIntegrity()
-    }
-
-    private func hydrateFolderMembershipFromRestoredState() {
-        tabCollectionController.hydrateFolderMembershipFromRestoredState(in: &tabModel)
-    }
-
-    private func synchronizeFolders() {
-        tabCollectionController.synchronizeFolders(in: &tabModel)
-    }
-
-    private func applyFolderMembership(for tabIDs: [UUID], folderId: UUID?) {
-        tabCollectionController.applyFolderMembership(for: tabIDs, folderId: folderId, model: &tabModel)
-    }
-
-    private func recordLastActiveTab(_ tabId: UUID) {
-        tabCollectionController.recordLastActiveTab(tabId, model: &tabModel)
-    }
-
-    private func replacementVisibleTabID(afterRemovingAt index: Int) -> UUID? {
-        tabSelectionController.replacementVisibleTabID(afterRemovingAt: index, model: tabModel)
-    }
-
-    private func resolvedTabIDForFolderSelection(_ folderId: UUID?, preferredTabID: UUID?) -> UUID? {
-        tabSelectionController.resolvedTabIDForFolderSelection(
-            folderId,
-            preferredTabID: preferredTabID,
-            model: tabModel,
-            activeFolderId: activeFolderId
-        )
-    }
-
-    private func resolvedVisibleTabID(preferredTabID: UUID?) -> UUID? {
-        tabSelectionController.resolvedVisibleTabID(
-            preferredTabID: preferredTabID,
-            model: tabModel,
-            activeFolderId: activeFolderId
-        )
-    }
-
     private func ensureActiveTabLoadedIfNeeded() {
         browserStateEffects.ensureActiveTabLoadedIfNeeded(activeTab)
-    }
-
-    private func setSingleSelection(_ tabId: UUID?) {
-        tabSelectionController.setSingleSelection(tabId, visibleTabs: visibleTabs, selection: &selectionModel)
-    }
-
-    private func sanitizeSelection() {
-        tabSelectionController.sanitizeSelection(visibleTabs: visibleTabs, selection: &selectionModel)
-    }
-
-    private func orderedTabIDs(from ids: [UUID]) -> [UUID] {
-        tabCollectionController.orderedTabIDs(from: ids, model: tabModel)
-    }
-
-    private func validFolderId(_ folderId: UUID?) -> UUID? {
-        tabCollectionController.validFolderId(folderId, model: tabModel)
     }
 
     private func persistCurrentWorkspaceState() {

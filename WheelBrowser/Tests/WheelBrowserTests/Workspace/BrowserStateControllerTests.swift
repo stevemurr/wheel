@@ -72,7 +72,7 @@ struct BrowserStateControllerTests {
             followTabFolder: false,
             model: model,
             selection: &selection,
-            validFolderID: { $0 }
+            validFolderIDs: []
         )
         selectionController.activateTab(
             third.id,
@@ -80,7 +80,7 @@ struct BrowserStateControllerTests {
             followTabFolder: false,
             model: model,
             selection: &selection,
-            validFolderID: { $0 }
+            validFolderIDs: []
         )
 
         #expect(selection.selectedTabIDs == Set([first.id, second.id, third.id]))
@@ -91,7 +91,7 @@ struct BrowserStateControllerTests {
             followTabFolder: false,
             model: model,
             selection: &selection,
-            validFolderID: { $0 }
+            validFolderIDs: []
         )
 
         #expect(selection.selectedTabIDs == Set([first.id, third.id]))
