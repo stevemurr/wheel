@@ -412,17 +412,6 @@ struct ContentView: View {
             )
             .frame(maxWidth: .infinity, alignment: .trailing)
 
-            FolderRail(
-                browserState: state,
-                onCreateFolder: {
-                    presentCreateFolder([])
-                },
-                onRenameFolder: presentRenameFolder
-            )
-            .frame(maxWidth: 640, alignment: .leading)
-            .padding(.leading, 96)
-            .padding(.top, 10)
-            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         }
         .overlay {
             if state.activeTab?.hasActiveAgent == true {

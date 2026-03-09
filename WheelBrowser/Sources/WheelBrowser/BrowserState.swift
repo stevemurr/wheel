@@ -152,7 +152,7 @@ class BrowserState: BrowserBridgeProvider {
         tabs.firstIndex { $0.id == activeTabId }
     }
 
-    /// Returns the index of the active tab within the current folder filter, or nil if no active tab
+    /// Returns the index of the active tab within the tab strip, or nil if no active tab
     var activeVisibleTabIndex: Int? {
         visibleTabs.firstIndex { $0.id == activeTabId }
     }
@@ -163,7 +163,7 @@ class BrowserState: BrowserBridgeProvider {
     }
 
     var visibleTabs: [Tab] {
-        tabs(in: activeFolderId)
+        tabs
     }
 
     /// Returns an AccessibilityBridge for the active tab's webView
@@ -390,7 +390,7 @@ class BrowserState: BrowserBridgeProvider {
         }
 
         activeFolderId = resolvedFolderId
-        activeTabId = resolvedVisibleTabID(preferredTabID: activeTabId)
+        activeTabId = resolvedTabIDForFolderSelection(resolvedFolderId, preferredTabID: activeTabId)
         ensureActiveTabLoadedIfNeeded()
         if let activeTabId {
             recordLastActiveTab(activeTabId)
@@ -412,8 +412,8 @@ class BrowserState: BrowserBridgeProvider {
         let orderedTargetIDs = orderedTabIDs(from: movingTabIDs)
         if orderedTargetIDs.isEmpty {
             activeFolderId = folder.id
-            activeTabId = nil
-            setSingleSelection(nil)
+            activeTabId = resolvedVisibleTabID(preferredTabID: activeTabId)
+            setSingleSelection(activeTabId)
         } else {
             applyFolderMembership(for: orderedTargetIDs, folderId: folder.id)
             activeFolderId = folder.id
@@ -752,17 +752,45 @@ class BrowserState: BrowserBridgeProvider {
     private func replacementVisibleTabID(afterRemovingAt index: Int) -> UUID? {
         guard !tabs.isEmpty else { return nil }
 
-        if index < tabs.count,
-           let nextTab = tabs[index...].first(where: { $0.folderID == activeFolderId }) {
+        if index < tabs.count {
+            let nextTab = tabs[index]
             return nextTab.id
         }
 
         let safeUpperBound = min(index, tabs.count)
         if safeUpperBound > 0 {
-            return tabs[..<safeUpperBound].last(where: { $0.folderID == activeFolderId })?.id
+            return tabs[safeUpperBound - 1].id
         }
 
         return nil
+    }
+
+    private func resolvedTabIDForFolderSelection(_ folderId: UUID?, preferredTabID: UUID?) -> UUID? {
+        let scopedTabs = tabs(in: folderId)
+
+        if let preferredTabID,
+           scopedTabs.contains(where: { $0.id == preferredTabID }) {
+            return preferredTabID
+        }
+
+        if let folderId,
+           let folder = folder(for: folderId),
+           let lastActiveTabID = folder.lastActiveTabID,
+           scopedTabs.contains(where: { $0.id == lastActiveTabID }) {
+            return lastActiveTabID
+        }
+
+        if folderId == nil,
+           let preferredTabID,
+           tabsByID[preferredTabID]?.folderID == nil {
+            return preferredTabID
+        }
+
+        if let firstTabID = scopedTabs.first?.id {
+            return firstTabID
+        }
+
+        return resolvedVisibleTabID(preferredTabID: preferredTabID)
     }
 
     private func resolvedVisibleTabID(preferredTabID: UUID?) -> UUID? {

@@ -13,6 +13,7 @@ struct StageManagerThumbnail: View {
     let isSelected: Bool
     let canClose: Bool
     let selectionTint: Color
+    let groupColor: Color?
     let sizeScale: CGFloat
     let onSelect: (NSEvent.ModifierFlags) -> Void
     let onClose: () -> Void
@@ -32,12 +33,26 @@ struct StageManagerThumbnail: View {
     private var closeButtonFontSize: CGFloat { max(12, 14 * sizeScale) }
     private var placeholderFontSize: CGFloat { max(16, 20 * sizeScale) }
     private var loadingPadding: CGFloat { max(3, 4 * sizeScale) }
+    private var groupAccentColor: Color? { groupColor }
+    private var groupTintOpacity: Double { isActive ? 0.18 : 0.11 }
 
     var body: some View {
         ZStack(alignment: .topTrailing) {
             thumbnailView
                 .frame(width: thumbnailWidth, height: thumbnailHeight)
                 .clipShape(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
+                .overlay {
+                    if let groupAccentColor {
+                        RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+                            .fill(
+                                LinearGradient(
+                                    colors: [groupAccentColor.opacity(groupTintOpacity), .clear],
+                                    startPoint: .leading,
+                                    endPoint: .trailing
+                                )
+                            )
+                    }
+                }
                 .overlay(alignment: .bottom) {
                     titleOverlay
                 }
@@ -80,7 +95,8 @@ struct StageManagerThumbnail: View {
         .shadow(
             color: tab.hasActiveAgent
                 ? Color.green.opacity(isActive ? 0.45 : 0.3)
-                : .black.opacity(isActive ? 0.45 : 0.3),
+                : (groupAccentColor?.opacity(isActive ? 0.34 : 0.22)
+                    ?? .black.opacity(isActive ? 0.45 : 0.3)),
             radius: tab.hasActiveAgent ? (isActive ? 14 : 10) : (isActive ? 8 : 5),
             x: isActive ? 3 : 2,
             y: isActive ? 3 : 2
@@ -110,7 +126,13 @@ struct StageManagerThumbnail: View {
     @ViewBuilder
     private var placeholderView: some View {
         ZStack {
-            if tab.isChatTab {
+            if let groupAccentColor {
+                LinearGradient(
+                    colors: [groupAccentColor.opacity(0.5), groupAccentColor.opacity(0.22)],
+                    startPoint: .topLeading,
+                    endPoint: .bottomTrailing
+                )
+            } else if tab.isChatTab {
                 LinearGradient(
                     colors: [.purple.opacity(0.4), .purple.opacity(0.25)],
                     startPoint: .topLeading,
@@ -120,7 +142,11 @@ struct StageManagerThumbnail: View {
                 DomainGradient.placeholderGradient(for: tab.url?.host)
             }
 
-            if tab.isChatTab {
+            if groupAccentColor != nil {
+                Image(systemName: tab.isChatTab ? "sparkles" : "globe")
+                    .font(.system(size: placeholderFontSize, weight: .medium))
+                    .foregroundColor(.white.opacity(0.82))
+            } else if tab.isChatTab {
                 Image(systemName: "sparkles")
                     .font(.system(size: placeholderFontSize, weight: .medium))
                     .foregroundColor(.purple.opacity(0.8))
@@ -149,7 +175,10 @@ struct StageManagerThumbnail: View {
             .frame(maxWidth: .infinity, alignment: .leading)
             .background(
                 LinearGradient(
-                    colors: [.clear, .black.opacity(0.6)],
+                    colors: [
+                        .clear,
+                        (groupAccentColor ?? .black).opacity(groupAccentColor == nil ? 0.6 : 0.52)
+                    ],
                     startPoint: .top,
                     endPoint: .bottom
                 )
@@ -185,6 +214,8 @@ struct StageManagerThumbnail: View {
     private var borderColor: Color {
         if tab.hasActiveAgent {
             return Color.green.opacity(0.9)
+        } else if let groupAccentColor {
+            return groupAccentColor.opacity(isActive ? 0.98 : (isSelected ? 0.9 : 0.72))
         } else if isActive {
             return Color(nsColor: .controlAccentColor)
         } else if isSelected {
@@ -197,6 +228,8 @@ struct StageManagerThumbnail: View {
     private var borderWidth: CGFloat {
         if tab.hasActiveAgent {
             return 2
+        } else if groupAccentColor != nil {
+            return isActive ? 2.4 : (isSelected ? 1.8 : 1.0)
         } else if isActive {
             return 2.5
         } else if isSelected {

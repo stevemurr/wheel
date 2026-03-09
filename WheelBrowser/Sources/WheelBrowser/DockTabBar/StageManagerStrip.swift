@@ -30,7 +30,11 @@ struct StageManagerStrip: View {
     }
 
     private var selectionTint: Color {
-        browserState.activeFolder?.accentColor ?? Color(nsColor: .controlAccentColor)
+        if let activeTab = browserState.activeTab,
+           let folder = browserState.folder(for: activeTab.folderID) {
+            return folder.accentColor
+        }
+        return browserState.activeFolder?.accentColor ?? Color(nsColor: .controlAccentColor)
     }
 
     private var revealHotZoneWidth: CGFloat {
@@ -131,6 +135,7 @@ struct StageManagerStrip: View {
                                 isSelected: browserState.isTabSelected(tab.id),
                                 canClose: browserState.tabs.count > 1,
                                 selectionTint: selectionTint,
+                                groupColor: groupColor(for: tab),
                                 sizeScale: shownScale,
                                 onSelect: { modifiers in
                                     handleTabClick(tab.id, modifiers: modifiers)
@@ -182,6 +187,7 @@ struct StageManagerStrip: View {
                         tab: tab,
                         isActive: tab.id == browserState.activeTabId,
                         sizeScale: hiddenScale,
+                        groupColor: groupColor(for: tab),
                         onSelect: { modifiers in
                             handleTabClick(tab.id, modifiers: modifiers)
                         }
@@ -200,14 +206,14 @@ struct StageManagerStrip: View {
 
     private var emptyFolderState: some View {
         VStack(spacing: 10) {
-            Image(systemName: "folder")
+            Image(systemName: "square.stack")
                 .font(.system(size: 22, weight: .medium))
                 .foregroundStyle(.secondary)
 
-            Text("Empty Folder")
+            Text("No Tabs")
                 .font(.system(size: 12, weight: .semibold))
 
-            Text("Create a tab or move one here.")
+            Text("Create a tab to get started.")
                 .font(.system(size: 11))
                 .foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)
@@ -277,6 +283,15 @@ struct StageManagerStrip: View {
                 height: (maxY - minY) + 12
             ))
         }
+    }
+
+    private func groupColor(for tab: Tab) -> Color? {
+        guard let folderID = tab.folderID,
+              let folder = browserState.folder(for: folderID) else {
+            return nil
+        }
+
+        return folder.accentColor
     }
 
     private func handleTabClick(_ tabId: UUID, modifiers: NSEvent.ModifierFlags) {
@@ -368,6 +383,7 @@ private struct BinderTabPeek: View {
     var tab: Tab
     let isActive: Bool
     let sizeScale: CGFloat
+    let groupColor: Color?
     let onSelect: (NSEvent.ModifierFlags) -> Void
 
     @State private var isHovered = false
@@ -389,6 +405,8 @@ private struct BinderTabPeek: View {
     private var peekCornerRadius: CGFloat {
         5 * sizeScale
     }
+
+    private var groupAccentColor: Color? { groupColor }
 
     var body: some View {
         TimelineView(.animation(minimumInterval: 1.0 / 24.0, paused: false)) { context in
@@ -426,7 +444,7 @@ private struct BinderTabPeek: View {
                         .offset(x: 4 * sizeScale)
                 }
 
-                if tab.hasActiveAgent || isActive {
+                if tab.hasActiveAgent || isActive || groupAccentColor != nil {
                     UnevenRoundedRectangle(
                         cornerRadii: .init(
                             topLeading: 0,
@@ -437,7 +455,9 @@ private struct BinderTabPeek: View {
                         style: .continuous
                     )
                     .strokeBorder(
-                        tab.hasActiveAgent ? Color.green.opacity(0.82 + (0.12 * glowPhase)) : Color(nsColor: .controlAccentColor),
+                        tab.hasActiveAgent
+                            ? Color.green.opacity(0.82 + (0.12 * glowPhase))
+                            : (groupAccentColor?.opacity(isActive ? 0.98 : 0.8) ?? Color(nsColor: .controlAccentColor)),
                         lineWidth: max(1, 1.5 * sizeScale)
                     )
                 }
@@ -445,7 +465,7 @@ private struct BinderTabPeek: View {
             .shadow(
                 color: tab.hasActiveAgent
                     ? Color.green.opacity(0.28 + (0.16 * glowPhase))
-                    : .black.opacity(0.25),
+                    : (groupAccentColor?.opacity(isActive ? 0.28 : 0.2) ?? .black.opacity(0.25)),
                 radius: tab.hasActiveAgent ? (8 * sizeScale) + (3 * sizeScale * glowPhase) : 2 * sizeScale,
                 x: sizeScale,
                 y: sizeScale
@@ -464,6 +484,9 @@ private struct BinderTabPeek: View {
     private var tabColor: Color {
         if tab.hasActiveAgent {
             return .green.opacity(0.8)
+        }
+        if let groupAccentColor {
+            return groupAccentColor.opacity(isActive ? 0.88 : (isHovered ? 0.78 : 0.68))
         }
         if tab.isChatTab {
             return .purple.opacity(0.7)

@@ -47,6 +47,7 @@ struct BrowserStateFolderTests {
         defer { try? FileManager.default.removeItem(at: directory) }
 
         browserState.bindToWorkspace(try #require(manager.currentWorkspaceID))
+        let looseTabID = try #require(browserState.activeTabId)
         browserState.addTab()
         let folderTabID = try #require(browserState.activeTabId)
 
@@ -58,14 +59,15 @@ struct BrowserStateFolderTests {
 
         browserState.selectFolder(folderID)
         browserState.closeTab(folderTabID)
-        #expect(browserState.visibleTabs.isEmpty)
+        #expect(browserState.activeTabId == looseTabID)
+        #expect(browserState.visibleTabs.map(\.id) == [looseTabID])
 
         #expect(browserState.reopenLastClosedTab() == true)
 
         let reopenedTab = try #require(browserState.activeTab)
         #expect(reopenedTab.folderID == folderID)
         #expect(browserState.activeFolderId == folderID)
-        #expect(browserState.visibleTabs.map(\.id) == [reopenedTab.id])
+        #expect(browserState.visibleTabs.map(\.id) == [looseTabID, reopenedTab.id])
     }
 
     @Test("New foreground and background tabs inherit the active folder")
@@ -87,8 +89,8 @@ struct BrowserStateFolderTests {
         #expect(backgroundTab.folderID == folderID)
     }
 
-    @Test("Range and additive selection stay within the active folder")
-    func selectionSemanticsStayWithinActiveFolder() throws {
+    @Test("Range and additive selection follow the global strip order")
+    func selectionSemanticsFollowGlobalStripOrder() throws {
         let (browserState, manager, directory) = makeBrowserState()
         defer { try? FileManager.default.removeItem(at: directory) }
 
@@ -119,7 +121,7 @@ struct BrowserStateFolderTests {
 
         #expect(browserState.selectedTabIDs == Set([firstFolderTabID, thirdFolderTabID]))
         #expect(browserState.activeFolderId == folderID)
-        #expect(browserState.visibleTabs.map(\.id) == [firstFolderTabID, secondFolderTabID, thirdFolderTabID])
+        #expect(browserState.visibleTabs.map(\.id) == [looseTabID, firstFolderTabID, secondFolderTabID, thirdFolderTabID])
     }
 
     @Test("Deleting a folder moves its tabs to Loose and keeps a valid active tab")
@@ -146,8 +148,8 @@ struct BrowserStateFolderTests {
         #expect(browserState.visibleTabs.contains(where: { $0.id == movedTabID }))
     }
 
-    @Test("Keyboard tab switching stays scoped to the active folder")
-    func keyboardNavigationIsFolderScoped() throws {
+    @Test("Keyboard tab switching follows the global strip order")
+    func keyboardNavigationFollowsGlobalStripOrder() throws {
         let (browserState, manager, directory) = makeBrowserState()
         defer { try? FileManager.default.removeItem(at: directory) }
 
@@ -167,17 +169,33 @@ struct BrowserStateFolderTests {
 
         browserState.selectFolder(folderID)
         browserState.selectTab(atIndex: 1)
+        #expect(browserState.activeTabId == looseTabID)
+
+        browserState.selectNextTab()
         #expect(browserState.activeTabId == firstFolderTabID)
 
         browserState.selectNextTab()
         #expect(browserState.activeTabId == secondFolderTabID)
-
-        browserState.selectNextTab()
-        #expect(browserState.activeTabId == firstFolderTabID)
 
         browserState.selectPreviousTab()
-        #expect(browserState.activeTabId == secondFolderTabID)
-        #expect(browserState.activeTabId != looseTabID)
+        #expect(browserState.activeTabId == firstFolderTabID)
+        #expect(browserState.activeFolderId == folderID)
+    }
+
+    @Test("Creating an empty folder keeps the current tab visible and active")
+    func creatingEmptyFolderKeepsCurrentTabActive() throws {
+        let (browserState, manager, directory) = makeBrowserState()
+        defer { try? FileManager.default.removeItem(at: directory) }
+
+        browserState.bindToWorkspace(try #require(manager.currentWorkspaceID))
+        let originalTabID = try #require(browserState.activeTabId)
+
+        let folderID = browserState.createFolder(name: "Later", color: "#FFCC00")
+
+        #expect(browserState.activeFolderId == folderID)
+        #expect(browserState.activeTabId == originalTabID)
+        #expect(browserState.visibleTabs.map(\.id) == [originalTabID])
+        #expect(browserState.folder(for: folderID)?.tabIDs.isEmpty == true)
     }
 
     private func makeBrowserState() -> (BrowserState, WorkspaceManager, URL) {
