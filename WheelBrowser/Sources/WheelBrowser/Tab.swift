@@ -7,6 +7,7 @@ class Tab: Identifiable {
     let id: UUID
     var title: String = "New Tab"
     var url: URL?
+    var folderID: UUID?
     var isLoading: Bool = false
     var isReaderMode: Bool = false
     var lastError: NavigationError?
@@ -86,6 +87,7 @@ class Tab: Identifiable {
         id: UUID = UUID(),
         title: String = "New Tab",
         url: URL? = nil,
+        folderID: UUID? = nil,
         isChatTab: Bool = false,
         hasConversationStarted: Bool = false,
         conversationId: UUID = UUID()
@@ -93,6 +95,7 @@ class Tab: Identifiable {
         self.id = id
         self.title = title
         self.url = url
+        self.folderID = folderID
         self.isChatTab = isChatTab
         self.hasConversationStarted = hasConversationStarted
         self.conversationId = conversationId

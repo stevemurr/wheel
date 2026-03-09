@@ -3,7 +3,7 @@ import SwiftUI
 // MARK: - Browser Content Area (extracted to help compiler with type checking)
 
 private struct BrowserContentArea: View {
-    var activeTab: Tab
+    var activeTab: Tab?
     var agentManager: AgentManager
     var browserState: BrowserState
     var noteStore: NoteStore
@@ -36,15 +36,17 @@ private struct BrowserContentArea: View {
                     .ignoresSafeArea()
 
                     // Bottom controls: OmniBar only (uses active tab)
-                    OmniBar(
-                        tab: activeTab,
-                        agentManager: agentManager,
-                        browserState: browserState,
-                        noteStore: noteStore,
-                        agentEngine: agentEngine,
-                        contentExtractor: contentExtractor
-                    )
-}
+                    if let activeTab {
+                        OmniBar(
+                            tab: activeTab,
+                            agentManager: agentManager,
+                            browserState: browserState,
+                            noteStore: noteStore,
+                            agentEngine: agentEngine,
+                            contentExtractor: contentExtractor
+                        )
+                    }
+                }
 
                 // Middle-click interceptor (full overlay, passes through other clicks)
                 RightClickInterceptorView(onMiddleClick: { position, size in
@@ -285,17 +287,66 @@ private struct ZoomNotificationModifier: ViewModifier {
     }
 }
 
+private struct EmptyFolderSurface: View {
+    let folderName: String
+    let onCreateTab: () -> Void
+
+    var body: some View {
+        VStack(spacing: 18) {
+            Image(systemName: "folder.badge.plus")
+                .font(.system(size: 34, weight: .medium))
+                .foregroundStyle(.secondary)
+
+            VStack(spacing: 6) {
+                Text(folderName)
+                    .font(.system(size: 24, weight: .semibold))
+
+                Text("This folder has no tabs yet.")
+                    .font(.system(size: 14))
+                    .foregroundStyle(.secondary)
+            }
+
+            Button(action: onCreateTab) {
+                Label("New Tab in Folder", systemImage: "plus")
+                    .padding(.horizontal, 16)
+                    .padding(.vertical, 10)
+            }
+            .buttonStyle(.borderedProminent)
+        }
+        .padding(28)
+        .background(
+            RoundedRectangle(cornerRadius: 24, style: .continuous)
+                .fill(.ultraThinMaterial.opacity(0.9))
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 24, style: .continuous)
+                .stroke(Color.white.opacity(0.16), lineWidth: 1)
+        )
+        .shadow(color: .black.opacity(0.12), radius: 20, x: 0, y: 10)
+    }
+}
+
+private struct FolderEditorRequest: Identifiable {
+    let id = UUID()
+    let folderIDToEdit: UUID?
+    let movingTabIDs: [UUID]
+    let title: String
+    let submitLabel: String
+    let initialName: String
+    let initialColor: String
+}
+
 struct ContentView: View {
     @State private var state: BrowserState
     @State private var agentEngine: AgentEngine
     private var agentManager = AgentManager.shared
-    private var agentStudioManager = AgentStudioManager.shared
     private var workspaceManager = WorkspaceManager.shared
     @ObservedObject private var settings = AppSettings.shared
     private var downloadManager = DownloadManager.shared
     @State private var wheelState = TabWheelState.shared
     @State private var noteStore = NoteStore()
     @State private var noteWindowState = NoteWindowState()
+    @State private var folderEditorRequest: FolderEditorRequest?
     private let contentExtractor = ContentExtractor()
 
     init() {
@@ -321,27 +372,34 @@ struct ContentView: View {
     private var mainContent: some View {
         ZStack {
             VStack(spacing: 0) {
-                if let activeTab = state.activeTab {
-                    BrowserContentArea(
-                        activeTab: activeTab,
-                        agentManager: agentManager,
-                        browserState: state,
-                        noteStore: noteStore,
-                        onCopyNote: copyNote,
-                        onDeleteNote: deleteNote,
-                        settings: settings,
-                        agentEngine: agentEngine,
-                        wheelState: wheelState,
-                        noteWindowState: noteWindowState,
-                        contentExtractor: contentExtractor
-                    )
+                BrowserContentArea(
+                    activeTab: state.activeTab,
+                    agentManager: agentManager,
+                    browserState: state,
+                    noteStore: noteStore,
+                    onCopyNote: copyNote,
+                    onDeleteNote: deleteNote,
+                    settings: settings,
+                    agentEngine: agentEngine,
+                    wheelState: wheelState,
+                    noteWindowState: noteWindowState,
+                    contentExtractor: contentExtractor
+                )
+                .overlay {
+                    if state.activeTab == nil {
+                        EmptyFolderSurface(folderName: state.activeFolder?.name ?? "Loose") {
+                            state.addTab()
+                        }
+                    }
                 }
             }
             .frame(minWidth: 400)
 
             StageManagerStrip(
                 browserState: state,
-                screenshotManager: TabScreenshotManager.shared
+                screenshotManager: TabScreenshotManager.shared,
+                onCreateFolder: presentCreateFolder,
+                onRenameFolder: presentRenameFolder
             )
             .frame(maxWidth: .infinity, alignment: .leading)
 
@@ -353,6 +411,18 @@ struct ContentView: View {
                 onCreateNote: createNote
             )
             .frame(maxWidth: .infinity, alignment: .trailing)
+
+            FolderRail(
+                browserState: state,
+                onCreateFolder: {
+                    presentCreateFolder([])
+                },
+                onRenameFolder: presentRenameFolder
+            )
+            .frame(maxWidth: 640, alignment: .leading)
+            .padding(.leading, 96)
+            .padding(.top, 10)
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         }
         .overlay {
             if state.activeTab?.hasActiveAgent == true {
@@ -410,6 +480,20 @@ struct ContentView: View {
             .onReceive(NotificationCenter.default.publisher(for: .newNote)) { _ in
                 createNote()
             }
+            .sheet(item: $folderEditorRequest) { request in
+                FolderEditorSheet(
+                    title: request.title,
+                    submitLabel: request.submitLabel,
+                    initialName: request.initialName,
+                    initialColor: request.initialColor
+                ) { name, color in
+                    if let folderID = request.folderIDToEdit {
+                        state.updateFolder(id: folderID, name: name, color: color)
+                    } else {
+                        _ = state.createFolder(name: name, color: color, movingTabIDs: request.movingTabIDs)
+                    }
+                }
+            }
     }
 
     // MARK: - Handlers
@@ -452,6 +536,29 @@ struct ContentView: View {
         if noteWindowState.window?.noteID == note.id {
             noteWindowState.close()
         }
+    }
+
+    private func presentCreateFolder(_ movingTabIDs: [UUID]) {
+        folderEditorRequest = FolderEditorRequest(
+            folderIDToEdit: nil,
+            movingTabIDs: movingTabIDs,
+            title: movingTabIDs.isEmpty ? "Create Folder" : "New Folder from Selection",
+            submitLabel: "Create",
+            initialName: TabFolder.defaultName(for: state.folders),
+            initialColor: TabFolder.defaultColor(for: state.folders)
+        )
+    }
+
+    private func presentRenameFolder(_ folderID: UUID) {
+        guard let folder = state.folder(for: folderID) else { return }
+        folderEditorRequest = FolderEditorRequest(
+            folderIDToEdit: folder.id,
+            movingTabIDs: [],
+            title: "Rename Folder",
+            submitLabel: "Save",
+            initialName: folder.name,
+            initialColor: folder.color
+        )
     }
 }
 
