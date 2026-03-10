@@ -38,27 +38,6 @@ class AccessibilityBridge: BrowserBridge {
         }
     }
 
-    func snapshot(request: SnapshotRequest) async throws -> ReducedPageObservation {
-        let pageSnapshot = try await snapshot()
-        let linkRequest = LinkCollectionRequest(
-            targetHosts: request.relevantHosts,
-            includePaginationLinks: request.includePaginationControls,
-            maxMatches: max(request.maxRelevantLinks * 3, request.maxRelevantLinks),
-            canonicalizationStrategy: request.canonicalizationStrategy,
-            collectionStrategy: request.collectionStrategy
-        )
-        let linkResult = try await collectLinks(linkRequest)
-        return ReducedPageObservation(
-            snapshot: pageSnapshot,
-            request: request,
-            relevantLinks: linkResult.matches.map {
-                PageLink(text: $0.text, url: $0.canonicalURL, isPaginationControl: false)
-            },
-            paginationCandidates: request.includePaginationControls ? linkResult.paginationCandidates : [],
-            totalPageLinkCount: linkResult.totalLinksScanned
-        )
-    }
-
     // MARK: - Element Re-validation
 
     /// Validate that an element still exists and is visible. If not, attempt to re-find by text/tag match.

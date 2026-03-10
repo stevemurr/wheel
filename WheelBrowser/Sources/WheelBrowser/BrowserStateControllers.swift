@@ -808,18 +808,55 @@ struct WorkspaceSessionController {
 }
 
 final class BrowserStateEffects {
-    init() {}
+    private let captureScreenshotImpl: @MainActor (Tab) async -> Void
+    private let removeScreenshotImpl: @MainActor (UUID) -> Void
+    private let saveConversationImpl: @MainActor () -> Void
+    private let clearSnapshotImpl: @MainActor (UUID) -> Void
+
+    init() {
+        self.captureScreenshotImpl = { tab in
+            await TabScreenshotManager.shared.captureScreenshot(for: tab)
+        }
+        self.removeScreenshotImpl = { tabId in
+            TabScreenshotManager.shared.removeScreenshot(for: tabId)
+        }
+        self.saveConversationImpl = {
+            ConversationManager.shared.saveCurrentConversation()
+        }
+        self.clearSnapshotImpl = { conversationID in
+            AgentManager.shared.clearSnapshot(for: conversationID)
+        }
+    }
+
+    init(
+        screenshotManager: TabScreenshotManager,
+        conversationManager: ConversationManager,
+        agentManager: AgentManager
+    ) {
+        self.captureScreenshotImpl = { tab in
+            await screenshotManager.captureScreenshot(for: tab)
+        }
+        self.removeScreenshotImpl = { tabId in
+            screenshotManager.removeScreenshot(for: tabId)
+        }
+        self.saveConversationImpl = {
+            conversationManager.saveCurrentConversation()
+        }
+        self.clearSnapshotImpl = { conversationID in
+            agentManager.clearSnapshot(for: conversationID)
+        }
+    }
 
     func captureScreenshot(of tab: Tab?) {
         guard let tab else { return }
         Task { @MainActor in
-            await TabScreenshotManager.shared.captureScreenshot(for: tab)
+            await captureScreenshotImpl(tab)
         }
     }
 
     func removeScreenshot(for tabId: UUID) {
         Task { @MainActor in
-            TabScreenshotManager.shared.removeScreenshot(for: tabId)
+            removeScreenshotImpl(tabId)
         }
     }
 
@@ -827,8 +864,8 @@ final class BrowserStateEffects {
         if tab.isChatTab {
             let conversationID = tab.conversationId
             Task { @MainActor in
-                ConversationManager.shared.saveCurrentConversation()
-                AgentManager.shared.clearSnapshot(for: conversationID)
+                saveConversationImpl()
+                clearSnapshotImpl(conversationID)
             }
         }
 

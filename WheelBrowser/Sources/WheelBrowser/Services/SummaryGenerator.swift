@@ -8,11 +8,19 @@ actor SummaryGenerator {
     private let maxSummaryLength = 500  // Generous limit, rely on prompt to enforce length
     private var isBackfilling = false
     private let contextService: any WheelModelContextServing
+    private let repository: any SummaryRepository
+    private let contentFetcher: any PageContentFetching
 
     private static let instructions = "You are a concise summarizer. Provide brief, clear summaries in 2-3 sentences. Keep summaries under 100 words."
 
-    init(contextService: any WheelModelContextServing = WheelModelContextService.shared) {
+    init(
+        contextService: any WheelModelContextServing = WheelModelContextService.shared,
+        repository: (any SummaryRepository)? = nil,
+        contentFetcher: any PageContentFetching = URLSessionPageContentFetcher()
+    ) {
         self.contextService = contextService
+        self.repository = repository ?? PageIndexStore.shared
+        self.contentFetcher = contentFetcher
     }
 
     // MARK: - Summary Generation (Streaming)
@@ -123,7 +131,7 @@ actor SummaryGenerator {
     func regenerateSummary(for url: URL) async -> String? {
         Log.Services.info("Regenerating summary for: \(url)")
 
-        guard let content = await fetchPageContent(url: url) else {
+        guard let content = await contentFetcher.fetchPageContent(url: url) else {
             Log.Services.warning("Could not fetch content for: \(url)")
             return nil
         }
@@ -134,9 +142,8 @@ actor SummaryGenerator {
         }
 
         do {
-            let database = SearchDatabase.shared
-            try await database.initialize()
-            try await database.updateSummary(url: url.absoluteString, summary: summary)
+            try await repository.initialize()
+            try await repository.updateSummary(url: url.absoluteString, summary: summary)
             Log.Services.info("Regenerated summary for: \(url.host ?? url.absoluteString)")
             return summary
         } catch {
@@ -159,13 +166,12 @@ actor SummaryGenerator {
         Log.Services.info("Starting full regeneration...")
 
         do {
-            let database = SearchDatabase.shared
-            try await database.initialize()
+            try await repository.initialize()
 
             // Clear all existing summaries
-            try await database.clearAllSummaries()
+            try await repository.clearAllSummaries()
 
-            let allPages = try await database.getSavedPages(limit: 100)
+            let allPages = try await repository.getSavedPages(limit: 100)
 
             guard !allPages.isEmpty else {
                 Log.Services.info("No pages to regenerate")
@@ -174,28 +180,17 @@ actor SummaryGenerator {
 
             Log.Services.info("Regenerating \(allPages.count) summaries")
 
-            for (index, page) in allPages.enumerated() {
-                progressHandler?(index + 1, allPages.count)
-
-                guard let content = await fetchPageContent(url: page.url) else {
-                    Log.Services.warning("Could not fetch content for: \(page.url)")
-                    continue
-                }
-
-                guard let summary = await generateSummary(content: content) else {
-                    Log.Services.warning("Could not generate summary for: \(page.url)")
-                    continue
-                }
-
-                do {
-                    try await database.updateSummary(url: page.url.absoluteString, summary: summary)
-                    Log.Services.info("[\(index + 1)/\(allPages.count)] Regenerated: \(page.url.host ?? page.url.absoluteString)")
-                } catch {
-                    Log.Services.error("Failed to save summary: \(error)")
-                }
-
-                try? await Task.sleep(for: .milliseconds(300))
-            }
+            let runner = SummaryBatchRunner(
+                repository: repository,
+                contentFetcher: contentFetcher,
+                summaryGenerator: self
+            )
+            await runner.run(
+                pages: allPages,
+                delay: .milliseconds(300),
+                progressHandler: progressHandler,
+                logPrefix: "Regenerated"
+            )
 
             Log.Services.info("Full regeneration complete")
 
@@ -220,10 +215,9 @@ actor SummaryGenerator {
         Log.Services.info("Starting backfill...")
 
         do {
-            let database = SearchDatabase.shared
-            try await database.initialize()
+            try await repository.initialize()
 
-            let pagesWithoutSummary = try await database.getSavedPagesWithoutSummary(limit: 20)
+            let pagesWithoutSummary = try await repository.getSavedPagesWithoutSummary(limit: 20)
 
             guard !pagesWithoutSummary.isEmpty else {
                 Log.Services.info("No pages need summaries")
@@ -232,30 +226,16 @@ actor SummaryGenerator {
 
             Log.Services.info("Found \(pagesWithoutSummary.count) pages without summaries")
 
-            for page in pagesWithoutSummary {
-                // Fetch page content
-                guard let content = await fetchPageContent(url: page.url) else {
-                    Log.Services.warning("Could not fetch content for: \(page.url)")
-                    continue
-                }
-
-                // Generate summary
-                guard let summary = await generateSummary(content: content) else {
-                    Log.Services.warning("Could not generate summary for: \(page.url)")
-                    continue
-                }
-
-                // Save summary to database
-                do {
-                    try await database.updateSummary(url: page.url.absoluteString, summary: summary)
-                    Log.Services.info("Generated summary for: \(page.url.host ?? page.url.absoluteString)")
-                } catch {
-                    Log.Services.error("Failed to save summary: \(error)")
-                }
-
-                // Small delay to avoid overwhelming the LLM
-                try? await Task.sleep(for: .milliseconds(500))
-            }
+            let runner = SummaryBatchRunner(
+                repository: repository,
+                contentFetcher: contentFetcher,
+                summaryGenerator: self
+            )
+            await runner.run(
+                pages: pagesWithoutSummary,
+                delay: .milliseconds(500),
+                logPrefix: "Generated summary for"
+            )
 
             Log.Services.info("Backfill complete")
 
@@ -263,58 +243,6 @@ actor SummaryGenerator {
             Log.Services.error("Backfill error: \(error)")
         }
     }
-
-    // MARK: - Content Fetching
-
-    /// Fetch the text content of a web page
-    private func fetchPageContent(url: URL) async -> String? {
-        var request = URLRequest(url: url)
-        request.timeoutInterval = 15
-        request.setValue("Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko)", forHTTPHeaderField: "User-Agent")
-
-        do {
-            let (data, response) = try await URLSession.shared.data(for: request)
-            let _ = try response.asValidHTTPResponse()
-
-            guard let html = String(data: data, encoding: .utf8) else {
-                return nil
-            }
-
-            // Simple HTML to text conversion
-            return extractTextFromHTML(html)
-
-        } catch {
-            return nil
-        }
-    }
-
-    /// Extract readable text from HTML (simple extraction)
-    private func extractTextFromHTML(_ html: String) -> String {
-        var text = html
-
-        // Remove script and style content
-        let scriptPattern = "<script[^>]*>[\\s\\S]*?</script>"
-        let stylePattern = "<style[^>]*>[\\s\\S]*?</style>"
-
-        text = text.replacingOccurrences(of: scriptPattern, with: "", options: .regularExpression)
-        text = text.replacingOccurrences(of: stylePattern, with: "", options: .regularExpression)
-
-        // Remove HTML tags
-        let tagPattern = "<[^>]+>"
-        text = text.replacingOccurrences(of: tagPattern, with: " ", options: .regularExpression)
-
-        // Decode common HTML entities
-        text = text.replacingOccurrences(of: "&nbsp;", with: " ")
-        text = text.replacingOccurrences(of: "&amp;", with: "&")
-        text = text.replacingOccurrences(of: "&lt;", with: "<")
-        text = text.replacingOccurrences(of: "&gt;", with: ">")
-        text = text.replacingOccurrences(of: "&quot;", with: "\"")
-        text = text.replacingOccurrences(of: "&#39;", with: "'")
-
-        // Clean up whitespace
-        let whitespacePattern = "\\s+"
-        text = text.replacingOccurrences(of: whitespacePattern, with: " ", options: .regularExpression)
-
-        return text.trimmingCharacters(in: .whitespacesAndNewlines)
-    }
 }
+
+extension SummaryGenerator: SummaryGenerating {}

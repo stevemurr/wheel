@@ -90,6 +90,20 @@ struct WorkspaceStateStore {
     let getTabState: @MainActor (UUID) -> WorkspaceTabState?
     let clearTabState: @MainActor (UUID) -> Void
 
+    static func live(workspaceManager: WorkspaceManager) -> WorkspaceStateStore {
+        WorkspaceStateStore(
+            saveTabState: { state, workspaceID in
+                workspaceManager.saveTabState(state, for: workspaceID)
+            },
+            getTabState: { workspaceID in
+                workspaceManager.getTabState(for: workspaceID)
+            },
+            clearTabState: { workspaceID in
+                workspaceManager.clearTabState(for: workspaceID)
+            }
+        )
+    }
+
     static let shared = WorkspaceStateStore(
         saveTabState: { state, workspaceID in
             WorkspaceManager.shared.saveTabState(state, for: workspaceID)

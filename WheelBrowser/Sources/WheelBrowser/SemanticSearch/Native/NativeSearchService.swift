@@ -8,26 +8,46 @@ import VecturaKit
 /// (vector + BM25) entirely on-device via VecturaKit.
 actor NativeSearchService: SemanticSearchBackend {
     private var vecturaDB: VecturaKit?
-    private let metadataDB: ChunkMetadataDB
+    private let pageIndex: any SemanticPageIndexingStore
     private let embedder: any VecturaEmbedder
     private let storageURL: URL
     private var isInitialized = false
 
-    init(dbPath: URL? = nil) {
+    init(
+        dbPath: URL? = nil,
+        pageIndex: (any SemanticPageIndexingStore)? = nil
+    ) {
         let baseDir = dbPath?.deletingLastPathComponent()
             ?? FileManager.appSupportDirectory
         self.storageURL = baseDir.appendingPathComponent("vectura-search")
-        self.metadataDB = ChunkMetadataDB(dbPath: dbPath)
+        self.pageIndex = pageIndex ?? Self.makePageIndexStore(dbPath: dbPath)
         self.embedder = SwiftEmbedder()
     }
 
     /// For tests: inject a mock embedder
-    init(dbPath: URL? = nil, embedder: any VecturaEmbedder) {
+    init(
+        dbPath: URL? = nil,
+        embedder: any VecturaEmbedder,
+        pageIndex: (any SemanticPageIndexingStore)? = nil
+    ) {
         let baseDir = dbPath?.deletingLastPathComponent()
             ?? FileManager.appSupportDirectory
         self.storageURL = baseDir.appendingPathComponent("vectura-search")
-        self.metadataDB = ChunkMetadataDB(dbPath: dbPath)
+        self.pageIndex = pageIndex ?? Self.makePageIndexStore(dbPath: dbPath)
         self.embedder = embedder
+    }
+
+    private static func makePageIndexStore(dbPath: URL?) -> any SemanticPageIndexingStore {
+        guard let dbPath else {
+            return PageIndexStore.shared
+        }
+
+        do {
+            return try PageIndexStore(dbPath: dbPath)
+        } catch {
+            Log.Search.error("NativeSearchService: failed to create custom PageIndexStore: \(error.localizedDescription)")
+            return PageIndexStore.shared
+        }
     }
 
     private func ensureInitialized() async throws {
@@ -41,7 +61,7 @@ actor NativeSearchService: SemanticSearchBackend {
             )
         )
         self.vecturaDB = try await VecturaKit(config: config, embedder: embedder)
-        try await metadataDB.ensureInitialized()
+        try await pageIndex.initialize()
         isInitialized = true
     }
 
@@ -74,9 +94,9 @@ actor NativeSearchService: SemanticSearchBackend {
         let categoryStrings = categories.map { $0.rawValue }
 
         // Dedup chunks if content is unchanged, but still refresh page-level metadata.
-        if let existingHash = try await metadataDB.getPageHash(url: urlString),
+        if let existingHash = try await pageIndex.getPageHash(url: urlString),
            existingHash == contentHash {
-            try await metadataDB.upsertPage(
+            try await pageIndex.upsertPage(
                 url: urlString,
                 title: title,
                 domain: domain,
@@ -89,7 +109,7 @@ actor NativeSearchService: SemanticSearchBackend {
         }
 
         // Content changed or new — delete old chunks from VecturaKit + metadata
-        let oldIds = try await metadataDB.deleteChunksForPage(url: urlString)
+        let oldIds = try await pageIndex.deleteChunksForPage(url: urlString)
         if !oldIds.isEmpty {
             try await vectura.deleteDocuments(ids: oldIds)
         }
@@ -102,7 +122,7 @@ actor NativeSearchService: SemanticSearchBackend {
         }
 
         // Upsert page first (FK parent for chunk_map)
-        try await metadataDB.upsertPage(
+        try await pageIndex.upsertPage(
             url: urlString,
             title: title,
             domain: domain,
@@ -116,7 +136,7 @@ actor NativeSearchService: SemanticSearchBackend {
         let chunkIds = try await vectura.addDocuments(texts: chunkTexts)
 
         for (i, chunkId) in chunkIds.enumerated() {
-            try await metadataDB.addChunkMapping(
+            try await pageIndex.addChunkMapping(
                 vecturaId: chunkId,
                 pageURL: urlString,
                 sectionHierarchy: chunks[i].sectionHierarchy,
@@ -140,7 +160,7 @@ actor NativeSearchService: SemanticSearchBackend {
         guard limit > 0 else { return [] }
 
         let queryTerms = tokenizeQuery(query)
-        let totalChunks = try await metadataDB.getChunkCount()
+        let totalChunks = try await pageIndex.getChunkCount()
         guard totalChunks > 0 else { return [] }
 
         let categoryFilter: Set<String>?
@@ -150,7 +170,7 @@ actor NativeSearchService: SemanticSearchBackend {
             categoryFilter = nil
         }
 
-        let keywordMatches = try await metadataDB.searchKeywordMatches(
+        let keywordMatches = try await pageIndex.searchKeywordMatches(
             query: query,
             limit: max(limit * 3, 50)
         )
@@ -216,8 +236,8 @@ actor NativeSearchService: SemanticSearchBackend {
 
     func getStats() async throws -> SemanticSearchBackendStats {
         try await ensureInitialized()
-        let chunks = try await metadataDB.getChunkCount()
-        let docs = try await metadataDB.getPageCount()
+        let chunks = try await pageIndex.getChunkCount()
+        let docs = try await pageIndex.getPageCount()
         return SemanticSearchBackendStats(pageCount: docs, chunkCount: chunks)
     }
 
@@ -227,7 +247,7 @@ actor NativeSearchService: SemanticSearchBackend {
         try await ensureInitialized()
         guard let vectura = vecturaDB else { return }
         try await vectura.reset()
-        try await metadataDB.clearAll()
+        try await pageIndex.clearAll()
     }
 
     /// Always healthy — we're local
@@ -366,11 +386,11 @@ actor NativeSearchService: SemanticSearchBackend {
     ) async throws -> SearchAssembly {
         // Enrich with metadata
         let vecturaIds = vecturaResults.map { $0.id }
-        let chunkMetas = try await metadataDB.getChunkMetadata(vecturaIds: vecturaIds)
+        let chunkMetas = try await pageIndex.getChunkMetadata(vecturaIds: vecturaIds)
 
         // Collect unique page URLs for metadata lookup
         let pageURLs = Array(Set(chunkMetas.values.map { $0.pageURL }))
-        let pageMetas = try await metadataDB.getPageMetadata(urls: pageURLs)
+        let pageMetas = try await pageIndex.getPageMetadata(urls: pageURLs)
 
         // Group chunks by page URL — best chunk + up to 4 additional
         var groups: [String: GroupEntry] = [:]
