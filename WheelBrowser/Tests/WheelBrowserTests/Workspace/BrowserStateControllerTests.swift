@@ -5,6 +5,61 @@ import Testing
 @Suite("BrowserState Controllers")
 @MainActor
 struct BrowserStateControllerTests {
+    @Test("BrowserState restores the initial workspace before creating a default tab")
+    func browserStateRestoresInitialWorkspaceWithoutPlaceholderTab() {
+        let workspaceID = UUID()
+        let tabID = UUID()
+        let restoredState = WorkspaceTabState(
+            tabData: [
+                PersistedTab(
+                    id: tabID,
+                    url: "https://example.com/restored",
+                    title: "Restored",
+                    folderID: nil,
+                    isChatTab: false,
+                    hasConversationStarted: false,
+                    conversationId: UUID()
+                ),
+            ],
+            activeTabId: tabID
+        )
+
+        let browserState = BrowserState(
+            workspaceStateStore: WorkspaceStateStore(
+                saveTabState: { _, _ in },
+                getTabState: { workspace in
+                    workspace == workspaceID ? restoredState : nil
+                },
+                clearTabState: { _ in }
+            ),
+            initialWorkspaceId: workspaceID
+        )
+
+        #expect(browserState.tabs.count == 1)
+        #expect(browserState.tabs.first?.id == tabID)
+        #expect(browserState.tabs.first?.title == "Restored")
+        #expect(browserState.tabs.first?.url?.absoluteString == "https://example.com/restored")
+        #expect(browserState.activeTabId == tabID)
+    }
+
+    @Test("BrowserState falls back to a single blank tab when the initial workspace has no saved state")
+    func browserStateCreatesBlankTabWhenInitialWorkspaceHasNoSavedState() {
+        let workspaceID = UUID()
+        let browserState = BrowserState(
+            workspaceStateStore: WorkspaceStateStore(
+                saveTabState: { _, _ in },
+                getTabState: { _ in nil },
+                clearTabState: { _ in }
+            ),
+            initialWorkspaceId: workspaceID
+        )
+
+        #expect(browserState.tabs.count == 1)
+        #expect(browserState.activeTab != nil)
+        #expect(browserState.activeTab?.url == nil)
+        #expect(browserState.activeTab?.title == "New Tab")
+    }
+
     @Test("Tab collection restores folder membership from workspace snapshots")
     func tabCollectionRestoresFolderMembership() throws {
         var model = BrowserTabModel()

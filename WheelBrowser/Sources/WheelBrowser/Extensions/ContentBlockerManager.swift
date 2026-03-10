@@ -218,7 +218,10 @@ final class ContentBlockerManager: @unchecked Sendable {
     }
 
     @MainActor
-    func compileActiveRules(for extensions: [InstalledExtension]) async -> CompiledRuleSetBundle {
+    func compileActiveRules(
+        for extensions: [InstalledExtension],
+        preferCachedResourcesOnly: Bool = false
+    ) async -> CompiledRuleSetBundle {
         var ruleListsByExtensionID: [String: [WKContentRuleList]] = [:]
         var errorsByExtensionID: [String: String] = [:]
         let allowlistedDomains = AppSettings.shared.adBlockDomainAllowlist
@@ -242,7 +245,8 @@ final class ContentBlockerManager: @unchecked Sendable {
                     let subscriptionID = builtInSubscriptionID(extensionID: manifest.id, specID: spec.id)
                     outcome = await compileRemoteRuleList(
                         subscriptionID: subscriptionID,
-                        allowlistedDomains: allowlistedDomains
+                        allowlistedDomains: allowlistedDomains,
+                        preferCachedResourcesOnly: preferCachedResourcesOnly
                     )
                 }
 
@@ -258,7 +262,8 @@ final class ContentBlockerManager: @unchecked Sendable {
                 for subscription in subscriptions(for: manifest.id).filter(\.isCustom) where subscription.isEnabled {
                     let outcome = await compileRemoteRuleList(
                         subscriptionID: subscription.id,
-                        allowlistedDomains: allowlistedDomains
+                        allowlistedDomains: allowlistedDomains,
+                        preferCachedResourcesOnly: preferCachedResourcesOnly
                     )
                     if let ruleList = outcome.ruleList {
                         compiledLists.append(ruleList)
@@ -421,13 +426,17 @@ final class ContentBlockerManager: @unchecked Sendable {
     @MainActor
     private func compileRemoteRuleList(
         subscriptionID: String,
-        allowlistedDomains: [String]
+        allowlistedDomains: [String],
+        preferCachedResourcesOnly: Bool
     ) async -> RuleListOutcome {
         guard let index = subscriptions.firstIndex(where: { $0.id == subscriptionID }) else {
             return RuleListOutcome(error: "Unknown blocker subscription \(subscriptionID).")
         }
 
         if !FileManager.default.fileExists(atPath: rawCacheFileURL(for: subscriptionID).path) {
+            if preferCachedResourcesOnly {
+                return RuleListOutcome(ruleList: nil, error: nil)
+            }
             do {
                 try await refreshSubscription(at: index, force: false)
             } catch {
@@ -436,6 +445,9 @@ final class ContentBlockerManager: @unchecked Sendable {
         }
 
         guard let filterText = try? String(contentsOf: rawCacheFileURL(for: subscriptionID), encoding: .utf8) else {
+            if preferCachedResourcesOnly {
+                return RuleListOutcome(ruleList: nil, error: nil)
+            }
             return RuleListOutcome(error: "No cached rules available for \(subscriptions[index].name).")
         }
 

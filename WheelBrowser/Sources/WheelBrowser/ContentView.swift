@@ -320,6 +320,19 @@ private struct EmptyFolderSurface: View {
     }
 }
 
+private struct StartupBrowserSurface: View {
+    var body: some View {
+        ZStack {
+            Color(nsColor: .windowBackgroundColor)
+
+            ProgressView()
+                .controlSize(.small)
+                .tint(.secondary)
+        }
+        .ignoresSafeArea()
+    }
+}
+
 private struct FolderEditorRequest: Identifiable {
     let id = UUID()
     let folderIDToEdit: UUID?
@@ -341,15 +354,19 @@ struct ContentView: View {
     @State private var noteStore = NoteStore()
     @State private var noteWindowState = NoteWindowState()
     @State private var folderEditorRequest: FolderEditorRequest?
+    @State private var startupExtensionsReady: Bool
     private var contextMenuState = ContextMenuState.shared
     private let contentExtractor = ContentExtractor()
 
     init() {
-        let browserState = BrowserState()
+        let browserState = BrowserState(initialWorkspaceId: WorkspaceManager.shared.currentWorkspaceID)
         let engine = AgentEngine(browserState: browserState, settings: AppSettings.shared)
+        let startupReady = !AppSettings.shared.extensionsEnabled
+            || ExtensionRegistry.shared.hasCompletedInitialRuntimeBootstrap
 
         _state = State(wrappedValue: browserState)
         _agentEngine = State(wrappedValue: engine)
+        _startupExtensionsReady = State(initialValue: startupReady)
 
         // Configure the shared MCP server with browser dependencies
         // and auto-start if enabled in settings
@@ -367,54 +384,58 @@ struct ContentView: View {
     private var mainContent: some View {
         GeometryReader { geometry in
             ZStack {
-                VStack(spacing: 0) {
-                    BrowserContentArea(
-                        activeTab: state.activeTab,
-                        agentManager: agentManager,
-                        browserState: state,
-                        noteStore: noteStore,
-                        onCopyNote: copyNote,
-                        onDeleteNote: deleteNote,
-                        settings: settings,
-                        agentEngine: agentEngine,
-                        wheelState: wheelState,
-                        noteWindowState: noteWindowState,
-                        contentExtractor: contentExtractor
-                    )
-                    .overlay {
-                        if state.activeTab == nil {
-                            EmptyFolderSurface(folderName: state.activeFolder?.name ?? "Loose") {
-                                state.addTab()
+                if startupExtensionsReady {
+                    VStack(spacing: 0) {
+                        BrowserContentArea(
+                            activeTab: state.activeTab,
+                            agentManager: agentManager,
+                            browserState: state,
+                            noteStore: noteStore,
+                            onCopyNote: copyNote,
+                            onDeleteNote: deleteNote,
+                            settings: settings,
+                            agentEngine: agentEngine,
+                            wheelState: wheelState,
+                            noteWindowState: noteWindowState,
+                            contentExtractor: contentExtractor
+                        )
+                        .overlay {
+                            if state.activeTab == nil {
+                                EmptyFolderSurface(folderName: state.activeFolder?.name ?? "Loose") {
+                                    state.addTab()
+                                }
                             }
                         }
                     }
+                    .frame(minWidth: 400)
+
+                    StageManagerStrip(
+                        browserState: state,
+                        screenshotManager: TabScreenshotManager.shared,
+                        onCreateFolder: presentCreateFolder,
+                        onRenameFolder: presentRenameFolder
+                    )
+                    .frame(maxWidth: .infinity, alignment: .leading)
+
+                    NotesStrip(
+                        noteStore: noteStore,
+                        onOpenNote: openNote,
+                        onCopyNote: copyNote,
+                        onDeleteNote: deleteNote,
+                        onCreateNote: createNote
+                    )
+                    .frame(maxWidth: .infinity, alignment: .trailing)
+
+                    ContextMenuOverlay(
+                        state: contextMenuState,
+                        containerSize: geometry.size
+                    )
+                } else {
+                    StartupBrowserSurface()
                 }
-                .frame(minWidth: 400)
-
-                StageManagerStrip(
-                    browserState: state,
-                    screenshotManager: TabScreenshotManager.shared,
-                    onCreateFolder: presentCreateFolder,
-                    onRenameFolder: presentRenameFolder
-                )
-                .frame(maxWidth: .infinity, alignment: .leading)
-
-                NotesStrip(
-                    noteStore: noteStore,
-                    onOpenNote: openNote,
-                    onCopyNote: copyNote,
-                    onDeleteNote: deleteNote,
-                    onCreateNote: createNote
-                )
-                .frame(maxWidth: .infinity, alignment: .trailing)
-
-                ContextMenuOverlay(
-                    state: contextMenuState,
-                    containerSize: geometry.size
-                )
             }
             .overlay {
-                if state.activeTab?.hasActiveAgent == true {
+                if startupExtensionsReady, state.activeTab?.hasActiveAgent == true {
                     AgentControlledWindowGlow()
                 }
             }
@@ -489,12 +510,21 @@ struct ContentView: View {
     // MARK: - Handlers
 
     private func handleOnAppear() {
-        if let currentWorkspaceId = workspaceManager.currentWorkspaceID {
-            Task { @MainActor in
+        Task { @MainActor in
+            await prepareStartupExtensionsIfNeeded()
+
+            if let currentWorkspaceId = workspaceManager.currentWorkspaceID {
                 state.bindToWorkspace(currentWorkspaceId)
                 noteStore.bindToWorkspace(currentWorkspaceId)
             }
         }
+    }
+
+    @MainActor
+    private func prepareStartupExtensionsIfNeeded() async {
+        guard !startupExtensionsReady else { return }
+        await ExtensionRegistry.shared.bootstrapRuntimeIfNeeded()
+        startupExtensionsReady = true
     }
 
     @MainActor

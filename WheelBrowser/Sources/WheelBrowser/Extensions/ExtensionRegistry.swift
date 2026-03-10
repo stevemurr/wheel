@@ -9,6 +9,18 @@ final class ExtensionRegistry {
         var extensions: [InstalledExtensionState]
     }
 
+    private struct RuntimeConfigurationSignature: Equatable {
+        struct UserScriptSignature: Equatable {
+            let id: String
+            let source: String
+            let injectionTime: WKUserScriptInjectionTime
+            let forMainFrameOnly: Bool
+        }
+
+        let userScripts: [UserScriptSignature]
+        let contentRuleListIdentifiers: [String]
+    }
+
     private struct ExtensionCandidate {
         let manifest: ExtensionManifest?
         let rootURL: URL
@@ -24,10 +36,12 @@ final class ExtensionRegistry {
 
     private var persistedStates: [String: InstalledExtensionState] = [:]
     private var runtimeSnapshot: ExtensionRuntimeSnapshot = .empty
+    @ObservationIgnored private var bootstrapTask: Task<Void, Never>?
 
     private(set) var installedExtensions: [InstalledExtension] = []
     private(set) var isReloading: Bool = false
     private(set) var lastReloadError: String?
+    private(set) var hasCompletedInitialRuntimeBootstrap: Bool = false
 
     init(
         bundledExtensionsURL: URL? = Bundle.module.resourceURL?.appendingPathComponent("Extensions", isDirectory: true),
@@ -57,6 +71,33 @@ final class ExtensionRegistry {
     }
 
     @MainActor
+    func bootstrapRuntimeIfNeeded() async {
+        guard AppSettings.shared.extensionsEnabled else {
+            runtimeSnapshot = .empty
+            hasCompletedInitialRuntimeBootstrap = true
+            return
+        }
+
+        if hasCompletedInitialRuntimeBootstrap {
+            return
+        }
+
+        if let bootstrapTask {
+            await bootstrapTask.value
+            return
+        }
+
+        let task = Task { @MainActor [weak self] in
+            guard let self else { return }
+            await self.reload(preferCachedResourcesOnly: true)
+            self.hasCompletedInitialRuntimeBootstrap = true
+            self.bootstrapTask = nil
+        }
+        bootstrapTask = task
+        await task.value
+    }
+
+    @MainActor
     func setEnabled(_ enabled: Bool, for logicalID: String) async {
         var state = persistedStates[logicalID] ?? InstalledExtensionState(id: logicalID)
         state.isEnabled = enabled
@@ -66,10 +107,12 @@ final class ExtensionRegistry {
     }
 
     @MainActor
-    func reload() async {
+    func reload(preferCachedResourcesOnly: Bool = false) async {
         isReloading = true
         lastReloadError = nil
         defer { isReloading = false }
+
+        let previousRuntimeSignature = runtimeConfigurationSignature(for: runtimeSnapshot)
 
         loadPersistedStates()
 
@@ -80,12 +123,17 @@ final class ExtensionRegistry {
         guard AppSettings.shared.extensionsEnabled else {
             clearRuntimeErrors()
             runtimeSnapshot = .empty
-            postRuntimeDidUpdate()
+            if previousRuntimeSignature != runtimeConfigurationSignature(for: runtimeSnapshot) {
+                postRuntimeDidUpdate()
+            }
             return
         }
 
         let activeExtensions = installedExtensions.filter { $0.isValid && $0.isEnabled }
-        let compiledRules = await contentBlockerManager.compileActiveRules(for: activeExtensions)
+        let compiledRules = await contentBlockerManager.compileActiveRules(
+            for: activeExtensions,
+            preferCachedResourcesOnly: preferCachedResourcesOnly
+        )
         applyRuntimeErrors(compiledRules.errorsByExtensionID)
         runtimeSnapshot = buildRuntimeSnapshot(
             for: activeExtensions,
@@ -93,7 +141,9 @@ final class ExtensionRegistry {
         )
 
         savePersistedStates()
-        postRuntimeDidUpdate()
+        if previousRuntimeSignature != runtimeConfigurationSignature(for: runtimeSnapshot) {
+            postRuntimeDidUpdate()
+        }
     }
 
     private func discoverExtensions() -> [ExtensionCandidate] {
@@ -472,7 +522,23 @@ final class ExtensionRegistry {
     }
 
     private func postRuntimeDidUpdate() {
-        NotificationCenter.default.post(name: .extensionRuntimeDidUpdate, object: nil)
+        NotificationCenter.default.post(name: .extensionRuntimeDidUpdate, object: self)
+    }
+
+    private func runtimeConfigurationSignature(
+        for snapshot: ExtensionRuntimeSnapshot
+    ) -> RuntimeConfigurationSignature {
+        RuntimeConfigurationSignature(
+            userScripts: snapshot.userScripts.map {
+                RuntimeConfigurationSignature.UserScriptSignature(
+                    id: $0.id,
+                    source: $0.source,
+                    injectionTime: $0.injectionTime,
+                    forMainFrameOnly: $0.forMainFrameOnly
+                )
+            },
+            contentRuleListIdentifiers: snapshot.contentRuleLists.map(\.identifier)
+        )
     }
 
     private func loadPersistedStates() {

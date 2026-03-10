@@ -20,7 +20,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         Log.addSink(OSLogSink())
 
         Task { @MainActor in
-            await ExtensionRegistry.shared.reload()
+            await ExtensionRegistry.shared.bootstrapRuntimeIfNeeded()
             await ContentBlockerManager.shared.refresh(force: false)
             await ExtensionRegistry.shared.reload()
             ContentBlockerManager.shared.startAutomaticRefresh()

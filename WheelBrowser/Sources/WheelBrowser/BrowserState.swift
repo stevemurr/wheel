@@ -279,7 +279,8 @@ class BrowserState: BrowserBridgeProvider {
         workspaceStateStore: WorkspaceStateStore = .shared,
         tabCollectionController: TabCollectionController = TabCollectionController(),
         tabSelectionController: TabSelectionController = TabSelectionController(),
-        browserStateEffects: BrowserStateEffects = BrowserStateEffects()
+        browserStateEffects: BrowserStateEffects = BrowserStateEffects(),
+        initialWorkspaceId: UUID? = nil
     ) {
         self.tabCollectionController = tabCollectionController
         self.tabSelectionController = tabSelectionController
@@ -293,7 +294,12 @@ class BrowserState: BrowserBridgeProvider {
             tabSelectionController: tabSelectionController
         )
         self.workspaceSessionController = WorkspaceSessionController(workspaceStateStore: workspaceStateStore)
-        addTab()
+
+        if let initialWorkspaceId {
+            loadStateForWorkspace(initialWorkspaceId)
+        } else {
+            addTab()
+        }
     }
 
     // MARK: - Workspace Integration
