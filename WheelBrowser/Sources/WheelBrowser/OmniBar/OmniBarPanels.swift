@@ -45,8 +45,9 @@ extension OmniBar {
 
         // Chat panel - extracted to isolate agentManager observation (Rule 13)
         ChatOmniPanel(
-            agentManager: agentManager,
             omniState: omniState,
+            isFullPageChatActive: isFullPageChatActive,
+            agentManager: agentManager,
             isSending: isSending,
             onDismiss: { omniState.dismissVisiblePanel() },
             onPopulateInput: { text in
@@ -201,17 +202,17 @@ struct ChatPanelContent: View {
 
 // MARK: - Chat OmniPanel (isolated sub-view for per-property observation)
 
-/// Extracted from OmniBar to isolate all `agentManager` property reads (messages, isLoading)
-/// from the OmniBar body. Only this sub-view re-evaluates when chat messages change during streaming.
+/// Extracted from OmniBar to isolate chat panel observation from the main body.
 private struct ChatOmniPanel: View {
-    var agentManager: AgentManager
     var omniState: OmniBarState
+    var isFullPageChatActive: Bool
+    var agentManager: AgentManager
     var isSending: Bool
     var onDismiss: () -> Void
     var onPopulateInput: ((String) -> Void)?
 
     private var isVisible: Bool {
-        omniState.isPanelVisible(for: .chat) && !agentManager.isFullPageChatActive
+        omniState.isPanelVisible(for: .chat) && !isFullPageChatActive
     }
 
     var body: some View {

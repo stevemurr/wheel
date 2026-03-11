@@ -9,38 +9,39 @@ extension OmniBar {
 
     // MARK: - Full Page Chat State
 
-    /// Updates `agentManager.isFullPageChatActive` based on current tab URL and mode.
-    /// Called BEFORE `setVisiblePanel` to ensure non-animated state changes precede
-    /// animated panel transitions (Rule 8). Does NOT use `withAnimation`.
+    /// Updates the tab's latched chat presentation state.
+    /// The mutation is deferred to the next main-queue turn so focus/mode changes
+    /// can settle before the root content tree switches between dashboard and chat.
     ///
     /// When an empty tab enters chat mode, `tab.isChatTab` latches to `true`
     /// and the tab shows `FullPageChatView`. The latch becomes permanent once a
     /// message has been sent. Before that, switching away from chat mode unlatches
     /// `isChatTab`, allowing the user to return to the NTP.
     func updateFullPageChatState() {
-        // Latch into chat mode when entering chat on an empty tab
-        if OmniBarTabTransitionPolicy.shouldLatchEmptyTabIntoChat(
-            tab: tab,
-            currentMode: omniState.mode,
-            isInputFocused: isInputFocused,
-            hasExplicitChatFocusIntent: tab.hasExplicitChatFocusIntent
-        ) {
-            tab.isChatTab = true
-            tab.hasExplicitChatFocusIntent = false
-        }
-        // Permanently lock the latch once a message has been sent
-        if tab.isChatTab && !tab.hasConversationStarted && !agentManager.messages.isEmpty {
-            tab.hasConversationStarted = true
-        }
-        // Allow unlatching only if no conversation has started yet —
-        // the user can switch back to NTP before sending their first message
-        if tab.isChatTab && !tab.hasConversationStarted && tab.url == nil && omniState.mode != .chat {
-            tab.isChatTab = false
-            tab.hasExplicitChatFocusIntent = false
-        }
-        let shouldBeActive = tab.url == nil && tab.isChatTab
-        if agentManager.isFullPageChatActive != shouldBeActive {
-            agentManager.isFullPageChatActive = shouldBeActive
+        let targetTabID = tab.id
+        DispatchQueue.main.async {
+            guard self.tab.id == targetTabID else { return }
+
+            if OmniBarTabTransitionPolicy.shouldLatchEmptyTabIntoChat(
+                tab: self.tab,
+                currentMode: self.omniState.mode,
+                isInputFocused: self.isInputFocused,
+                hasExplicitChatFocusIntent: self.tab.hasExplicitChatFocusIntent
+            ) {
+                self.tab.isChatTab = true
+                self.tab.hasExplicitChatFocusIntent = false
+                return
+            }
+
+            // Allow unlatching only if no conversation has started yet —
+            // the user can switch back to NTP before sending their first message.
+            if self.tab.isChatTab
+                && !self.tab.hasConversationStarted
+                && self.tab.url == nil
+                && self.omniState.mode != .chat {
+                self.tab.isChatTab = false
+                self.tab.hasExplicitChatFocusIntent = false
+            }
         }
     }
 
@@ -262,7 +263,7 @@ extension OmniBar {
 
     func handleFocusAddressBar() {
         // Chat tabs are locked to chat mode — unless no conversation started yet
-        guard !agentManager.isFullPageChatActive || !tab.hasConversationStarted else { return }
+        guard !isFullPageChatLocked else { return }
         prepareForOmniBarFocus()
         // Set focus BEFORE mode so that handleModeChange sees isInputFocused=true
         // and activates the panel directly, instead of dismissing then re-showing (flash).
@@ -296,7 +297,7 @@ extension OmniBar {
 
     // MARK: - Focus Chat Input
 
-    func handleFocusChatInput() {
+    func handleFocusChatInput(prefill: String? = nil) {
         prepareForOmniBarFocus()
         withAnimation(AppAnimation.panelSpring) {
             isInputFocused = true
@@ -304,12 +305,15 @@ extension OmniBar {
         tab.hasExplicitChatFocusIntent = true
         omniState.resetMentions(includeCurrentPage: tab.url != nil)
         omniState.setMode(.chat)
+        if let prefill {
+            omniState.inputText = prefill
+        }
     }
 
     // MARK: - Focus Semantic Search
 
     func handleFocusSemanticSearch() {
-        guard !agentManager.isFullPageChatActive || !tab.hasConversationStarted else { return }
+        guard !isFullPageChatLocked else { return }
         prepareForOmniBarFocus()
         withAnimation(AppAnimation.panelSpring) {
             isInputFocused = true
@@ -332,7 +336,7 @@ extension OmniBar {
     // MARK: - Focus Reading List
 
     func handleFocusReadingList() {
-        guard !agentManager.isFullPageChatActive || !tab.hasConversationStarted else { return }
+        guard !isFullPageChatLocked else { return }
         prepareForOmniBarFocus()
         withAnimation(AppAnimation.panelSpring) {
             isInputFocused = true
@@ -545,7 +549,7 @@ extension OmniBar: OmniBarKeyboardHandler {
 
         case .tab:
             // Block mode cycling on chat tabs — unless no conversation started yet
-            guard !agentManager.isFullPageChatActive || !tab.hasConversationStarted else { return true }
+            guard !isFullPageChatLocked else { return true }
             let wasChat = omniState.mode == .chat
             omniState.nextMode()
             if !wasChat && omniState.mode == .chat {
@@ -555,7 +559,7 @@ extension OmniBar: OmniBarKeyboardHandler {
             return true
 
         case .shiftTab:
-            guard !agentManager.isFullPageChatActive || !tab.hasConversationStarted else { return true }
+            guard !isFullPageChatLocked else { return true }
             let wasChat = omniState.mode == .chat
             omniState.previousMode()
             if !wasChat && omniState.mode == .chat {

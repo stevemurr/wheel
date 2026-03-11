@@ -46,7 +46,7 @@ struct FullPageChatView: View {
         ChatMessageListView(
             agentManager: agentManager,
             onSubmitPrompt: onSubmitPrompt ?? { text in
-                agentManager.pendingInputText = text
+                NotificationCenter.default.post(name: .focusChatInput, object: text)
             },
             onSelectArtifact: { artifact in
                 withAnimation(AppAnimation.standard) {

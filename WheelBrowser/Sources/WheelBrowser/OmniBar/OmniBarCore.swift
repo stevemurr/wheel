@@ -42,6 +42,12 @@ struct OmniBar: View {
             showMentionDropdown: omniState.showMentionDropdown
         )
     }
+    var isFullPageChatActive: Bool {
+        tab.url == nil && tab.isChatTab
+    }
+    var isFullPageChatLocked: Bool {
+        isFullPageChatActive && tab.hasConversationStarted
+    }
 
 
     var body: some View {
@@ -116,18 +122,6 @@ struct OmniBar: View {
         .onChange(of: omniState.inputText) { _, newValue in handleInputTextChange(newValue) }
         .onChange(of: isInputFocused) { _, focused in handleFocusChange(focused) }
         .onChange(of: omniState.mode) { _, newMode in handleModeChange(newMode) }
-        .onChange(of: agentManager.pendingInputText) { _, newValue in
-            if let text = newValue {
-                agentManager.pendingInputText = nil
-                omniState.inputText = text
-                if omniState.mode != .chat {
-                    omniState.setMode(.chat)
-                }
-                withAnimation(AppAnimation.panelSpring) {
-                    isInputFocused = true
-                }
-            }
-        }
         .onAppear {
             omniState.inputText = tab.url?.absoluteString ?? ""
             suggestionsVM.browserState = browserState
@@ -309,7 +303,9 @@ private struct OmniBarNotificationModifier: ViewModifier {
         content
             .onReceive(NotificationCenter.default.publisher(for: .focusAddressBar)) { _ in omniBar.handleFocusAddressBar() }
             .onReceive(NotificationCenter.default.publisher(for: .focusAISidebar)) { _ in omniBar.handleFocusAISidebar() }
-            .onReceive(NotificationCenter.default.publisher(for: .focusChatInput)) { _ in omniBar.handleFocusChatInput() }
+            .onReceive(NotificationCenter.default.publisher(for: .focusChatInput)) { notification in
+                omniBar.handleFocusChatInput(prefill: notification.object as? String)
+            }
             .onReceive(NotificationCenter.default.publisher(for: .focusSemanticSearch)) { _ in omniBar.handleFocusSemanticSearch() }
             .onReceive(NotificationCenter.default.publisher(for: .escapePressed)) { _ in omniBar.handleEscapePressed() }
             .onReceive(NotificationCenter.default.publisher(for: .findInPage)) { _ in omniBar.handleFindInPage() }

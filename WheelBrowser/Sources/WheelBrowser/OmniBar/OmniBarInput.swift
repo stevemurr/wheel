@@ -115,9 +115,9 @@ extension OmniBar {
 
     var modeIndicator: some View {
         ModeIndicatorView(
-            agentManager: agentManager,
             omniState: omniState,
-            isInputFocused: isInputFocused
+            isInputFocused: isInputFocused,
+            isFullPageChatActive: isFullPageChatActive
         )
     }
 
@@ -306,16 +306,15 @@ private struct AgentInlineStatusView: View {
 
 // MARK: - Agent Action Button (isolated sub-view for per-property observation)
 
-/// Extracted from OmniBar to isolate `agentManager.isFullPageChatActive` reads from OmniBar.body.
-/// Only this sub-view re-evaluates when the full-page chat state changes.
+/// Extracted from OmniBar to isolate full-page chat lock UI from the main input pill body.
 private struct ModeIndicatorView: View {
-    var agentManager: AgentManager
     var omniState: OmniBarState
     var isInputFocused: Bool
+    var isFullPageChatActive: Bool
 
     var body: some View {
         Button(action: {
-            if !agentManager.isFullPageChatActive {
+            if !isFullPageChatActive {
                 omniState.nextMode()
             }
         }) {
@@ -325,8 +324,8 @@ private struct ModeIndicatorView: View {
                 .contentTransition(.symbolEffect(.replace))
         }
         .buttonStyle(.plain)
-        .disabled(agentManager.isFullPageChatActive)
-        .help(agentManager.isFullPageChatActive ? "Chat mode" : "Press Tab to switch modes (Address / Chat / Semantic)")
+        .disabled(isFullPageChatActive)
+        .help(isFullPageChatActive ? "Chat mode" : "Press Tab to switch modes (Address / Chat / Semantic)")
     }
 }
 
