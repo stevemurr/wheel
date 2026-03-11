@@ -10,6 +10,10 @@ import AppKit
 /// for the result (with a 200ms safety timeout), then publishes state to
 /// `ContextMenuState` which renders a SwiftUI overlay.
 class BrowserWebView: WKWebView {
+    private static let hardReloadWebsiteDataTypes: Set<String> = [
+        WKWebsiteDataTypeMemoryCache,
+        WKWebsiteDataTypeDiskCache,
+    ]
 
     /// The location (in view coordinates) of the last right-click.
     private var lastRightClickLocation: NSPoint = .zero
@@ -171,7 +175,7 @@ class BrowserWebView: WKWebView {
         case .reload:
             reload()
         case .hardReload:
-            reloadFromOrigin()
+            performHardReload()
         case .createFolderFromTabs,
              .moveTabsToFolder,
              .removeTabsFromFolders,
@@ -179,5 +183,64 @@ class BrowserWebView: WKWebView {
              .deleteFolder:
             break
         }
+    }
+
+    private func performHardReload() {
+        URLCache.shared.removeAllCachedResponses()
+
+        guard let currentURL = backForwardList.currentItem?.url ?? url,
+              Self.supportsCachePurgingHardReload(for: currentURL),
+              let host = currentURL.host?.lowercased() else {
+            reloadFromOrigin()
+            return
+        }
+
+        let dataStore = configuration.websiteDataStore
+        let dataTypes = Self.hardReloadWebsiteDataTypes
+        dataStore.fetchDataRecords(ofTypes: dataTypes) { [weak self] records in
+            guard let self else { return }
+
+            let matchingRecords = records.filter { record in
+                Self.matchesHardReloadHost(record.displayName, host: host)
+            }
+
+            let reload: () -> Void = { [weak self] in
+                _ = Task { @MainActor in
+                    self?.reloadFromOrigin()
+                }
+            }
+
+            guard !matchingRecords.isEmpty else {
+                reload()
+                return
+            }
+
+            dataStore.removeData(ofTypes: dataTypes, for: matchingRecords) {
+                reload()
+            }
+        }
+    }
+
+    static func supportsCachePurgingHardReload(for url: URL) -> Bool {
+        guard let scheme = url.scheme?.lowercased() else { return false }
+        return scheme == "http" || scheme == "https"
+    }
+
+    static func matchesHardReloadHost(_ recordDisplayName: String, host: String) -> Bool {
+        let normalizedRecord = recordDisplayName.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        guard !normalizedRecord.isEmpty else { return false }
+        if normalizedRecord == host {
+            return true
+        }
+
+        if normalizedRecord.contains("."), host.hasSuffix(".\(normalizedRecord)") {
+            return true
+        }
+
+        if host.contains("."), normalizedRecord.hasSuffix(".\(host)") {
+            return true
+        }
+
+        return false
     }
 }
