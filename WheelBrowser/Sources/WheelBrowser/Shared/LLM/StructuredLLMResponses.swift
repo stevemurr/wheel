@@ -46,9 +46,34 @@ struct GeneratedChatAssistantResponse: Codable, Sendable, WheelStructuredSpecPro
     }
 
     init(from decoder: any Decoder) throws {
+        if let container = try? decoder.container(keyedBy: CodingKeys.self),
+           let answer = try? container.decode(String.self, forKey: .answer) {
+            self.answer = answer
+            self.suggestions = Self.decodeSuggestions(from: container)
+            return
+        }
+
+        if let envelope = try? decoder.container(keyedBy: EnvelopeCodingKeys.self),
+           let nested = try? envelope.nestedContainer(keyedBy: CodingKeys.self, forKey: .response),
+           let answer = try? nested.decode(String.self, forKey: .answer) {
+            self.answer = answer
+            self.suggestions = Self.decodeSuggestions(from: nested)
+            return
+        }
+
+        if let container = try? decoder.container(keyedBy: DynamicCodingKey.self),
+           container.allKeys.count == 1,
+           let key = container.allKeys.first,
+           let nested = try? container.nestedContainer(keyedBy: CodingKeys.self, forKey: key),
+           let answer = try? nested.decode(String.self, forKey: .answer) {
+            self.answer = answer
+            self.suggestions = Self.decodeSuggestions(from: nested)
+            return
+        }
+
         let container = try decoder.container(keyedBy: CodingKeys.self)
         answer = try container.decode(String.self, forKey: .answer)
-        suggestions = try container.decodeIfPresent([String].self, forKey: .suggestions) ?? []
+        suggestions = Self.decodeSuggestions(from: container)
     }
 
     var normalizedSuggestions: [String] {
@@ -77,6 +102,93 @@ struct GeneratedChatAssistantResponse: Codable, Sendable, WheelStructuredSpecPro
     )
 
     static let spec = structuredSpec { $0.answer }
+}
+
+extension GeneratedChatAssistantResponse {
+    private enum EnvelopeCodingKeys: String, CodingKey {
+        case response
+    }
+
+    private struct DynamicCodingKey: CodingKey {
+        let stringValue: String
+        let intValue: Int?
+
+        init?(stringValue: String) {
+            self.stringValue = stringValue
+            self.intValue = nil
+        }
+
+        init?(intValue: Int) {
+            self.stringValue = String(intValue)
+            self.intValue = intValue
+        }
+    }
+
+    private static func decodeSuggestions(
+        from container: KeyedDecodingContainer<CodingKeys>
+    ) -> [String] {
+        guard let rawSuggestions = try? container.decodeIfPresent(AnyCodable.self, forKey: .suggestions) else {
+            return []
+        }
+
+        return extractSuggestions(from: rawSuggestions)
+    }
+
+    private static func extractSuggestions(from rawSuggestions: AnyCodable) -> [String] {
+        if let suggestions = rawSuggestions.arrayValue {
+            return suggestions.compactMap(extractSuggestionText(from:))
+        }
+
+        if let suggestion = rawSuggestions.stringValue {
+            return parseSuggestionsString(suggestion)
+        }
+
+        if let suggestion = extractSuggestionText(from: rawSuggestions.value) {
+            return [suggestion]
+        }
+
+        return []
+    }
+
+    private static func extractSuggestionText(from value: Any) -> String? {
+        if let suggestion = value as? String {
+            return suggestion
+        }
+
+        guard let dictionary = value as? [String: Any] else {
+            return nil
+        }
+
+        for key in ["text", "question", "suggestion", "title"] {
+            if let suggestion = dictionary[key] as? String {
+                return suggestion
+            }
+        }
+
+        return nil
+    }
+
+    private static func parseSuggestionsString(_ value: String) -> [String] {
+        let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard trimmed.isEmpty == false else {
+            return []
+        }
+
+        if let data = trimmed.data(using: .utf8),
+           let suggestions = try? JSONDecoder().decode([String].self, from: data) {
+            return suggestions
+        }
+
+        let lines = trimmed
+            .split(whereSeparator: \.isNewline)
+            .map { String($0) }
+
+        if lines.count > 1 {
+            return lines
+        }
+
+        return [trimmed]
+    }
 }
 
 struct GeneratedSummaryResponse: Codable, Sendable, WheelStructuredSpecProviding {

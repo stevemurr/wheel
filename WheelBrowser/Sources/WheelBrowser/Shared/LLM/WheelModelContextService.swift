@@ -774,13 +774,20 @@ actor WheelModelContextService: WheelModelContextServing {
         return Self.displayName(for: state.runtime.inference)
     }
 
+    nonisolated static func usesStreamingTextCompatibility(
+        for providerID: WheelModelProviderID
+    ) -> Bool {
+        switch providerID {
+        case .apple, .openAI, .vllm:
+            return true
+        }
+    }
+
     private func structuredGenerationStrategy(for sessionID: String) async -> StructuredGenerationStrategy {
-        switch await providerID(for: sessionID) {
-        case .vllm:
-            return .oneShotTextCompatibility
-        case .apple, .openAI:
+        if Self.usesStreamingTextCompatibility(for: await providerID(for: sessionID)) {
             return .streamingTextCompatibility
         }
+        return .oneShotTextCompatibility
     }
 
     private func compatibleSpec<Value: Sendable>(

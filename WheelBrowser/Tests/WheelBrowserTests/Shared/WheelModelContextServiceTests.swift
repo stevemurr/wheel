@@ -30,6 +30,13 @@ struct WheelModelContextServiceTests {
         )
     }
 
+    @Test("vLLM uses streaming text compatibility")
+    func vllmUsesStreamingTextCompatibility() {
+        #expect(WheelModelContextService.usesStreamingTextCompatibility(for: .vllm))
+        #expect(WheelModelContextService.usesStreamingTextCompatibility(for: .openAI))
+        #expect(WheelModelContextService.usesStreamingTextCompatibility(for: .apple))
+    }
+
     @Test("Session existence checks use persisted LMK state")
     func sessionExistsTracksPersistedState() async throws {
         let threadStore = InMemoryThreadStore()

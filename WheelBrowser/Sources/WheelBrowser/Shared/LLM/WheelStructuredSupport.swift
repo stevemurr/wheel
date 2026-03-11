@@ -11,11 +11,41 @@ extension WheelStructuredSpecProviding {
             WheelStructuredJSONCodec.compactString(from: value) ?? "{}"
         }
     ) -> StructuredOutputSpec<Self> {
-        StructuredOutput.codable(
-            Self.self,
+        StructuredOutputSpec(
             schema: outputSchema,
-            renderTranscript: transcriptRenderer
+            decode: { data in
+                try WheelStructuredResponseDecoder.decode(Self.self, from: data)
+            },
+            transcriptRenderer: transcriptRenderer
         )
+    }
+}
+
+enum WheelStructuredResponseDecoder {
+    static func decode<Value: Decodable>(
+        _ type: Value.Type,
+        from data: Data
+    ) throws -> Value {
+        do {
+            return try JSONDecoder().decode(type, from: data)
+        } catch {
+            guard let text = String(data: data, encoding: .utf8) else {
+                throw error
+            }
+
+            var seen = Set<String>()
+            for candidate in WheelStructuredJSONExtractor.candidateJSONObjectStrings(in: text) {
+                guard seen.insert(candidate).inserted,
+                      let candidateData = candidate.data(using: .utf8) else {
+                    continue
+                }
+                if let decoded = try? JSONDecoder().decode(type, from: candidateData) {
+                    return decoded
+                }
+            }
+
+            throw error
+        }
     }
 }
 

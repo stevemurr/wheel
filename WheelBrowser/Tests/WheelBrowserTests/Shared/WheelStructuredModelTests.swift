@@ -18,6 +18,17 @@ struct WheelStructuredModelTests {
         #expect(decoded.suggestions == value.suggestions)
     }
 
+    @Test("Chat response spec tolerates wrapped payloads and string suggestions")
+    func chatResponseSpecDecodesWrappedMalformedSuggestions() throws {
+        let payload = #"{"response":{"answer":"Hello, world.","suggestions":"- What changed?\n- Show me the sources."}}"#
+
+        let decoded = try decodeJSON(payload, with: GeneratedChatAssistantResponse.spec)
+
+        #expect(decoded.answer == "Hello, world.")
+        #expect(decoded.suggestions == ["- What changed?", "- Show me the sources."])
+        #expect(decoded.normalizedSuggestions == ["What changed?", "Show me the sources."])
+    }
+
     @Test("Summary response spec decodes Codable JSON")
     func summaryResponseSpecDecodes() throws {
         let value = GeneratedSummaryResponse(summary: "A concise summary.")
@@ -25,6 +36,15 @@ struct WheelStructuredModelTests {
         let decoded = try decode(value, with: GeneratedSummaryResponse.spec)
 
         #expect(decoded.summary == value.summary)
+    }
+
+    @Test("Summary response spec unwraps response envelopes")
+    func summaryResponseSpecDecodesWrappedPayload() throws {
+        let payload = #"{"response":{"summary":"A concise summary."}}"#
+
+        let decoded = try decodeJSON(payload, with: GeneratedSummaryResponse.spec)
+
+        #expect(decoded.summary == "A concise summary.")
     }
 
     @Test("Agent intent spec decodes Codable JSON")
@@ -225,5 +245,12 @@ struct WheelStructuredModelTests {
     ) throws -> Value {
         let data = try JSONEncoder().encode(value)
         return try spec.decode(data)
+    }
+
+    private func decodeJSON<Value: Sendable>(
+        _ json: String,
+        with spec: StructuredOutputSpec<Value>
+    ) throws -> Value {
+        try spec.decode(Data(json.utf8))
     }
 }
