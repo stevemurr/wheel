@@ -3,28 +3,9 @@ import Foundation
 /// Assembles conversation context for LLM API calls.
 ///
 /// Responsible for:
-/// - Prepending the system prompt to conversation history
 /// - Formatting page contexts into the user message
-/// - Building the final messages array in the format expected by OpenAI-compatible APIs
+/// - Avoiding repeated website-context injection across turns
 struct ConversationHistoryBuilder {
-
-    /// Build the full API messages array by prepending the system prompt
-    /// to the existing conversation history.
-    ///
-    /// - Parameters:
-    ///   - systemPrompt: The system prompt to use for the conversation.
-    ///   - conversationHistory: The existing conversation history as role/content dictionaries.
-    /// - Returns: An array of message dictionaries ready for the API request body.
-    static func buildAPIMessages(
-        systemPrompt: String,
-        conversationHistory: [[String: String]]
-    ) -> [[String: String]] {
-        var apiMessages: [[String: String]] = [
-            ["role": "system", "content": systemPrompt]
-        ]
-        apiMessages.append(contentsOf: conversationHistory)
-        return apiMessages
-    }
 
     /// Build a full user message by combining page contexts with the user's question.
     ///
@@ -76,19 +57,6 @@ struct ConversationHistoryBuilder {
 
     static func injectedContextKeys(for pageContexts: [PageContext]) -> [String] {
         pageContexts.compactMap(injectedContextKey(for:))
-    }
-
-    /// Rebuild conversation history from persisted messages.
-    ///
-    /// Filters to only user and assistant messages, converting them to the
-    /// dictionary format expected by the conversation history array.
-    ///
-    /// - Parameter messages: The full list of chat messages (may include thinking, system, etc.)
-    /// - Returns: An array of role/content dictionaries for user and assistant messages only.
-    static func rebuildHistory(from messages: [ChatMessage]) -> [[String: String]] {
-        messages
-            .filter { $0.role == .user || $0.role == .assistant }
-            .map { ["role": $0.role.rawValue, "content": $0.content] }
     }
 
     private static func injectedContextKey(for context: PageContext) -> String? {

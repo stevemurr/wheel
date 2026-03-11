@@ -2,6 +2,7 @@ import SwiftUI
 
 struct AppearanceSection: View {
     @ObservedObject private var settings = AppSettings.shared
+    private let runtimeCoordinator = SettingsRuntimeCoordinator.shared
 
     var body: some View {
         Section("Appearance") {
@@ -11,6 +12,11 @@ struct AppearanceSection: View {
                 }
             }
             .pickerStyle(.segmented)
+            .onChange(of: settings.appearanceMode) {
+                Task { @MainActor in
+                    await runtimeCoordinator.handleAppearanceSettingChanged()
+                }
+            }
         }
     }
 }

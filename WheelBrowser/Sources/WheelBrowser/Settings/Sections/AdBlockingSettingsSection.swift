@@ -4,6 +4,7 @@ struct AdBlockingSettingsSection: View {
     @ObservedObject private var settings = AppSettings.shared
     private var registry = ExtensionRegistry.shared
     private var blockerManager = ContentBlockerManager.shared
+    private let runtimeCoordinator = SettingsRuntimeCoordinator.shared
 
     @State private var customListURL: String = ""
     @State private var allowlistDraft: String = AppSettings.shared.adBlockDomainAllowlistRaw
@@ -39,8 +40,7 @@ struct AdBlockingSettingsSection: View {
 
             Button("Update Filter Lists Now") {
                 Task { @MainActor in
-                    await blockerManager.refresh(force: true)
-                    await registry.reload()
+                    await runtimeCoordinator.refreshAdBlockingLists()
                 }
             }
 
@@ -52,7 +52,7 @@ struct AdBlockingSettingsSection: View {
                             set: { newValue in
                                 blockerManager.setSubscriptionEnabled(newValue, id: subscription.id)
                                 Task { @MainActor in
-                                    await registry.reload()
+                                    await runtimeCoordinator.handleAdBlockingSettingChanged()
                                 }
                             }
                         ))
@@ -62,7 +62,7 @@ struct AdBlockingSettingsSection: View {
                         Button(role: .destructive) {
                             blockerManager.removeCustomList(id: subscription.id)
                             Task { @MainActor in
-                                await registry.reload()
+                                await runtimeCoordinator.handleAdBlockingSettingChanged()
                             }
                         } label: {
                             Image(systemName: "trash")
@@ -93,8 +93,7 @@ struct AdBlockingSettingsSection: View {
                             customListURL = ""
                             localError = nil
                             Task { @MainActor in
-                                await blockerManager.refresh(force: true)
-                                await registry.reload()
+                                await runtimeCoordinator.refreshAdBlockingLists()
                             }
                         } catch {
                             localError = error.localizedDescription
@@ -155,7 +154,7 @@ struct AdBlockingSettingsSection: View {
     private func reloadRuntime() {
         localError = nil
         Task { @MainActor in
-            await registry.reload()
+            await runtimeCoordinator.handleAdBlockingSettingChanged()
         }
     }
 }

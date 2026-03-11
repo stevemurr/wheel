@@ -747,6 +747,29 @@ private actor MockWheelModelContextService: WheelModelContextServing {
         }
     }
 
+    func streamPlainChatResponse(
+        conversationId: UUID,
+        prompt: String
+    ) async throws -> AsyncThrowingStream<WheelPlainChatStreamEvent, Error> {
+        AsyncThrowingStream { continuation in
+            continuation.finish()
+        }
+    }
+
+    func generateSettingsRouteDecision(
+        conversationId: UUID,
+        prompt: String
+    ) async throws -> WheelGeneratedReply<GeneratedSettingsRouteDecision> {
+        fatalError("Not used in agent execution tests")
+    }
+
+    func generateSettingsPlan(
+        conversationId: UUID,
+        prompt: String
+    ) async throws -> WheelGeneratedReply<GeneratedSettingsPlan> {
+        fatalError("Not used in agent execution tests")
+    }
+
     func openAgentSession(tabId: UUID, runId: UUID, instructions: String) async throws -> String {
         WheelModelContextService.agentSessionID(tabId: tabId, runId: runId)
     }

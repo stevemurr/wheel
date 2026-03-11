@@ -4,13 +4,14 @@ import SwiftUI
 struct ExtensionsSettingsSection: View {
     @ObservedObject private var settings = AppSettings.shared
     private var registry = ExtensionRegistry.shared
+    private let runtimeCoordinator = SettingsRuntimeCoordinator.shared
 
     var body: some View {
         Section("Extensions") {
             Toggle("Enable Extensions", isOn: $settings.extensionsEnabled)
                 .onChange(of: settings.extensionsEnabled) {
                     Task { @MainActor in
-                        await registry.reload()
+                        await runtimeCoordinator.handleExtensionsSettingChanged()
                     }
                 }
 
@@ -67,7 +68,7 @@ struct ExtensionsSettingsSection: View {
             HStack {
                 Button("Reload Extensions") {
                     Task { @MainActor in
-                        await registry.reload()
+                        await runtimeCoordinator.handleExtensionsSettingChanged()
                     }
                 }
 

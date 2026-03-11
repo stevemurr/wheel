@@ -25,6 +25,11 @@ enum WheelChatStreamEvent: Sendable {
     case completed(WheelGeneratedReply<GeneratedChatAssistantResponse>)
 }
 
+enum WheelPlainChatStreamEvent: Sendable {
+    case partial(answer: String)
+    case completed(WheelGeneratedReply<String>)
+}
+
 enum WheelAgentDecisionStreamEvent: Sendable {
     case partialThought(String)
     case completed(WheelGeneratedReply<GeneratedAgentDecision>)
@@ -45,10 +50,22 @@ protocol WheelModelContextServing: Sendable {
         durableMemory: [WheelDurableMemoryRecord],
         replaceExisting: Bool
     ) async throws
+    func streamPlainChatResponse(
+        conversationId: UUID,
+        prompt: String
+    ) async throws -> AsyncThrowingStream<WheelPlainChatStreamEvent, Error>
     func streamChatResponse(
         conversationId: UUID,
         prompt: String
     ) async throws -> AsyncThrowingStream<WheelChatStreamEvent, Error>
+    func generateSettingsRouteDecision(
+        conversationId: UUID,
+        prompt: String
+    ) async throws -> WheelGeneratedReply<GeneratedSettingsRouteDecision>
+    func generateSettingsPlan(
+        conversationId: UUID,
+        prompt: String
+    ) async throws -> WheelGeneratedReply<GeneratedSettingsPlan>
     func openAgentSession(tabId: UUID, runId: UUID, instructions: String) async throws -> String
     func generateAgentTaskIntent(
         requestID: UUID,
@@ -87,10 +104,22 @@ protocol WheelModelContextServing: Sendable {
 
 actor WheelModelContextService: WheelModelContextServing {
     static let shared = WheelModelContextService()
+    static let settingsAssistantApple = WheelModelContextService(
+        storageRootURL: FileManager.appSupportDirectory.appendingPathComponent(
+            "LanguageModelKitSettingsAssistantApple",
+            isDirectory: true
+        ),
+        modelConfigurationProvider: WheelFixedModelConfigurationProvider.settingsAssistantApple
+    )
 
     private enum StructuredGenerationStrategy {
         case streamingTextCompatibility
         case oneShotTextCompatibility
+    }
+
+    private enum PlainTextGenerationStrategy {
+        case streaming
+        case oneShot
     }
 
     nonisolated let storageRootURL: URL
@@ -222,6 +251,69 @@ actor WheelModelContextService: WheelModelContextServing {
                 mapCompleted: { .completed($0) }
             )
         }
+    }
+
+    func streamPlainChatResponse(
+        conversationId: UUID,
+        prompt: String
+    ) async throws -> AsyncThrowingStream<WheelPlainChatStreamEvent, Error> {
+        let sessionID = Self.chatSessionID(for: conversationId)
+        Log.Services.debug("streamPlainChatResponse: resolving session id=\(sessionID)")
+        let session = try await resolveSession(id: sessionID)
+        let modelDisplayName = await modelDisplayName(for: sessionID)
+        let strategy = await plainTextGenerationStrategy(for: sessionID)
+
+        switch strategy {
+        case .streaming:
+            return makePlainTextStream(
+                session: session,
+                prompt: prompt,
+                modelDisplayName: modelDisplayName
+            )
+        case .oneShot:
+            Log.Services.info("streamPlainChatResponse: using one-shot text mode for id=\(sessionID)")
+            return makePlainTextOneShotStream(
+                session: session,
+                prompt: prompt,
+                modelDisplayName: modelDisplayName
+            )
+        }
+    }
+
+    func generateSettingsRouteDecision(
+        conversationId: UUID,
+        prompt: String
+    ) async throws -> WheelGeneratedReply<GeneratedSettingsRouteDecision> {
+        let sessionID = Self.chatSessionID(for: conversationId)
+        let session = try await resolveSession(id: sessionID)
+        let modelDisplayName = await modelDisplayName(for: sessionID)
+        let response = try await session.reply(
+            to: prompt,
+            spec: await compatibleSpec(GeneratedSettingsRouteDecision.spec, for: sessionID)
+        )
+        return mapReply(
+            response,
+            transcriptRenderer: { "Settings route: \($0.normalizedRoute.rawValue)" },
+            modelDisplayName: modelDisplayName
+        )
+    }
+
+    func generateSettingsPlan(
+        conversationId: UUID,
+        prompt: String
+    ) async throws -> WheelGeneratedReply<GeneratedSettingsPlan> {
+        let sessionID = Self.chatSessionID(for: conversationId)
+        let session = try await resolveSession(id: sessionID)
+        let modelDisplayName = await modelDisplayName(for: sessionID)
+        let response = try await session.reply(
+            to: prompt,
+            spec: await compatibleSpec(GeneratedSettingsPlan.spec, for: sessionID)
+        )
+        return mapReply(
+            response,
+            transcriptRenderer: { $0.reply },
+            modelDisplayName: modelDisplayName
+        )
     }
 
     func openAgentSession(tabId: UUID, runId: UUID, instructions: String) async throws -> String {
@@ -580,6 +672,98 @@ actor WheelModelContextService: WheelModelContextServing {
         }
     }
 
+    private func makePlainTextStream(
+        session: ContextSession,
+        prompt: String,
+        modelDisplayName: String
+    ) -> AsyncThrowingStream<WheelPlainChatStreamEvent, Error> {
+        AsyncThrowingStream { (continuation: AsyncThrowingStream<WheelPlainChatStreamEvent, Error>.Continuation) in
+            let task = Task {
+                do {
+                    let stream = session.stream(prompt)
+                    var aggregate = ""
+                    var completionText = ""
+
+                    for try await event in stream {
+                        switch event {
+                        case .partial(let partial):
+                            aggregate = WheelStructuredStreamAccumulator.merge(
+                                existing: aggregate,
+                                incoming: partial
+                            )
+                            continuation.yield(WheelPlainChatStreamEvent.partial(answer: aggregate))
+
+                        case .completed(let result):
+                            completionText = result.text
+                        }
+                    }
+
+                    let finalText = completionText.isEmpty ? aggregate : completionText
+                    guard finalText.isEmpty == false else {
+                        throw RuntimeError.generationFailed("Streaming finished without completion")
+                    }
+                    let finalMetadata = await self.metadata(for: session)
+
+                    continuation.yield(
+                        WheelPlainChatStreamEvent.completed(
+                            WheelGeneratedReply(
+                                value: finalText,
+                                transcriptText: finalText,
+                                metadata: finalMetadata,
+                                modelDisplayName: modelDisplayName
+                            )
+                        )
+                    )
+                    continuation.finish()
+                } catch let error as RuntimeError where Self.isUnsupportedTextStreaming(error) {
+                    do {
+                        let reply = try await self.generatePlainTextReply(
+                            session: session,
+                            prompt: prompt,
+                            modelDisplayName: modelDisplayName
+                        )
+                        continuation.yield(.completed(reply))
+                        continuation.finish()
+                    } catch {
+                        continuation.finish(throwing: error)
+                    }
+                } catch {
+                    continuation.finish(throwing: error)
+                }
+            }
+
+            continuation.onTermination = { _ in
+                task.cancel()
+            }
+        }
+    }
+
+    private func makePlainTextOneShotStream(
+        session: ContextSession,
+        prompt: String,
+        modelDisplayName: String
+    ) -> AsyncThrowingStream<WheelPlainChatStreamEvent, Error> {
+        AsyncThrowingStream { (continuation: AsyncThrowingStream<WheelPlainChatStreamEvent, Error>.Continuation) in
+            let task = Task {
+                do {
+                    let reply = try await self.generatePlainTextReply(
+                        session: session,
+                        prompt: prompt,
+                        modelDisplayName: modelDisplayName
+                    )
+                    continuation.yield(WheelPlainChatStreamEvent.completed(reply))
+                    continuation.finish()
+                } catch {
+                    continuation.finish(throwing: error)
+                }
+            }
+
+            continuation.onTermination = { _ in
+                task.cancel()
+            }
+        }
+    }
+
     private func finalizeStructuredStream<Value: Sendable>(
         session: ContextSession,
         originalPrompt: String,
@@ -659,6 +843,23 @@ actor WheelModelContextService: WheelModelContextServing {
         return mapReply(
             structuredResponse,
             transcriptRenderer: transcriptRenderer,
+            modelDisplayName: modelDisplayName
+        )
+    }
+
+    private func generatePlainTextReply(
+        session: ContextSession,
+        prompt: String,
+        modelDisplayName: String
+    ) async throws -> WheelGeneratedReply<String> {
+        let response = try await session.reply(to: prompt)
+        return WheelGeneratedReply(
+            value: response.text,
+            transcriptText: response.text,
+            metadata: WheelTurnMetadata(
+                compaction: response.metadata.compaction,
+                bridge: response.metadata.bridge
+            ),
             modelDisplayName: modelDisplayName
         )
     }
@@ -790,6 +991,13 @@ actor WheelModelContextService: WheelModelContextServing {
         return .oneShotTextCompatibility
     }
 
+    private func plainTextGenerationStrategy(for sessionID: String) async -> PlainTextGenerationStrategy {
+        if await supportsPlainTextStreaming(for: sessionID) {
+            return .streaming
+        }
+        return .oneShot
+    }
+
     private func compatibleSpec<Value: Sendable>(
         _ spec: StructuredOutputSpec<Value>,
         for sessionID: String
@@ -819,6 +1027,41 @@ actor WheelModelContextService: WheelModelContextServing {
         }
 
         return modelConfigurationProvider.currentProfile().providerID
+    }
+
+    private func supportsPlainTextStreaming(for sessionID: String) async -> Bool {
+        await ensureBootstrappedRuntime()
+
+        guard let runtime = await runtimeConfiguration(for: sessionID) else {
+            return true
+        }
+
+        let availability = await contextManager.availability(for: runtime.inference)
+        switch availability.status {
+        case .available:
+            return availability.capabilities.supportsTextStreaming
+        case .unavailable:
+            return true
+        }
+    }
+
+    private func runtimeConfiguration(for sessionID: String) async -> ThreadRuntimeConfiguration? {
+        if let runtime = liveSessionRuntimes[sessionID] {
+            return runtime
+        }
+
+        if let state = try? await threadStore.load(threadID: sessionID) {
+            return state.runtime
+        }
+
+        return nil
+    }
+
+    nonisolated static func isUnsupportedTextStreaming(_ error: RuntimeError) -> Bool {
+        if case .unsupportedCapability = error {
+            return true
+        }
+        return false
     }
 
     private static func defaultStructuredBackends() -> [String: any StructuredOutputBackend] {

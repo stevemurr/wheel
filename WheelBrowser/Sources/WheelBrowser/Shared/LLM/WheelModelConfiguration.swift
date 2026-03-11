@@ -231,7 +231,7 @@ struct WheelModelConfigurationProvider: WheelModelConfigurationProviding {
 
     func resolvedConfiguration() -> WheelResolvedModelConfiguration {
         let profile = currentProfile()
-        let endpoint = makeInferenceEndpoint(from: profile)
+        let endpoint = Self.makeInferenceEndpoint(from: profile, secretStore: secretStore)
         return WheelResolvedModelConfiguration(
             profile: profile,
             threadRuntimeConfiguration: ThreadRuntimeConfiguration(
@@ -241,7 +241,23 @@ struct WheelModelConfigurationProvider: WheelModelConfigurationProviding {
         )
     }
 
-    private func makeInferenceEndpoint(from profile: WheelModelProfile) -> ModelEndpoint {
+    static func resolvedConfiguration(
+        from profile: WheelModelProfile,
+        secretStore: any WheelModelSecretStoring = KeychainWheelModelSecretStore.shared
+    ) -> WheelResolvedModelConfiguration {
+        WheelResolvedModelConfiguration(
+            profile: profile,
+            threadRuntimeConfiguration: ThreadRuntimeConfiguration(
+                inference: makeInferenceEndpoint(from: profile, secretStore: secretStore),
+                structuredOutput: nil
+            )
+        )
+    }
+
+    static func makeInferenceEndpoint(
+        from profile: WheelModelProfile,
+        secretStore: any WheelModelSecretStoring = KeychainWheelModelSecretStore.shared
+    ) -> ModelEndpoint {
         var options: [String: String] = [:]
 
         switch profile.providerID {
@@ -270,6 +286,40 @@ struct WheelModelConfigurationProvider: WheelModelConfigurationProviding {
             modelID: profile.modelID,
             options: options,
             contextWindowOverride: profile.contextWindowOverride
+        )
+    }
+}
+
+struct WheelFixedModelConfigurationProvider: WheelModelConfigurationProviding {
+    static let settingsAssistantApple = WheelFixedModelConfigurationProvider(
+        profile: WheelModelProfile(
+            providerID: .apple,
+            modelID: WheelModelProviderID.apple.defaultModelID,
+            baseURL: nil,
+            contextWindowOverride: nil,
+            appleGuardrails: .default
+        )
+    )
+
+    let profile: WheelModelProfile
+    let secretStore: any WheelModelSecretStoring
+
+    init(
+        profile: WheelModelProfile,
+        secretStore: any WheelModelSecretStoring = KeychainWheelModelSecretStore.shared
+    ) {
+        self.profile = profile
+        self.secretStore = secretStore
+    }
+
+    func currentProfile() -> WheelModelProfile {
+        profile
+    }
+
+    func resolvedConfiguration() -> WheelResolvedModelConfiguration {
+        WheelModelConfigurationProvider.resolvedConfiguration(
+            from: profile,
+            secretStore: secretStore
         )
     }
 }

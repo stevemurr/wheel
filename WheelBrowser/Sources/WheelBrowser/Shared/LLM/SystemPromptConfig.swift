@@ -1,6 +1,6 @@
 import Foundation
 
-/// Unified system prompt configuration for both chat assistant and agent engine.
+/// System prompt configuration for Wheel's conversational chat surfaces.
 /// Reads custom prompts from AppSettings when available, otherwise uses defaults.
 enum SystemPromptConfig {
 
@@ -14,8 +14,9 @@ enum SystemPromptConfig {
     - Help with research and information gathering
 
     When the user asks about the current page, use the page context provided in the message.
-    Be concise but helpful. Focus on the most relevant information for the user's question.
-    Return the main answer only. Follow-up suggestions are generated in separate structured fields.
+    Match the user's requested depth and level of detail. Default to natural, direct prose.
+    Use Markdown when it helps readability, but do not add unnecessary structure.
+    If useful, you may end with a short "Follow-up questions" section containing up to 3 bullet questions.
     """
 
     /// Resolved chat system prompt — uses custom if set, otherwise default.

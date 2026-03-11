@@ -37,6 +37,20 @@ struct WheelModelContextServiceTests {
         #expect(WheelModelContextService.usesStreamingTextCompatibility(for: .apple))
     }
 
+    @Test("Unsupported text streaming errors are eligible for one-shot fallback")
+    func unsupportedTextStreamingUsesFallback() {
+        #expect(
+            WheelModelContextService.isUnsupportedTextStreaming(
+                RuntimeError.unsupportedCapability("streaming is unavailable")
+            )
+        )
+        #expect(
+            WheelModelContextService.isUnsupportedTextStreaming(
+                RuntimeError.generationFailed("different failure")
+            ) == false
+        )
+    }
+
     @Test("Session existence checks use persisted LMK state")
     func sessionExistsTracksPersistedState() async throws {
         let threadStore = InMemoryThreadStore()

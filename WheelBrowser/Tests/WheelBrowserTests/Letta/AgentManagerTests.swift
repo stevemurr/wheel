@@ -61,6 +61,67 @@ struct AgentManagerTests {
         #expect(manager.messages.last?.isFailed == false)
     }
 
+    @Test("Plain chat strips trailing follow-up sections into suggestion pills")
+    func plainChatStripsTrailingFollowUps() async {
+        ConversationManager.shared.clearCurrentConversation()
+        defer {
+            ConversationManager.shared.clearCurrentConversation()
+        }
+
+        let contextService = RecordingChatContextService(
+            responseText: """
+            Here is a fuller answer with details.
+
+            Follow-up questions:
+            - First follow-up?
+            - Second follow-up?
+            """
+        )
+        let manager = AgentManager(contextService: contextService)
+
+        await manager.sendMessage("Explain this in more detail", pageContexts: [])
+
+        #expect(await contextService.structuredStreamCallCount() == 0)
+        #expect(await contextService.plainStreamCallCount() == 1)
+        #expect(manager.messages.count == 2)
+        #expect(manager.messages.last?.content == "Here is a fuller answer with details.")
+        #expect(manager.messages.last?.suggestedFollowUps == [
+            "First follow-up?",
+            "Second follow-up?",
+        ])
+    }
+
+    @Test("Plain chat preserves injected page context in the stored user turn")
+    func plainChatPreservesInjectedPageContext() async {
+        ConversationManager.shared.clearCurrentConversation()
+        defer {
+            ConversationManager.shared.clearCurrentConversation()
+        }
+
+        let contextService = RecordingChatContextService()
+        let manager = AgentManager(contextService: contextService)
+        let pageContext = PageContext(
+            url: "https://example.com",
+            title: "Example",
+            textContent: "Example body text"
+        )
+
+        await manager.sendMessage("What changed?", pageContexts: [pageContext])
+
+        #expect(await contextService.plainStreamCallCount() == 1)
+        #expect(manager.messages.first?.content == "What changed?")
+        #expect(manager.messages.first?.modelContent == """
+        [Page Context]
+        URL: https://example.com
+        Title: Example
+        Content Preview:
+        Example body text
+
+        [User Question]
+        What changed?
+        """)
+    }
+
     @Test("Missing chat thread during streaming rebuilds history and retries once")
     func missingThreadDuringStreamingRetriesWithImportedHistory() async {
         ConversationManager.shared.clearCurrentConversation()
@@ -85,6 +146,13 @@ struct AgentManagerTests {
 private actor RecordingChatContextService: WheelModelContextServing {
     private var openedIDs: [UUID] = []
     private var streamedIDs: [UUID] = []
+    private var plainStreamCalls = 0
+    private var structuredStreamCalls = 0
+    private let responseText: String
+
+    init(responseText: String = "Hi there") {
+        self.responseText = responseText
+    }
 
     func availabilityStatus() async -> WheelModelAvailability {
         WheelModelAvailability(
@@ -109,10 +177,11 @@ private actor RecordingChatContextService: WheelModelContextServing {
         }
     }
 
-    func streamChatResponse(
+    func streamPlainChatResponse(
         conversationId: UUID,
         prompt: String
-    ) async throws -> AsyncThrowingStream<WheelChatStreamEvent, Error> {
+    ) async throws -> AsyncThrowingStream<WheelPlainChatStreamEvent, Error> {
+        plainStreamCalls += 1
         streamedIDs.append(conversationId)
 
         guard openedIDs.contains(conversationId) else {
@@ -120,17 +189,39 @@ private actor RecordingChatContextService: WheelModelContextServing {
         }
 
         let reply = WheelGeneratedReply(
-            value: GeneratedChatAssistantResponse(answer: "Hi there", suggestions: []),
-            transcriptText: "Hi there",
+            value: responseText,
+            transcriptText: responseText,
             metadata: WheelTurnMetadata(compaction: nil, bridge: nil),
             modelDisplayName: WheelModelConfigurationProvider.shared.currentProfile().displayName
         )
 
         return AsyncThrowingStream { continuation in
-            continuation.yield(.partial(answer: "Hi"))
+            continuation.yield(.partial(answer: String(responseText.prefix(2))))
             continuation.yield(.completed(reply))
             continuation.finish()
         }
+    }
+
+    func streamChatResponse(
+        conversationId: UUID,
+        prompt: String
+    ) async throws -> AsyncThrowingStream<WheelChatStreamEvent, Error> {
+        structuredStreamCalls += 1
+        fatalError("Structured chat should not be used in AgentManagerTests")
+    }
+
+    func generateSettingsRouteDecision(
+        conversationId: UUID,
+        prompt: String
+    ) async throws -> WheelGeneratedReply<GeneratedSettingsRouteDecision> {
+        fatalError("Not used in AgentManagerTests")
+    }
+
+    func generateSettingsPlan(
+        conversationId: UUID,
+        prompt: String
+    ) async throws -> WheelGeneratedReply<GeneratedSettingsPlan> {
+        fatalError("Not used in AgentManagerTests")
     }
 
     func openAgentSession(tabId: UUID, runId: UUID, instructions: String) async throws -> String {
@@ -202,6 +293,14 @@ private actor RecordingChatContextService: WheelModelContextServing {
     func streamedConversationIDs() -> [UUID] {
         streamedIDs
     }
+
+    func plainStreamCallCount() -> Int {
+        plainStreamCalls
+    }
+
+    func structuredStreamCallCount() -> Int {
+        structuredStreamCalls
+    }
 }
 
 private actor RecoveringChatContextService: WheelModelContextServing {
@@ -229,10 +328,10 @@ private actor RecoveringChatContextService: WheelModelContextServing {
         importedHistory = !turns.isEmpty
     }
 
-    func streamChatResponse(
+    func streamPlainChatResponse(
         conversationId: UUID,
         prompt: String
-    ) async throws -> AsyncThrowingStream<WheelChatStreamEvent, Error> {
+    ) async throws -> AsyncThrowingStream<WheelPlainChatStreamEvent, Error> {
         streamAttempts += 1
 
         if streamAttempts == 1 {
@@ -244,7 +343,7 @@ private actor RecoveringChatContextService: WheelModelContextServing {
         }
 
         let reply = WheelGeneratedReply(
-            value: GeneratedChatAssistantResponse(answer: "Recovered reply", suggestions: []),
+            value: "Recovered reply",
             transcriptText: "Recovered reply",
             metadata: WheelTurnMetadata(compaction: nil, bridge: nil),
             modelDisplayName: WheelModelConfigurationProvider.shared.currentProfile().displayName
@@ -254,6 +353,27 @@ private actor RecoveringChatContextService: WheelModelContextServing {
             continuation.yield(.completed(reply))
             continuation.finish()
         }
+    }
+
+    func streamChatResponse(
+        conversationId: UUID,
+        prompt: String
+    ) async throws -> AsyncThrowingStream<WheelChatStreamEvent, Error> {
+        fatalError("Structured chat should not be used in AgentManagerTests")
+    }
+
+    func generateSettingsRouteDecision(
+        conversationId: UUID,
+        prompt: String
+    ) async throws -> WheelGeneratedReply<GeneratedSettingsRouteDecision> {
+        fatalError("Not used in AgentManagerTests")
+    }
+
+    func generateSettingsPlan(
+        conversationId: UUID,
+        prompt: String
+    ) async throws -> WheelGeneratedReply<GeneratedSettingsPlan> {
+        fatalError("Not used in AgentManagerTests")
     }
 
     func openAgentSession(tabId: UUID, runId: UUID, instructions: String) async throws -> String {

@@ -91,11 +91,7 @@ class AppSettings: ObservableObject, @unchecked Sendable {
     @AppStorage("adBlockDomainAllowlistRaw") var adBlockDomainAllowlistRaw: String = ""
 
     /// App appearance mode (system, light, or dark)
-    @AppStorage("appearanceMode") var appearanceModeRaw: String = AppearanceMode.system.rawValue {
-        didSet {
-            applyAppearance()
-        }
-    }
+    @AppStorage("appearanceMode") var appearanceModeRaw: String = AppearanceMode.system.rawValue
 
     private init() {}
 

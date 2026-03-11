@@ -6,6 +6,7 @@ struct SettingsView: View {
             AppearanceSection()
             TabDockSettingsSection()
             LLMSettingsSection()
+            SettingsAssistantSection()
             SemanticSearchSettingsSection()
             ExtensionsSettingsSection()
             AdBlockingSettingsSection()

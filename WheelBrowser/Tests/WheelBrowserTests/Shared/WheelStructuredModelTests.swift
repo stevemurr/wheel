@@ -147,6 +147,38 @@ struct WheelStructuredModelTests {
         #expect(decoded.text?.literalContent == value.text?.literalContent)
     }
 
+    @Test("Settings route decision spec decodes Codable JSON")
+    func settingsRouteDecisionSpecDecodes() throws {
+        let value = GeneratedSettingsRouteDecision(
+            route: SettingsAssistantRoute.settingsMutation.rawValue,
+            reason: "The user asked to enable Semantic Search.",
+            confidence: 0.96,
+            mentionedSettingIDs: ["semanticSearch.enabled"]
+        )
+
+        let decoded = try decode(value, with: GeneratedSettingsRouteDecision.spec)
+
+        #expect(decoded.route == value.route)
+        #expect(decoded.mentionedSettingIDs == value.mentionedSettingIDs)
+        #expect(decoded.normalizedRoute == .settingsMutation)
+    }
+
+    @Test("Settings plan spec decodes wrapped payloads")
+    func settingsPlanSpecDecodesWrappedPayload() throws {
+        let payload = """
+        {"response":{"reply":"I can turn Semantic Search on.","warnings":["This reinitializes the local search backend."],"actions":[{"actionType":"set_bool","settingID":"semanticSearch.enabled","boolValue":true}],"requiresConfirmation":true}}
+        """
+
+        let decoded = try decodeJSON(payload, with: GeneratedSettingsPlan.spec)
+
+        #expect(decoded.reply == "I can turn Semantic Search on.")
+        #expect(decoded.warnings == ["This reinitializes the local search backend."])
+        #expect(decoded.actions.count == 1)
+        #expect(decoded.actions[0].normalizedActionType == .setBool)
+        #expect(decoded.actions[0].settingID == "semanticSearch.enabled")
+        #expect(decoded.requiresConfirmation)
+    }
+
     @Test("Streaming extractor returns partial top-level string values")
     func partialStringExtraction() {
         let partial = #"{"answer":"Hello wor"#

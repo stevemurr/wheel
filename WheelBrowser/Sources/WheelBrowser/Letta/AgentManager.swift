@@ -326,12 +326,12 @@ class AgentManager {
                     do {
                         streamAttempt += 1
                         Log.Chat.info("Starting chat stream attempt \(streamAttempt) for conversation \(conversationID.uuidString.lowercased())")
-                        let stream = try await contextService.streamChatResponse(
+                        let stream = try await contextService.streamPlainChatResponse(
                             conversationId: conversationID,
                             prompt: prompt
                         )
 
-                        var latestResponse: WheelGeneratedReply<GeneratedChatAssistantResponse>?
+                        var latestResponse: WheelGeneratedReply<String>?
                         var latestAnswer = ""
                         var lastStreamedAnswer = ""
                         var pendingChunk = ""
@@ -362,26 +362,25 @@ class AgentManager {
                                 }
                             case .completed(let response):
                                 latestResponse = response
-                                latestAnswer = response.value.answer
+                                latestAnswer = response.value
                             }
                         }
 
                         guard let latestResponse else {
-                            throw AgentError.invalidLLMResponse("Structured chat response stream produced no content")
+                            throw AgentError.invalidLLMResponse("Plain-text chat response stream produced no content")
                         }
 
-                        let displayContent = latestResponse.value.answer
-                            .trimmingCharacters(in: .whitespacesAndNewlines)
-                        let followUps = FollowUpSuggestionNormalizer.normalize(
-                            latestResponse.value.suggestions
+                        let parsedResponse = ChatFollowUpSuggestionParser.parse(
+                            latestResponse.value
                         )
+                        let displayContent = parsedResponse.displayText
                         let artifacts = ArtifactExtractor.extract(from: displayContent)
 
                         safeUpdateMessage(id: assistantMessageId) { msg in
                             msg.content = displayContent
                             msg.isStreaming = false
                             msg.modelUsed = latestResponse.modelDisplayName
-                            msg.suggestedFollowUps = followUps
+                            msg.suggestedFollowUps = parsedResponse.suggestions
                             msg.artifacts = artifacts
                         }
 

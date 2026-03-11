@@ -3,12 +3,15 @@ import SwiftUI
 struct SemanticSearchSettingsSection: View {
     @ObservedObject private var settings = AppSettings.shared
     private var semanticSearch = SemanticSearchManagerV2.shared
+    private let runtimeCoordinator = SettingsRuntimeCoordinator.shared
 
     var body: some View {
         Section("Semantic Search") {
             Toggle("Enable Semantic Search", isOn: $settings.semanticSearchEnabled)
                 .onChange(of: settings.semanticSearchEnabled) {
-                    Task { await semanticSearch.reinitialize() }
+                    Task { @MainActor in
+                        await runtimeCoordinator.handleSemanticSearchSettingChanged()
+                    }
                 }
 
             Text("Index your browsing history for semantic search. Uses on-device embeddings to find pages by meaning, not just keywords. Supports @Web, @History, @ReadingList mentions.")

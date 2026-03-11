@@ -3,6 +3,7 @@ import SwiftUI
 /// Settings view for the MCP Server configuration
 struct MCPSettingsView: View {
     private var mcpServer = MCPServer.shared
+    private let runtimeCoordinator = SettingsRuntimeCoordinator.shared
     @State private var portInput: String = ""
 
     var body: some View {
@@ -12,11 +13,8 @@ struct MCPSettingsView: View {
                 Toggle("Enable MCP Server", isOn: Binding(
                     get: { mcpServer.isRunning },
                     set: { newValue in
-                        AppSettings.shared.mcpServerEnabled = newValue
-                        if newValue {
-                            mcpServer.start()
-                        } else {
-                            mcpServer.stop()
+                        Task { @MainActor in
+                            await runtimeCoordinator.setMCPEnabled(newValue)
                         }
                     }
                 ))
