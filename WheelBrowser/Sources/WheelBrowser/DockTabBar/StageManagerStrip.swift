@@ -528,11 +528,24 @@ struct StageManagerStrip: View {
     private func dragRailTargetView(_ target: TabStripRailDropTarget) -> some View {
         let isHighlighted = dragSession?.hoverTarget?.matches(railTarget: target) == true
         let accentColor = railTargetColor(for: target)
+        let isNewGroupTarget = target == .newGroup
 
         HStack(spacing: 10) {
-            Circle()
-                .fill(accentColor)
-                .frame(width: 9, height: 9)
+            if isNewGroupTarget {
+                ZStack {
+                    RoundedRectangle(cornerRadius: 8, style: .continuous)
+                        .fill(accentColor.opacity(isHighlighted ? 0.22 : 0.14))
+                        .frame(width: 22, height: 22)
+
+                    Image(systemName: "plus")
+                        .font(.system(size: 10, weight: .bold))
+                        .foregroundStyle(accentColor)
+                }
+            } else {
+                Circle()
+                    .fill(accentColor)
+                    .frame(width: 9, height: 9)
+            }
 
             VStack(alignment: .leading, spacing: 2) {
                 Text(railTargetTitle(for: target))
@@ -551,11 +564,31 @@ struct StageManagerStrip: View {
         .padding(.vertical, 9)
         .background(
             RoundedRectangle(cornerRadius: 12, style: .continuous)
-                .fill(isHighlighted ? accentColor.opacity(0.18) : Color.white.opacity(0.42))
+                .fill(
+                    isNewGroupTarget
+                        ? (isHighlighted ? accentColor.opacity(0.18) : accentColor.opacity(0.08))
+                        : (isHighlighted ? accentColor.opacity(0.18) : Color.white.opacity(0.42))
+                )
         )
         .overlay(
-            RoundedRectangle(cornerRadius: 12, style: .continuous)
-                .stroke(isHighlighted ? accentColor.opacity(0.75) : Color.black.opacity(0.08), lineWidth: isHighlighted ? 1.4 : 1)
+            Group {
+                if isNewGroupTarget {
+                    RoundedRectangle(cornerRadius: 12, style: .continuous)
+                        .stroke(
+                            style: StrokeStyle(
+                                lineWidth: isHighlighted ? 1.6 : 1.2,
+                                dash: [6, 4]
+                            )
+                        )
+                        .foregroundStyle(isHighlighted ? accentColor.opacity(0.9) : accentColor.opacity(0.55))
+                } else {
+                    RoundedRectangle(cornerRadius: 12, style: .continuous)
+                        .stroke(
+                            isHighlighted ? accentColor.opacity(0.75) : Color.black.opacity(0.08),
+                            lineWidth: isHighlighted ? 1.4 : 1
+                        )
+                }
+            }
         )
         .background(
             GeometryReader { proxy in
