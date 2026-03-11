@@ -1,5 +1,4 @@
 import Foundation
-import FoundationModels
 
 enum AgentTaskIntentExtractionPrompt {
     static let instructions = """
@@ -25,42 +24,29 @@ enum AgentTaskIntentExtractionPrompt {
     """
 }
 
-@Generable(description: "Structured intent for a browser automation task.")
-struct GeneratedAgentTaskIntent: Sendable {
-    @Guide(description: "Optional seed URL where the task should begin.")
+struct GeneratedAgentTaskIntent: Codable, Sendable, WheelStructuredSpecProviding {
     let seedURL: String?
 
-    @Guide(description: "Source hosts the agent should scan for pages to inspect.")
     let sourceHosts: [String]
 
-    @Guide(description: "Target hosts to filter linked destinations to. Leave empty when no host filter is requested.")
     let targetHosts: [String]
 
-    @Guide(description: "Maximum number of source pages to scan, if specified.")
     let pageLimit: Int?
 
-    @Guide(description: "Maximum number of final items to return, if specified.")
     let outputLimit: Int?
 
-    @Guide(description: "True when duplicate URLs should be removed.")
     let requiresUniqueURLs: Bool
 
-    @Guide(description: "True when each final selected item needs its own summary or description.")
     let requiresPerItemSummaries: Bool
 
-    @Guide(description: "One of: none, page_links, paginated_links.")
     let collectionMode: String
 
-    @Guide(description: "One of: none, arxiv.")
     let canonicalizationStrategy: String
 
-    @Guide(description: "One of: generic, hacker_news_story_links.")
     let collectionStrategy: String
 
-    @Guide(description: "One of: generic_host_pages, hacker_news_news_pages.")
     let sourcePageIdentityStrategy: String
 
-    @Guide(description: "One of: unspecified, markdown_list, markdown_table.")
     let finalResponseFormat: String
 
     init(
@@ -200,6 +186,95 @@ struct GeneratedAgentTaskIntent: Sendable {
             uniqueValues.append(value)
         }
         return uniqueValues
+    }
+
+    static let outputSchema = WheelOutputSchema.object(
+        name: "GeneratedAgentTaskIntent",
+        description: "Structured intent for a browser automation task.",
+        properties: [
+            WheelOutputSchema.property(
+                "seedURL",
+                schema: WheelOutputSchema.string(minLength: 1),
+                description: "Optional seed URL where the task should begin.",
+                optional: true
+            ),
+            WheelOutputSchema.property(
+                "sourceHosts",
+                schema: WheelOutputSchema.array(item: WheelOutputSchema.string(minLength: 1)),
+                description: "Source hosts the agent should scan for pages to inspect."
+            ),
+            WheelOutputSchema.property(
+                "targetHosts",
+                schema: WheelOutputSchema.array(item: WheelOutputSchema.string(minLength: 1)),
+                description: "Target hosts to filter linked destinations to."
+            ),
+            WheelOutputSchema.property(
+                "pageLimit",
+                schema: WheelOutputSchema.integer(minimum: 1),
+                description: "Maximum number of source pages to scan, if specified.",
+                optional: true
+            ),
+            WheelOutputSchema.property(
+                "outputLimit",
+                schema: WheelOutputSchema.integer(minimum: 1),
+                description: "Maximum number of final items to return, if specified.",
+                optional: true
+            ),
+            WheelOutputSchema.property(
+                "requiresUniqueURLs",
+                schema: WheelOutputSchema.boolean(),
+                description: "True when duplicate URLs should be removed."
+            ),
+            WheelOutputSchema.property(
+                "requiresPerItemSummaries",
+                schema: WheelOutputSchema.boolean(),
+                description: "True when each final selected item needs its own summary or description."
+            ),
+            WheelOutputSchema.property(
+                "collectionMode",
+                schema: WheelOutputSchema.enumeration(
+                    name: "CollectionMode",
+                    cases: ["none", "page_links", "paginated_links"]
+                ),
+                description: "One of: none, page_links, paginated_links."
+            ),
+            WheelOutputSchema.property(
+                "canonicalizationStrategy",
+                schema: WheelOutputSchema.enumeration(
+                    name: "CanonicalizationStrategy",
+                    cases: ["none", "arxiv"]
+                ),
+                description: "One of: none, arxiv."
+            ),
+            WheelOutputSchema.property(
+                "collectionStrategy",
+                schema: WheelOutputSchema.enumeration(
+                    name: "CollectionStrategy",
+                    cases: ["generic", "hacker_news_story_links"]
+                ),
+                description: "One of: generic, hacker_news_story_links."
+            ),
+            WheelOutputSchema.property(
+                "sourcePageIdentityStrategy",
+                schema: WheelOutputSchema.enumeration(
+                    name: "SourcePageIdentityStrategy",
+                    cases: ["generic_host_pages", "hacker_news_news_pages"]
+                ),
+                description: "One of: generic_host_pages, hacker_news_news_pages."
+            ),
+            WheelOutputSchema.property(
+                "finalResponseFormat",
+                schema: WheelOutputSchema.enumeration(
+                    name: "FinalResponseFormat",
+                    cases: ["unspecified", "markdown_list", "markdown_table"]
+                ),
+                description: "One of: unspecified, markdown_list, markdown_table."
+            ),
+        ]
+    )
+
+    static let spec = structuredSpec { _ in
+        "Agent task intent extracted"
     }
 }
 

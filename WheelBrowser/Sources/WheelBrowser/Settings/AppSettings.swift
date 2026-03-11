@@ -35,12 +35,22 @@ class AppSettings: ObservableObject, @unchecked Sendable {
     static let hiddenTabScaleRange: ClosedRange<Double> = 0.7...1.7
     static let shownTabScaleRange: ClosedRange<Double> = 0.75...1.6
     static let tabScaleStep = 0.05
+    static let aiProviderIDKey = "aiProviderID"
+    static let aiModelIDKey = "aiModelID"
+    static let aiBaseURLKey = "aiBaseURL"
+    static let aiContextWindowOverrideKey = "aiContextWindowOverride"
+    static let aiAppleGuardrailsKey = "aiAppleGuardrails"
 
     // MARK: - System Prompt Customization
 
     /// Custom system prompt for chat assistant. Empty string uses the default.
     @AppStorage("chatSystemPrompt") var chatSystemPrompt: String = ""
     @AppStorage("sidebarVisible") var sidebarVisible: Bool = false
+    @AppStorage(aiProviderIDKey) var aiProviderID: String = WheelModelProviderID.apple.rawValue
+    @AppStorage(aiModelIDKey) var aiModelID: String = WheelModelProviderID.apple.defaultModelID
+    @AppStorage(aiBaseURLKey) var aiBaseURL: String = ""
+    @AppStorage(aiContextWindowOverrideKey) var aiContextWindowOverride: Int = 0
+    @AppStorage(aiAppleGuardrailsKey) var aiAppleGuardrails: String = WheelAppleGuardrailsOption.default.rawValue
 
     // MARK: - Semantic Search Configuration
 

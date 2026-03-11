@@ -49,11 +49,12 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         // Log startup configuration
         let settings = AppSettings.shared
         Task.detached(priority: .utility) {
+            let profile = WheelModelConfigurationProvider.shared.currentProfile()
             let availability = await WheelModelContextService.shared.availabilityStatus()
             if availability.isAvailable {
-                Log.Services.info("On-device AI model: available")
+                Log.Services.info("AI model \(profile.displayName): available")
             } else {
-                Log.Services.warning("On-device AI model not available: \(availability.reason ?? "unknown")")
+                Log.Services.warning("AI model \(profile.displayName) not available: \(availability.reason ?? "unknown")")
             }
         }
         Log.LinkPreview.info("Link previews: \(settings.linkPreviewEnabled ? "enabled" : "disabled")")

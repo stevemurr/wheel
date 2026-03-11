@@ -1,8 +1,6 @@
 import Foundation
-import FoundationModels
 
-@Generable(description: "A constrained widget plan that will be compiled into a WidgetManifest.")
-struct GeneratedWidgetPlan: Sendable {
+struct GeneratedWidgetPlan: Codable, Sendable, WheelStructuredSpecProviding {
     let title: String
     let widgetType: String
     let source: GeneratedWidgetSourcePlan
@@ -17,10 +15,30 @@ struct GeneratedWidgetPlan: Sendable {
     func toManifest(fallbackPrompt: String) throws -> WidgetManifest {
         try WidgetPlanCompiler.compile(self, fallbackPrompt: fallbackPrompt)
     }
+
+    static let outputSchema = WheelOutputSchema.object(
+        name: "GeneratedWidgetPlan",
+        description: "A constrained widget plan that will be compiled into a WidgetManifest.",
+        properties: [
+            WheelOutputSchema.property("title", schema: WheelOutputSchema.string(minLength: 1)),
+            WheelOutputSchema.property("widgetType", schema: WheelOutputSchema.string(minLength: 1)),
+            WheelOutputSchema.property("source", schema: GeneratedWidgetSourcePlan.outputSchema),
+            WheelOutputSchema.property("refreshSeconds", schema: WheelOutputSchema.integer(minimum: 0)),
+            WheelOutputSchema.property("prompt", schema: WheelOutputSchema.string(minLength: 1), optional: true),
+            WheelOutputSchema.property("text", schema: GeneratedWidgetTextPlan.outputSchema, optional: true),
+            WheelOutputSchema.property("metric", schema: GeneratedWidgetMetricPlan.outputSchema, optional: true),
+            WheelOutputSchema.property("list", schema: GeneratedWidgetListPlan.outputSchema, optional: true),
+            WheelOutputSchema.property("table", schema: GeneratedWidgetTablePlan.outputSchema, optional: true),
+            WheelOutputSchema.property("chart", schema: GeneratedWidgetChartPlan.outputSchema, optional: true),
+        ]
+    )
+
+    static let spec = structuredSpec { response in
+        WheelStructuredJSONCodec.prettyPrintedString(from: response) ?? "{}"
+    }
 }
 
-@Generable(description: "The source strategy for a widget plan.")
-struct GeneratedWidgetSourcePlan: Sendable {
+struct GeneratedWidgetSourcePlan: Codable, Sendable {
     let kind: String
     let url: String?
     let jsonPath: String?
@@ -29,25 +47,62 @@ struct GeneratedWidgetSourcePlan: Sendable {
     let sortAscending: Bool?
     let limit: Int?
     let timeZones: [GeneratedWidgetTimeZonePlan]?
+
+    static let outputSchema = WheelOutputSchema.object(
+        name: "GeneratedWidgetSourcePlan",
+        description: "The source strategy for a widget plan.",
+        properties: [
+            WheelOutputSchema.property("kind", schema: WheelOutputSchema.string(minLength: 1)),
+            WheelOutputSchema.property("url", schema: WheelOutputSchema.string(minLength: 1), optional: true),
+            WheelOutputSchema.property("jsonPath", schema: WheelOutputSchema.string(minLength: 1), optional: true),
+            WheelOutputSchema.property("resultShape", schema: WheelOutputSchema.string(minLength: 1), optional: true),
+            WheelOutputSchema.property("sortBy", schema: WheelOutputSchema.string(minLength: 1), optional: true),
+            WheelOutputSchema.property("sortAscending", schema: WheelOutputSchema.boolean(), optional: true),
+            WheelOutputSchema.property("limit", schema: WheelOutputSchema.integer(minimum: 1), optional: true),
+            WheelOutputSchema.property(
+                "timeZones",
+                schema: WheelOutputSchema.array(item: GeneratedWidgetTimeZonePlan.outputSchema, minimumCount: 1),
+                optional: true
+            ),
+        ]
+    )
 }
 
-@Generable(description: "A time zone entry for time-based widgets.")
-struct GeneratedWidgetTimeZonePlan: Sendable {
+struct GeneratedWidgetTimeZonePlan: Codable, Sendable {
     let label: String
     let identifier: String
+
+    static let outputSchema = WheelOutputSchema.object(
+        name: "GeneratedWidgetTimeZonePlan",
+        description: "A time zone entry for time-based widgets.",
+        properties: [
+            WheelOutputSchema.property("label", schema: WheelOutputSchema.string(minLength: 1)),
+            WheelOutputSchema.property("identifier", schema: WheelOutputSchema.string(minLength: 1)),
+        ]
+    )
 }
 
-@Generable(description: "Text widget display options.")
-struct GeneratedWidgetTextPlan: Sendable {
+struct GeneratedWidgetTextPlan: Codable, Sendable {
     let contentField: String?
     let literalContent: String?
     let markdown: Bool?
     let showTimeZone: Bool?
     let includeSeconds: Bool?
+
+    static let outputSchema = WheelOutputSchema.object(
+        name: "GeneratedWidgetTextPlan",
+        description: "Text widget display options.",
+        properties: [
+            WheelOutputSchema.property("contentField", schema: WheelOutputSchema.string(minLength: 1), optional: true),
+            WheelOutputSchema.property("literalContent", schema: WheelOutputSchema.string(minLength: 1), optional: true),
+            WheelOutputSchema.property("markdown", schema: WheelOutputSchema.boolean(), optional: true),
+            WheelOutputSchema.property("showTimeZone", schema: WheelOutputSchema.boolean(), optional: true),
+            WheelOutputSchema.property("includeSeconds", schema: WheelOutputSchema.boolean(), optional: true),
+        ]
+    )
 }
 
-@Generable(description: "Metric widget display options.")
-struct GeneratedWidgetMetricPlan: Sendable {
+struct GeneratedWidgetMetricPlan: Codable, Sendable {
     let valueField: String
     let changeField: String?
     let changePercentField: String?
@@ -55,10 +110,23 @@ struct GeneratedWidgetMetricPlan: Sendable {
     let prefix: String?
     let suffix: String?
     let footnote: String?
+
+    static let outputSchema = WheelOutputSchema.object(
+        name: "GeneratedWidgetMetricPlan",
+        description: "Metric widget display options.",
+        properties: [
+            WheelOutputSchema.property("valueField", schema: WheelOutputSchema.string(minLength: 1)),
+            WheelOutputSchema.property("changeField", schema: WheelOutputSchema.string(minLength: 1), optional: true),
+            WheelOutputSchema.property("changePercentField", schema: WheelOutputSchema.string(minLength: 1), optional: true),
+            WheelOutputSchema.property("changeIsPercent", schema: WheelOutputSchema.boolean(), optional: true),
+            WheelOutputSchema.property("prefix", schema: WheelOutputSchema.string(), optional: true),
+            WheelOutputSchema.property("suffix", schema: WheelOutputSchema.string(), optional: true),
+            WheelOutputSchema.property("footnote", schema: WheelOutputSchema.string(), optional: true),
+        ]
+    )
 }
 
-@Generable(description: "List widget display options.")
-struct GeneratedWidgetListPlan: Sendable {
+struct GeneratedWidgetListPlan: Codable, Sendable {
     let variant: String?
     let labelField: String
     let valueField: String?
@@ -68,23 +136,58 @@ struct GeneratedWidgetListPlan: Sendable {
     let iconField: String?
     let linkField: String?
     let maxItems: Int?
+
+    static let outputSchema = WheelOutputSchema.object(
+        name: "GeneratedWidgetListPlan",
+        description: "List widget display options.",
+        properties: [
+            WheelOutputSchema.property("variant", schema: WheelOutputSchema.string(minLength: 1), optional: true),
+            WheelOutputSchema.property("labelField", schema: WheelOutputSchema.string(minLength: 1)),
+            WheelOutputSchema.property("valueField", schema: WheelOutputSchema.string(minLength: 1), optional: true),
+            WheelOutputSchema.property("subtitleField", schema: WheelOutputSchema.string(minLength: 1), optional: true),
+            WheelOutputSchema.property("badgeField", schema: WheelOutputSchema.string(minLength: 1), optional: true),
+            WheelOutputSchema.property("captionField", schema: WheelOutputSchema.string(minLength: 1), optional: true),
+            WheelOutputSchema.property("iconField", schema: WheelOutputSchema.string(minLength: 1), optional: true),
+            WheelOutputSchema.property("linkField", schema: WheelOutputSchema.string(minLength: 1), optional: true),
+            WheelOutputSchema.property("maxItems", schema: WheelOutputSchema.integer(minimum: 1), optional: true),
+        ]
+    )
 }
 
-@Generable(description: "Table widget display options.")
-struct GeneratedWidgetTablePlan: Sendable {
+struct GeneratedWidgetTablePlan: Codable, Sendable {
     let columns: [GeneratedWidgetColumnPlan]
     let maxRows: Int?
+
+    static let outputSchema = WheelOutputSchema.object(
+        name: "GeneratedWidgetTablePlan",
+        description: "Table widget display options.",
+        properties: [
+            WheelOutputSchema.property(
+                "columns",
+                schema: WheelOutputSchema.array(item: GeneratedWidgetColumnPlan.outputSchema, minimumCount: 1)
+            ),
+            WheelOutputSchema.property("maxRows", schema: WheelOutputSchema.integer(minimum: 1), optional: true),
+        ]
+    )
 }
 
-@Generable(description: "A table column definition.")
-struct GeneratedWidgetColumnPlan: Sendable {
+struct GeneratedWidgetColumnPlan: Codable, Sendable {
     let field: String
     let header: String
     let prefix: String?
+
+    static let outputSchema = WheelOutputSchema.object(
+        name: "GeneratedWidgetColumnPlan",
+        description: "A table column definition.",
+        properties: [
+            WheelOutputSchema.property("field", schema: WheelOutputSchema.string(minLength: 1)),
+            WheelOutputSchema.property("header", schema: WheelOutputSchema.string(minLength: 1)),
+            WheelOutputSchema.property("prefix", schema: WheelOutputSchema.string(), optional: true),
+        ]
+    )
 }
 
-@Generable(description: "Chart widget display options.")
-struct GeneratedWidgetChartPlan: Sendable {
+struct GeneratedWidgetChartPlan: Codable, Sendable {
     let xField: String
     let yField: String?
     let series: [GeneratedWidgetSeriesPlan]?
@@ -92,13 +195,40 @@ struct GeneratedWidgetChartPlan: Sendable {
     let yPrefix: String?
     let yUnit: String?
     let showPoints: Bool?
+
+    static let outputSchema = WheelOutputSchema.object(
+        name: "GeneratedWidgetChartPlan",
+        description: "Chart widget display options.",
+        properties: [
+            WheelOutputSchema.property("xField", schema: WheelOutputSchema.string(minLength: 1)),
+            WheelOutputSchema.property("yField", schema: WheelOutputSchema.string(minLength: 1), optional: true),
+            WheelOutputSchema.property(
+                "series",
+                schema: WheelOutputSchema.array(item: GeneratedWidgetSeriesPlan.outputSchema, minimumCount: 1),
+                optional: true
+            ),
+            WheelOutputSchema.property("color", schema: WheelOutputSchema.string(minLength: 1), optional: true),
+            WheelOutputSchema.property("yPrefix", schema: WheelOutputSchema.string(), optional: true),
+            WheelOutputSchema.property("yUnit", schema: WheelOutputSchema.string(), optional: true),
+            WheelOutputSchema.property("showPoints", schema: WheelOutputSchema.boolean(), optional: true),
+        ]
+    )
 }
 
-@Generable(description: "A chart series definition.")
-struct GeneratedWidgetSeriesPlan: Sendable {
+struct GeneratedWidgetSeriesPlan: Codable, Sendable {
     let field: String
     let label: String
     let color: String?
+
+    static let outputSchema = WheelOutputSchema.object(
+        name: "GeneratedWidgetSeriesPlan",
+        description: "A chart series definition.",
+        properties: [
+            WheelOutputSchema.property("field", schema: WheelOutputSchema.string(minLength: 1)),
+            WheelOutputSchema.property("label", schema: WheelOutputSchema.string(minLength: 1)),
+            WheelOutputSchema.property("color", schema: WheelOutputSchema.string(minLength: 1), optional: true),
+        ]
+    )
 }
 
 enum WidgetPlanCompilationError: LocalizedError, Equatable {

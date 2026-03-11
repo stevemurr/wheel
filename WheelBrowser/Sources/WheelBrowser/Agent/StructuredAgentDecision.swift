@@ -1,9 +1,6 @@
 import Foundation
-import FoundationModels
 
-@Generable(description: "The next browser action decision.")
-struct GeneratedAgentDecision: Sendable {
-    @Guide(description: "Brief reasoning about the next step.")
+struct GeneratedAgentDecision: Codable, Sendable, WheelStructuredSpecProviding {
     let thought: String
 
     let action: GeneratedAgentAction
@@ -25,38 +22,46 @@ struct GeneratedAgentDecision: Sendable {
 
         return (normalizedThought, try action.toAgentAction())
     }
+
+    static let outputSchema = WheelOutputSchema.object(
+        name: "GeneratedAgentDecision",
+        description: "The next browser action decision.",
+        properties: [
+            WheelOutputSchema.property(
+                "thought",
+                schema: WheelOutputSchema.string(minLength: 1),
+                description: "Brief reasoning about the next step."
+            ),
+            WheelOutputSchema.property(
+                "action",
+                schema: GeneratedAgentAction.outputSchema,
+                description: "A single browser action with typed parameters."
+            ),
+        ]
+    )
+
+    static let spec = structuredSpec { $0.transcriptSummary }
 }
 
-@Generable(description: "A single browser action with typed parameters.")
-struct GeneratedAgentAction: Sendable {
-    @Guide(description: "One of: click, type, press_enter, scroll, navigate, back, wait_for_user, wait, read_text, new_tab, open_tab, switch_tab, extract_content, read_links, collect_links, advance_pagination, done")
+struct GeneratedAgentAction: Codable, Sendable {
     let actionType: String
 
-    @Guide(description: "Element ID for click, type, or read_text actions.")
     let elementId: Int?
 
-    @Guide(description: "Text to type for the type action.")
     let text: String?
 
-    @Guide(description: "URL for navigate, open_tab, or advance_pagination actions.")
     let url: String?
 
-    @Guide(description: "One of: up, down, top, bottom for scroll actions.")
     let scrollDirection: String?
 
-    @Guide(description: "Modifier keys for click actions. Valid values: shift, command, control, option.")
     let modifiers: [String]?
 
-    @Guide(description: "1-based tab index for switch_tab actions.")
     let tabIndex: Int?
 
-    @Guide(description: "Reason shown to the user for wait_for_user actions.")
     let reason: String?
 
-    @Guide(description: "Number of seconds for wait actions.")
     let waitSeconds: Double?
 
-    @Guide(description: "Completion summary for done actions.")
     let summary: String?
 
     init(
@@ -266,4 +271,99 @@ struct GeneratedAgentAction: Sendable {
             return "Action: \(actionType)"
         }
     }
+
+    static let outputSchema = WheelOutputSchema.object(
+        name: "GeneratedAgentAction",
+        description: "A single browser action with typed parameters.",
+        properties: [
+            WheelOutputSchema.property(
+                "actionType",
+                schema: WheelOutputSchema.enumeration(
+                    name: "ActionType",
+                    cases: [
+                        "click",
+                        "type",
+                        "press_enter",
+                        "scroll",
+                        "navigate",
+                        "back",
+                        "wait_for_user",
+                        "wait",
+                        "read_text",
+                        "new_tab",
+                        "open_tab",
+                        "switch_tab",
+                        "extract_content",
+                        "read_links",
+                        "collect_links",
+                        "advance_pagination",
+                        "done",
+                    ]
+                ),
+                description: "The action type."
+            ),
+            WheelOutputSchema.property(
+                "elementId",
+                schema: WheelOutputSchema.integer(minimum: 0),
+                description: "Element ID for click, type, or read_text actions.",
+                optional: true
+            ),
+            WheelOutputSchema.property(
+                "text",
+                schema: WheelOutputSchema.string(minLength: 1),
+                description: "Text to type for the type action.",
+                optional: true
+            ),
+            WheelOutputSchema.property(
+                "url",
+                schema: WheelOutputSchema.string(minLength: 1),
+                description: "URL for navigate, open_tab, or advance_pagination actions.",
+                optional: true
+            ),
+            WheelOutputSchema.property(
+                "scrollDirection",
+                schema: WheelOutputSchema.enumeration(
+                    name: "ScrollDirection",
+                    cases: ["up", "down", "top", "bottom"]
+                ),
+                description: "Scroll direction for scroll actions.",
+                optional: true
+            ),
+            WheelOutputSchema.property(
+                "modifiers",
+                schema: WheelOutputSchema.array(
+                    item: WheelOutputSchema.enumeration(
+                        name: "ModifierKey",
+                        cases: ["shift", "command", "control", "option"]
+                    )
+                ),
+                description: "Modifier keys for click actions.",
+                optional: true
+            ),
+            WheelOutputSchema.property(
+                "tabIndex",
+                schema: WheelOutputSchema.integer(minimum: 1),
+                description: "1-based tab index for switch_tab actions.",
+                optional: true
+            ),
+            WheelOutputSchema.property(
+                "reason",
+                schema: WheelOutputSchema.string(minLength: 1),
+                description: "Reason shown to the user for wait_for_user actions.",
+                optional: true
+            ),
+            WheelOutputSchema.property(
+                "waitSeconds",
+                schema: WheelOutputSchema.number(minimum: 0),
+                description: "Number of seconds for wait actions.",
+                optional: true
+            ),
+            WheelOutputSchema.property(
+                "summary",
+                schema: WheelOutputSchema.string(minLength: 1),
+                description: "Completion summary for done actions.",
+                optional: true
+            ),
+        ]
+    )
 }

@@ -85,5 +85,7 @@ extension KeychainHelper {
     enum Keys {
         static let llmAPIKey = "llm_api_key"
         static let embeddingAPIKey = "embedding_api_key"
+        static let openAIAPIKey = "openai_api_key"
+        static let vllmAPIKey = "vllm_api_key"
     }
 }

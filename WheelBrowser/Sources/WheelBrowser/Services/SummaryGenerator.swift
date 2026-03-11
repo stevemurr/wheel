@@ -1,5 +1,4 @@
 import Foundation
-import FoundationModels
 
 /// Service for generating AI summaries of web pages using the on-device LLM
 actor SummaryGenerator {

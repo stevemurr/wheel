@@ -204,9 +204,13 @@ struct AgentEditorSheet: View {
                 .font(.system(size: 12, weight: .semibold))
                 .foregroundColor(.secondary)
 
-            Text("Apple Intelligence (on-device)")
+            Text(WheelModelConfigurationProvider.shared.currentProfile().displayName)
                 .font(.system(size: 13))
                 .foregroundColor(.primary)
+
+            Text("Uses the global AI model selected in Settings.")
+                .font(.system(size: 11))
+                .foregroundColor(.secondary)
         }
     }
 

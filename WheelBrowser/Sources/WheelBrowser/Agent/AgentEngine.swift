@@ -1,5 +1,4 @@
 import Foundation
-import FoundationModels
 import SwiftUI
 
 /// Represents a single step in the agent's execution

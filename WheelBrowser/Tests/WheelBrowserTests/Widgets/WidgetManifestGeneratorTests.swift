@@ -1,5 +1,4 @@
 import Foundation
-import FoundationModels
 import Testing
 @testable import WheelBrowser
 
@@ -141,7 +140,7 @@ struct WidgetManifestGeneratorTests {
 
         let manifest = try await generator.generate(prompt: "Show me the north star metric")
         #expect(manifest.widgetType == WidgetType.statCard)
-        #expect(manifest.skillChain.map(\.skill) == [WidgetSkillName.fetchUrl, WidgetSkillName.parseJson, WidgetSkillName.transform])
+        #expect(manifest.skillChain.map { $0.skill } == [WidgetSkillName.fetchUrl, WidgetSkillName.parseJson, WidgetSkillName.transform])
         #expect(manifest.prompt == "Show me the north star metric")
 
         guard case .statCard(let config) = manifest.config else {
@@ -195,7 +194,7 @@ struct WidgetManifestGeneratorTests {
         let manifest = try await generator.generate(prompt: "show me revenue over the last 30 days")
 
         #expect(manifest.widgetType == WidgetType.lineChart)
-        #expect(manifest.skillChain.map(\.skill) == [WidgetSkillName.fetchUrl, WidgetSkillName.parseJson, WidgetSkillName.filterSort, WidgetSkillName.transform])
+        #expect(manifest.skillChain.map { $0.skill } == [WidgetSkillName.fetchUrl, WidgetSkillName.parseJson, WidgetSkillName.filterSort, WidgetSkillName.transform])
     }
 
     @Test("Generator infers stock chart defaults when chart details are omitted")
@@ -232,7 +231,7 @@ struct WidgetManifestGeneratorTests {
         let manifest = try await generator.generate(prompt: "show me the 30 day series")
 
         #expect(manifest.widgetType == WidgetType.lineChart)
-        #expect(manifest.skillChain.map(\.skill) == [WidgetSkillName.fetchUrl, WidgetSkillName.parseJson, WidgetSkillName.filterSort, WidgetSkillName.transform])
+        #expect(manifest.skillChain.map { $0.skill } == [WidgetSkillName.fetchUrl, WidgetSkillName.parseJson, WidgetSkillName.filterSort, WidgetSkillName.transform])
 
         guard case .lineChart(let config) = manifest.config else {
             Issue.record("Expected lineChart config")
@@ -498,7 +497,7 @@ struct WidgetManifestGeneratorTests {
         )
 
         #expect(manifest.widgetType == WidgetType.lineChart)
-        #expect(manifest.skillChain.map(\.skill) == [WidgetSkillName.fetchUrl, WidgetSkillName.parseJson, WidgetSkillName.filterSort, WidgetSkillName.filterSort, WidgetSkillName.transform])
+        #expect(manifest.skillChain.map { $0.skill } == [WidgetSkillName.fetchUrl, WidgetSkillName.parseJson, WidgetSkillName.filterSort, WidgetSkillName.filterSort, WidgetSkillName.transform])
         #expect(manifest.skillChain.first?.params["url"]?.stringValue == "https://www.pocketportfolio.app/api/tickers/AMD/json")
         #expect(manifest.skillChain[1].params["path"]?.stringValue == "data")
         #expect(manifest.returns == "chartData")
@@ -533,7 +532,7 @@ struct WidgetManifestGeneratorTests {
         let manifest = try await generator.generate(prompt: "Show BTC, ETH, and SOL prices")
 
         #expect(manifest.widgetType == WidgetType.list)
-        #expect(manifest.skillChain.map(\.skill) == [WidgetSkillName.fetchUrl, WidgetSkillName.parseJson, WidgetSkillName.filterSort, WidgetSkillName.transform])
+        #expect(manifest.skillChain.map { $0.skill } == [WidgetSkillName.fetchUrl, WidgetSkillName.parseJson, WidgetSkillName.filterSort, WidgetSkillName.transform])
         #expect(manifest.returns == "listData")
 
         guard case .list(let config) = manifest.config else {
@@ -566,7 +565,7 @@ struct WidgetManifestGeneratorTests {
         let manifest = try await generator.generate(prompt: "Create a widget for the top 5 Hacker News articles")
 
         #expect(manifest.widgetType == WidgetType.list)
-        #expect(manifest.skillChain.map(\.skill) == [WidgetSkillName.fetchUrl, WidgetSkillName.parseJson, WidgetSkillName.transform])
+        #expect(manifest.skillChain.map { $0.skill } == [WidgetSkillName.fetchUrl, WidgetSkillName.parseJson, WidgetSkillName.transform])
         #expect(manifest.skillChain.first?.params["url"]?.stringValue?.contains("hn.algolia.com") == true)
         #expect(manifest.returns == "listData")
 
@@ -601,7 +600,7 @@ struct WidgetManifestGeneratorTests {
         let manifest = try await generator.generate(prompt: "Create a widget for the top 5 posts on the Swift subreddit")
 
         #expect(manifest.widgetType == WidgetType.list)
-        #expect(manifest.skillChain.map(\.skill) == [WidgetSkillName.fetchUrl, WidgetSkillName.parseJson, WidgetSkillName.transform])
+        #expect(manifest.skillChain.map { $0.skill } == [WidgetSkillName.fetchUrl, WidgetSkillName.parseJson, WidgetSkillName.transform])
         #expect(manifest.skillChain.first?.params["url"]?.stringValue?.contains("reddit.com/r/swift/top.json") == true)
         #expect(manifest.skillChain.first?.params["url"]?.stringValue?.contains("raw_json=1") == true)
         #expect(manifest.returns == "listData")
@@ -637,7 +636,7 @@ struct WidgetManifestGeneratorTests {
         let manifest = try await generator.generate(prompt: "show me the top 5 aritcles from swift subbredit")
 
         #expect(manifest.widgetType == WidgetType.list)
-        #expect(manifest.skillChain.map(\.skill) == [WidgetSkillName.fetchUrl, WidgetSkillName.parseJson, WidgetSkillName.transform])
+        #expect(manifest.skillChain.map { $0.skill } == [WidgetSkillName.fetchUrl, WidgetSkillName.parseJson, WidgetSkillName.transform])
         #expect(manifest.skillChain.first?.params["url"]?.stringValue?.contains("reddit.com/r/swift/top.json") == true)
         #expect(manifest.skillChain.first?.params["url"]?.stringValue?.contains("t=day") == true)
 
@@ -695,7 +694,7 @@ struct WidgetManifestGeneratorTests {
 
         let manifest = try await generator.generate(prompt: "Show me a ranked list")
 
-        #expect(manifest.skillChain.map(\.skill) == [WidgetSkillName.fetchUrl, WidgetSkillName.parseJson, WidgetSkillName.filterSort, WidgetSkillName.transform])
+        #expect(manifest.skillChain.map { $0.skill } == [WidgetSkillName.fetchUrl, WidgetSkillName.parseJson, WidgetSkillName.filterSort, WidgetSkillName.transform])
         #expect(manifest.skillChain[0].params["url"]?.stringValue?.contains("raw_json=1") == true)
         #expect(manifest.skillChain[0].params["url"]?.stringValue?.contains("t=day") == true)
         #expect(manifest.skillChain[2].params["sortBy"]?.stringValue == "data.score")

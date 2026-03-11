@@ -31,7 +31,7 @@ private enum WidgetCreationSheetPhase {
         case .idle:
             return "Ready to create"
         case .checkingAvailability:
-            return "Checking Apple Intelligence"
+            return "Checking model availability"
         case .generatingManifest:
             return "Generating plan"
         case .repairingManifest:
@@ -169,7 +169,7 @@ struct WidgetPromptSheet: View {
     @State private var prompt = ""
     @State private var isWorking = false
     @State private var error: String?
-    @State private var availability: LMAvailabilityStatus?
+    @State private var availability: WheelModelAvailability?
     @State private var phase: WidgetCreationSheetPhase = .idle
     @State private var statusDetail = "Describe a live widget or start with a featured sample."
     @State private var lastActiveStepIndex: Int?
@@ -296,7 +296,7 @@ struct WidgetPromptSheet: View {
                 Spacer()
             }
 
-            Text("Generation stays on-device. If the model still misses the schema, the app now retries one automatic repair pass before surfacing the error.")
+            Text("Generation uses the selected AI model. If the model still misses the schema, the app now retries one automatic repair pass before surfacing the error.")
                 .font(.caption)
                 .foregroundStyle(.secondary)
         }
@@ -580,14 +580,16 @@ struct WidgetPromptSheet: View {
         guard let availability else {
             return "Checking model availability"
         }
-        return availability.isAvailable ? "Apple Intelligence is available" : "Apple Intelligence is unavailable"
+        return availability.isAvailable
+            ? "\(availability.displayName) is available"
+            : "\(availability.displayName) is unavailable"
     }
 
     private var modelStatusDetail: String {
         guard let availability else {
-            return "The create flow will enable once the on-device model check completes."
+            return "The create flow will enable once the model check completes."
         }
-        return availability.reason ?? "Widget generation runs on-device and never leaves your Mac."
+        return availability.reason ?? "Widget generation uses the currently selected AI model."
     }
 
     private var trimmedPrompt: String {
@@ -602,7 +604,7 @@ struct WidgetPromptSheet: View {
 
     private var footerHint: String {
         if usesBuiltInTemplate {
-            return "This prompt matches a built-in widget shortcut, so it can still work without Apple Intelligence."
+            return "This prompt matches a built-in widget shortcut, so it can still work without AI generation."
         }
         if availability?.isAvailable == false {
             return "AI generation is unavailable right now. You can still add a featured sample."
@@ -618,7 +620,7 @@ struct WidgetPromptSheet: View {
 
     private var creationSteps: [WidgetCreationStepDescriptor] {
         [
-            .init(id: 0, title: "Check on-device model", detail: "Verify Apple Intelligence is ready."),
+            .init(id: 0, title: "Check model", detail: "Verify the selected model is ready."),
             .init(id: 1, title: "Draft a plan", detail: "Generate a constrained widget plan from your prompt."),
             .init(id: 2, title: "Compile and preflight", detail: "Compile the plan, run it once in a hidden runtime, and retry once if needed."),
             .init(id: 3, title: "Save to dashboard", detail: "Persist the widget and trigger its first render."),
@@ -915,7 +917,7 @@ struct WidgetPromptSheet: View {
     private func failureSummary(for error: Error) -> String {
         switch error {
         case WidgetManifestGenerationError.llmFailed:
-            return "The on-device model did not return a usable result."
+            return "The selected AI model did not return a usable result."
         case WidgetManifestGenerationError.parseFailed:
             return "The model responded, but the widget response still did not match the expected structure."
         case WidgetManifestGenerationError.validationFailed:

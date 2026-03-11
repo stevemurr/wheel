@@ -1,5 +1,5 @@
 import Foundation
-import LanguageModelContextKit
+import LanguageModelContextManagement
 import Testing
 @testable import WheelBrowser
 
@@ -721,8 +721,11 @@ private actor MockWheelModelContextService: WheelModelContextServing {
         self.onDecisionServed = onDecisionServed
     }
 
-    func availabilityStatus() async -> LMAvailabilityStatus {
-        .available
+    func availabilityStatus() async -> WheelModelAvailability {
+        WheelModelAvailability(
+            profile: WheelModelConfigurationProvider.shared.currentProfile(),
+            runtimeAvailability: RuntimeAvailability(status: .available)
+        )
     }
 
     func openChatSession(conversationId: UUID, instructions: String) async throws {}
@@ -730,8 +733,8 @@ private actor MockWheelModelContextService: WheelModelContextServing {
     func importChatSession(
         conversationId: UUID,
         instructions: String,
-        turns: [LMNormalizedTurn],
-        durableMemory: [LMDurableMemoryRecord],
+        turns: [WheelNormalizedTurn],
+        durableMemory: [WheelDurableMemoryRecord],
         replaceExisting: Bool
     ) async throws {}
 
@@ -760,6 +763,7 @@ private actor MockWheelModelContextService: WheelModelContextServing {
                 compaction: nil,
                 bridge: nil
             ),
+            modelDisplayName: WheelModelConfigurationProvider.shared.currentProfile().displayName
         )
     }
 
@@ -781,6 +785,7 @@ private actor MockWheelModelContextService: WheelModelContextServing {
                 compaction: nil,
                 bridge: nil
             ),
+            modelDisplayName: WheelModelConfigurationProvider.shared.currentProfile().displayName
         )
 
         return AsyncThrowingStream { continuation in
@@ -810,6 +815,7 @@ private actor MockWheelModelContextService: WheelModelContextServing {
                 compaction: nil,
                 bridge: nil
             ),
+            modelDisplayName: WheelModelConfigurationProvider.shared.currentProfile().displayName
         )
     }
 

@@ -11,8 +11,8 @@ let package = Package(
         .package(url: "https://github.com/Ryu0118/swift-readability", from: "0.3.0"),
         .package(url: "https://github.com/rryam/VecturaKit", from: "3.0.0"),
         .package(
-            url: "https://github.com/stevemurr/LanguageModelContextKit.git",
-            revision: "5382c100a63f60b95b018188a3d0ade82de26be4"
+            url: "https://github.com/stevemurr/LanguageModelKit.git",
+            revision: "f2f24ca010b9bb0d480ef72c813dac3ae288f6a8"
         ),
     ],
     targets: [
@@ -22,7 +22,11 @@ let package = Package(
                 .product(name: "MarkdownUI", package: "swift-markdown-ui"),
                 .product(name: "Readability", package: "swift-readability"),
                 .product(name: "VecturaKit", package: "VecturaKit"),
-                .product(name: "LanguageModelContextKit", package: "LanguageModelContextKit"),
+                .product(name: "LanguageModelContextManagement", package: "LanguageModelKit"),
+                .product(name: "LanguageModelStructuredOutput", package: "LanguageModelKit"),
+                .product(name: "LanguageModelApple", package: "LanguageModelKit"),
+                .product(name: "LanguageModelOpenAI", package: "LanguageModelKit"),
+                .product(name: "LanguageModelVLLM", package: "LanguageModelKit"),
             ],
             path: "Sources/WheelBrowser",
             resources: [
@@ -47,7 +51,11 @@ let package = Package(
             name: "WheelBrowserTests",
             dependencies: [
                 "WheelBrowser",
-                .product(name: "LanguageModelContextKit", package: "LanguageModelContextKit"),
+                .product(name: "LanguageModelContextManagement", package: "LanguageModelKit"),
+                .product(name: "LanguageModelStructuredOutput", package: "LanguageModelKit"),
+                .product(name: "LanguageModelApple", package: "LanguageModelKit"),
+                .product(name: "LanguageModelOpenAI", package: "LanguageModelKit"),
+                .product(name: "LanguageModelVLLM", package: "LanguageModelKit"),
             ],
             path: "Tests/WheelBrowserTests",
             resources: [

@@ -1,5 +1,4 @@
 import Foundation
-import FoundationModels
 
 struct WidgetManifestGenerationProgress: Equatable, Sendable {
     enum Phase: Equatable, Sendable {
@@ -28,7 +27,7 @@ extension WidgetManifestGenerator {
 
 final class OnDeviceWidgetManifestGenerator: @unchecked Sendable, WidgetManifestGenerator {
     typealias CompletionProvider = @Sendable ([ChatMessage], String) async throws -> GeneratedWidgetPlan
-    typealias AvailabilityProvider = @Sendable () async -> LMAvailabilityStatus
+    typealias AvailabilityProvider = @Sendable () async -> WheelModelAvailability
     typealias PreflightProvider = @Sendable (WidgetManifest) async throws -> Void
 
     private let completionProvider: CompletionProvider?
@@ -92,13 +91,13 @@ final class OnDeviceWidgetManifestGenerator: @unchecked Sendable, WidgetManifest
         if let availabilityProvider {
             await report(
                 .checkingAvailability,
-                detail: "Checking Apple Intelligence on this Mac.",
+                detail: "Checking the selected AI model.",
                 to: progress
             )
             let availability = await availabilityProvider()
             guard availability.isAvailable else {
                 throw WidgetManifestGenerationError.llmFailed(
-                    availability.reason ?? "The on-device language model is not available."
+                    availability.reason ?? "The selected language model is not available."
                 )
             }
         }
@@ -265,7 +264,7 @@ final class OnDeviceWidgetManifestGenerator: @unchecked Sendable, WidgetManifest
     }
 
     private func rawPlanDebugString(from response: GeneratedWidgetPlan) -> String {
-        GeneratedContentBridge.prettyJSONString(from: response) ?? "<unavailable>"
+        WheelStructuredJSONCodec.prettyPrintedString(from: response) ?? "<unavailable>"
     }
 
     private func report(

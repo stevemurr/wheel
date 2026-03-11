@@ -1,5 +1,4 @@
 import Foundation
-import FoundationModels
 
 enum FollowUpSuggestionNormalizer {
     static func normalize(_ suggestions: [String]) -> [String] {
@@ -31,30 +30,73 @@ enum FollowUpSuggestionNormalizer {
     }
 }
 
-@Generable(description: "A browser chat response with the answer text and suggested follow-up questions.")
-struct GeneratedChatAssistantResponse: Sendable {
-    @Guide(description: "The main assistant answer in markdown. Do not include follow-up suggestions in this field.")
+struct GeneratedChatAssistantResponse: Codable, Sendable, WheelStructuredSpecProviding {
     let answer: String
 
-    @Guide(description: "Two or three concise follow-up questions the user could naturally ask next.")
     let suggestions: [String]
+
+    private enum CodingKeys: String, CodingKey {
+        case answer
+        case suggestions
+    }
 
     init(answer: String, suggestions: [String]) {
         self.answer = answer
         self.suggestions = suggestions
     }
 
+    init(from decoder: any Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        answer = try container.decode(String.self, forKey: .answer)
+        suggestions = try container.decodeIfPresent([String].self, forKey: .suggestions) ?? []
+    }
+
     var normalizedSuggestions: [String] {
         FollowUpSuggestionNormalizer.normalize(suggestions)
     }
+
+    static let outputSchema = WheelOutputSchema.object(
+        name: "GeneratedChatAssistantResponse",
+        description: "A browser chat response with the answer text and suggested follow-up questions.",
+        properties: [
+            WheelOutputSchema.property(
+                "answer",
+                schema: WheelOutputSchema.string(minLength: 1),
+                description: "The main assistant answer in markdown."
+            ),
+            WheelOutputSchema.property(
+                "suggestions",
+                schema: WheelOutputSchema.array(
+                    item: WheelOutputSchema.string(minLength: 1),
+                    maximumCount: 3
+                ),
+                description: "Two or three concise follow-up questions.",
+                optional: true
+            ),
+        ]
+    )
+
+    static let spec = structuredSpec { $0.answer }
 }
 
-@Generable(description: "A concise page summary.")
-struct GeneratedSummaryResponse: Sendable {
-    @Guide(description: "A brief summary in 2-3 sentences and under 100 words.")
+struct GeneratedSummaryResponse: Codable, Sendable, WheelStructuredSpecProviding {
     let summary: String
 
     init(summary: String) {
         self.summary = summary
     }
+
+    static let outputSchema = WheelOutputSchema.object(
+        name: "GeneratedSummaryResponse",
+        description: "A concise page summary.",
+        properties: [
+            WheelOutputSchema.property(
+                "summary",
+                schema: WheelOutputSchema.string(minLength: 1),
+                description: "A brief summary in 2-3 sentences and under 100 words."
+            ),
+        ]
+    )
+
+    static let spec = structuredSpec { $0.summary }
 }

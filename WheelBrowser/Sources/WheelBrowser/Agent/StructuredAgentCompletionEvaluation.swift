@@ -1,5 +1,4 @@
 import Foundation
-import FoundationModels
 
 enum AgentCompletionEvaluationPrompt {
     static let instructions = """
@@ -71,15 +70,11 @@ struct AgentCompletionEvaluation: Sendable {
     let recommendedNextStep: String?
 }
 
-@Generable(description: "Whether the proposed final answer fully satisfies the browser task.")
-struct GeneratedAgentCompletionEvaluation: Sendable {
-    @Guide(description: "True if the proposed final answer fully satisfies the user's request.")
+struct GeneratedAgentCompletionEvaluation: Codable, Sendable, WheelStructuredSpecProviding {
     let isComplete: Bool
 
-    @Guide(description: "Short explanation for accepting or rejecting the proposed final answer.")
     let reason: String
 
-    @Guide(description: "Concrete next step when incomplete. Leave empty or null when the answer is complete.")
     let recommendedNextStep: String?
 
     init(isComplete: Bool, reason: String, recommendedNextStep: String?) {
@@ -103,4 +98,29 @@ struct GeneratedAgentCompletionEvaluation: Sendable {
             }()
         )
     }
+
+    static let outputSchema = WheelOutputSchema.object(
+        name: "GeneratedAgentCompletionEvaluation",
+        description: "Whether the proposed final answer fully satisfies the browser task.",
+        properties: [
+            WheelOutputSchema.property(
+                "isComplete",
+                schema: WheelOutputSchema.boolean(),
+                description: "True if the proposed final answer fully satisfies the user's request."
+            ),
+            WheelOutputSchema.property(
+                "reason",
+                schema: WheelOutputSchema.string(minLength: 1),
+                description: "Short explanation for accepting or rejecting the proposed final answer."
+            ),
+            WheelOutputSchema.property(
+                "recommendedNextStep",
+                schema: WheelOutputSchema.string(minLength: 1),
+                description: "Concrete next step when incomplete.",
+                optional: true
+            ),
+        ]
+    )
+
+    static let spec = structuredSpec { $0.reason }
 }
