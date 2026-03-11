@@ -56,6 +56,11 @@ enum ContextMenuBuilder {
                 systemImage: "arrow.clockwise",
                 action: .reload
             ),
+            ContextMenuItem(
+                title: "Hard Reload",
+                systemImage: "arrow.clockwise.circle",
+                action: .hardReload
+            ),
         ]))
 
         // --- Link items ---

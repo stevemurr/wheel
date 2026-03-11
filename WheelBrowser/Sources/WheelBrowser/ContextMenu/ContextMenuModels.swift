@@ -21,6 +21,7 @@ enum ContextMenuAction {
     case goBack
     case goForward
     case reload
+    case hardReload
     case createFolderFromTabs([UUID])
     case moveTabsToFolder(tabIDs: [UUID], folderID: UUID)
     case removeTabsFromFolders([UUID])

@@ -170,6 +170,8 @@ class BrowserWebView: WKWebView {
 
         case .reload:
             reload()
+        case .hardReload:
+            reloadFromOrigin()
         case .createFolderFromTabs,
              .moveTabsToFolder,
              .removeTabsFromFolders,

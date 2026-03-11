@@ -9,10 +9,11 @@ struct ContextMenuBuilderTests {
         let sections = ContextMenuBuilder.buildSections(for: .empty, canGoBack: false, canGoForward: true)
         let firstSection = try #require(sections.first)
 
-        #expect(firstSection.items.map(\.title) == ["Back", "Forward", "Reload"])
+        #expect(firstSection.items.map(\.title) == ["Back", "Forward", "Reload", "Hard Reload"])
         #expect(firstSection.items[0].isEnabled == false)
         #expect(firstSection.items[1].isEnabled == true)
         #expect(firstSection.items[2].isEnabled == true)
+        #expect(firstSection.items[3].isEnabled == true)
     }
 
     @Test("Adds note actions when page context is available")
