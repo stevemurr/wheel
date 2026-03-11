@@ -246,10 +246,17 @@ enum WidgetLayoutPreference: String, Codable, Sendable {
     case fullWidth
 }
 
+enum WidgetVisualizationPreference: String, Codable, Sendable {
+    case auto
+    case value
+    case lineChart
+}
+
 struct WidgetRecord: Codable, Identifiable, Sendable {
     var manifest: WidgetManifest
     var position: Int
     var layoutPreference: WidgetLayoutPreference
+    var visualizationPreference: WidgetVisualizationPreference
     var lastAttemptedAt: Date?
     var lastLoadedAt: Date?
     var lastError: String?
@@ -260,6 +267,7 @@ struct WidgetRecord: Codable, Identifiable, Sendable {
         case manifest
         case position
         case layoutPreference
+        case visualizationPreference
         case lastAttemptedAt
         case lastLoadedAt
         case lastError
@@ -269,6 +277,7 @@ struct WidgetRecord: Codable, Identifiable, Sendable {
         manifest: WidgetManifest,
         position: Int,
         layoutPreference: WidgetLayoutPreference = .auto,
+        visualizationPreference: WidgetVisualizationPreference = .auto,
         lastAttemptedAt: Date?,
         lastLoadedAt: Date?,
         lastError: String?
@@ -276,6 +285,7 @@ struct WidgetRecord: Codable, Identifiable, Sendable {
         self.manifest = manifest
         self.position = position
         self.layoutPreference = layoutPreference
+        self.visualizationPreference = visualizationPreference
         self.lastAttemptedAt = lastAttemptedAt
         self.lastLoadedAt = lastLoadedAt
         self.lastError = lastError
@@ -286,6 +296,7 @@ struct WidgetRecord: Codable, Identifiable, Sendable {
         manifest = try container.decode(WidgetManifest.self, forKey: .manifest)
         position = try container.decode(Int.self, forKey: .position)
         layoutPreference = try container.decodeIfPresent(WidgetLayoutPreference.self, forKey: .layoutPreference) ?? .auto
+        visualizationPreference = try container.decodeIfPresent(WidgetVisualizationPreference.self, forKey: .visualizationPreference) ?? .auto
         lastAttemptedAt = try container.decodeIfPresent(Date.self, forKey: .lastAttemptedAt)
         lastLoadedAt = try container.decodeIfPresent(Date.self, forKey: .lastLoadedAt)
         lastError = try container.decodeIfPresent(String.self, forKey: .lastError)

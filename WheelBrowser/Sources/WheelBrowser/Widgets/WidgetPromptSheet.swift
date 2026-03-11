@@ -311,7 +311,7 @@ struct WidgetPromptSheet: View {
                     Text("Describe the widget you want")
                         .font(.headline)
 
-                    Text("Keep it simple: say what data to show, how it should look, and any time range or timezone.")
+                    Text("Keep it simple: say what data to show and any time range or timezone. Time-series widgets can switch between an instant value and a line graph after creation.")
                         .font(.system(size: 13))
                         .foregroundStyle(.secondary)
                 }

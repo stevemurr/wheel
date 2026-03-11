@@ -756,6 +756,15 @@ function scheduleLiveUpdates(manifest) {
 }
 
 const ACTION_ICONS = {
+  toggleVisualization: `
+    <svg viewBox="0 0 24 24" aria-hidden="true">
+      <path d="M4 15c2-3 4-4.5 6-4.5s4 1.5 6 1.5 4-1.5 4-1.5"></path>
+      <path d="M4 19h16"></path>
+      <path d="M8 7h.01"></path>
+      <path d="M12 5h.01"></path>
+      <path d="M16 8h.01"></path>
+    </svg>
+  `,
   refresh: `
     <svg viewBox="0 0 24 24" aria-hidden="true">
       <path d="M20 12a8 8 0 1 1-2.34-5.66"></path>
@@ -799,9 +808,48 @@ function createIconButton({ label, action, extraClass = '' }) {
   return button;
 }
 
+function widgetVisualizationMode(manifest) {
+  if (manifest.widgetType === 'lineChart') {
+    return manifest.visualizationPreference === 'value' ? 'value' : 'lineChart';
+  }
+
+  if (manifest.widgetType === 'statCard' || manifest.widgetType === 'priceCard') {
+    return 'value';
+  }
+
+  return manifest.widgetType;
+}
+
+function supportsVisualizationToggle(manifest) {
+  return manifest.widgetType === 'lineChart'
+    && Array.isArray(manifest.config?.series)
+    && manifest.config.series.length === 1;
+}
+
+function visualizationToggleActionLabel(manifest) {
+  return widgetVisualizationMode(manifest) === 'value'
+    ? 'Show Line Graph'
+    : 'Show Instant Value';
+}
+
+function nextVisualizationPreference(preference) {
+  switch (preference) {
+    case 'value':
+      return 'lineChart';
+    case 'lineChart':
+      return 'value';
+    default:
+      return 'value';
+  }
+}
+
 function widgetChromeLabel(manifest) {
   if (Array.isArray(manifest?.skillChain) && manifest.skillChain.some((step) => step?.skill === 'currentDateTime')) {
     return manifest.widgetType === 'list' ? 'World Clock' : 'Clock';
+  }
+
+  if (manifest.widgetType === 'lineChart' && widgetVisualizationMode(manifest) === 'value') {
+    return 'Sensor';
   }
 
   switch (manifest.widgetType) {
@@ -827,6 +875,10 @@ function widgetChromeLabel(manifest) {
 function widgetLayoutDensity(manifest) {
   if (manifest.layoutPreference === 'fullWidth') {
     return 'wide';
+  }
+
+  if (manifest.widgetType === 'lineChart' && widgetVisualizationMode(manifest) === 'value') {
+    return 'compact';
   }
 
   switch (manifest.widgetType) {
@@ -1193,6 +1245,27 @@ function lastDefinedPoint(points) {
   return null;
 }
 
+function firstDefinedPoint(points) {
+  for (let index = 0; index < points.length; index += 1) {
+    if (points[index]) {
+      return points[index];
+    }
+  }
+  return null;
+}
+
+function formatSignedPercent(value) {
+  if (!Number.isFinite(value)) return null;
+  const fractionDigits = Math.abs(value) >= 10 ? 1 : 2;
+  return `${value >= 0 ? '+' : ''}${value.toFixed(fractionDigits)}%`;
+}
+
+function formatSignedValue(value, prefix = '', suffix = '') {
+  if (!Number.isFinite(value)) return null;
+  const sign = value >= 0 ? '+' : '-';
+  return `${sign}${formatChartValue(Math.abs(value), prefix, suffix)}`;
+}
+
 function renderLineChart(config, data) {
   if (!data.length || !config.series.length) {
     return '<div class="chart-empty">No data yet.</div>';
@@ -1305,9 +1378,48 @@ function renderLineChart(config, data) {
   `;
 }
 
+function renderLineChartMetric(config, data) {
+  const primarySeries = Array.isArray(config.series) ? config.series[0] : null;
+  if (!primarySeries || !Array.isArray(data) || data.length === 0) {
+    return '<div class="chart-empty">No data yet.</div>';
+  }
+
+  const points = data.map((item) => {
+    const value = numericValue(item?.[primarySeries.field]);
+    if (value == null) return null;
+    return {
+      label: item?.[config.xField] == null ? null : String(item[config.xField]),
+      value,
+    };
+  });
+
+  const firstPoint = firstDefinedPoint(points);
+  const latestPoint = lastDefinedPoint(points);
+  if (!firstPoint || !latestPoint) {
+    return '<div class="chart-empty">No numeric chart data.</div>';
+  }
+
+  const deltaValue = latestPoint.value - firstPoint.value;
+  const deltaPercent = firstPoint.value !== 0
+    ? ((latestPoint.value - firstPoint.value) / Math.abs(firstPoint.value)) * 100
+    : null;
+  const suffix = config.yUnit ? ` ${config.yUnit}` : '';
+  const delta = formatSignedPercent(deltaPercent) || formatSignedValue(deltaValue, config.yPrefix || '', suffix);
+  const footnote = latestPoint.label ? `Latest ${latestPoint.label}` : null;
+
+  return renderMetricPanel({
+    valueMarkup: `<div class="price-value">${escapeHTML(formatValue(latestPoint.value, config.yPrefix || '', suffix))}</div>`,
+    delta,
+    footnote,
+  });
+}
+
 function presentationModeFor(manifest, data) {
   if (manifest.widgetType === 'text' && !manifest.config?.markdown && isClockPayload(data)) {
     return 'clock';
+  }
+  if (manifest.widgetType === 'lineChart' && widgetVisualizationMode(manifest) === 'value') {
+    return 'metric';
   }
   if (manifest.widgetType === 'statCard' || manifest.widgetType === 'priceCard') {
     return 'metric';
@@ -1319,6 +1431,7 @@ function presentationModeFor(manifest, data) {
 }
 
 function applyCardPresentation(card, manifest, data) {
+  card.dataset.visualization = widgetVisualizationMode(manifest);
   const mode = presentationModeFor(manifest, data);
   if (mode) {
     card.dataset.presentation = mode;
@@ -1400,7 +1513,9 @@ function renderWidgetContent(manifest, data) {
     case 'barChart':
       return renderBarChart(manifest.config, Array.isArray(data) ? data : []);
     case 'lineChart':
-      return renderLineChart(manifest.config, Array.isArray(data) ? data : []);
+      return widgetVisualizationMode(manifest) === 'value'
+        ? renderLineChartMetric(manifest.config, Array.isArray(data) ? data : [])
+        : renderLineChart(manifest.config, Array.isArray(data) ? data : []);
     default:
       return `<div class="text-block">${JSON.stringify(data)}</div>`;
   }
@@ -1413,6 +1528,7 @@ function renderCard(manifest, options = {}) {
   card.dataset.widgetType = manifest.widgetType;
   card.dataset.density = widgetLayoutDensity(manifest);
   card.dataset.layoutPreference = manifest.layoutPreference || 'auto';
+  card.dataset.visualization = widgetVisualizationMode(manifest);
   if (options.isHero && manifest.layoutPreference === 'auto') {
     card.classList.add('widget-card--hero');
   }
@@ -1430,6 +1546,12 @@ function renderCard(manifest, options = {}) {
 
   const actions = document.createElement('div');
   actions.className = 'widget-actions';
+  if (supportsVisualizationToggle(manifest)) {
+    actions.appendChild(createIconButton({
+      label: visualizationToggleActionLabel(manifest),
+      action: 'toggleVisualization',
+    }));
+  }
   actions.appendChild(createIconButton({ label: 'Refresh', action: 'refresh' }));
 
   if (state.isEditing) {
@@ -1504,12 +1626,14 @@ function normalizeDashboardWidget(widget) {
     return {
       ...widget.manifest,
       layoutPreference: widget.layoutPreference || 'auto',
+      visualizationPreference: widget.visualizationPreference || 'auto',
     };
   }
 
   return {
     ...widget,
     layoutPreference: widget?.layoutPreference || 'auto',
+    visualizationPreference: widget?.visualizationPreference || 'auto',
   };
 }
 
@@ -1568,6 +1692,18 @@ function handleWidgetAction(action, id) {
       updated[index] = {
         ...current,
         layoutPreference: nextLayoutPreference(current.layoutPreference),
+      };
+      state.widgets = updated;
+      renderDashboard();
+      postMessage('widgetAction', { action, id });
+      return;
+    }
+    case 'toggleVisualization': {
+      const updated = [...state.widgets];
+      const current = updated[index];
+      updated[index] = {
+        ...current,
+        visualizationPreference: nextVisualizationPreference(current.visualizationPreference),
       };
       state.widgets = updated;
       renderDashboard();

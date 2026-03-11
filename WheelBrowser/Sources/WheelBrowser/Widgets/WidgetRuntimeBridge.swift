@@ -5,6 +5,7 @@ enum WidgetRuntimeAction: Equatable {
     case moveUp(UUID)
     case moveDown(UUID)
     case toggleLayout(UUID)
+    case toggleVisualization(UUID)
     case refresh(UUID)
     case openLink(UUID, URL)
 }
@@ -88,6 +89,8 @@ final class WidgetRuntimeBridge: QueuedScriptBridge {
             return .moveDown(id)
         case "toggleLayout":
             return .toggleLayout(id)
+        case "toggleVisualization":
+            return .toggleVisualization(id)
         case "refresh":
             return .refresh(id)
         case "openLink":
@@ -121,9 +124,11 @@ private struct RefreshPayload: Encodable {
 private struct DashboardWidgetPayload: Encodable {
     let manifest: WidgetManifest
     let layoutPreference: WidgetLayoutPreference
+    let visualizationPreference: WidgetVisualizationPreference
 
     init(record: WidgetRecord) {
         manifest = record.manifest
         layoutPreference = record.layoutPreference
+        visualizationPreference = record.visualizationPreference
     }
 }

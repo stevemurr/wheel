@@ -515,6 +515,43 @@ struct WidgetManifestGeneratorTests {
         #expect(config.yPrefix == "$")
     }
 
+    @Test("Generator uses a built-in crypto trend template for crypto chart prompts")
+    func usesBuiltInCryptoTrendTemplate() async throws {
+        let generator = OnDeviceWidgetManifestGenerator(
+            completionProvider: { _, _ in
+                Issue.record("Crypto trend template should bypass the language model.")
+                throw TestSequenceError.depleted
+            },
+            availabilityProvider: {
+                Issue.record("Crypto trend template should not check model availability.")
+                return .unavailable(reason: "Should not be called")
+            },
+            preflightProvider: { _ in }
+        )
+
+        let manifest = try await generator.generate(
+            prompt: "Create a Bitcoin price graph over the last 30 days"
+        )
+
+        #expect(manifest.widgetType == WidgetType.lineChart)
+        #expect(manifest.skillChain.map { $0.skill } == [WidgetSkillName.fetchUrl, WidgetSkillName.parseJson, WidgetSkillName.transform])
+        #expect(manifest.skillChain.first?.params["url"]?.stringValue == "https://api.coingecko.com/api/v3/coins/bitcoin/market_chart?vs_currency=usd&days=30&interval=daily")
+        #expect(manifest.skillChain[1].params["path"]?.stringValue == "prices")
+        #expect(manifest.returns == "chartData")
+
+        guard case .lineChart(let config) = manifest.config else {
+            Issue.record("Expected lineChart config")
+            return
+        }
+
+        #expect(config.title == "Bitcoin Price (30D)")
+        #expect(config.xField == "date")
+        #expect(config.series.count == 1)
+        #expect(config.series.first?.field == "price")
+        #expect(config.series.first?.label == "BTC")
+        #expect(config.yPrefix == "$")
+    }
+
     @Test("Generator uses a built-in finance planner for crypto watchlists")
     func usesBuiltInFinancePlanner() async throws {
         let generator = OnDeviceWidgetManifestGenerator(

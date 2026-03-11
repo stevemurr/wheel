@@ -224,6 +224,9 @@ struct WidgetDashboardPageView: View {
         case .toggleLayout(let id):
             store.toggleLayoutPreference(id: id)
             syncDashboard()
+        case .toggleVisualization(let id):
+            store.toggleVisualizationPreference(id: id)
+            syncDashboard()
         case .refresh(let id):
             store.refresh(id: id)
             flushPendingRefreshes(store.pendingRefreshIDs)

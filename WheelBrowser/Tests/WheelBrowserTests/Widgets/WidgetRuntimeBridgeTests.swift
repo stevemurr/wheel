@@ -49,6 +49,28 @@ struct WidgetRuntimeBridgeTests {
     }
 
     @MainActor
+    @Test("Parses visualization toggle actions")
+    func parsesVisualizationToggleAction() {
+        let bridge = WidgetRuntimeBridge()
+        let widgetID = UUID()
+        var action: WidgetRuntimeAction?
+
+        bridge.onWidgetAction = { action = $0 }
+        bridge.handleMessage(
+            named: "widgetBridge",
+            body: [
+                "type": "widgetAction",
+                "payload": [
+                    "action": "toggleVisualization",
+                    "id": widgetID.uuidString,
+                ],
+            ]
+        )
+
+        #expect(action == .toggleVisualization(widgetID))
+    }
+
+    @MainActor
     @Test("Parses loaded and error messages")
     func parsesLoadedAndError() {
         let bridge = WidgetRuntimeBridge()

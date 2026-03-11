@@ -89,6 +89,60 @@ struct WidgetDashboardStoreTests {
     }
 
     @MainActor
+    @Test("Store persists widget visualization preferences")
+    func persistsVisualizationPreferences() throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        let storageURL = directory.appendingPathComponent("widgets.json")
+
+        let store = WidgetDashboardStore(
+            storageURL: storageURL,
+            legacyCleanupPaths: [],
+            observeActivation: false
+        )
+        let manifest = lineChartManifest(title: "BTC Price (30D)")
+
+        try store.add(manifest: manifest)
+        store.toggleVisualizationPreference(id: manifest.id)
+
+        let reloaded = WidgetDashboardStore(
+            storageURL: storageURL,
+            legacyCleanupPaths: [],
+            observeActivation: false
+        )
+
+        #expect(reloaded.records.count == 1)
+        #expect(reloaded.records[0].visualizationPreference == .value)
+    }
+
+    @MainActor
+    @Test("Store cycles widget visualization preferences for line charts")
+    func cyclesVisualizationPreferences() throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        let storageURL = directory.appendingPathComponent("widgets.json")
+
+        let store = WidgetDashboardStore(
+            storageURL: storageURL,
+            legacyCleanupPaths: [],
+            observeActivation: false
+        )
+        let manifest = lineChartManifest(title: "BTC Price (30D)")
+
+        try store.add(manifest: manifest)
+        #expect(store.records[0].visualizationPreference == .auto)
+
+        store.toggleVisualizationPreference(id: manifest.id)
+        #expect(store.records[0].visualizationPreference == .value)
+
+        store.toggleVisualizationPreference(id: manifest.id)
+        #expect(store.records[0].visualizationPreference == .lineChart)
+
+        store.toggleVisualizationPreference(id: manifest.id)
+        #expect(store.records[0].visualizationPreference == .value)
+    }
+
+    @MainActor
     @Test("Store marks stale widgets for refresh")
     func marksStaleWidgets() throws {
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
@@ -388,5 +442,42 @@ private func legacyPocketPortfolioManifest(path: String = "history_sample") -> W
         returns: "history",
         ttl: 1800,
         prompt: "AMD trend sample"
+    )
+}
+
+private func lineChartManifest(title: String) -> WidgetManifest {
+    WidgetManifest(
+        widgetType: .lineChart,
+        config: .lineChart(
+            LineChartConfig(
+                title: title,
+                xField: "date",
+                series: [
+                    LineChartSeries(field: "price", label: "BTC", color: "#f7931a"),
+                ],
+                yPrefix: "$",
+                showPoints: true
+            )
+        ),
+        skillChain: [
+            WidgetSkillStep(
+                step: 1,
+                skill: .transform,
+                params: [
+                    "data": AnyCodable([
+                        ["date": "3/1", "price": 62_100.0],
+                        ["date": "3/2", "price": 63_450.0],
+                    ]),
+                    "mapping": AnyCodable([
+                        "date": "date",
+                        "price": "price",
+                    ]),
+                ],
+                outputKey: "chartData"
+            ),
+        ],
+        returns: "chartData",
+        ttl: 300,
+        prompt: title
     )
 }

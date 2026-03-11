@@ -157,6 +157,22 @@ final class WidgetDashboardStore {
         persistIgnoringErrors()
     }
 
+    func toggleVisualizationPreference(id: UUID) {
+        guard let index = records.firstIndex(where: { $0.id == id }) else { return }
+        guard records[index].manifest.widgetType == .lineChart else { return }
+
+        switch records[index].visualizationPreference {
+        case .auto:
+            records[index].visualizationPreference = .value
+        case .value:
+            records[index].visualizationPreference = .lineChart
+        case .lineChart:
+            records[index].visualizationPreference = .value
+        }
+
+        persistIgnoringErrors()
+    }
+
     func refreshStale() {
         for record in records where isStale(record) {
             refresh(id: record.id)

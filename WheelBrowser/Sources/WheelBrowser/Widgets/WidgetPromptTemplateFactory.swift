@@ -10,6 +10,10 @@ enum WidgetPromptTemplateFactory {
             return multiClockManifest(for: intent)
         }
 
+        if let intent = CryptoTrendIntent(prompt: prompt) {
+            return cryptoTrendManifest(for: intent)
+        }
+
         if let intent = StockTrendIntent(prompt: prompt) {
             return stockTrendManifest(for: intent)
         }
@@ -216,6 +220,89 @@ enum WidgetPromptTemplateFactory {
             color: intent.stock.color
         )
     }
+
+    static func makeCryptoTrendManifest(
+        assetID: String,
+        symbol: String,
+        title: String,
+        prompt: String,
+        rangeLabel: String = "30D",
+        dayCount: Int = 30,
+        color: String = "#f7931a"
+    ) -> WidgetManifest {
+        let url = coinGeckoMarketChartURL(assetID: assetID, dayCount: dayCount)
+
+        return WidgetManifest(
+            widgetType: .lineChart,
+            config: .lineChart(
+                LineChartConfig(
+                    title: title,
+                    xField: "date",
+                    series: [
+                        LineChartSeries(field: "price", label: symbol, color: color),
+                    ],
+                    yPrefix: "$",
+                    showPoints: max(dayCount, 2) <= 14
+                )
+            ),
+            skillChain: [
+                WidgetSkillStep(
+                    step: 1,
+                    skill: .fetchUrl,
+                    params: [
+                        "url": AnyCodable(url),
+                    ],
+                    outputKey: "raw"
+                ),
+                WidgetSkillStep(
+                    step: 2,
+                    skill: .parseJson,
+                    params: [
+                        "json": AnyCodable("$raw"),
+                        "path": AnyCodable("prices"),
+                    ],
+                    outputKey: "history"
+                ),
+                WidgetSkillStep(
+                    step: 3,
+                    skill: .transform,
+                    params: [
+                        "data": AnyCodable("$history"),
+                        "mapping": AnyCodable([
+                            "date": "expr:new Date(item[0]).toLocaleDateString()",
+                            "price": "[1]",
+                        ]),
+                    ],
+                    outputKey: "chartData"
+                ),
+            ],
+            returns: "chartData",
+            ttl: 1800,
+            prompt: prompt.isEmpty ? "\(symbol) price trend (\(rangeLabel))" : prompt
+        )
+    }
+
+    private static func cryptoTrendManifest(for intent: CryptoTrendIntent) -> WidgetManifest {
+        makeCryptoTrendManifest(
+            assetID: intent.asset.id,
+            symbol: intent.asset.symbol,
+            title: "\(intent.asset.name) Price (\(intent.range.label))",
+            prompt: intent.prompt,
+            rangeLabel: intent.range.label,
+            dayCount: intent.range.dayCount,
+            color: intent.asset.color
+        )
+    }
+
+    private static func coinGeckoMarketChartURL(assetID: String, dayCount: Int) -> String {
+        var components = URLComponents(string: "https://api.coingecko.com/api/v3/coins/\(assetID)/market_chart")!
+        components.queryItems = [
+            URLQueryItem(name: "vs_currency", value: "usd"),
+            URLQueryItem(name: "days", value: "\(max(dayCount, 2))"),
+            URLQueryItem(name: "interval", value: "daily"),
+        ]
+        return components.url!.absoluteString
+    }
 }
 
 private struct ClockIntent {
@@ -355,6 +442,110 @@ private struct ClockLocation: Hashable {
             identifier: "UTC",
             aliases: ["utc", "zulu", "universal time"]
         ),
+    ]
+}
+
+private struct CryptoTrendIntent {
+    struct RangeSelection {
+        let label: String
+        let dayCount: Int
+    }
+
+    struct Asset: Hashable {
+        let id: String
+        let name: String
+        let symbol: String
+        let aliases: [String]
+        let color: String
+
+        func matches(in prompt: String) -> Bool {
+            aliases.contains { alias in
+                Self.contains(alias: alias, in: prompt)
+            }
+        }
+
+        private static func contains(alias: String, in prompt: String) -> Bool {
+            let normalizedAlias = PromptText.normalize(alias)
+            if normalizedAlias.contains(" ") {
+                return prompt.contains(normalizedAlias)
+            }
+
+            return PromptText.containsWord(normalizedAlias, in: prompt)
+        }
+    }
+
+    let prompt: String
+    let asset: Asset
+    let range: RangeSelection
+
+    init?(prompt: String) {
+        let trimmedPrompt = prompt.trimmingCharacters(in: .whitespacesAndNewlines)
+        let normalizedPrompt = PromptText.normalize(trimmedPrompt)
+        let explicitRange = Self.extractRange(from: normalizedPrompt)
+        let range = explicitRange ?? RangeSelection(label: "30D", dayCount: 30)
+
+        guard Self.containsTrendIntent(in: normalizedPrompt, hasExplicitRange: explicitRange != nil) else {
+            return nil
+        }
+
+        let matchedAssets = PromptText.deduplicated(Self.catalog.filter { $0.matches(in: normalizedPrompt) })
+        guard let asset = matchedAssets.first else { return nil }
+
+        self.prompt = trimmedPrompt
+        self.asset = asset
+        self.range = range
+    }
+
+    private static func containsTrendIntent(in prompt: String, hasExplicitRange: Bool) -> Bool {
+        PromptText.containsWord("chart", in: prompt)
+            || PromptText.containsWord("graph", in: prompt)
+            || PromptText.containsWord("trend", in: prompt)
+            || PromptText.containsWord("history", in: prompt)
+            || PromptText.containsWord("historical", in: prompt)
+            || PromptText.containsPhrase("over time", in: prompt)
+            || PromptText.containsPhrase("line chart", in: prompt)
+            || (hasExplicitRange && PromptText.containsWord("price", in: prompt))
+    }
+
+    private static func extractRange(from prompt: String) -> RangeSelection? {
+        let pattern = #"\b(\d+)\s*(d|day|days|w|week|weeks|m|mo|mon|month|months|y|yr|year|years)\b"#
+        guard let regex = try? NSRegularExpression(pattern: pattern) else {
+            return nil
+        }
+
+        let nsRange = NSRange(prompt.startIndex..., in: prompt)
+        let selections = regex.matches(in: prompt, range: nsRange).compactMap { match -> RangeSelection? in
+            guard let valueRange = Range(match.range(at: 1), in: prompt),
+                  let unitRange = Range(match.range(at: 2), in: prompt),
+                  let value = Int(prompt[valueRange]) else {
+                return nil
+            }
+
+            let unit = String(prompt[unitRange])
+            switch unit {
+            case "d", "day", "days":
+                return RangeSelection(label: "\(value)D", dayCount: min(max(value, 2), 90))
+            case "w", "week", "weeks":
+                return RangeSelection(label: "\(value)W", dayCount: min(max(value * 7, 7), 180))
+            case "m", "mo", "mon", "month", "months":
+                return RangeSelection(label: "\(value)M", dayCount: min(max(value * 30, 14), 365))
+            case "y", "yr", "year", "years":
+                return RangeSelection(label: "\(value)Y", dayCount: min(max(value * 365, 60), 730))
+            default:
+                return nil
+            }
+        }
+
+        return selections.max(by: { $0.dayCount < $1.dayCount })
+    }
+
+    private static let catalog: [Asset] = [
+        Asset(id: "bitcoin", name: "Bitcoin", symbol: "BTC", aliases: ["bitcoin", "btc"], color: "#f7931a"),
+        Asset(id: "ethereum", name: "Ethereum", symbol: "ETH", aliases: ["ethereum", "eth"], color: "#627eea"),
+        Asset(id: "solana", name: "Solana", symbol: "SOL", aliases: ["solana", "sol"], color: "#14f195"),
+        Asset(id: "ripple", name: "XRP", symbol: "XRP", aliases: ["xrp", "ripple"], color: "#23292f"),
+        Asset(id: "cardano", name: "Cardano", symbol: "ADA", aliases: ["cardano", "ada"], color: "#2a6df4"),
+        Asset(id: "dogecoin", name: "Dogecoin", symbol: "DOGE", aliases: ["dogecoin", "doge"], color: "#c2a633"),
     ]
 }
 

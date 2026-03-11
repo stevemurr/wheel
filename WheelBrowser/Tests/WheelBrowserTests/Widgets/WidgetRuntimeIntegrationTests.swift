@@ -466,6 +466,47 @@ struct WidgetRuntimeIntegrationTests {
         #expect(legend == "AMD")
         #expect(axisLabelCount == 3)
     }
+
+    @MainActor
+    @Test("Runtime toggles line charts into instant-value sensor cards")
+    func togglesLineChartVisualization() async throws {
+        let harness = try WidgetRuntimeHarness()
+        harness.load()
+        try await harness.waitUntilReady()
+
+        let manifest = lineChartWidgetManifest(title: "BTC Price (7D)")
+        harness.bootstrap([manifest])
+        try await harness.waitUntilLoaded(id: manifest.id)
+
+        let initialPresentation = try await harness.webView.evaluateJavaScript(
+            "document.querySelector('[data-widget-id=\"\(manifest.id.uuidString)\"]')?.dataset.presentation"
+        ) as? String
+        #expect(initialPresentation == "trend")
+
+        _ = try await harness.webView.evaluateJavaScript(
+            "document.querySelector('[data-widget-id=\"\(manifest.id.uuidString)\"] [data-widget-action=\"toggleVisualization\"]')?.click(); true;"
+        )
+
+        try await waitUntil {
+            harness.actions.contains(.toggleVisualization(manifest.id))
+        }
+        try await waitUntil {
+            let presentation = try? await harness.webView.evaluateJavaScript(
+                "document.querySelector('[data-widget-id=\"\(manifest.id.uuidString)\"]')?.dataset.presentation"
+            ) as? String
+            return presentation == "metric"
+        }
+
+        let metricValue = try await harness.webView.evaluateJavaScript(
+            "document.querySelector('[data-widget-id=\"\(manifest.id.uuidString)\"] .price-value')?.textContent"
+        ) as? String
+        let density = try await harness.webView.evaluateJavaScript(
+            "document.querySelector('[data-widget-id=\"\(manifest.id.uuidString)\"]')?.dataset.density"
+        ) as? String
+
+        #expect(metricValue == "$150.6")
+        #expect(density == "compact")
+    }
 }
 
 @MainActor
