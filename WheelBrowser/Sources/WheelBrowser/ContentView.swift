@@ -412,8 +412,7 @@ struct ContentView: View {
                     StageManagerStrip(
                         browserState: state,
                         screenshotManager: TabScreenshotManager.shared,
-                        onCreateFolder: presentCreateFolder,
-                        onRenameFolder: presentRenameFolder
+                        onCreateFolder: presentCreateFolder
                     )
                     .frame(maxWidth: .infinity, alignment: .leading)
 
@@ -428,7 +427,8 @@ struct ContentView: View {
 
                     ContextMenuOverlay(
                         state: contextMenuState,
-                        containerSize: geometry.size
+                        containerSize: geometry.size,
+                        appActionHandler: handleContextMenuAppAction
                     )
                 } else {
                     StartupBrowserSurface()
@@ -518,6 +518,29 @@ struct ContentView: View {
                 noteStore.bindToWorkspace(currentWorkspaceId)
             }
         }
+    }
+
+    @MainActor
+    private func handleContextMenuAppAction(_ action: ContextMenuAction) -> Bool {
+        contextMenuActionHandler.handle(action)
+    }
+
+    @MainActor
+    private var contextMenuActionHandler: AppContextMenuActionHandler {
+        AppContextMenuActionHandler(
+            createNote: createNote,
+            createFolder: presentCreateFolder,
+            moveTabsToFolder: { tabIDs, folderID in
+                state.moveTabs(tabIDs, toFolder: folderID)
+            },
+            removeTabsFromFolders: { tabIDs in
+                state.removeTabsFromFolders(tabIDs)
+            },
+            renameFolder: presentRenameFolder,
+            deleteFolder: { folderID in
+                state.deleteFolder(folderID)
+            }
+        )
     }
 
     @MainActor

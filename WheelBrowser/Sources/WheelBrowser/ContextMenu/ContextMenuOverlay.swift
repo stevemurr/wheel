@@ -6,6 +6,7 @@ import AppKit
 struct ContextMenuOverlay: View {
     var state: ContextMenuState
     let containerSize: CGSize
+    let appActionHandler: (ContextMenuAction) -> Bool
 
     private let edgePadding: CGFloat = 8
 
@@ -17,8 +18,7 @@ struct ContextMenuOverlay: View {
                     sections: state.sections,
                     highlightedIndex: state.highlightedIndex,
                     onAction: { action in
-                        state.execute(action)
-                        state.dismiss()
+                        handleAction(action)
                     },
                     onHoverChange: { itemID in
                         state.setHoveredItem(itemID)
@@ -92,8 +92,7 @@ struct ContextMenuOverlay: View {
             if let index = state.highlightedIndex {
                 let enabledItems = state.sections.flatMap(\.items).filter(\.isEnabled)
                 if index < enabledItems.count {
-                    state.execute(enabledItems[index].action)
-                    state.dismiss()
+                    handleAction(enabledItems[index].action)
                 }
             }
         case 53: // Escape
@@ -107,7 +106,13 @@ struct ContextMenuOverlay: View {
         guard let action = state.hoveredAction() else {
             return
         }
-        state.execute(action)
+        handleAction(action)
+    }
+
+    private func handleAction(_ action: ContextMenuAction) {
+        if !appActionHandler(action) {
+            state.executeFallback(action)
+        }
         state.dismiss()
     }
 }

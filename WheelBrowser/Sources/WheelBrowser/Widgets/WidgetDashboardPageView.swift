@@ -30,6 +30,9 @@ struct WidgetDashboardPageView: View {
                 .frame(minHeight: geometry.size.height)
                 .padding(.horizontal, 24)
             }
+            .background {
+                DashboardInteractionSurface()
+            }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background {
@@ -251,6 +254,18 @@ struct WidgetDashboardPageView: View {
         }
         store.consumePendingRefreshes(requested)
     }
+}
+
+private struct DashboardInteractionSurface: NSViewRepresentable {
+    func makeNSView(context: Context) -> DashboardInteractionNSView {
+        DashboardInteractionNSView()
+    }
+
+    func updateNSView(_ nsView: DashboardInteractionNSView, context: Context) {}
+}
+
+private final class DashboardInteractionNSView: NSView {
+    override var mouseDownCanMoveWindow: Bool { false }
 }
 
 private struct DashboardActionButtonStyle: ButtonStyle {

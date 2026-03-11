@@ -435,16 +435,29 @@ class BrowserState: BrowserBridgeProvider {
         persistCurrentWorkspaceState()
     }
 
-    func moveTabs(_ tabIDs: [UUID], toFolder folderId: UUID?) {
+    func moveTabs(_ tabIDs: [UUID], toFolder folderId: UUID?, placement: TabInsertionPlacement? = nil) {
         guard browserFolderController.moveTabs(
             tabIDs,
             toFolder: folderId,
+            placement: placement,
             model: &tabModel,
             selection: &selectionModel
         ) else {
             return
         }
         ensureActiveTabLoadedIfNeeded()
+        persistCurrentWorkspaceState()
+    }
+
+    func reorderTabs(_ tabIDs: [UUID], placement: TabInsertionPlacement) {
+        guard browserFolderController.reorderTabs(
+            tabIDs,
+            placement: placement,
+            model: &tabModel,
+            selection: &selectionModel
+        ) else {
+            return
+        }
         persistCurrentWorkspaceState()
     }
 

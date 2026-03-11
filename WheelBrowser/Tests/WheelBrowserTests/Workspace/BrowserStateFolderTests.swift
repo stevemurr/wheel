@@ -198,6 +198,141 @@ struct BrowserStateFolderTests {
         #expect(browserState.folder(for: folderID)?.tabIDs.isEmpty == true)
     }
 
+    @Test("Reordering a single tab preserves active tab and selection")
+    func reorderSingleTabPreservesSelection() throws {
+        let (browserState, manager, directory) = makeBrowserState()
+        defer { try? FileManager.default.removeItem(at: directory) }
+
+        browserState.bindToWorkspace(try #require(manager.currentWorkspaceID))
+        let firstTabID = try #require(browserState.activeTabId)
+
+        browserState.addTab()
+        let secondTabID = try #require(browserState.activeTabId)
+        browserState.addTab()
+        let thirdTabID = try #require(browserState.activeTabId)
+
+        browserState.selectTab(secondTabID)
+        browserState.reorderTabs([secondTabID], placement: .after(thirdTabID))
+
+        #expect(browserState.visibleTabs.map(\.id) == [firstTabID, thirdTabID, secondTabID])
+        #expect(browserState.activeTabId == secondTabID)
+        #expect(browserState.selectedTabIDs == [secondTabID])
+    }
+
+    @Test("Reordering a selected set moves it as a block")
+    func reorderSelectedSetPreservesInternalOrder() throws {
+        let (browserState, manager, directory) = makeBrowserState()
+        defer { try? FileManager.default.removeItem(at: directory) }
+
+        browserState.bindToWorkspace(try #require(manager.currentWorkspaceID))
+        let firstTabID = try #require(browserState.activeTabId)
+
+        browserState.addTab()
+        let secondTabID = try #require(browserState.activeTabId)
+        browserState.addTab()
+        let thirdTabID = try #require(browserState.activeTabId)
+        browserState.addTab()
+        let fourthTabID = try #require(browserState.activeTabId)
+
+        browserState.handleTabActivation(secondTabID, selectionMode: .replace)
+        browserState.handleTabActivation(thirdTabID, selectionMode: .add)
+        browserState.reorderTabs([secondTabID, thirdTabID], placement: .after(fourthTabID))
+
+        #expect(browserState.visibleTabs.map(\.id) == [firstTabID, fourthTabID, secondTabID, thirdTabID])
+        #expect(browserState.activeTabId == thirdTabID)
+        #expect(browserState.selectedTabIDs == Set([secondTabID, thirdTabID]))
+    }
+
+    @Test("Moving an active tab into another folder updates active folder and global order")
+    func movingActiveTabIntoFolderUpdatesActiveFolder() throws {
+        let (browserState, manager, directory) = makeBrowserState()
+        defer { try? FileManager.default.removeItem(at: directory) }
+
+        browserState.bindToWorkspace(try #require(manager.currentWorkspaceID))
+        let looseTabID = try #require(browserState.activeTabId)
+
+        browserState.addTab()
+        let sourceTabID = try #require(browserState.activeTabId)
+        browserState.addTab()
+        let destinationTabID = try #require(browserState.activeTabId)
+
+        let destinationFolderID = browserState.createFolder(
+            name: "Destination",
+            color: "#34C759",
+            movingTabIDs: [destinationTabID]
+        )
+
+        browserState.selectTab(sourceTabID)
+        browserState.moveTabs([sourceTabID], toFolder: destinationFolderID, placement: .after(destinationTabID))
+
+        #expect(browserState.activeTabId == sourceTabID)
+        #expect(browserState.activeFolderId == destinationFolderID)
+        #expect(browserState.tab(for: sourceTabID)?.folderID == destinationFolderID)
+        #expect(browserState.visibleTabs.map(\.id) == [looseTabID, destinationTabID, sourceTabID])
+        #expect(browserState.folder(for: destinationFolderID)?.tabIDs == [destinationTabID, sourceTabID])
+    }
+
+    @Test("Moving active folder tabs to Loose clears folder membership and persists order")
+    func movingTabsToLooseClearsActiveFolder() throws {
+        let (browserState, manager, directory) = makeBrowserState()
+        defer { try? FileManager.default.removeItem(at: directory) }
+
+        browserState.bindToWorkspace(try #require(manager.currentWorkspaceID))
+        let looseTabID = try #require(browserState.activeTabId)
+
+        browserState.addTab()
+        let firstFolderTabID = try #require(browserState.activeTabId)
+        browserState.addTab()
+        let secondFolderTabID = try #require(browserState.activeTabId)
+
+        let folderID = browserState.createFolder(
+            name: "Pinned",
+            color: "#5856D6",
+            movingTabIDs: [firstFolderTabID, secondFolderTabID]
+        )
+
+        browserState.selectTab(secondFolderTabID)
+        browserState.moveTabs([firstFolderTabID, secondFolderTabID], toFolder: nil, placement: .end)
+
+        #expect(browserState.activeTabId == secondFolderTabID)
+        #expect(browserState.activeFolderId == nil)
+        #expect(browserState.folders.first?.tabIDs.isEmpty == true)
+        #expect(browserState.tab(for: firstFolderTabID)?.folderID == nil)
+        #expect(browserState.tab(for: secondFolderTabID)?.folderID == nil)
+        #expect(browserState.visibleTabs.map(\.id) == [looseTabID, firstFolderTabID, secondFolderTabID])
+        #expect(browserState.folder(for: folderID)?.tabIDs == [])
+    }
+
+    @Test("Creating a folder from moved tabs preserves their order across workspace reloads")
+    func createFolderFromDraggedTabsPersistsOrder() throws {
+        let (browserState, manager, directory) = makeBrowserState()
+        defer { try? FileManager.default.removeItem(at: directory) }
+
+        let workspaceID = try #require(manager.currentWorkspaceID)
+        browserState.bindToWorkspace(workspaceID)
+        let firstTabID = try #require(browserState.activeTabId)
+
+        browserState.addTab()
+        let secondTabID = try #require(browserState.activeTabId)
+        browserState.addTab()
+        let thirdTabID = try #require(browserState.activeTabId)
+
+        let folderID = browserState.createFolder(
+            name: "Dragged",
+            color: "#FF9500",
+            movingTabIDs: [secondTabID, thirdTabID]
+        )
+
+        let otherWorkspaceID = manager.createWorkspace(name: "Other").id
+        browserState.bindToWorkspace(otherWorkspaceID)
+        browserState.bindToWorkspace(workspaceID)
+
+        #expect(browserState.visibleTabs.map(\.id) == [firstTabID, secondTabID, thirdTabID])
+        #expect(browserState.folder(for: folderID)?.tabIDs == [secondTabID, thirdTabID])
+        #expect(browserState.tab(for: secondTabID)?.folderID == folderID)
+        #expect(browserState.tab(for: thirdTabID)?.folderID == folderID)
+    }
+
     private func makeBrowserState() -> (BrowserState, WorkspaceManager, URL) {
         let directory = FileManager.default.temporaryDirectory
             .appendingPathComponent(UUID().uuidString, isDirectory: true)

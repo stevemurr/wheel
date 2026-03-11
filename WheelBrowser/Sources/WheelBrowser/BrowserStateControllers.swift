@@ -16,6 +16,12 @@ struct BrowserSelectionModel {
     var tabSelectionAnchorId: UUID?
 }
 
+enum TabInsertionPlacement: Equatable {
+    case before(UUID)
+    case after(UUID)
+    case end
+}
+
 struct TabCollectionController {
     @discardableResult
     func appendTab(
@@ -185,6 +191,47 @@ struct TabCollectionController {
     func orderedTabIDs(from ids: [UUID], model: BrowserTabModel) -> [UUID] {
         let uniqueIDs = Set(ids)
         return model.tabs.map(\.id).filter { uniqueIDs.contains($0) }
+    }
+
+    @discardableResult
+    func reorderTabs(
+        _ tabIDs: [UUID],
+        placement: TabInsertionPlacement,
+        model: inout BrowserTabModel
+    ) -> Bool {
+        let orderedTargetIDs = orderedTabIDs(from: tabIDs, model: model)
+        guard !orderedTargetIDs.isEmpty else { return false }
+
+        let movingIDSet = Set(orderedTargetIDs)
+        let movingTabs = model.tabs.filter { movingIDSet.contains($0.id) }
+        var remainingTabs = model.tabs.filter { !movingIDSet.contains($0.id) }
+
+        let insertionIndex: Int
+        switch placement {
+        case .before(let tabID):
+            guard let targetIndex = remainingTabs.firstIndex(where: { $0.id == tabID }) else {
+                return false
+            }
+            insertionIndex = targetIndex
+        case .after(let tabID):
+            guard let targetIndex = remainingTabs.firstIndex(where: { $0.id == tabID }) else {
+                return false
+            }
+            insertionIndex = targetIndex + 1
+        case .end:
+            insertionIndex = remainingTabs.count
+        }
+
+        let originalIDs = model.tabs.map(\.id)
+        remainingTabs.insert(contentsOf: movingTabs, at: insertionIndex)
+
+        let reorderedIDs = remainingTabs.map(\.id)
+        guard reorderedIDs != originalIDs else { return false }
+
+        model.tabs = remainingTabs
+        model.tabsByID = Dictionary(uniqueKeysWithValues: remainingTabs.map { ($0.id, $0) })
+        synchronizeFolders(in: &model)
+        return true
     }
 
     func applyFolderMembership(for tabIDs: [UUID], folderId: UUID?, model: inout BrowserTabModel) {
@@ -748,17 +795,30 @@ struct BrowserFolderController {
     func moveTabs(
         _ tabIDs: [UUID],
         toFolder folderId: UUID?,
+        placement: TabInsertionPlacement? = nil,
         model: inout BrowserTabModel,
         selection: inout BrowserSelectionModel
     ) -> Bool {
         let orderedTargetIDs = tabCollectionController.orderedTabIDs(from: tabIDs, model: model)
         guard !orderedTargetIDs.isEmpty else { return false }
 
+        if let placement {
+            _ = tabCollectionController.reorderTabs(orderedTargetIDs, placement: placement, model: &model)
+        }
+
+        let resolvedFolderId = tabCollectionController.validFolderId(folderId, model: model)
+
         tabCollectionController.applyFolderMembership(
             for: orderedTargetIDs,
-            folderId: tabCollectionController.validFolderId(folderId, model: model),
+            folderId: resolvedFolderId,
             model: &model
         )
+
+        if let activeTabId = selection.activeTabId,
+           orderedTargetIDs.contains(activeTabId) {
+            selection.activeFolderId = resolvedFolderId
+        }
+
         selection.activeTabId = tabSelectionController.resolvedVisibleTabID(
             preferredTabID: selection.activeTabId,
             model: model,
@@ -774,6 +834,25 @@ struct BrowserFolderController {
             visibleTabs: model.tabs,
             selection: &selection
         )
+
+        return true
+    }
+
+    @discardableResult
+    func reorderTabs(
+        _ tabIDs: [UUID],
+        placement: TabInsertionPlacement,
+        model: inout BrowserTabModel,
+        selection: inout BrowserSelectionModel
+    ) -> Bool {
+        let didReorder = tabCollectionController.reorderTabs(tabIDs, placement: placement, model: &model)
+        guard didReorder else { return false }
+
+        tabSelectionController.sanitizeSelection(visibleTabs: model.tabs, selection: &selection)
+
+        if let activeTabId = selection.activeTabId {
+            tabCollectionController.recordLastActiveTab(activeTabId, model: &model)
+        }
 
         return true
     }

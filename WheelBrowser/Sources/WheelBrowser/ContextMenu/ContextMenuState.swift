@@ -23,9 +23,9 @@ final class ContextMenuState {
     /// Measured by the overlay via GeometryReader preference. Used for edge clamping.
     @ObservationIgnored var measuredCardSize: CGSize = CGSize(width: 240, height: 100)
 
-    /// The web view that will execute actions.
+    /// The web view that will execute fallback actions.
     weak var sourceWebView: BrowserWebView?
-    @ObservationIgnored private var actionHandler: ((ContextMenuAction) -> Void)?
+    @ObservationIgnored private var fallbackActionHandler: ((ContextMenuAction) -> Void)?
 
     private init() {}
 
@@ -49,7 +49,7 @@ final class ContextMenuState {
             canGoBack: canGoBack,
             canGoForward: canGoForward
         )
-        self.actionHandler = { [weak source] action in
+        self.fallbackActionHandler = { [weak source] action in
             source?.executeContextAction(action)
         }
         withAnimation(AppAnimation.quick) {
@@ -60,7 +60,7 @@ final class ContextMenuState {
     func show(
         at point: CGPoint,
         sections: [ContextMenuSection],
-        onAction: @escaping (ContextMenuAction) -> Void
+        fallbackAction: ((ContextMenuAction) -> Void)? = nil
     ) {
         self.position = point
         self.canGoBack = false
@@ -69,7 +69,7 @@ final class ContextMenuState {
         self.highlightedIndex = nil
         self.hoveredItemID = nil
         self.sections = sections
-        self.actionHandler = onAction
+        self.fallbackActionHandler = fallbackAction
         withAnimation(AppAnimation.quick) {
             self.isVisible = true
         }
@@ -83,12 +83,12 @@ final class ContextMenuState {
         }
         highlightedIndex = nil
         hoveredItemID = nil
-        actionHandler = nil
+        fallbackActionHandler = nil
         sourceWebView = nil
     }
 
-    func execute(_ action: ContextMenuAction) {
-        actionHandler?(action)
+    func executeFallback(_ action: ContextMenuAction) {
+        fallbackActionHandler?(action)
     }
 
     // MARK: - Keyboard navigation
