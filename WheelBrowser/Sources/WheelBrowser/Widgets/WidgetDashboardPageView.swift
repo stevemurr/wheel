@@ -268,6 +268,24 @@ private final class DashboardInteractionNSView: NSView {
     override var mouseDownCanMoveWindow: Bool { false }
 }
 
+private final class DashboardRuntimeWebView: BrowserWebView {
+    override func scrollWheel(with event: NSEvent) {
+        let verticalDelta = abs(event.scrollingDeltaY)
+        let horizontalDelta = abs(event.scrollingDeltaX)
+
+        // The dashboard itself owns vertical scrolling. Forward vertically dominant
+        // wheel gestures so the surrounding SwiftUI ScrollView can move while the
+        // pointer is over the widget runtime. Keep horizontal-dominant gestures
+        // inside the web view for widgets that expose sideways overflow.
+        if verticalDelta >= horizontalDelta, let nextResponder {
+            nextResponder.scrollWheel(with: event)
+            return
+        }
+
+        super.scrollWheel(with: event)
+    }
+}
+
 private struct DashboardActionButtonStyle: ButtonStyle {
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
@@ -330,7 +348,7 @@ private struct WidgetDashboardWebView: View {
                 .init(name: bridge.messageHandlerName, handler: bridge),
             ],
             makeWebView: { configuration in
-                BrowserWebView(frame: .zero, configuration: configuration)
+                DashboardRuntimeWebView(frame: .zero, configuration: configuration)
             },
             configure: { webView in
                 webView.setValue(false, forKey: "drawsBackground")

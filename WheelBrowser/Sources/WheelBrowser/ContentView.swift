@@ -9,7 +9,6 @@ private struct BrowserContentArea: View {
     var noteStore: NoteStore
     let onCopyNote: (NoteRecord) -> Void
     let onDeleteNote: (NoteRecord) -> Void
-    @ObservedObject var settings: AppSettings
     var agentEngine: AgentEngine
     var wheelState: TabWheelState
     var noteWindowState: NoteWindowState
@@ -348,7 +347,6 @@ struct ContentView: View {
     @State private var agentEngine: AgentEngine
     private var agentManager = AgentManager.shared
     private var workspaceManager = WorkspaceManager.shared
-    @ObservedObject private var settings = AppSettings.shared
     private var downloadManager = DownloadManager.shared
     @State private var wheelState = TabWheelState.shared
     @State private var noteStore = NoteStore()
@@ -393,7 +391,6 @@ struct ContentView: View {
                             noteStore: noteStore,
                             onCopyNote: copyNote,
                             onDeleteNote: deleteNote,
-                            settings: settings,
                             agentEngine: agentEngine,
                             wheelState: wheelState,
                             noteWindowState: noteWindowState,
