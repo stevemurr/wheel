@@ -11,10 +11,8 @@ class AgentManager {
     var isLoading = false
     var error: String?
     var messages: [ChatMessage] = []
-    var isFullPageChatActive: Bool = false
     var isStreamingActive: Bool = false
     var selectedArtifact: ChatArtifact?
-    var pendingInputText: String?
     var streamingScrollToken: UInt = 0
 
     private var activeStreamTask: Task<Void, Never>?

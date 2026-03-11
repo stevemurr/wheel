@@ -54,6 +54,9 @@ extension OmniBar {
         guard !content.isEmpty else { return }
 
         let currentMentions = omniState.mentions
+        if tab.isChatTab && !tab.hasConversationStarted {
+            tab.hasConversationStarted = true
+        }
         omniState.inputText = ""
         isSending = true
         omniState.setVisiblePanel(.chat)
