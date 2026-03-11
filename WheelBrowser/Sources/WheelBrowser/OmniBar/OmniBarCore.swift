@@ -45,6 +45,14 @@ struct OmniBar: View {
     var isFullPageChatActive: Bool {
         tab.url == nil && tab.isChatTab
     }
+    var isFullPageChatActiveOrPending: Bool {
+        isFullPageChatActive || OmniBarTabTransitionPolicy.shouldLatchEmptyTabIntoChat(
+            tab: tab,
+            currentMode: omniState.mode,
+            isInputFocused: isInputFocused,
+            hasExplicitChatFocusIntent: tab.hasExplicitChatFocusIntent
+        )
+    }
     var isFullPageChatLocked: Bool {
         isFullPageChatActive && tab.hasConversationStarted
     }
@@ -154,7 +162,12 @@ struct OmniBar: View {
                     .zIndex(100)
 
                 // Panel toggle buttons for modes with content
-                ChatPanelToggle(agentManager: agentManager, omniState: omniState, isSending: isSending)
+                ChatPanelToggle(
+                    agentManager: agentManager,
+                    omniState: omniState,
+                    isSending: isSending,
+                    isFullPageChatActiveOrPending: isFullPageChatActiveOrPending
+                )
                 panelToggle(for: .semantic, hasContent: !semanticSearchVM.results.isEmpty)
                 AgentPanelToggle(agentEngine: agentEngine, omniState: omniState)
                 panelToggle(for: .readingList, hasContent: !readingListVM.items.isEmpty)
@@ -251,13 +264,15 @@ private struct ChatPanelToggle: View {
     var agentManager: AgentManager
     var omniState: OmniBarState
     var isSending: Bool
+    var isFullPageChatActiveOrPending: Bool
 
     var body: some View {
-        if omniState.mode == .chat && OmniBarChatPanelVisibilityPolicy.shouldShowPanel(
+        if omniState.mode == .chat && OmniBarChatPanelVisibilityPolicy.shouldShowFloatingPanel(
             isSending: isSending,
             isLoading: agentManager.isLoading,
             isStreaming: agentManager.isStreamingActive,
-            hasMessages: !agentManager.messages.isEmpty
+            hasMessages: !agentManager.messages.isEmpty,
+            isFullPageChatActiveOrPending: isFullPageChatActiveOrPending
         ) {
             let panel = OmniBarMode.chat.correspondingPanel
             PanelToggleButton(isExpanded: omniState.visiblePanel == panel) {

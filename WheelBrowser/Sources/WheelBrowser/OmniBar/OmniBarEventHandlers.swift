@@ -181,12 +181,17 @@ extension OmniBar {
                     omniState.removeMention(.currentPage, userInitiated: false)
                 }
             }
+            if isFullPageChatActiveOrPending {
+                omniState.dismissVisiblePanel()
+                return
+            }
             // Show panel last (animated)
-            if OmniBarChatPanelVisibilityPolicy.shouldShowPanel(
+            if OmniBarChatPanelVisibilityPolicy.shouldShowFloatingPanel(
                 isSending: isSending,
                 isLoading: agentManager.isLoading,
                 isStreaming: agentManager.isStreamingActive,
-                hasMessages: !agentManager.messages.isEmpty
+                hasMessages: !agentManager.messages.isEmpty,
+                isFullPageChatActiveOrPending: false
             ) {
                 omniState.setVisiblePanel(.chat)
             } else {

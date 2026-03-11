@@ -54,4 +54,39 @@ struct OmniBarChatPanelVisibilityPolicyTests {
             ) == false
         )
     }
+
+    @Test("Floating chat panel stays suppressed while full-page chat owns the surface")
+    func suppressesFloatingPanelForFullPageChat() {
+        #expect(
+            OmniBarChatPanelVisibilityPolicy.shouldShowFloatingPanel(
+                isSending: true,
+                isLoading: false,
+                isStreaming: false,
+                hasMessages: false,
+                isFullPageChatActiveOrPending: true
+            ) == false
+        )
+        #expect(
+            OmniBarChatPanelVisibilityPolicy.shouldShowFloatingPanel(
+                isSending: false,
+                isLoading: false,
+                isStreaming: false,
+                hasMessages: true,
+                isFullPageChatActiveOrPending: true
+            ) == false
+        )
+    }
+
+    @Test("Floating chat panel remains available for non-full-page chat surfaces")
+    func allowsFloatingPanelOutsideFullPageChat() {
+        #expect(
+            OmniBarChatPanelVisibilityPolicy.shouldShowFloatingPanel(
+                isSending: false,
+                isLoading: false,
+                isStreaming: true,
+                hasMessages: false,
+                isFullPageChatActiveOrPending: false
+            )
+        )
+    }
 }
