@@ -100,6 +100,22 @@ struct OmniBarTextEditor: NSViewRepresentable {
     class ChatTextView: NSTextView {
         weak var chatDelegate: ChatTextViewDelegate?
 
+        override func becomeFirstResponder() -> Bool {
+            let didBecome = super.becomeFirstResponder()
+            if didBecome {
+                chatDelegate?.chatTextViewDidBecomeFirstResponder(self)
+            }
+            return didBecome
+        }
+
+        override func resignFirstResponder() -> Bool {
+            let didResign = super.resignFirstResponder()
+            if didResign {
+                chatDelegate?.chatTextViewDidResignFirstResponder(self)
+            }
+            return didResign
+        }
+
         override func keyDown(with event: NSEvent) {
             // Enter without shift = submit
             if event.keyCode == 36 && !event.modifierFlags.contains(.shift) {
@@ -135,6 +151,28 @@ struct OmniBarTextEditor: NSViewRepresentable {
 
         // MARK: - ChatTextViewDelegate
 
+        func chatTextViewDidBecomeFirstResponder(_ textView: ChatTextView) {
+            isEditing = true
+            DispatchQueue.main.async {
+                guard !self.parent.isFocused else { return }
+                self.parent.isFocused = true
+            }
+        }
+
+        func chatTextViewDidResignFirstResponder(_ textView: ChatTextView) {
+            syncFocusLoss()
+        }
+
+        private func syncFocusLoss() {
+            guard isEditing else { return }
+            isEditing = false
+            DispatchQueue.main.async {
+                guard !self.omniBarInputHasFirstResponder() else { return }
+                guard self.parent.isFocused else { return }
+                self.parent.isFocused = false
+            }
+        }
+
         func chatTextViewShouldSubmit(_ textView: ChatTextView) -> Bool {
             parent.onSubmit()
             return true
@@ -153,25 +191,14 @@ struct OmniBarTextEditor: NSViewRepresentable {
         // MARK: - NSTextViewDelegate
 
         func textDidBeginEditing(_ notification: Notification) {
-            isEditing = true
             OmniBarWindowDiagnostics.shared.arm(reason: "chat-user-focus")
             if let textView {
                 OmniBarTextInputConfigurator.configure(textView)
             }
-            DispatchQueue.main.async {
-                guard !self.parent.isFocused else { return }
-                self.parent.isFocused = true
-            }
         }
 
         func textDidEndEditing(_ notification: Notification) {
-            guard isEditing else { return }
-            isEditing = false
-            DispatchQueue.main.async {
-                guard !self.omniBarInputHasFirstResponder() else { return }
-                guard self.parent.isFocused else { return }
-                self.parent.isFocused = false
-            }
+            syncFocusLoss()
         }
 
         func textDidChange(_ notification: Notification) {
@@ -274,6 +301,8 @@ struct OmniBarTextEditor: NSViewRepresentable {
 /// Protocol for the chat text view to communicate with its coordinator
 @MainActor
 protocol ChatTextViewDelegate: AnyObject {
+    func chatTextViewDidBecomeFirstResponder(_ textView: OmniBarTextEditor.ChatTextView)
+    func chatTextViewDidResignFirstResponder(_ textView: OmniBarTextEditor.ChatTextView)
     func chatTextViewShouldSubmit(_ textView: OmniBarTextEditor.ChatTextView) -> Bool
     func chatTextView(_ textView: OmniBarTextEditor.ChatTextView, handleCommand: KeyboardCommand) -> Bool
 }

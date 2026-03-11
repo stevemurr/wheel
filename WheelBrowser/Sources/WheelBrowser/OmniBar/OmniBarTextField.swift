@@ -126,6 +126,22 @@ struct OmniBarTextField: NSViewRepresentable {
     final class CommandTextView: NSTextView {
         weak var commandDelegate: CommandTextViewDelegate?
 
+        override func becomeFirstResponder() -> Bool {
+            let didBecome = super.becomeFirstResponder()
+            if didBecome {
+                commandDelegate?.commandTextViewDidBecomeFirstResponder(self)
+            }
+            return didBecome
+        }
+
+        override func resignFirstResponder() -> Bool {
+            let didResign = super.resignFirstResponder()
+            if didResign {
+                commandDelegate?.commandTextViewDidResignFirstResponder(self)
+            }
+            return didResign
+        }
+
         override func keyDown(with event: NSEvent) {
             if event.keyCode == 36, commandDelegate?.commandTextViewShouldSubmit(self) == true {
                 return
@@ -159,6 +175,18 @@ struct OmniBarTextField: NSViewRepresentable {
             self.parent = parent
         }
 
+        func commandTextViewDidBecomeFirstResponder(_ textView: CommandTextView) {
+            isEditing = true
+            DispatchQueue.main.async {
+                guard !self.parent.isFocused else { return }
+                self.parent.isFocused = true
+            }
+        }
+
+        func commandTextViewDidResignFirstResponder(_ textView: CommandTextView) {
+            syncFocusLoss()
+        }
+
         func commandTextViewShouldSubmit(_ textView: CommandTextView) -> Bool {
             parent.onSubmit()
             return true
@@ -169,18 +197,17 @@ struct OmniBarTextField: NSViewRepresentable {
         }
 
         func textDidBeginEditing(_ notification: Notification) {
-            isEditing = true
             OmniBarWindowDiagnostics.shared.arm(reason: "single-line-user-focus")
             if let textView {
                 OmniBarTextInputConfigurator.configure(textView)
             }
-            DispatchQueue.main.async {
-                guard !self.parent.isFocused else { return }
-                self.parent.isFocused = true
-            }
         }
 
         func textDidEndEditing(_ notification: Notification) {
+            syncFocusLoss()
+        }
+
+        private func syncFocusLoss() {
             guard isEditing else { return }
             isEditing = false
             DispatchQueue.main.async {
@@ -272,6 +299,8 @@ struct OmniBarTextField: NSViewRepresentable {
 
 @MainActor
 protocol CommandTextViewDelegate: AnyObject {
+    func commandTextViewDidBecomeFirstResponder(_ textView: OmniBarTextField.CommandTextView)
+    func commandTextViewDidResignFirstResponder(_ textView: OmniBarTextField.CommandTextView)
     func commandTextViewShouldSubmit(_ textView: OmniBarTextField.CommandTextView) -> Bool
     func commandTextView(_ textView: OmniBarTextField.CommandTextView, handleCommand command: KeyboardCommand) -> Bool
 }
