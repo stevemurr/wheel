@@ -439,21 +439,14 @@ class AgentManager {
         let sessionExists = await contextService.sessionExists(sessionID: sessionID)
         Log.Chat.info("Preparing chat thread \(sessionID): replaceExisting=\(replaceExisting), sessionExists=\(sessionExists), turns=\(turns.count), excludedPendingMessage=\(excludingPendingUserMessageID?.uuidString.lowercased() ?? "nil")")
 
-        if replaceExisting {
+        if !turns.isEmpty {
+            let shouldReplaceExistingHistory = replaceExisting || sessionExists
             try await contextService.importChatSession(
                 conversationId: conversationId,
                 instructions: systemPrompt,
                 turns: turns,
                 durableMemory: [],
-                replaceExisting: true
-            )
-        } else if !sessionExists && !turns.isEmpty {
-            try await contextService.importChatSession(
-                conversationId: conversationId,
-                instructions: systemPrompt,
-                turns: turns,
-                durableMemory: [],
-                replaceExisting: false
+                replaceExisting: shouldReplaceExistingHistory
             )
         }
 

@@ -122,6 +122,28 @@ struct AgentManagerTests {
         """)
     }
 
+    @Test("Follow-up turns resync transcript before streaming against an existing session")
+    func followUpTurnsResyncTranscriptBeforeStreaming() async {
+        ConversationManager.shared.clearCurrentConversation()
+        defer {
+            ConversationManager.shared.clearCurrentConversation()
+        }
+
+        let contextService = TranscriptSyncRequiredChatContextService()
+        let manager = AgentManager(contextService: contextService)
+
+        await manager.sendMessage("First question", pageContexts: [])
+        await manager.sendMessage("Follow-up question", pageContexts: [])
+
+        #expect(await contextService.importCount() == 1)
+        #expect(await contextService.lastImportedTurnCount() == 2)
+        #expect(await contextService.streamCallCount() == 2)
+        #expect(manager.error == nil)
+        #expect(manager.messages.count == 4)
+        #expect(manager.messages.last?.content == "Second answer")
+        #expect(manager.messages.last?.isFailed == false)
+    }
+
     @Test("Missing chat thread during streaming rebuilds history and retries once")
     func missingThreadDuringStreamingRetriesWithImportedHistory() async {
         ConversationManager.shared.clearCurrentConversation()
@@ -140,6 +162,153 @@ struct AgentManagerTests {
         #expect(manager.messages.count == 2)
         #expect(manager.messages.last?.content == "Recovered reply")
         #expect(manager.messages.last?.isFailed == false)
+    }
+}
+
+private actor TranscriptSyncRequiredChatContextService: WheelModelContextServing {
+    private var importCalls = 0
+    private var lastImportTurnCount = 0
+    private var streamCalls = 0
+    private var didImportTranscriptForFollowUp = false
+
+    func availabilityStatus() async -> WheelModelAvailability {
+        WheelModelAvailability(
+            profile: WheelModelConfigurationProvider.shared.currentProfile(),
+            runtimeAvailability: RuntimeAvailability(status: .available)
+        )
+    }
+
+    func openChatSession(conversationId: UUID, instructions: String) async throws {}
+
+    func importChatSession(
+        conversationId: UUID,
+        instructions: String,
+        turns: [WheelNormalizedTurn],
+        durableMemory: [WheelDurableMemoryRecord],
+        replaceExisting: Bool
+    ) async throws {
+        importCalls += 1
+        lastImportTurnCount = turns.count
+        didImportTranscriptForFollowUp = replaceExisting && turns.count == 2
+    }
+
+    func streamPlainChatResponse(
+        conversationId: UUID,
+        prompt: String
+    ) async throws -> AsyncThrowingStream<WheelPlainChatStreamEvent, Error> {
+        streamCalls += 1
+
+        if streamCalls == 2 && !didImportTranscriptForFollowUp {
+            throw RuntimeError.generationFailed("Transcript was not synced before the follow-up turn")
+        }
+
+        let answer = streamCalls == 1 ? "First answer" : "Second answer"
+        let reply = WheelGeneratedReply(
+            value: answer,
+            transcriptText: answer,
+            metadata: WheelTurnMetadata(compaction: nil, bridge: nil),
+            modelDisplayName: WheelModelConfigurationProvider.shared.currentProfile().displayName
+        )
+
+        return AsyncThrowingStream { continuation in
+            continuation.yield(.completed(reply))
+            continuation.finish()
+        }
+    }
+
+    func streamChatResponse(
+        conversationId: UUID,
+        prompt: String
+    ) async throws -> AsyncThrowingStream<WheelChatStreamEvent, Error> {
+        fatalError("Structured chat should not be used in AgentManagerTests")
+    }
+
+    func generateSettingsRouteDecision(
+        conversationId: UUID,
+        prompt: String
+    ) async throws -> WheelGeneratedReply<GeneratedSettingsRouteDecision> {
+        fatalError("Not used in AgentManagerTests")
+    }
+
+    func generateSettingsPlan(
+        conversationId: UUID,
+        prompt: String
+    ) async throws -> WheelGeneratedReply<GeneratedSettingsPlan> {
+        fatalError("Not used in AgentManagerTests")
+    }
+
+    func openAgentSession(tabId: UUID, runId: UUID, instructions: String) async throws -> String {
+        fatalError("Not used in AgentManagerTests")
+    }
+
+    func generateAgentTaskIntent(
+        requestID: UUID,
+        task: String,
+        instructions: String
+    ) async throws -> WheelGeneratedReply<GeneratedAgentTaskIntent> {
+        fatalError("Not used in AgentManagerTests")
+    }
+
+    func streamAgentDecision(
+        prompt: String,
+        sessionID: String
+    ) async throws -> AsyncThrowingStream<WheelAgentDecisionStreamEvent, Error> {
+        fatalError("Not used in AgentManagerTests")
+    }
+
+    func generateAgentCompletionEvaluation(
+        requestID: UUID,
+        prompt: String,
+        instructions: String
+    ) async throws -> WheelGeneratedReply<GeneratedAgentCompletionEvaluation> {
+        fatalError("Not used in AgentManagerTests")
+    }
+
+    func appendAgentToolTurn(text: String, tags: [String], sessionID: String) async throws {
+        fatalError("Not used in AgentManagerTests")
+    }
+
+    func generateSummary(
+        requestID: UUID,
+        prompt: String,
+        instructions: String
+    ) async throws -> WheelGeneratedReply<GeneratedSummaryResponse> {
+        fatalError("Not used in AgentManagerTests")
+    }
+
+    func streamSummary(
+        requestID: UUID,
+        prompt: String,
+        instructions: String
+    ) async throws -> AsyncThrowingStream<WheelSummaryStreamEvent, Error> {
+        fatalError("Not used in AgentManagerTests")
+    }
+
+    func generateWidgetPlan(
+        requestID: UUID,
+        prompt: String,
+        instructions: String,
+        transcriptRenderer: (@Sendable (GeneratedWidgetPlan) -> String)?
+    ) async throws -> WheelGeneratedReply<GeneratedWidgetPlan> {
+        fatalError("Not used in AgentManagerTests")
+    }
+
+    func sessionExists(sessionID: String) async -> Bool {
+        true
+    }
+
+    func resetSession(sessionID: String) async throws {}
+
+    func importCount() -> Int {
+        importCalls
+    }
+
+    func lastImportedTurnCount() -> Int {
+        lastImportTurnCount
+    }
+
+    func streamCallCount() -> Int {
+        streamCalls
     }
 }
 
