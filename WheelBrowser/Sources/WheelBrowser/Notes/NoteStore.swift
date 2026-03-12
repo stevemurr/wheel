@@ -1,5 +1,11 @@
 import Foundation
 
+enum NoteStoreChange {
+    case created(NoteRecord)
+    case updated(NoteRecord)
+    case deleted(id: UUID, workspaceID: UUID)
+}
+
 @MainActor
 @Observable
 final class NoteStore {
@@ -10,6 +16,7 @@ final class NoteStore {
     @ObservationIgnored private let backend: FileSystemStoreBackend
     @ObservationIgnored private let saveScheduler: StoreSaveScheduler
     @ObservationIgnored private var dirtyNoteIDs: Set<UUID> = []
+    @ObservationIgnored var changeHandler: ((NoteStoreChange) -> Void)?
 
     init(
         storageRoot: URL = FileManager.appSupportDirectory.appendingPathComponent("Notes", isDirectory: true),
@@ -57,6 +64,7 @@ final class NoteStore {
         )
         insert(note)
         persistNoteImmediately(note)
+        changeHandler?(.created(note))
         return note
     }
 
@@ -71,6 +79,7 @@ final class NoteStore {
         notes[index].excerpt = document.previewText()
         notes[index].updatedAt = Date()
         markDirty(notes[index].id)
+        changeHandler?(.updated(notes[index]))
     }
 
     @discardableResult
@@ -88,6 +97,7 @@ final class NoteStore {
         )
         insert(duplicated)
         persistNoteImmediately(duplicated)
+        changeHandler?(.created(duplicated))
         return duplicated
     }
 
@@ -97,6 +107,7 @@ final class NoteStore {
         let note = notes.remove(at: index)
         dirtyNoteIDs.remove(note.id)
         deletePersistedNote(note)
+        changeHandler?(.deleted(id: note.id, workspaceID: note.workspaceID))
     }
 
     func insertPageSource(id: UUID, source: NotePageSource) {
@@ -108,6 +119,7 @@ final class NoteStore {
         notes[index].excerpt = document.previewText()
         notes[index].updatedAt = Date()
         markDirty(notes[index].id)
+        changeHandler?(.updated(notes[index]))
     }
 
     func flushPendingSaves() {

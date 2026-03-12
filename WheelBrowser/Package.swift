@@ -7,6 +7,7 @@ let package = Package(
         .macOS(.v26)
     ],
     dependencies: [
+        .package(path: "../../fabric"),
         .package(url: "https://github.com/gonzalezreal/swift-markdown-ui", from: "2.3.0"),
         .package(url: "https://github.com/Ryu0118/swift-readability", from: "0.3.0"),
         .package(url: "https://github.com/rryam/VecturaKit", from: "3.0.0"),
@@ -22,6 +23,7 @@ let package = Package(
                 .product(name: "MarkdownUI", package: "swift-markdown-ui"),
                 .product(name: "Readability", package: "swift-readability"),
                 .product(name: "VecturaKit", package: "VecturaKit"),
+                .product(name: "Fabric", package: "fabric"),
                 .product(name: "LanguageModelContextManagement", package: "LanguageModelKit"),
                 .product(name: "LanguageModelStructuredOutput", package: "LanguageModelKit"),
                 .product(name: "LanguageModelApple", package: "LanguageModelKit"),
@@ -51,6 +53,7 @@ let package = Package(
             name: "WheelBrowserTests",
             dependencies: [
                 "WheelBrowser",
+                .product(name: "Fabric", package: "fabric"),
                 .product(name: "LanguageModelContextManagement", package: "LanguageModelKit"),
                 .product(name: "LanguageModelStructuredOutput", package: "LanguageModelKit"),
                 .product(name: "LanguageModelApple", package: "LanguageModelKit"),

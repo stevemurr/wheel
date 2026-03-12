@@ -7,6 +7,7 @@ private struct BrowserContentArea: View {
     var agentManager: AgentManager
     var browserState: BrowserState
     var noteStore: NoteStore
+    var fabricClient: (any WheelFabricMentionClient)?
     let onCopyNote: (NoteRecord) -> Void
     let onDeleteNote: (NoteRecord) -> Void
     var agentEngine: AgentEngine
@@ -41,6 +42,7 @@ private struct BrowserContentArea: View {
                             agentManager: agentManager,
                             browserState: browserState,
                             noteStore: noteStore,
+                            fabricClient: fabricClient,
                             agentEngine: agentEngine,
                             contentExtractor: contentExtractor
                         )
@@ -351,6 +353,7 @@ struct ContentView: View {
     @State private var wheelState = TabWheelState.shared
     @State private var noteStore = NoteStore()
     @State private var noteWindowState = NoteWindowState()
+    @State private var fabricCoordinator: WheelFabricCoordinator?
     @State private var folderEditorRequest: FolderEditorRequest?
     @State private var startupExtensionsReady: Bool
     private var contextMenuState = ContextMenuState.shared
@@ -389,6 +392,7 @@ struct ContentView: View {
                             agentManager: agentManager,
                             browserState: state,
                             noteStore: noteStore,
+                            fabricClient: fabricCoordinator?.consumerClient,
                             onCopyNote: copyNote,
                             onDeleteNote: deleteNote,
                             agentEngine: agentEngine,
@@ -446,6 +450,11 @@ struct ContentView: View {
         mainContent
             .frame(minWidth: 800, minHeight: 600)
             .onAppear(perform: handleOnAppear)
+            .onChange(of: state.activeTabId) { _, _ in
+                Task { @MainActor in
+                    await fabricCoordinator?.publishCurrentPageChange()
+                }
+            }
             .modifier(TabNotificationModifier(
                 state: state
             ))
@@ -457,6 +466,7 @@ struct ContentView: View {
                         state.bindToWorkspace(workspaceId)
                         noteStore.bindToWorkspace(workspaceId)
                         noteWindowState.close()
+                        await fabricCoordinator?.publishCurrentPageChange()
                     }
                 }
             }
@@ -514,6 +524,26 @@ struct ContentView: View {
                 state.bindToWorkspace(currentWorkspaceId)
                 noteStore.bindToWorkspace(currentWorkspaceId)
             }
+
+            if fabricCoordinator == nil {
+                let coordinator = WheelFabricCoordinator(
+                    browserState: state,
+                    noteStore: noteStore,
+                    contentExtractor: contentExtractor,
+                    openNote: { note in
+                        openNote(note)
+                    }
+                )
+                noteStore.changeHandler = { [weak coordinator] change in
+                    Task { @MainActor in
+                        await coordinator?.publishNoteChange(change)
+                    }
+                }
+                fabricCoordinator = coordinator
+            }
+
+            fabricCoordinator?.start()
+            await fabricCoordinator?.publishCurrentPageChange()
         }
     }
 

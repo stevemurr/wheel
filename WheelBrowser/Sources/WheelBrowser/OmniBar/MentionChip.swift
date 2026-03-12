@@ -50,6 +50,8 @@ struct MentionChip: View {
         switch mention {
         case .currentPage:
             return .purple
+        case .pageSnapshot:
+            return .orange
         case .tab:
             return .blue
         case .overlay:
@@ -152,6 +154,8 @@ struct MentionSuggestionRow: View {
         switch suggestion.mention {
         case .currentPage:
             return .purple
+        case .pageSnapshot:
+            return .orange
         case .tab:
             return .blue
         case .overlay:
@@ -174,6 +178,16 @@ struct MentionSuggestionRow: View {
     @ViewBuilder
     private var iconView: some View {
         switch suggestion.mention {
+        case .pageSnapshot:
+            Image(systemName: "camera.viewfinder")
+                .font(.system(size: 12))
+                .foregroundColor(.orange)
+                .frame(width: 24, height: 24)
+                .background(
+                    RoundedRectangle(cornerRadius: 5)
+                        .fill(Color.orange.opacity(0.1))
+                )
+
         case .tab:
             // Favicon-like icon for tabs
             if !domain.isEmpty {
@@ -300,6 +314,14 @@ struct MentionSuggestionRow: View {
         HStack {
             MentionChip(mention: .currentPage, onRemove: {})
             MentionChip(
+                mention: .pageSnapshot(
+                    id: UUID(),
+                    title: "Checkout flow",
+                    url: "https://example.com/checkout"
+                ),
+                onRemove: {}
+            )
+            MentionChip(
                 mention: .tab(id: UUID(), title: "GitHub", url: "https://github.com"),
                 onRemove: {}
             )
@@ -323,6 +345,19 @@ struct MentionSuggestionRow: View {
                     score: 800
                 ),
                 isSelected: true,
+                onSelect: {}
+            )
+
+            MentionSuggestionRow(
+                suggestion: MentionSuggestion(
+                    mention: .pageSnapshot(
+                        id: UUID(),
+                        title: "Checkout flow",
+                        url: "https://example.com/checkout"
+                    ),
+                    score: 780
+                ),
+                isSelected: false,
                 onSelect: {}
             )
 

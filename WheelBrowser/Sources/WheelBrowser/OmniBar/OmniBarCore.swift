@@ -6,6 +6,7 @@ struct OmniBar: View {
     var agentManager: AgentManager
     var browserState: BrowserState
     var noteStore: NoteStore
+    var fabricClient: (any WheelFabricMentionClient)?
     var agentEngine: AgentEngine
     @Environment(\.colorScheme) var currentColorScheme
     @State var omniState = OmniBarState()
@@ -55,6 +56,9 @@ struct OmniBar: View {
     }
     var isFullPageChatLocked: Bool {
         isFullPageChatActive && tab.hasConversationStarted
+    }
+    private var fabricClientIdentity: ObjectIdentifier? {
+        fabricClient.map(ObjectIdentifier.init)
     }
 
 
@@ -135,8 +139,12 @@ struct OmniBar: View {
             suggestionsVM.browserState = browserState
             mentionSuggestionsVM.browserState = browserState
             mentionSuggestionsVM.noteStore = noteStore
+            mentionSuggestionsVM.fabricClient = fabricClient
             agentManager.switchConversation(to: tab.conversationId)
             updateFullPageChatState()
+        }
+        .onChange(of: fabricClientIdentity) { _, _ in
+            mentionSuggestionsVM.fabricClient = fabricClient
         }
         .modifier(OmniBarNotificationModifier(omniBar: self))
         .task {

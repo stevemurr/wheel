@@ -1,3 +1,4 @@
+import Fabric
 import Foundation
 
 /// Resolves mention references into page contexts for the AI chat.
@@ -8,6 +9,7 @@ struct MentionContentResolver {
     let browserState: BrowserState
     let currentTab: Tab
     let noteStore: NoteStore
+    let fabricClient: (any WheelFabricMentionClient)?
 
     /// Resolve all mentions into page contexts for the given query
     func resolve(mentions: [Mention], query: String) async -> [PageContext] {
@@ -59,16 +61,50 @@ struct MentionContentResolver {
             }
         }
 
+        let fabricContextsByURI = await resolveFabricContexts(for: mentions)
+
         // Resolve per-item mentions
         for mention in mentions {
             switch mention {
             case .currentPage:
-                if let context = await contentExtractor.extractContent(from: currentTab) {
+                if let context = pageContext(for: mention, from: fabricContextsByURI) {
+                    contexts.append(context)
+                } else if let context = await contentExtractor.extractContent(from: currentTab) {
                     contexts.append(context)
                 }
 
+            case .pageSnapshot(let tabID, let title, let url):
+                if let context = pageContext(for: mention, from: fabricContextsByURI) {
+                    contexts.append(context)
+                } else if let bridge = browserState.bridge(for: tabID),
+                          let snapshot = try? await bridge.snapshot() {
+                    contexts.append(PageContext(
+                        url: snapshot.url,
+                        title: snapshot.title,
+                        textContent: snapshot.textRepresentation,
+                        contextBadge: .website(
+                            id: mention.id,
+                            title: snapshot.title,
+                            url: snapshot.url
+                        )
+                    ))
+                } else {
+                    contexts.append(PageContext(
+                        url: url,
+                        title: title,
+                        textContent: "[Page Snapshot]\nTitle: \(title)\nURL: \(url)",
+                        contextBadge: .website(
+                            id: mention.id,
+                            title: title,
+                            url: url
+                        )
+                    ))
+                }
+
             case .tab(let tabId, _, _):
-                if let mentionedTab = browserState.tabs.first(where: { $0.id == tabId }) {
+                if let context = pageContext(for: mention, from: fabricContextsByURI) {
+                    contexts.append(context)
+                } else if let mentionedTab = browserState.tabs.first(where: { $0.id == tabId }) {
                     if let context = await contentExtractor.extractContent(from: mentionedTab) {
                         contexts.append(context)
                     }
@@ -83,17 +119,20 @@ struct MentionContentResolver {
                 ))
 
             case .note(let noteID, let title, _):
-                guard let note = noteStore.note(with: noteID) else { break }
-                let content = note.document.plainText(maxLength: Int.max)
-                let textContent = content.isEmpty
-                    ? "[From Note]\n\(title)"
-                    : "[From Note]\n\(content)"
-                contexts.append(PageContext(
-                    url: "note://\(noteID.uuidString)",
-                    title: note.displayTitle,
-                    textContent: textContent,
-                    contextBadge: .note(id: noteID, title: note.displayTitle)
-                ))
+                if let context = pageContext(for: mention, from: fabricContextsByURI) {
+                    contexts.append(context)
+                } else if let note = noteStore.note(with: noteID) {
+                    let content = note.document.plainText(maxLength: Int.max)
+                    let textContent = content.isEmpty
+                        ? "[From Note]\n\(title)"
+                        : "[From Note]\n\(content)"
+                    contexts.append(PageContext(
+                        url: "note://\(noteID.uuidString)",
+                        title: note.displayTitle,
+                        textContent: textContent,
+                        contextBadge: .note(id: noteID, title: note.displayTitle)
+                    ))
+                }
 
             case .semanticResult(_, let title, let url):
                 contexts.append(PageContext(
@@ -109,5 +148,80 @@ struct MentionContentResolver {
         }
 
         return contexts
+    }
+
+    private func resolveFabricContexts(
+        for mentions: [Mention]
+    ) async -> [String: FabricContextPayload]? {
+        guard let fabricClient else {
+            return nil
+        }
+
+        let uris = mentions.compactMap(\.fabricURI)
+        guard !uris.isEmpty else {
+            return [:]
+        }
+
+        do {
+            let payloads = try await fabricClient.resolveContexts(
+                callerAppID: WheelFabricAppID.chat,
+                uris: uris
+            )
+            return Dictionary(
+                uniqueKeysWithValues: payloads.map { ($0.uri.rawValue, $0) }
+            )
+        } catch {
+            return nil
+        }
+    }
+
+    private func pageContext(
+        for mention: Mention,
+        from resolvedPayloads: [String: FabricContextPayload]?
+    ) -> PageContext? {
+        guard let fabricURI = mention.fabricURI,
+              let payload = resolvedPayloads?[fabricURI.rawValue] else {
+            return nil
+        }
+
+        return PageContext(
+            url: payload.metadata["url"]?.stringValue ?? payload.uri.rawValue,
+            title: payload.title,
+            textContent: textContent(for: payload),
+            contextBadge: contextBadge(for: payload)
+        )
+    }
+
+    private func textContent(for payload: FabricContextPayload) -> String {
+        switch payload.kind {
+        case "note":
+            return payload.body.isEmpty
+                ? "[From Note]\n\(payload.title)"
+                : "[From Note]\n\(payload.body)"
+        default:
+            return payload.body
+        }
+    }
+
+    private func contextBadge(for payload: FabricContextPayload) -> ChatContextBadge {
+        switch payload.kind {
+        case "note":
+            if let noteID = UUID(uuidString: payload.uri.id) {
+                return .note(id: noteID, title: payload.title)
+            }
+
+            return ChatContextBadge(
+                id: "note-\(payload.uri.rawValue)",
+                kind: .note,
+                title: payload.title
+            )
+
+        default:
+            return .website(
+                id: payload.uri.rawValue,
+                title: payload.title,
+                url: payload.metadata["url"]?.stringValue
+            )
+        }
     }
 }

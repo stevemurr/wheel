@@ -1,3 +1,4 @@
+import Fabric
 import SwiftUI
 
 /// ViewModel for managing @ mention suggestions in chat mode
@@ -12,6 +13,7 @@ import SwiftUI
     /// Reference to browser state for accessing open tabs
     weak var browserState: BrowserState?
     weak var noteStore: NoteStore?
+    var fabricClient: (any WheelFabricMentionClient)?
 
     private let searchDebouncer = Debouncer(delay: .milliseconds(30))
 
@@ -55,22 +57,6 @@ import SwiftUI
 
         // Check if there are open overlay windows (mini windows should be default when present)
         let hasOpenOverlays = !OverlayWindowManager.shared.windows.isEmpty
-
-        // Add "Current Page" option if not already mentioned
-        if !excludedIds.contains(Mention.currentPage.id) {
-            let pageScore: Int
-            if query.isEmpty {
-                // Lower score when overlays are open so they become the default
-                pageScore = hasOpenOverlays ? 950 : 1000
-            } else {
-                let targets = ["page", "current", "this"]
-                let bestMatch = targets.map { FuzzySearch.score(query: query, target: $0) }.max() ?? 0
-                pageScore = bestMatch > 0 ? bestMatch + 500 : 0
-            }
-            if pageScore > 0 {
-                allSuggestions.append(MentionSuggestion(mention: .currentPage, score: pageScore))
-            }
-        }
 
         // Add "History" option if not already mentioned
         if !excludedIds.contains(Mention.history.id) {
@@ -117,24 +103,50 @@ import SwiftUI
             }
         }
 
-        // Search open tabs
-        if let browserState = browserState {
-            let tabSuggestions = searchTabs(
+        if let fabricSuggestions = await searchFabricResources(
+            query: query,
+            excludedIds: excludedIds,
+            currentTabId: currentTabId,
+            hasOpenOverlays: hasOpenOverlays
+        ) {
+            allSuggestions.append(contentsOf: fabricSuggestions)
+        } else {
+            if !excludedIds.contains(Mention.currentPage.id),
+               let currentPageSuggestion = currentPageSuggestion(
                 query: query,
-                tabs: browserState.tabs,
-                excludedIds: excludedIds,
-                currentTabId: currentTabId
-            )
-            allSuggestions.append(contentsOf: tabSuggestions)
-        }
+                hasOpenOverlays: hasOpenOverlays
+               ) {
+                allSuggestions.append(currentPageSuggestion)
+            }
 
-        if let noteStore {
-            let noteSuggestions = searchNotes(
-                query: query,
-                notes: noteStore.orderedNotes,
-                excludedIds: excludedIds
-            )
-            allSuggestions.append(contentsOf: noteSuggestions)
+            if let browserState = browserState {
+                if let pageSnapshotSuggestion = currentPageSnapshotSuggestion(
+                    query: query,
+                    browserState: browserState,
+                    currentTabId: currentTabId,
+                    hasOpenOverlays: hasOpenOverlays,
+                    excludedIds: excludedIds
+                ) {
+                    allSuggestions.append(pageSnapshotSuggestion)
+                }
+
+                let tabSuggestions = searchTabs(
+                    query: query,
+                    tabs: browserState.tabs,
+                    excludedIds: excludedIds,
+                    currentTabId: currentTabId
+                )
+                allSuggestions.append(contentsOf: tabSuggestions)
+            }
+
+            if let noteStore {
+                let noteSuggestions = searchNotes(
+                    query: query,
+                    notes: noteStore.orderedNotes,
+                    excludedIds: excludedIds
+                )
+                allSuggestions.append(contentsOf: noteSuggestions)
+            }
         }
 
         // Search open overlay windows (mini windows)
@@ -176,6 +188,157 @@ import SwiftUI
         self.isSearching = isSearching
     }
 
+    private func currentPageSuggestion(
+        query: String,
+        hasOpenOverlays: Bool
+    ) -> MentionSuggestion? {
+        let score: Int
+        if query.isEmpty {
+            // Lower score when overlays are open so they become the default.
+            score = hasOpenOverlays ? 950 : 1000
+        } else {
+            let targets = ["page", "current", "this"]
+            let bestMatch = targets.map { FuzzySearch.score(query: query, target: $0) }.max() ?? 0
+            score = bestMatch > 0 ? bestMatch + 500 : 0
+        }
+
+        guard score > 0 else { return nil }
+        return MentionSuggestion(mention: .currentPage, score: score)
+    }
+
+    private func currentPageSnapshotSuggestion(
+        query: String,
+        browserState: BrowserState,
+        currentTabId: UUID?,
+        hasOpenOverlays: Bool,
+        excludedIds: Set<String>
+    ) -> MentionSuggestion? {
+        let snapshotTab = currentTabId.flatMap(browserState.tab(for:))
+            ?? browserState.activeTab
+        guard let snapshotTab,
+              let url = snapshotTab.url?.absoluteString else {
+            return nil
+        }
+
+        let mention = Mention.pageSnapshot(
+            id: snapshotTab.id,
+            title: snapshotTab.displayTitle,
+            url: url
+        )
+        guard !excludedIds.contains(mention.id) else {
+            return nil
+        }
+
+        let score: Int
+        if query.isEmpty {
+            score = hasOpenOverlays ? 940 : 975
+        } else {
+            let titleScore = FuzzySearch.score(query: query, target: snapshotTab.displayTitle)
+            let urlScore = FuzzySearch.score(query: query, target: url)
+            let typeScore = ["snapshot", "capture", "page snapshot", "frozen page"]
+                .map { FuzzySearch.score(query: query, target: $0) }
+                .max() ?? 0
+            score = max(titleScore, urlScore, typeScore)
+        }
+
+        guard score > 0 else { return nil }
+        return MentionSuggestion(mention: mention, score: score)
+    }
+
+    private func searchFabricResources(
+        query: String,
+        excludedIds: Set<String>,
+        currentTabId: UUID?,
+        hasOpenOverlays: Bool
+    ) async -> [MentionSuggestion]? {
+        guard let fabricClient else {
+            return nil
+        }
+
+        do {
+            let resources = try await fabricClient.discoverResources(
+                callerAppID: WheelFabricAppID.chat,
+                query: nil
+            )
+
+            return resources.enumerated().compactMap { index, resource in
+                guard let mention = Mention.fabricBackedMention(
+                    from: resource,
+                    currentTabID: currentTabId
+                ) else {
+                    return nil
+                }
+
+                guard !excludedIds.contains(mention.id) else {
+                    return nil
+                }
+
+                let score = fabricSuggestionScore(
+                    for: resource,
+                    query: query,
+                    hasOpenOverlays: hasOpenOverlays,
+                    ordinal: index
+                )
+                guard score > 0 else {
+                    return nil
+                }
+
+                return MentionSuggestion(mention: mention, score: score)
+            }
+        } catch {
+            return nil
+        }
+    }
+
+    private func fabricSuggestionScore(
+        for resource: FabricResourceDescriptor,
+        query: String,
+        hasOpenOverlays: Bool,
+        ordinal: Int
+    ) -> Int {
+        if query.isEmpty {
+            switch resource.kind {
+            case "page":
+                return hasOpenOverlays ? 950 : 1000
+            case "page-snapshot":
+                return hasOpenOverlays ? 940 : 975
+            case "note":
+                return max(620 - (ordinal * 8), 0)
+            case "tab":
+                return 500
+            default:
+                return 0
+            }
+        }
+
+        let titleScore = FuzzySearch.score(query: query, target: resource.title)
+        let summaryScore = FuzzySearch.score(query: query, target: resource.summary)
+        let urlScore = FuzzySearch.score(
+            query: query,
+            target: resource.metadata["url"]?.stringValue ?? ""
+        )
+
+        let typeTargets: [String]
+        switch resource.kind {
+        case "page":
+            typeTargets = ["page", "current", "this"]
+        case "page-snapshot":
+            typeTargets = ["snapshot", "capture", "page snapshot", "frozen page"]
+        case "tab":
+            typeTargets = ["tab", "page"]
+        case "note":
+            typeTargets = ["note", "memo", "scratchpad"]
+        default:
+            typeTargets = [resource.kind]
+        }
+
+        let typeScore = typeTargets
+            .map { FuzzySearch.score(query: query, target: $0) }
+            .max() ?? 0
+
+        return max(titleScore, summaryScore, urlScore, typeScore)
+    }
+
     private func searchNotes(
         query: String,
         notes: [NoteRecord],
@@ -215,14 +378,16 @@ import SwiftUI
             return 0
         case .currentPage:
             return 1
-        case .history, .web, .readingList, .domain:
+        case .pageSnapshot:
             return 2
-        case .note:
+        case .history, .web, .readingList, .domain:
             return 3
-        case .tab:
+        case .note:
             return 4
-        case .semanticResult:
+        case .tab:
             return 5
+        case .semanticResult:
+            return 6
         }
     }
 

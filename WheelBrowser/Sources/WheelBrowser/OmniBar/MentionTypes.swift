@@ -1,8 +1,10 @@
+import Fabric
 import Foundation
 
 /// Represents a mention that provides context to the AI chat
 enum Mention: Identifiable, Equatable, Hashable {
     case currentPage
+    case pageSnapshot(id: UUID, title: String, url: String)
     case tab(id: UUID, title: String, url: String)
     case overlay(id: UUID, title: String, url: String) // Mini window
     case note(id: UUID, title: String, excerpt: String)
@@ -16,6 +18,8 @@ enum Mention: Identifiable, Equatable, Hashable {
         switch self {
         case .currentPage:
             return "current-page"
+        case .pageSnapshot(let id, _, _):
+            return "page-snapshot-\(id.uuidString)"
         case .tab(let id, _, _):
             return "tab-\(id.uuidString)"
         case .overlay(let id, _, _):
@@ -39,6 +43,8 @@ enum Mention: Identifiable, Equatable, Hashable {
         switch self {
         case .currentPage:
             return "Page"
+        case .pageSnapshot:
+            return "Snapshot"
         case .tab(_, let title, _):
             return title.isEmpty ? "Untitled" : String(title.prefix(30))
         case .overlay(_, let title, _):
@@ -62,6 +68,8 @@ enum Mention: Identifiable, Equatable, Hashable {
         switch self {
         case .currentPage:
             return "doc.text"
+        case .pageSnapshot:
+            return "camera.viewfinder"
         case .tab:
             return "square.on.square"
         case .overlay:
@@ -85,6 +93,8 @@ enum Mention: Identifiable, Equatable, Hashable {
         switch self {
         case .currentPage:
             return "Current"
+        case .pageSnapshot:
+            return "Snapshot"
         case .tab:
             return "Tab"
         case .overlay:
@@ -108,6 +118,8 @@ enum Mention: Identifiable, Equatable, Hashable {
         switch self {
         case .currentPage:
             return nil
+        case .pageSnapshot(_, _, let url):
+            return url
         case .tab(_, _, let url):
             return url
         case .overlay(_, _, let url):
@@ -125,10 +137,12 @@ enum Mention: Identifiable, Equatable, Hashable {
 
     /// Returns the tab ID if this is a tab mention
     var tabId: UUID? {
-        if case .tab(let id, _, _) = self {
+        switch self {
+        case .pageSnapshot(let id, _, _), .tab(let id, _, _):
             return id
+        default:
+            return nil
         }
-        return nil
     }
 
     /// Returns the overlay ID if this is an overlay mention
@@ -144,7 +158,7 @@ enum Mention: Identifiable, Equatable, Hashable {
         switch self {
         case .web, .history, .readingList, .domain:
             return true
-        case .currentPage, .tab, .overlay, .note, .semanticResult:
+        case .currentPage, .pageSnapshot, .tab, .overlay, .note, .semanticResult:
             return false
         }
     }
@@ -154,7 +168,7 @@ enum Mention: Identifiable, Equatable, Hashable {
         switch self {
         case .currentPage, .overlay:
             return true
-        case .tab, .note, .semanticResult, .history, .web, .readingList, .domain:
+        case .pageSnapshot, .tab, .note, .semanticResult, .history, .web, .readingList, .domain:
             return false
         }
     }
@@ -171,9 +185,78 @@ enum Mention: Identifiable, Equatable, Hashable {
 
     var subtitleText: String? {
         switch self {
+        case .pageSnapshot(_, let title, _):
+            let trimmed = title.trimmingCharacters(in: .whitespacesAndNewlines)
+            return trimmed.isEmpty ? nil : trimmed
         case .note(_, _, let excerpt):
             let trimmed = excerpt.trimmingCharacters(in: .whitespacesAndNewlines)
             return trimmed.isEmpty ? nil : trimmed
+        default:
+            return nil
+        }
+    }
+
+    var fabricURI: FabricURI? {
+        switch self {
+        case .currentPage:
+            return FabricURI(appID: WheelFabricAppID.browser, kind: "page", id: "current")
+        case .pageSnapshot(let id, _, _):
+            return FabricURI(appID: WheelFabricAppID.browser, kind: "page-snapshot", id: id.uuidString)
+        case .tab(let id, _, _):
+            return FabricURI(appID: WheelFabricAppID.browser, kind: "tab", id: id.uuidString)
+        case .note(let id, _, _):
+            return FabricURI(appID: WheelFabricAppID.notes, kind: "note", id: id.uuidString)
+        case .overlay, .semanticResult, .history, .web, .readingList, .domain:
+            return nil
+        }
+    }
+
+    static func fabricBackedMention(
+        from resource: FabricResourceDescriptor,
+        currentTabID: UUID?
+    ) -> Mention? {
+        guard resource.capabilities.contains(.mention) else {
+            return nil
+        }
+
+        switch (resource.uri.appID, resource.kind) {
+        case (WheelFabricAppID.browser, "page"):
+            return .currentPage
+
+        case (WheelFabricAppID.browser, "page-snapshot"):
+            guard let tabID = UUID(uuidString: resource.uri.id) else {
+                return nil
+            }
+
+            return .pageSnapshot(
+                id: tabID,
+                title: resource.summary,
+                url: resource.metadata["url"]?.stringValue ?? ""
+            )
+
+        case (WheelFabricAppID.browser, "tab"):
+            guard let tabID = UUID(uuidString: resource.uri.id),
+                  tabID != currentTabID else {
+                return nil
+            }
+
+            return .tab(
+                id: tabID,
+                title: resource.title,
+                url: resource.metadata["url"]?.stringValue ?? resource.summary
+            )
+
+        case (WheelFabricAppID.notes, "note"):
+            guard let noteID = UUID(uuidString: resource.uri.id) else {
+                return nil
+            }
+
+            return .note(
+                id: noteID,
+                title: resource.title,
+                excerpt: resource.summary
+            )
+
         default:
             return nil
         }
