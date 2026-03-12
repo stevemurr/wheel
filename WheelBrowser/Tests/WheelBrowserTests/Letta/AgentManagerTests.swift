@@ -163,6 +163,34 @@ struct AgentManagerTests {
         #expect(manager.messages.last?.content == "Recovered reply")
         #expect(manager.messages.last?.isFailed == false)
     }
+
+    @Test("Plain chat requests a hidden continuation for obviously truncated markdown")
+    func plainChatContinuesTruncatedMarkdownAnswer() async {
+        ConversationManager.shared.clearCurrentConversation()
+        defer {
+            ConversationManager.shared.clearCurrentConversation()
+        }
+
+        let contextService = TruncatedThenContinuingChatContextService()
+        let manager = AgentManager(contextService: contextService)
+
+        await manager.sendMessage("Explain the workflow", pageContexts: [])
+
+        #expect(await contextService.plainStreamCallCount() == 2)
+        #expect(await contextService.prompts() == [
+            "Explain the workflow",
+            ChatResponseContinuation.prompt,
+        ])
+        #expect(manager.messages.count == 2)
+        #expect(manager.messages.last?.content == """
+        Typical workflow
+
+        1. Define constants
+        2. **State variables & constants**
+        3. Write definitions.
+        """)
+        #expect(manager.messages.last?.isFailed == false)
+    }
 }
 
 private actor TranscriptSyncRequiredChatContextService: WheelModelContextServing {
@@ -613,5 +641,168 @@ private actor RecoveringChatContextService: WheelModelContextServing {
 
     func importCount() -> Int {
         imports
+    }
+}
+
+private actor TruncatedThenContinuingChatContextService: WheelModelContextServing {
+    private var openedIDs: [UUID] = []
+    private var recordedPrompts: [String] = []
+    private var plainStreamCalls = 0
+
+    func availabilityStatus() async -> WheelModelAvailability {
+        WheelModelAvailability(
+            profile: WheelModelConfigurationProvider.shared.currentProfile(),
+            runtimeAvailability: RuntimeAvailability(status: .available)
+        )
+    }
+
+    func openChatSession(conversationId: UUID, instructions: String) async throws {
+        openedIDs.append(conversationId)
+    }
+
+    func importChatSession(
+        conversationId: UUID,
+        instructions: String,
+        turns: [WheelNormalizedTurn],
+        durableMemory: [WheelDurableMemoryRecord],
+        replaceExisting: Bool
+    ) async throws {
+        if openedIDs.contains(conversationId) == false {
+            openedIDs.append(conversationId)
+        }
+    }
+
+    func streamPlainChatResponse(
+        conversationId: UUID,
+        prompt: String
+    ) async throws -> AsyncThrowingStream<WheelPlainChatStreamEvent, Error> {
+        plainStreamCalls += 1
+        recordedPrompts.append(prompt)
+
+        guard openedIDs.contains(conversationId) else {
+            throw ContextManagerError.threadNotFound(conversationId.uuidString)
+        }
+
+        let replyText: String
+        switch plainStreamCalls {
+        case 1:
+            replyText = """
+            Typical workflow
+
+            1. Define constants
+            2. **
+            """
+        case 2:
+            replyText = """
+            **State variables & constants**
+            3. Write definitions.
+            """
+        default:
+            replyText = "Unexpected extra continuation"
+        }
+
+        let reply = WheelGeneratedReply(
+            value: replyText,
+            transcriptText: replyText,
+            metadata: WheelTurnMetadata(compaction: nil, bridge: nil),
+            modelDisplayName: WheelModelConfigurationProvider.shared.currentProfile().displayName
+        )
+
+        return AsyncThrowingStream { continuation in
+            continuation.yield(.partial(answer: String(replyText.prefix(8))))
+            continuation.yield(.completed(reply))
+            continuation.finish()
+        }
+    }
+
+    func streamChatResponse(
+        conversationId: UUID,
+        prompt: String
+    ) async throws -> AsyncThrowingStream<WheelChatStreamEvent, Error> {
+        fatalError("Structured chat should not be used in AgentManagerTests")
+    }
+
+    func generateSettingsRouteDecision(
+        conversationId: UUID,
+        prompt: String
+    ) async throws -> WheelGeneratedReply<GeneratedSettingsRouteDecision> {
+        fatalError("Not used in AgentManagerTests")
+    }
+
+    func generateSettingsPlan(
+        conversationId: UUID,
+        prompt: String
+    ) async throws -> WheelGeneratedReply<GeneratedSettingsPlan> {
+        fatalError("Not used in AgentManagerTests")
+    }
+
+    func openAgentSession(tabId: UUID, runId: UUID, instructions: String) async throws -> String {
+        fatalError("Not used in AgentManagerTests")
+    }
+
+    func generateAgentTaskIntent(
+        requestID: UUID,
+        task: String,
+        instructions: String
+    ) async throws -> WheelGeneratedReply<GeneratedAgentTaskIntent> {
+        fatalError("Not used in AgentManagerTests")
+    }
+
+    func streamAgentDecision(
+        prompt: String,
+        sessionID: String
+    ) async throws -> AsyncThrowingStream<WheelAgentDecisionStreamEvent, Error> {
+        fatalError("Not used in AgentManagerTests")
+    }
+
+    func generateAgentCompletionEvaluation(
+        requestID: UUID,
+        prompt: String,
+        instructions: String
+    ) async throws -> WheelGeneratedReply<GeneratedAgentCompletionEvaluation> {
+        fatalError("Not used in AgentManagerTests")
+    }
+
+    func appendAgentToolTurn(text: String, tags: [String], sessionID: String) async throws {
+        fatalError("Not used in AgentManagerTests")
+    }
+
+    func generateSummary(
+        requestID: UUID,
+        prompt: String,
+        instructions: String
+    ) async throws -> WheelGeneratedReply<GeneratedSummaryResponse> {
+        fatalError("Not used in AgentManagerTests")
+    }
+
+    func streamSummary(
+        requestID: UUID,
+        prompt: String,
+        instructions: String
+    ) async throws -> AsyncThrowingStream<WheelSummaryStreamEvent, Error> {
+        fatalError("Not used in AgentManagerTests")
+    }
+
+    func generateWidgetPlan(
+        requestID: UUID,
+        prompt: String,
+        instructions: String,
+        transcriptRenderer: (@Sendable (GeneratedWidgetPlan) -> String)?
+    ) async throws -> WheelGeneratedReply<GeneratedWidgetPlan> {
+        fatalError("Not used in AgentManagerTests")
+    }
+
+    func sessionExists(sessionID: String) async -> Bool {
+        false
+    }
+
+    func resetSession(sessionID: String) async throws {}
+
+    func plainStreamCallCount() -> Int {
+        plainStreamCalls
+    }
+
+    func prompts() -> [String] {
+        recordedPrompts
     }
 }

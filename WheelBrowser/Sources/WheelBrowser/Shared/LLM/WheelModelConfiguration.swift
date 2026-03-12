@@ -55,6 +55,21 @@ enum WheelModelProviderID: String, CaseIterable, Sendable {
             return "vLLM API Key"
         }
     }
+
+    var defaultBudgetPolicy: BudgetPolicy {
+        switch self {
+        case .apple:
+            return BudgetPolicy(
+                reservedOutputTokens: 1024,
+                defaultContextWindowTokens: 8192
+            )
+        case .openAI, .vllm:
+            return BudgetPolicy(
+                reservedOutputTokens: 1536,
+                defaultContextWindowTokens: 16384
+            )
+        }
+    }
 }
 
 enum WheelAppleGuardrailsOption: String, CaseIterable, Sendable {

@@ -326,52 +326,18 @@ class AgentManager {
                     do {
                         streamAttempt += 1
                         Log.Chat.info("Starting chat stream attempt \(streamAttempt) for conversation \(conversationID.uuidString.lowercased())")
-                        let stream = try await contextService.streamPlainChatResponse(
+                        let latestResponse = try await collectVisiblePlainChatResponse(
                             conversationId: conversationID,
-                            prompt: prompt
+                            prompt: prompt,
+                            assistantMessageId: assistantMessageId
+                        )
+                        let finalizedResponse = try await continueIfLikelyTruncated(
+                            latestResponse,
+                            conversationId: conversationID
                         )
 
-                        var latestResponse: WheelGeneratedReply<String>?
-                        var latestAnswer = ""
-                        var lastStreamedAnswer = ""
-                        var pendingChunk = ""
-                        var lastUpdateTime = Date()
-                        let maxUpdateInterval: TimeInterval = WindowConstants.streamingFlushInterval
-
-                        for try await event in stream {
-                            try Task.checkCancellation()
-
-                            switch event {
-                            case .partial(let currentAnswer):
-                                let now = Date()
-                                let timeSinceUpdate = now.timeIntervalSince(lastUpdateTime)
-                                latestAnswer = currentAnswer
-
-                                if currentAnswer.count > lastStreamedAnswer.count {
-                                    pendingChunk += String(currentAnswer.dropFirst(lastStreamedAnswer.count))
-                                } else if currentAnswer != lastStreamedAnswer {
-                                    pendingChunk = currentAnswer
-                                }
-                                lastStreamedAnswer = currentAnswer
-
-                                if bufferFlusher.shouldFlush(pendingChunk) || timeSinceUpdate >= maxUpdateInterval {
-                                    pendingChunk = ""
-                                    safeUpdateMessage(id: assistantMessageId) { $0.content = latestAnswer }
-                                    streamingScrollToken &+= 1
-                                    lastUpdateTime = now
-                                }
-                            case .completed(let response):
-                                latestResponse = response
-                                latestAnswer = response.value
-                            }
-                        }
-
-                        guard let latestResponse else {
-                            throw AgentError.invalidLLMResponse("Plain-text chat response stream produced no content")
-                        }
-
                         let parsedResponse = ChatFollowUpSuggestionParser.parse(
-                            latestResponse.value
+                            finalizedResponse.value
                         )
                         let displayContent = parsedResponse.displayText
                         let artifacts = ArtifactExtractor.extract(from: displayContent)
@@ -379,7 +345,7 @@ class AgentManager {
                         safeUpdateMessage(id: assistantMessageId) { msg in
                             msg.content = displayContent
                             msg.isStreaming = false
-                            msg.modelUsed = latestResponse.modelDisplayName
+                            msg.modelUsed = finalizedResponse.modelDisplayName
                             msg.suggestedFollowUps = parsedResponse.suggestions
                             msg.artifacts = artifacts
                         }
@@ -425,6 +391,121 @@ class AgentManager {
 
         activeStreamTask = streamTask
         await streamTask.value
+    }
+
+    private func collectVisiblePlainChatResponse(
+        conversationId: UUID,
+        prompt: String,
+        assistantMessageId: UUID
+    ) async throws -> WheelGeneratedReply<String> {
+        let stream = try await contextService.streamPlainChatResponse(
+            conversationId: conversationId,
+            prompt: prompt
+        )
+
+        var latestResponse: WheelGeneratedReply<String>?
+        var latestAnswer = ""
+        var lastStreamedAnswer = ""
+        var pendingChunk = ""
+        var lastUpdateTime = Date()
+        let maxUpdateInterval: TimeInterval = WindowConstants.streamingFlushInterval
+
+        for try await event in stream {
+            try Task.checkCancellation()
+
+            switch event {
+            case .partial(let currentAnswer):
+                let now = Date()
+                let timeSinceUpdate = now.timeIntervalSince(lastUpdateTime)
+                latestAnswer = currentAnswer
+
+                if currentAnswer.count > lastStreamedAnswer.count {
+                    pendingChunk += String(currentAnswer.dropFirst(lastStreamedAnswer.count))
+                } else if currentAnswer != lastStreamedAnswer {
+                    pendingChunk = currentAnswer
+                }
+                lastStreamedAnswer = currentAnswer
+
+                if bufferFlusher.shouldFlush(pendingChunk) || timeSinceUpdate >= maxUpdateInterval {
+                    pendingChunk = ""
+                    safeUpdateMessage(id: assistantMessageId) { $0.content = latestAnswer }
+                    streamingScrollToken &+= 1
+                    lastUpdateTime = now
+                }
+            case .completed(let response):
+                latestResponse = response
+                latestAnswer = response.value
+            }
+        }
+
+        if pendingChunk.isEmpty == false || latestAnswer.isEmpty == false {
+            safeUpdateMessage(id: assistantMessageId) { $0.content = latestAnswer }
+            streamingScrollToken &+= 1
+        }
+
+        guard let latestResponse else {
+            throw AgentError.invalidLLMResponse("Plain-text chat response stream produced no content")
+        }
+
+        return latestResponse
+    }
+
+    private func continueIfLikelyTruncated(
+        _ response: WheelGeneratedReply<String>,
+        conversationId: UUID
+    ) async throws -> WheelGeneratedReply<String> {
+        var combined = response.value
+        var modelDisplayName = response.modelDisplayName
+        var continuationAttempt = 0
+
+        while continuationAttempt < ChatResponseContinuation.maxAttempts,
+              ChatResponseContinuation.shouldRequestContinuation(for: combined) {
+            continuationAttempt += 1
+            Log.Chat.warning(
+                "Assistant response appears truncated for conversation \(conversationId.uuidString.lowercased()); requesting hidden continuation attempt \(continuationAttempt)"
+            )
+
+            let continuation = try await collectHiddenPlainChatResponse(
+                conversationId: conversationId,
+                prompt: ChatResponseContinuation.prompt
+            )
+            combined = ChatResponseContinuation.merge(
+                base: combined,
+                continuation: continuation.value
+            )
+            modelDisplayName = continuation.modelDisplayName
+        }
+
+        return WheelGeneratedReply(
+            value: combined,
+            transcriptText: combined,
+            metadata: response.metadata,
+            modelDisplayName: modelDisplayName
+        )
+    }
+
+    private func collectHiddenPlainChatResponse(
+        conversationId: UUID,
+        prompt: String
+    ) async throws -> WheelGeneratedReply<String> {
+        let stream = try await contextService.streamPlainChatResponse(
+            conversationId: conversationId,
+            prompt: prompt
+        )
+        var latestResponse: WheelGeneratedReply<String>?
+
+        for try await event in stream {
+            try Task.checkCancellation()
+            if case .completed(let response) = event {
+                latestResponse = response
+            }
+        }
+
+        guard let latestResponse else {
+            throw AgentError.invalidLLMResponse("Hidden continuation stream produced no content")
+        }
+
+        return latestResponse
     }
 
     private func prepareActiveConversationThread(

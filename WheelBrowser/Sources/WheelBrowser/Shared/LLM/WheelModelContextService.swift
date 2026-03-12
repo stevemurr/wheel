@@ -166,7 +166,7 @@ actor WheelModelContextService: WheelModelContextServing {
             managedConfiguration = ContextManagerConfiguration(
                 runtimeRegistry: runtimeRegistry,
                 structuredBackends: Self.defaultStructuredBackends(),
-                budget: BudgetPolicy(defaultContextWindowTokens: 4096),
+                budget: modelConfigurationProvider.currentProfile().providerID.defaultBudgetPolicy,
                 persistence: persistence
             )
         }
