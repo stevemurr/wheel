@@ -30,7 +30,7 @@ struct StageManagerStrip: View {
     private let hotZoneVerticalForgiveness: CGFloat = 80
     private let expandedHotZoneTrailingPadding: CGFloat = 28
     private let dragRailSpacing: CGFloat = 12
-    private let dragRailWidth: CGFloat = 132
+    private let minimumDragRailWidth: CGFloat = 176
 
     private var visibleTabs: [Tab] {
         browserState.visibleTabs
@@ -71,6 +71,10 @@ struct StageManagerStrip: View {
 
     private var expandedDockWidth: CGFloat {
         StageManagerThumbnail.baseThumbnailWidth * shownScale + 12
+    }
+
+    private var dragRailWidth: CGFloat {
+        max(minimumDragRailWidth, expandedDockWidth + 48)
     }
 
     private var shownScale: CGFloat {
