@@ -128,6 +128,7 @@ actor WheelModelContextService: WheelModelContextServing {
     private let runtimeRegistry: RuntimeRegistry
     private let threadStore: any ThreadStore
     private let modelConfigurationProvider: any WheelModelConfigurationProviding
+    private let budgetPolicy: BudgetPolicy
 
     private var didBootstrapRuntime = false
     private var liveSessions: [String: ContextSession] = [:]
@@ -173,6 +174,7 @@ actor WheelModelContextService: WheelModelContextServing {
         self.runtimeRegistry = managedConfiguration.runtimeRegistry
         self.threadStore = managedConfiguration.persistence.threads
         self.contextManager = ContextManager(configuration: managedConfiguration)
+        self.budgetPolicy = managedConfiguration.budget
     }
 
     func availabilityStatus() async -> WheelModelAvailability {
@@ -262,6 +264,12 @@ actor WheelModelContextService: WheelModelContextServing {
         let session = try await resolveSession(id: sessionID)
         let modelDisplayName = await modelDisplayName(for: sessionID)
         let strategy = await plainTextGenerationStrategy(for: sessionID)
+        await logPlainTextRequestTrace(
+            route: "streamPlainChatResponse",
+            sessionID: sessionID,
+            strategy: strategy,
+            prompt: prompt
+        )
 
         switch strategy {
         case .streaming:
@@ -702,6 +710,11 @@ actor WheelModelContextService: WheelModelContextServing {
                     guard finalText.isEmpty == false else {
                         throw RuntimeError.generationFailed("Streaming finished without completion")
                     }
+                    await self.logSessionDiagnostics(
+                        route: "makePlainTextStream",
+                        session: session,
+                        responseLength: finalText.count
+                    )
                     let finalMetadata = await self.metadata(for: session)
 
                     continuation.yield(
@@ -853,6 +866,11 @@ actor WheelModelContextService: WheelModelContextServing {
         modelDisplayName: String
     ) async throws -> WheelGeneratedReply<String> {
         let response = try await session.reply(to: prompt)
+        await logSessionDiagnostics(
+            route: "generatePlainTextReply",
+            session: session,
+            responseLength: response.text.count
+        )
         return WheelGeneratedReply(
             value: response.text,
             transcriptText: response.text,
@@ -928,6 +946,60 @@ actor WheelModelContextService: WheelModelContextServing {
         return WheelTurnMetadata(
             compaction: diagnostics?.lastCompaction,
             bridge: diagnostics?.lastBridge
+        )
+    }
+
+    private func logPlainTextRequestTrace(
+        route: String,
+        sessionID: String,
+        strategy: PlainTextGenerationStrategy,
+        prompt: String
+    ) async {
+        guard let runtime = await runtimeConfiguration(for: sessionID) else {
+            Log.Services.debug("\(route): missing runtime configuration for id=\(sessionID)")
+            return
+        }
+
+        let endpoint = runtime.inference
+        let baseURLHost = endpoint.options["baseURL"]
+            .flatMap(URL.init(string:))
+            .flatMap(\.host) ?? "n/a"
+        let overrideText = endpoint.contextWindowOverride.map(String.init) ?? "default"
+        let strategyLabel: String = switch strategy {
+        case .streaming:
+            "streaming"
+        case .oneShot:
+            "oneShot"
+        }
+        Log.Services.debug(
+            "\(route): request trace id=\(sessionID), backend=\(endpoint.backendID), model=\(endpoint.modelID), host=\(baseURLHost), strategy=\(strategyLabel), contextWindowOverride=\(overrideText), promptChars=\(prompt.count), requestedMaximumResponseTokens=\(budgetPolicy.reservedOutputTokens)"
+        )
+    }
+
+    private func logSessionDiagnostics(
+        route: String,
+        session: ContextSession,
+        responseLength: Int
+    ) async {
+        guard let diagnostics = await session.inspection.diagnostics() else {
+            Log.Services.debug("\(route): missing diagnostics for id=\(session.id), responseChars=\(responseLength)")
+            return
+        }
+
+        guard let budget = diagnostics.lastBudget else {
+            Log.Services.debug(
+                "\(route): diagnostics id=\(session.id), windowIndex=\(diagnostics.windowIndex), responseChars=\(responseLength), budget=missing"
+            )
+            return
+        }
+
+        let breakdown = budget.breakdown
+            .sorted { $0.key.rawValue < $1.key.rawValue }
+            .map { "\($0.key.rawValue)=\($0.value)" }
+            .joined(separator: ",")
+
+        Log.Services.debug(
+            "\(route): diagnostics id=\(session.id), windowIndex=\(diagnostics.windowIndex), responseChars=\(responseLength), contextWindowTokens=\(budget.contextWindowTokens), estimatedInputTokens=\(budget.estimatedInputTokens), reservedOutputTokens=\(budget.reservedOutputTokens), projectedTotalTokens=\(budget.projectedTotalTokens), softLimitTokens=\(budget.softLimitTokens), emergencyLimitTokens=\(budget.emergencyLimitTokens), breakdown=\(breakdown)"
         )
     }
 
