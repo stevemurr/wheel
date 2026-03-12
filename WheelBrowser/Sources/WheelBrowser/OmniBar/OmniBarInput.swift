@@ -77,6 +77,12 @@ extension OmniBar {
             minWidth: shouldExpand ? OmniBarLayout.expandedMinWidth : OmniBarLayout.collapsedMinWidth,
             maxWidth: shouldExpand ? OmniBarLayout.expandedMaxWidth : OmniBarLayout.collapsedMaxWidth
         )
+        .contentShape(Capsule())
+        .simultaneousGesture(
+            TapGesture().onEnded {
+                handleInputPillClick()
+            }
+        )
         .background {
             ZStack {
                 Capsule()

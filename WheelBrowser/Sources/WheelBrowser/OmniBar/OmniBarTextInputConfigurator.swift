@@ -23,4 +23,21 @@ enum OmniBarTextInputConfigurator {
         textView.enabledTextCheckingTypes = 0
         textView.contentType = nil
     }
+
+    static func makePlaceholderLabel(text: String, font: NSFont) -> NSTextField {
+        let label = PassthroughPlaceholderLabel()
+        label.stringValue = text
+        label.font = font
+        label.textColor = .placeholderTextColor
+        label.isEditable = false
+        label.isSelectable = false
+        label.isBordered = false
+        label.drawsBackground = false
+        label.translatesAutoresizingMaskIntoConstraints = false
+        return label
+    }
+}
+
+private final class PassthroughPlaceholderLabel: NSTextField {
+    override func hitTest(_ point: NSPoint) -> NSView? { nil }
 }

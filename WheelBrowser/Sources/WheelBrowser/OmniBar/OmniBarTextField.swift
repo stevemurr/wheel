@@ -239,14 +239,10 @@ struct OmniBarTextField: NSViewRepresentable {
 
             if textView.string.isEmpty {
                 if placeholderLabel == nil {
-                    let label = NSTextField(labelWithString: parent.placeholder)
-                    label.font = NSFont.systemFont(ofSize: 13)
-                    label.textColor = .placeholderTextColor
-                    label.isEditable = false
-                    label.isSelectable = false
-                    label.isBordered = false
-                    label.drawsBackground = false
-                    label.translatesAutoresizingMaskIntoConstraints = false
+                    let label = OmniBarTextInputConfigurator.makePlaceholderLabel(
+                        text: parent.placeholder,
+                        font: NSFont.systemFont(ofSize: 13)
+                    )
                     textView.addSubview(label)
                     NSLayoutConstraint.activate([
                         label.leadingAnchor.constraint(equalTo: textView.leadingAnchor, constant: textView.textContainerInset.width),

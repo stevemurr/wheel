@@ -109,6 +109,17 @@ extension OmniBar {
         activateMode(omniState.mode, isFocusGain: true)
     }
 
+    func handleInputPillClick() {
+        prepareForOmniBarFocus()
+        if omniState.mode == .chat {
+            tab.hasExplicitChatFocusIntent = true
+        }
+        guard !isInputFocused else { return }
+        withAnimation(AppAnimation.panelSpring) {
+            isInputFocused = true
+        }
+    }
+
     func handleOmniBarTabPress(isShiftTab: Bool) {
         guard shouldTrapTabNavigation else { return }
 
