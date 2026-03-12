@@ -142,6 +142,11 @@ struct MentionContentResolver {
                     contextBadge: .history(title: title, url: url)
                 ))
 
+            case .fabricResource:
+                if let context = pageContext(for: mention, from: fabricContextsByURI) {
+                    contexts.append(context)
+                }
+
             case .history, .web, .readingList, .domain:
                 break // Already handled above or not applicable
             }
@@ -204,8 +209,8 @@ struct MentionContentResolver {
     }
 
     private func contextBadge(for payload: FabricContextPayload) -> ChatContextBadge {
-        switch payload.kind {
-        case "note":
+        switch (payload.uri.appID, payload.kind) {
+        case (WheelFabricAppID.notes, "note"):
             if let noteID = UUID(uuidString: payload.uri.id) {
                 return .note(id: noteID, title: payload.title)
             }
@@ -216,11 +221,22 @@ struct MentionContentResolver {
                 title: payload.title
             )
 
-        default:
+        case (WheelFabricAppID.browser, "page"),
+             (WheelFabricAppID.browser, "page-snapshot"),
+             (WheelFabricAppID.browser, "tab"):
             return .website(
                 id: payload.uri.rawValue,
                 title: payload.title,
                 url: payload.metadata["url"]?.stringValue
+            )
+
+        default:
+            return .fabricResource(
+                uri: payload.uri,
+                title: payload.title,
+                detail: payload.presentation?.subtitle,
+                url: payload.metadata["url"]?.stringValue,
+                presentation: payload.presentation
             )
         }
     }

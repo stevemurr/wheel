@@ -313,9 +313,17 @@ import SwiftUI
 
         let titleScore = FuzzySearch.score(query: query, target: resource.title)
         let summaryScore = FuzzySearch.score(query: query, target: resource.summary)
+        let subtitleScore = FuzzySearch.score(
+            query: query,
+            target: resource.presentation?.subtitle ?? ""
+        )
         let urlScore = FuzzySearch.score(
             query: query,
             target: resource.metadata["url"]?.stringValue ?? ""
+        )
+        let categoryScore = FuzzySearch.score(
+            query: query,
+            target: resource.presentation?.categoryLabel ?? ""
         )
 
         let typeTargets: [String]
@@ -336,7 +344,7 @@ import SwiftUI
             .map { FuzzySearch.score(query: query, target: $0) }
             .max() ?? 0
 
-        return max(titleScore, summaryScore, urlScore, typeScore)
+        return max(titleScore, summaryScore, subtitleScore, urlScore, categoryScore, typeScore)
     }
 
     private func searchNotes(
@@ -388,6 +396,8 @@ import SwiftUI
             return 5
         case .semanticResult:
             return 6
+        case .fabricResource:
+            return 7
         }
     }
 

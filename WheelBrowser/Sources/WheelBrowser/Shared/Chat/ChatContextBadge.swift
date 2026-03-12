@@ -1,3 +1,4 @@
+import Fabric
 import Foundation
 
 /// A structured source badge attached to chat messages.
@@ -12,6 +13,7 @@ public struct ChatContextBadge: Identifiable, Equatable, Hashable, Codable {
         case domain
         case miniWindow
         case note
+        case fabricResource
         case tool
         case toolResult
     }
@@ -21,19 +23,25 @@ public struct ChatContextBadge: Identifiable, Equatable, Hashable, Codable {
     public let title: String?
     public let detail: String?
     public let url: String?
+    public let resourceURI: FabricURI?
+    public let presentation: FabricPresentationHints?
 
     public init(
         id: String,
         kind: Kind,
         title: String? = nil,
         detail: String? = nil,
-        url: String? = nil
+        url: String? = nil,
+        resourceURI: FabricURI? = nil,
+        presentation: FabricPresentationHints? = nil
     ) {
         self.id = id
         self.kind = kind
         self.title = title
         self.detail = detail
         self.url = url
+        self.resourceURI = resourceURI
+        self.presentation = presentation
     }
 
     static func website(id: String? = nil, title: String? = nil, url: String? = nil) -> Self {
@@ -98,6 +106,24 @@ public struct ChatContextBadge: Identifiable, Equatable, Hashable, Codable {
             kind: .note,
             title: preferredTitle(title, url: nil),
             detail: detail
+        )
+    }
+
+    static func fabricResource(
+        uri: FabricURI,
+        title: String? = nil,
+        detail: String? = nil,
+        url: String? = nil,
+        presentation: FabricPresentationHints? = nil
+    ) -> Self {
+        ChatContextBadge(
+            id: "fabric-\(uri.rawValue)",
+            kind: .fabricResource,
+            title: preferredTitle(title, url: url),
+            detail: detail ?? presentation?.subtitle,
+            url: url,
+            resourceURI: uri,
+            presentation: presentation
         )
     }
 

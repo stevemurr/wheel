@@ -1,6 +1,49 @@
 import Fabric
 import Foundation
 
+struct FabricMentionReference: Equatable, Hashable {
+    let uri: FabricURI
+    let kind: String
+    let title: String
+    let summary: String
+    let url: String?
+    let presentation: FabricPresentationHints?
+
+    var resolvedTitle: String {
+        if let trimmedTitle = title.nonEmptyTrimmed {
+            return trimmedTitle
+        }
+
+        return kind.humanizedFabricKind
+    }
+
+    var resolvedSubtitle: String? {
+        if let subtitle = presentation?.subtitle?.nonEmptyTrimmed,
+           subtitle.caseInsensitiveCompare(resolvedTitle) != .orderedSame {
+            return subtitle
+        }
+
+        if let trimmedSummary = summary.nonEmptyTrimmed,
+           trimmedSummary.caseInsensitiveCompare(resolvedTitle) != .orderedSame {
+            return trimmedSummary
+        }
+
+        return nil
+    }
+
+    var resolvedTypeBadge: String {
+        presentation?.categoryLabel?.nonEmptyTrimmed ?? kind.humanizedFabricKind
+    }
+
+    var resolvedIcon: String {
+        presentation?.systemImage?.nonEmptyTrimmed ?? "doc.text"
+    }
+
+    var resolvedTintToken: String {
+        presentation?.tint?.nonEmptyTrimmed ?? "secondary"
+    }
+}
+
 /// Represents a mention that provides context to the AI chat
 enum Mention: Identifiable, Equatable, Hashable {
     case currentPage
@@ -13,6 +56,7 @@ enum Mention: Identifiable, Equatable, Hashable {
     case web           // Search all indexed web content
     case readingList   // Search reading list items
     case domain(String) // Search within a specific domain
+    case fabricResource(FabricMentionReference)
 
     var id: String {
         switch self {
@@ -36,6 +80,8 @@ enum Mention: Identifiable, Equatable, Hashable {
             return "reading-list-search"
         case .domain(let domain):
             return "domain-\(domain)"
+        case .fabricResource(let reference):
+            return reference.uri.rawValue
         }
     }
 
@@ -46,13 +92,13 @@ enum Mention: Identifiable, Equatable, Hashable {
         case .pageSnapshot:
             return "Snapshot"
         case .tab(_, let title, _):
-            return title.isEmpty ? "Untitled" : String(title.prefix(30))
+            return title.fallbackTruncated(to: 30, defaultValue: "Untitled")
         case .overlay(_, let title, _):
-            return title.isEmpty ? "Mini Window" : String(title.prefix(30))
+            return title.fallbackTruncated(to: 30, defaultValue: "Mini Window")
         case .note(_, let title, _):
-            return title.isEmpty ? "Untitled Note" : String(title.prefix(30))
+            return title.fallbackTruncated(to: 30, defaultValue: "Untitled Note")
         case .semanticResult(_, let title, _):
-            return title.isEmpty ? "Untitled" : String(title.prefix(30))
+            return title.fallbackTruncated(to: 30, defaultValue: "Untitled")
         case .history:
             return "History"
         case .web:
@@ -61,6 +107,8 @@ enum Mention: Identifiable, Equatable, Hashable {
             return "Reading List"
         case .domain(let domain):
             return domain
+        case .fabricResource(let reference):
+            return String(reference.resolvedTitle.prefix(30))
         }
     }
 
@@ -86,6 +134,35 @@ enum Mention: Identifiable, Equatable, Hashable {
             return "bookmark"
         case .domain:
             return "link"
+        case .fabricResource(let reference):
+            return reference.resolvedIcon
+        }
+    }
+
+    var tintToken: String {
+        switch self {
+        case .currentPage:
+            return "purple"
+        case .pageSnapshot:
+            return "orange"
+        case .tab:
+            return "blue"
+        case .overlay:
+            return "mint"
+        case .note:
+            return "accent"
+        case .semanticResult:
+            return "orange"
+        case .history:
+            return "green"
+        case .web:
+            return "teal"
+        case .readingList:
+            return "indigo"
+        case .domain:
+            return "cyan"
+        case .fabricResource(let reference):
+            return reference.resolvedTintToken
         }
     }
 
@@ -111,6 +188,8 @@ enum Mention: Identifiable, Equatable, Hashable {
             return "Search"
         case .domain:
             return "Domain"
+        case .fabricResource(let reference):
+            return reference.resolvedTypeBadge
         }
     }
 
@@ -132,6 +211,8 @@ enum Mention: Identifiable, Equatable, Hashable {
             return nil
         case .domain:
             return nil
+        case .fabricResource(let reference):
+            return reference.url
         }
     }
 
@@ -158,7 +239,7 @@ enum Mention: Identifiable, Equatable, Hashable {
         switch self {
         case .web, .history, .readingList, .domain:
             return true
-        case .currentPage, .pageSnapshot, .tab, .overlay, .note, .semanticResult:
+        case .currentPage, .pageSnapshot, .tab, .overlay, .note, .semanticResult, .fabricResource:
             return false
         }
     }
@@ -168,7 +249,7 @@ enum Mention: Identifiable, Equatable, Hashable {
         switch self {
         case .currentPage, .overlay:
             return true
-        case .pageSnapshot, .tab, .note, .semanticResult, .history, .web, .readingList, .domain:
+        case .pageSnapshot, .tab, .note, .semanticResult, .history, .web, .readingList, .domain, .fabricResource:
             return false
         }
     }
@@ -186,11 +267,11 @@ enum Mention: Identifiable, Equatable, Hashable {
     var subtitleText: String? {
         switch self {
         case .pageSnapshot(_, let title, _):
-            let trimmed = title.trimmingCharacters(in: .whitespacesAndNewlines)
-            return trimmed.isEmpty ? nil : trimmed
+            return title.nonEmptyTrimmed
         case .note(_, _, let excerpt):
-            let trimmed = excerpt.trimmingCharacters(in: .whitespacesAndNewlines)
-            return trimmed.isEmpty ? nil : trimmed
+            return excerpt.nonEmptyTrimmed
+        case .fabricResource(let reference):
+            return reference.resolvedSubtitle
         default:
             return nil
         }
@@ -206,6 +287,8 @@ enum Mention: Identifiable, Equatable, Hashable {
             return FabricURI(appID: WheelFabricAppID.browser, kind: "tab", id: id.uuidString)
         case .note(let id, _, _):
             return FabricURI(appID: WheelFabricAppID.notes, kind: "note", id: id.uuidString)
+        case .fabricResource(let reference):
+            return reference.uri
         case .overlay, .semanticResult, .history, .web, .readingList, .domain:
             return nil
         }
@@ -258,7 +341,16 @@ enum Mention: Identifiable, Equatable, Hashable {
             )
 
         default:
-            return nil
+            return .fabricResource(
+                FabricMentionReference(
+                    uri: resource.uri,
+                    kind: resource.kind,
+                    title: resource.title,
+                    summary: resource.summary,
+                    url: resource.metadata["url"]?.stringValue,
+                    presentation: resource.presentation
+                )
+            )
         }
     }
 
@@ -277,4 +369,20 @@ struct MentionSuggestion: Identifiable {
     let score: Int
 
     var id: String { mention.id }
+}
+
+private extension String {
+    var nonEmptyTrimmed: String? {
+        let trimmed = trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? nil : trimmed
+    }
+
+    func fallbackTruncated(to maxLength: Int, defaultValue: String) -> String {
+        let trimmed = trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? defaultValue : String(trimmed.prefix(maxLength))
+    }
+
+    var humanizedFabricKind: String {
+        replacingOccurrences(of: "-", with: " ").capitalized
+    }
 }

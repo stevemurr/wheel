@@ -1,6 +1,7 @@
 import Foundation
 import Testing
 @testable import WheelBrowser
+import Fabric
 
 @Suite("Chat Context Badge Tests")
 struct ChatContextBadgeTests {
@@ -42,5 +43,26 @@ struct ChatContextBadgeTests {
         #expect(badge.kind == ChatContextBadge.Kind.note)
         #expect(badge.id == "note-\(id.uuidString)")
         #expect(badge.title == "Planning")
+    }
+
+    @Test("Generic Fabric badges preserve resource identity and hints")
+    func buildsFabricResourceBadge() {
+        let uri = FabricURI(appID: "external.docs", kind: "document", id: "roadmap")
+        let badge = ChatContextBadge.fabricResource(
+            uri: uri,
+            title: "Platform Roadmap",
+            detail: "Q3 planning document",
+            presentation: .init(
+                systemImage: "doc.richtext",
+                tint: "gray",
+                subtitle: "Q3 planning document",
+                categoryLabel: "Document"
+            )
+        )
+
+        #expect(badge.kind == .fabricResource)
+        #expect(badge.resourceURI == uri)
+        #expect(badge.presentation?.systemImage == "doc.richtext")
+        #expect(badge.presentation?.categoryLabel == "Document")
     }
 }

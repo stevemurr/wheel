@@ -1,3 +1,4 @@
+import Fabric
 import SwiftUI
 
 /// A chip displaying a mention with optional remove button
@@ -47,28 +48,7 @@ struct MentionChip: View {
     }
 
     private var iconColor: Color {
-        switch mention {
-        case .currentPage:
-            return .purple
-        case .pageSnapshot:
-            return .orange
-        case .tab:
-            return .blue
-        case .overlay:
-            return .mint
-        case .note:
-            return .accentColor
-        case .semanticResult:
-            return .orange
-        case .history:
-            return .green
-        case .web:
-            return .teal
-        case .readingList:
-            return .indigo
-        case .domain:
-            return .cyan
-        }
+        .fabricTint(mention.tintToken)
     }
 
     private var backgroundColor: Color {
@@ -151,28 +131,7 @@ struct MentionSuggestionRow: View {
     }
 
     private var badgeColor: Color {
-        switch suggestion.mention {
-        case .currentPage:
-            return .purple
-        case .pageSnapshot:
-            return .orange
-        case .tab:
-            return .blue
-        case .overlay:
-            return .mint
-        case .note:
-            return .accentColor
-        case .semanticResult:
-            return .orange
-        case .history:
-            return .green
-        case .web:
-            return .teal
-        case .readingList:
-            return .indigo
-        case .domain:
-            return .cyan
-        }
+        .fabricTint(suggestion.mention.tintToken)
     }
 
     @ViewBuilder
@@ -283,6 +242,12 @@ struct MentionSuggestionRow: View {
                     RoundedRectangle(cornerRadius: 5)
                         .fill(Color.cyan.opacity(0.1))
                 )
+
+        case .fabricResource:
+            genericIcon(
+                systemName: suggestion.mention.icon,
+                tintColor: badgeColor
+            )
         }
     }
 
@@ -294,6 +259,17 @@ struct MentionSuggestionRow: View {
             .background(
                 RoundedRectangle(cornerRadius: 5)
                     .fill(Color.blue.opacity(0.1))
+            )
+    }
+
+    private func genericIcon(systemName: String, tintColor: Color) -> some View {
+        Image(systemName: systemName)
+            .font(.system(size: 12))
+            .foregroundColor(tintColor)
+            .frame(width: 24, height: 24)
+            .background(
+                RoundedRectangle(cornerRadius: 5)
+                    .fill(tintColor.opacity(0.1))
             )
     }
 
@@ -331,6 +307,24 @@ struct MentionSuggestionRow: View {
             )
             MentionChip(
                 mention: .note(id: UUID(), title: "Planning note", excerpt: "Ship note mentions next."),
+                onRemove: {}
+            )
+            MentionChip(
+                mention: .fabricResource(
+                    FabricMentionReference(
+                        uri: FabricURI(appID: "external.docs", kind: "document", id: "roadmap"),
+                        kind: "document",
+                        title: "Platform Roadmap",
+                        summary: "Q3 planning document",
+                        url: nil,
+                        presentation: .init(
+                            systemImage: "doc.richtext",
+                            tint: "gray",
+                            subtitle: "Q3 planning document",
+                            categoryLabel: "Document"
+                        )
+                    )
+                ),
                 onRemove: {}
             )
         }
@@ -378,10 +372,68 @@ struct MentionSuggestionRow: View {
                 isSelected: false,
                 onSelect: {}
             )
+
+            MentionSuggestionRow(
+                suggestion: MentionSuggestion(
+                    mention: .fabricResource(
+                        FabricMentionReference(
+                            uri: FabricURI(appID: "external.docs", kind: "document", id: "roadmap"),
+                            kind: "document",
+                            title: "Platform Roadmap",
+                            summary: "Q3 planning document",
+                            url: nil,
+                            presentation: .init(
+                                systemImage: "doc.richtext",
+                                tint: "gray",
+                                subtitle: "Q3 planning document",
+                                categoryLabel: "Document"
+                            )
+                        )
+                    ),
+                    score: 550
+                ),
+                isSelected: false,
+                onSelect: {}
+            )
         }
         .padding()
         .background(Color(nsColor: .windowBackgroundColor))
     }
     .padding()
     .frame(width: 400)
+}
+
+private extension Color {
+    static func fabricTint(_ token: String) -> Color {
+        switch token.lowercased() {
+        case "accent":
+            return .accentColor
+        case "blue":
+            return .blue
+        case "purple":
+            return .purple
+        case "orange":
+            return .orange
+        case "mint":
+            return .mint
+        case "green":
+            return .green
+        case "teal":
+            return .teal
+        case "indigo":
+            return .indigo
+        case "cyan":
+            return .cyan
+        case "red":
+            return .red
+        case "pink":
+            return .pink
+        case "yellow":
+            return .yellow
+        case "gray", "grey", "secondary":
+            return .secondary
+        default:
+            return .secondary
+        }
+    }
 }

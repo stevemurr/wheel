@@ -60,20 +60,33 @@ struct ConversationHistoryBuilder {
     }
 
     private static func injectedContextKey(for context: PageContext) -> String? {
-        guard context.contextBadge.kind == .website else {
-            return nil
-        }
-
         let normalizedText = context.textContent
             .replacingOccurrences(of: "\\s+", with: " ", options: .regularExpression)
             .trimmingCharacters(in: .whitespacesAndNewlines)
         let truncatedText = String(normalizedText.prefix(4000))
 
-        return [
-            context.contextBadge.kind.rawValue,
-            context.url,
-            context.title,
-            truncatedText,
-        ].joined(separator: "\n")
+        switch context.contextBadge.kind {
+        case .website:
+            return [
+                context.contextBadge.kind.rawValue,
+                context.url,
+                context.title,
+                truncatedText,
+            ].joined(separator: "\n")
+
+        case .fabricResource:
+            guard let resourceURI = context.contextBadge.resourceURI?.rawValue else {
+                return nil
+            }
+
+            return [
+                context.contextBadge.kind.rawValue,
+                resourceURI,
+                truncatedText,
+            ].joined(separator: "\n")
+
+        default:
+            return nil
+        }
     }
 }

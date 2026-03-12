@@ -24,11 +24,11 @@ private struct ChatContextBadgeCapsule: View {
 
     var body: some View {
         HStack(spacing: compact ? 5 : 6) {
-            Image(systemName: badge.kind.systemImage)
+            Image(systemName: badgeSystemImage)
                 .font(.system(size: compact ? 9 : 10, weight: .semibold))
-                .foregroundColor(badge.kind.tintColor)
+                .foregroundColor(badgeTintColor)
 
-            Text(badge.kind.displayName)
+            Text(badgeDisplayName)
                 .font(.system(size: compact ? 10 : 11, weight: .semibold))
                 .foregroundColor(.primary)
 
@@ -52,29 +52,30 @@ private struct ChatContextBadgeCapsule: View {
         )
         .overlay(
             Capsule(style: .continuous)
-                .stroke(badge.kind.tintColor.opacity(0.18), lineWidth: 1)
+                .stroke(badgeTintColor.opacity(0.18), lineWidth: 1)
         )
         .help(helpText)
     }
 
     private var helpText: String {
-        var parts = [badge.kind.displayName]
+        var parts = [badgeDisplayName]
         if let title = badge.title, !title.isEmpty {
             parts.append(title)
         }
         if let detail = badge.detail, !detail.isEmpty {
             parts.append(detail)
         }
+        if let resourceURI = badge.resourceURI?.rawValue, !resourceURI.isEmpty {
+            parts.append(resourceURI)
+        }
         if let url = badge.url, !url.isEmpty {
             parts.append(url)
         }
         return parts.joined(separator: " • ")
     }
-}
 
-private extension ChatContextBadge.Kind {
-    var displayName: String {
-        switch self {
+    private var badgeDisplayName: String {
+        switch badge.kind {
         case .website:
             return "Website"
         case .history:
@@ -89,6 +90,8 @@ private extension ChatContextBadge.Kind {
             return "Mini Window"
         case .note:
             return "Note"
+        case .fabricResource:
+            return badge.presentation?.categoryLabel ?? "Resource"
         case .tool:
             return "Tool"
         case .toolResult:
@@ -96,8 +99,8 @@ private extension ChatContextBadge.Kind {
         }
     }
 
-    var systemImage: String {
-        switch self {
+    private var badgeSystemImage: String {
+        switch badge.kind {
         case .website:
             return "globe"
         case .history:
@@ -112,6 +115,8 @@ private extension ChatContextBadge.Kind {
             return "pip"
         case .note:
             return "note.text"
+        case .fabricResource:
+            return badge.presentation?.systemImage ?? "doc.text"
         case .tool:
             return "hammer"
         case .toolResult:
@@ -119,8 +124,8 @@ private extension ChatContextBadge.Kind {
         }
     }
 
-    var tintColor: Color {
-        switch self {
+    private var badgeTintColor: Color {
+        switch badge.kind {
         case .website:
             return .blue
         case .history:
@@ -135,10 +140,47 @@ private extension ChatContextBadge.Kind {
             return .mint
         case .note:
             return .accentColor
+        case .fabricResource:
+            return .chatBadgeTint(badge.presentation?.tint ?? "secondary")
         case .tool:
             return .orange
         case .toolResult:
             return .purple
+        }
+    }
+}
+
+private extension Color {
+    static func chatBadgeTint(_ token: String) -> Color {
+        switch token.lowercased() {
+        case "accent":
+            return .accentColor
+        case "blue":
+            return .blue
+        case "purple":
+            return .purple
+        case "orange":
+            return .orange
+        case "mint":
+            return .mint
+        case "green":
+            return .green
+        case "teal":
+            return .teal
+        case "indigo":
+            return .indigo
+        case "cyan":
+            return .cyan
+        case "red":
+            return .red
+        case "pink":
+            return .pink
+        case "yellow":
+            return .yellow
+        case "gray", "grey", "secondary":
+            return .secondary
+        default:
+            return .secondary
         }
     }
 }

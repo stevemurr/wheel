@@ -32,7 +32,13 @@ final class WheelBrowserFabricProvider: FabricResourceProvider, FabricSubscripti
                 metadata: [
                     "url": .string(url),
                     "tabID": .string(tab.id.uuidString),
-                ]
+                ],
+                presentation: .init(
+                    systemImage: "square.on.square",
+                    tint: "blue",
+                    subtitle: url,
+                    categoryLabel: "Tab"
+                )
             )
         }
 
@@ -48,7 +54,13 @@ final class WheelBrowserFabricProvider: FabricResourceProvider, FabricSubscripti
                     metadata: [
                         "url": .string(url),
                         "tabID": .string(activeTab.id.uuidString),
-                    ]
+                    ],
+                    presentation: .init(
+                        systemImage: "doc.text",
+                        tint: "purple",
+                        subtitle: url,
+                        categoryLabel: "Current"
+                    )
                 ),
                 at: 0
             )
@@ -63,7 +75,13 @@ final class WheelBrowserFabricProvider: FabricResourceProvider, FabricSubscripti
                     metadata: [
                         "url": .string(url),
                         "tabID": .string(activeTab.id.uuidString),
-                    ]
+                    ],
+                    presentation: .init(
+                        systemImage: "camera.viewfinder",
+                        tint: "orange",
+                        subtitle: url,
+                        categoryLabel: "Snapshot"
+                    )
                 ),
                 at: 1
             )
@@ -105,7 +123,13 @@ final class WheelBrowserFabricProvider: FabricResourceProvider, FabricSubscripti
                 metadata: [
                     "url": .string(snapshot.url),
                     "tabID": .string(uri.id),
-                ]
+                ],
+                presentation: .init(
+                    systemImage: "camera.viewfinder",
+                    tint: "orange",
+                    subtitle: snapshot.url,
+                    categoryLabel: "Snapshot"
+                )
             )
 
         case "tab":
@@ -160,7 +184,8 @@ final class WheelBrowserFabricProvider: FabricResourceProvider, FabricSubscripti
                 metadata: [
                     "url": .string(extracted.url),
                     "tabID": .string(tab.id.uuidString),
-                ]
+                ],
+                presentation: presentation(for: kind, url: extracted.url)
             )
         }
 
@@ -173,8 +198,35 @@ final class WheelBrowserFabricProvider: FabricResourceProvider, FabricSubscripti
             metadata: [
                 "url": .string(urlString),
                 "tabID": .string(tab.id.uuidString),
-            ]
+            ],
+            presentation: presentation(for: kind, url: urlString)
         )
+    }
+
+    private func presentation(for kind: String, url: String) -> FabricPresentationHints {
+        switch kind {
+        case "page":
+            return .init(
+                systemImage: "doc.text",
+                tint: "purple",
+                subtitle: url,
+                categoryLabel: "Current"
+            )
+        case "page-snapshot":
+            return .init(
+                systemImage: "camera.viewfinder",
+                tint: "orange",
+                subtitle: url,
+                categoryLabel: "Snapshot"
+            )
+        default:
+            return .init(
+                systemImage: "square.on.square",
+                tint: "blue",
+                subtitle: url,
+                categoryLabel: "Tab"
+            )
+        }
     }
 }
 
@@ -201,7 +253,13 @@ final class WheelNotesFabricProvider: FabricResourceProvider, FabricActionProvid
                 metadata: [
                     "workspaceID": .string(note.workspaceID.uuidString),
                     "noteID": .string(note.id.uuidString),
-                ]
+                ],
+                presentation: .init(
+                    systemImage: "note.text",
+                    tint: "accent",
+                    subtitle: note.excerpt,
+                    categoryLabel: "Note"
+                )
             )
         }
 
@@ -231,7 +289,13 @@ final class WheelNotesFabricProvider: FabricResourceProvider, FabricActionProvid
             metadata: [
                 "workspaceID": .string(note.workspaceID.uuidString),
                 "noteID": .string(note.id.uuidString),
-            ]
+            ],
+            presentation: .init(
+                systemImage: "note.text",
+                tint: "accent",
+                subtitle: note.excerpt,
+                categoryLabel: "Note"
+            )
         )
     }
 

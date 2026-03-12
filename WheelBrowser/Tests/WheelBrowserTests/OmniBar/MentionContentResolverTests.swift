@@ -6,6 +6,62 @@ import Testing
 @MainActor
 @Suite("Mention content resolver")
 struct MentionContentResolverTests {
+    @Test("Generic Fabric mentions resolve into generic chat context badges")
+    func resolvesGenericFabricMentions() async {
+        let resourceURI = FabricURI(appID: "external.docs", kind: "document", id: "roadmap")
+        let resolver = MentionContentResolver(
+            contentExtractor: ContentExtractor(),
+            browserState: BrowserState(),
+            currentTab: Tab(),
+            noteStore: NoteStore(
+                storageRoot: FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true),
+                saveDebounceInterval: .seconds(60)
+            ),
+            fabricClient: FabricMentionClientStub(
+                contexts: [
+                    FabricContextPayload(
+                        uri: resourceURI,
+                        kind: "document",
+                        title: "Platform Roadmap",
+                        body: "Ship generic Fabric mentions for future apps.",
+                        presentation: .init(
+                            systemImage: "doc.richtext",
+                            tint: "gray",
+                            subtitle: "Q3 planning document",
+                            categoryLabel: "Document"
+                        )
+                    )
+                ]
+            )
+        )
+
+        let contexts = await resolver.resolve(
+            mentions: [
+                .fabricResource(
+                    FabricMentionReference(
+                        uri: resourceURI,
+                        kind: "document",
+                        title: "Platform Roadmap",
+                        summary: "Q3 planning document",
+                        url: nil,
+                        presentation: .init(
+                            systemImage: "doc.richtext",
+                            tint: "gray",
+                            subtitle: "Q3 planning document",
+                            categoryLabel: "Document"
+                        )
+                    )
+                )
+            ],
+            query: "roadmap"
+        )
+
+        #expect(contexts.count == 1)
+        #expect(contexts.first?.contextBadge.kind == .fabricResource)
+        #expect(contexts.first?.contextBadge.resourceURI == resourceURI)
+        #expect(contexts.first?.textContent.contains("Ship generic Fabric mentions for future apps.") == true)
+    }
+
     @Test("Page snapshot mentions resolve through Fabric when available")
     func resolvesFabricPageSnapshotMentions() async {
         let tabID = UUID()
