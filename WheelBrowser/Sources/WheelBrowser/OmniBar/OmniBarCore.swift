@@ -5,7 +5,6 @@ struct OmniBar: View {
     var tab: Tab
     var agentManager: AgentManager
     var browserState: BrowserState
-    var noteStore: NoteStore
     var fabricClient: (any WheelFabricMentionClient)?
     var agentEngine: AgentEngine
     @Environment(\.colorScheme) var currentColorScheme
@@ -138,7 +137,6 @@ struct OmniBar: View {
             omniState.inputText = tab.url?.absoluteString ?? ""
             suggestionsVM.browserState = browserState
             mentionSuggestionsVM.browserState = browserState
-            mentionSuggestionsVM.noteStore = noteStore
             mentionSuggestionsVM.fabricClient = fabricClient
             agentManager.switchConversation(to: tab.conversationId)
             updateFullPageChatState()

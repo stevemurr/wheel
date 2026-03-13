@@ -6,13 +6,9 @@ private struct BrowserContentArea: View {
     var activeTab: Tab?
     var agentManager: AgentManager
     var browserState: BrowserState
-    var noteStore: NoteStore
     var fabricClient: (any WheelFabricMentionClient)?
-    let onCopyNote: (NoteRecord) -> Void
-    let onDeleteNote: (NoteRecord) -> Void
     var agentEngine: AgentEngine
     var wheelState: TabWheelState
-    var noteWindowState: NoteWindowState
     var contextMenuState = ContextMenuState.shared
     let contentExtractor: ContentExtractor
 
@@ -41,7 +37,6 @@ private struct BrowserContentArea: View {
                             tab: activeTab,
                             agentManager: agentManager,
                             browserState: browserState,
-                            noteStore: noteStore,
                             fabricClient: fabricClient,
                             agentEngine: agentEngine,
                             contentExtractor: contentExtractor
@@ -70,14 +65,6 @@ private struct BrowserContentArea: View {
                 // Overlay windows (Cmd+Click links)
                 OverlayWindowContainer(
                     manager: OverlayWindowManager.shared,
-                    containerSize: geometry.size
-                )
-
-                NoteWindowContainer(
-                    noteStore: noteStore,
-                    noteWindowState: noteWindowState,
-                    onCopyNote: onCopyNote,
-                    onDeleteNote: onDeleteNote,
                     containerSize: geometry.size
                 )
             }
@@ -351,8 +338,6 @@ struct ContentView: View {
     private var workspaceManager = WorkspaceManager.shared
     private var downloadManager = DownloadManager.shared
     @State private var wheelState = TabWheelState.shared
-    @State private var noteStore = NoteStore()
-    @State private var noteWindowState = NoteWindowState()
     @State private var fabricCoordinator: WheelFabricCoordinator?
     @State private var folderEditorRequest: FolderEditorRequest?
     @State private var startupExtensionsReady: Bool
@@ -391,13 +376,9 @@ struct ContentView: View {
                             activeTab: state.activeTab,
                             agentManager: agentManager,
                             browserState: state,
-                            noteStore: noteStore,
                             fabricClient: fabricCoordinator?.consumerClient,
-                            onCopyNote: copyNote,
-                            onDeleteNote: deleteNote,
                             agentEngine: agentEngine,
                             wheelState: wheelState,
-                            noteWindowState: noteWindowState,
                             contentExtractor: contentExtractor
                         )
                         .overlay {
@@ -416,15 +397,6 @@ struct ContentView: View {
                         onCreateFolder: presentCreateFolder
                     )
                     .frame(maxWidth: .infinity, alignment: .leading)
-
-                    NotesStrip(
-                        noteStore: noteStore,
-                        onOpenNote: openNote,
-                        onCopyNote: copyNote,
-                        onDeleteNote: deleteNote,
-                        onCreateNote: createNote
-                    )
-                    .frame(maxWidth: .infinity, alignment: .trailing)
 
                     ContextMenuOverlay(
                         state: contextMenuState,
@@ -464,10 +436,14 @@ struct ContentView: View {
                 if let workspaceId = notification.userInfo?["newWorkspaceID"] as? UUID {
                     Task { @MainActor in
                         state.bindToWorkspace(workspaceId)
-                        noteStore.bindToWorkspace(workspaceId)
-                        noteWindowState.close()
                         await fabricCoordinator?.publishCurrentPageChange()
+                        await fabricCoordinator?.publishCurrentWorkspaceChange()
                     }
+                }
+            }
+            .onReceive(NotificationCenter.default.publisher(for: .workspaceCatalogDidChange)) { _ in
+                Task { @MainActor in
+                    await fabricCoordinator?.publishWorkspaceCatalogChange()
                 }
             }
             .onReceive(NotificationCenter.default.publisher(for: .toggleDownloads)) { _ in
@@ -495,9 +471,6 @@ struct ContentView: View {
                 state.rebuildAllWebViewsForConfigurationChange()
                 OverlayWindowManager.shared.rebuildAllWebViewsForConfigurationChange()
             }
-            .onReceive(NotificationCenter.default.publisher(for: .newNote)) { _ in
-                createNote()
-            }
             .sheet(item: $folderEditorRequest) { request in
                 FolderEditorSheet(
                     title: request.title,
@@ -522,28 +495,21 @@ struct ContentView: View {
 
             if let currentWorkspaceId = workspaceManager.currentWorkspaceID {
                 state.bindToWorkspace(currentWorkspaceId)
-                noteStore.bindToWorkspace(currentWorkspaceId)
             }
 
             if fabricCoordinator == nil {
                 let coordinator = WheelFabricCoordinator(
                     browserState: state,
-                    noteStore: noteStore,
                     contentExtractor: contentExtractor,
-                    openNote: { note in
-                        openNote(note)
-                    }
+                    workspaceManager: workspaceManager
                 )
-                noteStore.changeHandler = { [weak coordinator] change in
-                    Task { @MainActor in
-                        await coordinator?.publishNoteChange(change)
-                    }
-                }
                 fabricCoordinator = coordinator
             }
 
             fabricCoordinator?.start()
             await fabricCoordinator?.publishCurrentPageChange()
+            await fabricCoordinator?.publishWorkspaceCatalogChange()
+            await fabricCoordinator?.publishCurrentWorkspaceChange()
         }
     }
 
@@ -555,7 +521,6 @@ struct ContentView: View {
     @MainActor
     private var contextMenuActionHandler: AppContextMenuActionHandler {
         AppContextMenuActionHandler(
-            createNote: createNote,
             createFolder: presentCreateFolder,
             moveTabsToFolder: { tabIDs, folderID in
                 state.moveTabs(tabIDs, toFolder: folderID)
@@ -575,37 +540,6 @@ struct ContentView: View {
         guard !startupExtensionsReady else { return }
         await ExtensionRegistry.shared.bootstrapRuntimeIfNeeded()
         startupExtensionsReady = true
-    }
-
-    @MainActor
-    private func createNote() {
-        guard let workspaceID = workspaceManager.currentWorkspaceID else { return }
-        noteStore.bindToWorkspace(workspaceID)
-
-        let note = noteStore.createNote()
-        openNote(noteStore.note(with: note.id) ?? note)
-    }
-
-    @MainActor
-    private func openNote(_ note: NoteRecord) {
-        noteWindowState.open(note: note)
-    }
-
-    @MainActor
-    private func copyNote(_ note: NoteRecord) {
-        guard let duplicated = noteStore.duplicateNote(id: note.id),
-              let resolved = noteStore.note(with: duplicated.id) else {
-            return
-        }
-        openNote(resolved)
-    }
-
-    @MainActor
-    private func deleteNote(_ note: NoteRecord) {
-        noteStore.deleteNote(id: note.id)
-        if noteWindowState.window?.noteID == note.id {
-            noteWindowState.close()
-        }
     }
 
     private func presentCreateFolder(_ movingTabIDs: [UUID]) {

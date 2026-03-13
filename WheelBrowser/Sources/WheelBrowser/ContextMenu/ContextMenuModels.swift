@@ -17,7 +17,6 @@ enum ContextMenuAction {
     case selectAll
     case copySelection(text: String)
     case searchWebFor(text: String)
-    case newNote
     case goBack
     case goForward
     case reload

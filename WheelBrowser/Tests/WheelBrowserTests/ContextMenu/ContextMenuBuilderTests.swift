@@ -16,8 +16,8 @@ struct ContextMenuBuilderTests {
         #expect(firstSection.items[3].isEnabled == true)
     }
 
-    @Test("Adds note actions when page context is available")
-    func addsNoteActionsForPageContext() {
+    @Test("Note actions are absent even when page context is available")
+    func omitsNoteActionsForPageContext() {
         let hitTest = ContextMenuHitTest(
             linkURL: "",
             linkText: "",
@@ -37,7 +37,7 @@ struct ContextMenuBuilderTests {
             .flatMap(\.items)
             .map(\.title)
 
-        #expect(titles.contains("New Note"))
+        #expect(!titles.contains("New Note"))
     }
 
     @Test("Omits note actions when page context is unavailable")

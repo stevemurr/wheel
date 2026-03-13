@@ -172,18 +172,6 @@ enum ContextMenuBuilder {
                 ),
             ]))
         }
-
-        // --- Note capture ---
-        if !hitTest.pageURL.isEmpty {
-            sections.append(ContextMenuSection(items: [
-                ContextMenuItem(
-                    title: "New Note",
-                    systemImage: "square.and.pencil",
-                    action: .newNote
-                ),
-            ]))
-        }
-
         return sections
     }
 

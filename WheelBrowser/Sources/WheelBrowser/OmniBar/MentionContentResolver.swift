@@ -8,7 +8,6 @@ struct MentionContentResolver {
     let contentExtractor: ContentExtractor
     let browserState: BrowserState
     let currentTab: Tab
-    let noteStore: NoteStore
     let fabricClient: (any WheelFabricMentionClient)?
 
     /// Resolve all mentions into page contexts for the given query
@@ -121,16 +120,12 @@ struct MentionContentResolver {
             case .note(let noteID, let title, _):
                 if let context = pageContext(for: mention, from: fabricContextsByURI) {
                     contexts.append(context)
-                } else if let note = noteStore.note(with: noteID) {
-                    let content = note.document.plainText(maxLength: Int.max)
-                    let textContent = content.isEmpty
-                        ? "[From Note]\n\(title)"
-                        : "[From Note]\n\(content)"
+                } else {
                     contexts.append(PageContext(
                         url: "note://\(noteID.uuidString)",
-                        title: note.displayTitle,
-                        textContent: textContent,
-                        contextBadge: .note(id: noteID, title: note.displayTitle)
+                        title: title,
+                        textContent: "[From Note]\n\(title)",
+                        contextBadge: .note(id: noteID, title: title)
                     ))
                 }
 

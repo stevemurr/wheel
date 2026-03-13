@@ -113,13 +113,6 @@ struct WheelBrowserApp: App {
 
                 Divider()
 
-                Button("New Note") {
-                    NotificationCenter.default.post(name: .newNote, object: nil)
-                }
-                .keyboardShortcut("n", modifiers: [.command, .option])
-
-                Divider()
-
                 Button("Focus AI Chat") {
                     NotificationCenter.default.post(name: .focusAISidebar, object: nil)
                 }
@@ -299,7 +292,6 @@ extension Notification.Name {
     static let newTab = Notification.Name("newTab")
     static let closeTab = Notification.Name("closeTab")
     static let toggleTabSidebar = Notification.Name("toggleTabSidebar")
-    static let newNote = Notification.Name("newNote")
 
     // Navigation
     static let focusAddressBar = Notification.Name("focusAddressBar")

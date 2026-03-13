@@ -1,10 +1,15 @@
 import SwiftUI
 import WebKit
+import WheelSupport
 
-struct NoteEditorView: View {
+public struct NoteEditorView: View {
     let bridge: NoteEditorBridge
 
-    var body: some View {
+    public init(bridge: NoteEditorBridge) {
+        self.bridge = bridge
+    }
+
+    public var body: some View {
         HostedWKWebView(spec: spec)
     }
 

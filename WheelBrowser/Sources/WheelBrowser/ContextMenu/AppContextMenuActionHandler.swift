@@ -2,7 +2,6 @@ import Foundation
 
 @MainActor
 struct AppContextMenuActionHandler {
-    let createNote: () -> Void
     let createFolder: ([UUID]) -> Void
     let moveTabsToFolder: ([UUID], UUID) -> Void
     let removeTabsFromFolders: ([UUID]) -> Void
@@ -11,9 +10,6 @@ struct AppContextMenuActionHandler {
 
     func handle(_ action: ContextMenuAction) -> Bool {
         switch action {
-        case .newNote:
-            createNote()
-            return true
         case .createFolderFromTabs(let tabIDs):
             createFolder(tabIDs)
             return true

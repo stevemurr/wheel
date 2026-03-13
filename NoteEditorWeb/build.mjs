@@ -4,7 +4,7 @@ import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 const root = path.dirname(fileURLToPath(import.meta.url))
-const outdir = path.resolve(root, '../WheelBrowser/Sources/WheelBrowser/Resources/NoteEditor')
+const outdir = path.resolve(root, '../WheelBrowser/Sources/WheelNotesCore/Resources/NoteEditor')
 
 await mkdir(outdir, { recursive: true })
 

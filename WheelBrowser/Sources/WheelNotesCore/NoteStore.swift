@@ -1,6 +1,8 @@
 import Foundation
+import Observation
+import WheelSupport
 
-enum NoteStoreChange {
+public enum NoteStoreChange {
     case created(NoteRecord)
     case updated(NoteRecord)
     case deleted(id: UUID, workspaceID: UUID)
@@ -8,28 +10,27 @@ enum NoteStoreChange {
 
 @MainActor
 @Observable
-final class NoteStore {
-    private(set) var notes: [NoteRecord] = []
-    private(set) var currentWorkspaceID: UUID?
+public final class NoteStore {
+    public private(set) var notes: [NoteRecord] = []
+    public private(set) var currentWorkspaceID: UUID?
 
-    @ObservationIgnored private let storageRoot: URL
-    @ObservationIgnored private let backend: FileSystemStoreBackend
+    @ObservationIgnored private let repository: NoteRepository
     @ObservationIgnored private let saveScheduler: StoreSaveScheduler
     @ObservationIgnored private var dirtyNoteIDs: Set<UUID> = []
-    @ObservationIgnored var changeHandler: ((NoteStoreChange) -> Void)?
+    @ObservationIgnored public var changeHandler: ((NoteStoreChange) -> Void)?
 
-    init(
-        storageRoot: URL = FileManager.appSupportDirectory.appendingPathComponent("Notes", isDirectory: true),
+    public init(
+        storageRoot: URL = AppSupportPaths
+            .directory(forAppNamed: "WheelNotes")
+            .appendingPathComponent("Notes", isDirectory: true),
         saveDebounceInterval: Duration = .milliseconds(700)
     ) {
-        self.storageRoot = storageRoot
-        self.backend = FileSystemStoreBackend(rootURL: storageRoot)
+        self.repository = NoteRepository(storageRoot: storageRoot)
         self.saveScheduler = StoreSaveScheduler(delay: saveDebounceInterval)
-        try? FileManager.default.createDirectory(at: storageRoot, withIntermediateDirectories: true)
     }
 
-    var orderedNotes: [NoteRecord] {
-        return notes.sorted { lhs, rhs in
+    public var orderedNotes: [NoteRecord] {
+        notes.sorted { lhs, rhs in
             if lhs.updatedAt != rhs.updatedAt {
                 return lhs.updatedAt > rhs.updatedAt
             }
@@ -37,7 +38,7 @@ final class NoteStore {
         }
     }
 
-    func bindToWorkspace(_ workspaceID: UUID) {
+    public func bindToWorkspace(_ workspaceID: UUID) {
         if currentWorkspaceID != workspaceID {
             flushPendingSaves()
         }
@@ -46,12 +47,12 @@ final class NoteStore {
         loadNotes(for: workspaceID)
     }
 
-    func note(with id: UUID) -> NoteRecord? {
+    public func note(with id: UUID) -> NoteRecord? {
         notes.first { $0.id == id }
     }
 
     @discardableResult
-    func createNote(title: String = "") -> NoteRecord {
+    public func createNote(title: String = "") -> NoteRecord {
         preconditionWorkspace()
 
         let document = NoteDocument.titled(title)
@@ -68,7 +69,7 @@ final class NoteStore {
         return note
     }
 
-    func updateDocument(id: UUID, document: NoteDocument) {
+    public func updateDocument(id: UUID, document: NoteDocument) {
         guard let index = notes.firstIndex(where: { $0.id == id }) else { return }
         if notes[index].document.canonicalJSONString == document.canonicalJSONString {
             return
@@ -83,7 +84,7 @@ final class NoteStore {
     }
 
     @discardableResult
-    func duplicateNote(id: UUID) -> NoteRecord? {
+    public func duplicateNote(id: UUID) -> NoteRecord? {
         guard let source = note(with: id) else { return nil }
 
         let duplicated = NoteRecord(
@@ -101,7 +102,7 @@ final class NoteStore {
         return duplicated
     }
 
-    func deleteNote(id: UUID) {
+    public func deleteNote(id: UUID) {
         guard let index = notes.firstIndex(where: { $0.id == id }) else { return }
 
         let note = notes.remove(at: index)
@@ -110,7 +111,7 @@ final class NoteStore {
         changeHandler?(.deleted(id: note.id, workspaceID: note.workspaceID))
     }
 
-    func insertPageSource(id: UUID, source: NotePageSource) {
+    public func insertPageSource(id: UUID, source: NotePageSource) {
         guard let index = notes.firstIndex(where: { $0.id == id }) else { return }
 
         let document = notes[index].document.insertingPageSource(source)
@@ -122,7 +123,7 @@ final class NoteStore {
         changeHandler?(.updated(notes[index]))
     }
 
-    func flushPendingSaves() {
+    public func flushPendingSaves() {
         saveScheduler.flush { [weak self] in
             self?.persistDirtyNotes()
         }
@@ -155,56 +156,19 @@ final class NoteStore {
     }
 
     private func loadNotes(for workspaceID: UUID) {
-        notes.removeAll()
+        notes = repository.notes(in: workspaceID)
         dirtyNoteIDs.removeAll()
-
-        let store = noteStore(for: workspaceID)
-        for key in (try? store.keys()) ?? [] {
-            guard let note = try? store.load(key: key) else {
-                continue
-            }
-            notes.append(normalizedRecord(note))
-        }
     }
 
     private func persistNoteImmediately(_ note: NoteRecord) {
-        do {
-            try noteStore(for: note.workspaceID).save(note, for: noteKey(for: note.id))
-        } catch {
-            Log.Workspace.error("Failed to save note", error: error)
-        }
+        try? repository.save(note)
     }
 
     private func deletePersistedNote(_ note: NoteRecord) {
-        do {
-            try noteStore(for: note.workspaceID).delete(key: noteKey(for: note.id))
-        } catch {
-            Log.Workspace.error("Failed to delete note", error: error)
-        }
-    }
-
-    private func noteStore(for workspaceID: UUID) -> JSONBackedDirectoryStore<NoteRecord> {
-        JSONBackedDirectoryStore(
-            backend: backend,
-            namespace: StoreNamespace(workspaceID.uuidString),
-            codingConfiguration: .prettyPrintedSortedKeysISO8601
-        )
-    }
-
-    private func noteKey(for id: UUID) -> StoreKey {
-        StoreKey("\(id.uuidString).json")
+        try? repository.delete(note)
     }
 
     private func preconditionWorkspace() {
         precondition(currentWorkspaceID != nil, "NoteStore must bind to a workspace before note operations")
-    }
-
-    private func normalizedRecord(_ note: NoteRecord) -> NoteRecord {
-        var normalized = note
-        let migratedDocument = note.document.migratedForInlineTitle(note.title)
-        normalized.document = migratedDocument
-        normalized.title = migratedDocument.titleLine(maxLength: Int.max)
-        normalized.excerpt = migratedDocument.previewText()
-        return normalized
     }
 }

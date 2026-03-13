@@ -12,7 +12,6 @@ import SwiftUI
 
     /// Reference to browser state for accessing open tabs
     weak var browserState: BrowserState?
-    weak var noteStore: NoteStore?
     var fabricClient: (any WheelFabricMentionClient)?
 
     private let searchDebouncer = Debouncer(delay: .milliseconds(30))
@@ -138,15 +137,6 @@ import SwiftUI
                 )
                 allSuggestions.append(contentsOf: tabSuggestions)
             }
-
-            if let noteStore {
-                let noteSuggestions = searchNotes(
-                    query: query,
-                    notes: noteStore.orderedNotes,
-                    excludedIds: excludedIds
-                )
-                allSuggestions.append(contentsOf: noteSuggestions)
-            }
         }
 
         // Search open overlay windows (mini windows)
@@ -262,6 +252,14 @@ import SwiftUI
             )
 
             return resources.enumerated().compactMap { index, resource in
+                if resource.uri.appID == WheelFabricAppID.notes,
+                   resource.kind == "note",
+                   let workspaceID = resource.metadata["workspaceID"]?.stringValue.flatMap(UUID.init(uuidString:)),
+                   let currentWorkspaceID = browserState?.currentWorkspaceId,
+                   workspaceID != currentWorkspaceID {
+                    return nil
+                }
+
                 guard let mention = Mention.fabricBackedMention(
                     from: resource,
                     currentTabID: currentTabId
@@ -345,39 +343,6 @@ import SwiftUI
             .max() ?? 0
 
         return max(titleScore, summaryScore, subtitleScore, urlScore, categoryScore, typeScore)
-    }
-
-    private func searchNotes(
-        query: String,
-        notes: [NoteRecord],
-        excludedIds: Set<String>
-    ) -> [MentionSuggestion] {
-        return notes.enumerated().compactMap { index, note -> MentionSuggestion? in
-            let mention = Mention.note(
-                id: note.id,
-                title: note.displayTitle,
-                excerpt: note.excerpt
-            )
-
-            if excludedIds.contains(mention.id) { return nil }
-
-            let score: Int
-            if query.isEmpty {
-                score = max(620 - (index * 8), 0)
-            } else {
-                let fullText = note.document.plainText(maxLength: Int.max)
-                let titleScore = FuzzySearch.score(query: query, target: note.displayTitle)
-                let excerptScore = FuzzySearch.score(query: query, target: note.excerpt)
-                let contentScore = FuzzySearch.score(query: query, target: fullText)
-                let typeScore = ["note", "memo", "scratchpad"]
-                    .map { FuzzySearch.score(query: query, target: $0) }
-                    .max() ?? 0
-                score = max(titleScore, excerptScore, contentScore, typeScore)
-            }
-
-            guard score > 0 else { return nil }
-            return MentionSuggestion(mention: mention, score: score)
-        }
     }
 
     private func suggestionRank(for mention: Mention) -> Int {

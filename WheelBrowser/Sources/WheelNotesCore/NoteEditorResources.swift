@@ -1,11 +1,11 @@
 import Foundation
 
-enum NoteEditorResources {
-    static func editorDirectoryURL() -> URL? {
+public enum NoteEditorResources {
+    public static func editorDirectoryURL() -> URL? {
         editorHTMLURL()?.deletingLastPathComponent()
     }
 
-    static func editorHTMLURL() -> URL? {
+    public static func editorHTMLURL() -> URL? {
         Bundle.module.url(forResource: "index", withExtension: "html", subdirectory: "NoteEditor")
     }
 }

@@ -171,54 +171,47 @@ struct MentionSuggestionsViewModelTests {
         )
     }
 
-    @Test("Notes appear in chat mention suggestions")
-    func suggestsNotes() async throws {
+    @Test("Fabric notes are filtered to the current browser workspace")
+    func filtersFabricNotesToCurrentWorkspace() async throws {
         OverlayWindowManager.shared.closeAll()
 
-        let store = NoteStore(
-            storageRoot: FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true),
-            saveDebounceInterval: .seconds(60)
-        )
-        store.bindToWorkspace(UUID())
-
-        let note = store.createNote()
-        store.updateDocument(
-            id: note.id,
-            document: NoteDocument(
-                root: [
-                    "type": AnyCodable("doc"),
-                    "content": AnyCodable([
-                        [
-                            "type": "paragraph",
-                            "content": [
-                                [
-                                    "type": "text",
-                                    "text": "Quarterly roadmap",
-                                ],
-                            ],
-                        ],
-                        [
-                            "type": "paragraph",
-                            "content": [
-                                [
-                                    "type": "text",
-                                    "text": "Mention notes directly from chat.",
-                                ],
-                            ],
-                        ],
-                    ]),
-                ]
-            )
-        )
+        let currentWorkspaceID = UUID()
+        let otherWorkspaceID = UUID()
+        let currentNoteID = UUID()
+        let otherNoteID = UUID()
 
         let viewModel = MentionSuggestionsViewModel()
-        viewModel.noteStore = store
+        viewModel.browserState = BrowserState(initialWorkspaceId: currentWorkspaceID)
+        viewModel.fabricClient = FabricMentionClientStub(
+            resources: [
+                FabricResourceDescriptor(
+                    uri: FabricURI(appID: WheelFabricAppID.notes, kind: "note", id: currentNoteID.uuidString),
+                    kind: "note",
+                    title: "Quarterly roadmap",
+                    summary: "Mention notes directly from chat.",
+                    capabilities: [.read, .mention],
+                    metadata: [
+                        "workspaceID": .string(currentWorkspaceID.uuidString)
+                    ]
+                ),
+                FabricResourceDescriptor(
+                    uri: FabricURI(appID: WheelFabricAppID.notes, kind: "note", id: otherNoteID.uuidString),
+                    kind: "note",
+                    title: "Personal scratchpad",
+                    summary: "Should not leak into this workspace.",
+                    capabilities: [.read, .mention],
+                    metadata: [
+                        "workspaceID": .string(otherWorkspaceID.uuidString)
+                    ]
+                )
+            ]
+        )
         viewModel.updateSuggestions(for: "roadmap", excluding: [], currentTabId: nil)
 
         for _ in 0..<20 {
             if viewModel.suggestions.contains(where: {
                 if case .note(let id, _, _) = $0.mention {
-                    return id == note.id
+                    return id == currentNoteID
                 }
                 return false
             }) {
@@ -230,7 +223,15 @@ struct MentionSuggestionsViewModelTests {
         #expect(
             viewModel.suggestions.contains {
                 if case .note(let id, _, _) = $0.mention {
-                    return id == note.id
+                    return id == currentNoteID
+                }
+                return false
+            }
+        )
+        #expect(
+            !viewModel.suggestions.contains {
+                if case .note(let id, _, _) = $0.mention {
+                    return id == otherNoteID
                 }
                 return false
             }

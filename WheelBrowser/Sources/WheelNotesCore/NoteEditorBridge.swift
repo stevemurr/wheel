@@ -1,32 +1,33 @@
 import Foundation
+import WheelSupport
 
 @MainActor
-final class NoteEditorBridge: QueuedScriptBridge {
-    var onReady: (() -> Void)?
-    var onDocumentChanged: ((NoteDocument) -> Void)?
-    var onEditorError: ((String) -> Void)?
+public final class NoteEditorBridge: QueuedScriptBridge {
+    public var onReady: (() -> Void)?
+    public var onDocumentChanged: ((NoteDocument) -> Void)?
+    public var onEditorError: ((String) -> Void)?
 
     private var lastDocumentFingerprint: String?
     private var activeNoteID: UUID?
 
-    init() {
+    public init() {
         super.init(messageHandlerName: "noteEditorBridge", javaScriptReceiver: "NoteEditor")
     }
 
-    override func detach() {
+    public override func detach() {
         super.detach()
         lastDocumentFingerprint = nil
         activeNoteID = nil
     }
 
-    func activate(noteID: UUID) {
+    public func activate(noteID: UUID) {
         if activeNoteID != noteID {
             activeNoteID = noteID
             lastDocumentFingerprint = nil
         }
     }
 
-    func loadDocumentIfNeeded(_ document: NoteDocument, force: Bool = false) {
+    public func loadDocumentIfNeeded(_ document: NoteDocument, force: Bool = false) {
         guard let fingerprint = fingerprint(for: document),
               force || fingerprint != lastDocumentFingerprint else {
             return
@@ -36,19 +37,19 @@ final class NoteEditorBridge: QueuedScriptBridge {
         sendCommand("loadDocument", payload: DocumentPayload(document: document.root))
     }
 
-    func focusEditor() {
+    public func focusEditor() {
         sendCommand("focusEditor", payload: EmptyPayload())
     }
 
-    func insertSourceBlock(_ source: NotePageSource) {
+    public func insertSourceBlock(_ source: NotePageSource) {
         sendCommand("insertSourceBlock", payload: SourcePayload(source: source))
     }
 
-    override func bridgeDidBecomeReady() {
+    public override func bridgeDidBecomeReady() {
         onReady?()
     }
 
-    override func didReceiveMessage(type: String, payload: [String: Any]) {
+    public override func didReceiveMessage(type: String, payload: [String: Any]) {
         switch type {
         case "documentChanged":
             guard let document = decodeDocument(payload) else {
@@ -64,7 +65,7 @@ final class NoteEditorBridge: QueuedScriptBridge {
         }
     }
 
-    override func reportBridgeError(_ message: String) {
+    public override func reportBridgeError(_ message: String) {
         onEditorError?(message)
     }
 

@@ -1,7 +1,7 @@
 import Foundation
 import Testing
 import WebKit
-@testable import WheelBrowser
+@testable import WheelNotesCore
 
 @Suite("Note editor resources", .serialized)
 @MainActor

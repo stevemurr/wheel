@@ -1,30 +1,31 @@
 import Foundation
+import WheelSupport
 
-enum NoteKind: String, Codable, CaseIterable, Sendable {
+public enum NoteKind: String, Codable, CaseIterable, Sendable {
     case daily
     case adhoc
 }
 
-struct NotePageSource: Codable, Equatable, Sendable {
-    let title: String
-    let url: String
-    let capturedAt: Date
+public struct NotePageSource: Codable, Equatable, Sendable {
+    public let title: String
+    public let url: String
+    public let capturedAt: Date
 
-    init(title: String, url: String, capturedAt: Date = Date()) {
+    public init(title: String, url: String, capturedAt: Date = Date()) {
         self.title = title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? url : title
         self.url = url
         self.capturedAt = capturedAt
     }
 }
 
-struct NoteDocument: Codable, Sendable {
-    var root: [String: AnyCodable]
+public struct NoteDocument: Codable, Sendable {
+    public var root: [String: AnyCodable]
 
-    init(root: [String: AnyCodable]) {
+    public init(root: [String: AnyCodable]) {
         self.root = root
     }
 
-    static var empty: NoteDocument {
+    public static var empty: NoteDocument {
         NoteDocument(
             root: [
                 "type": AnyCodable("doc"),
@@ -33,7 +34,7 @@ struct NoteDocument: Codable, Sendable {
         )
     }
 
-    static func titled(_ title: String) -> NoteDocument {
+    public static func titled(_ title: String) -> NoteDocument {
         let normalizedTitle = Self.normalizeLine(title)
         guard !normalizedTitle.isEmpty else { return .empty }
 
@@ -45,7 +46,7 @@ struct NoteDocument: Codable, Sendable {
         )
     }
 
-    func plainText(maxLength: Int = 180) -> String {
+    public func plainText(maxLength: Int = 180) -> String {
         let text = Self.documentLines(from: Self.normalizedJSON(root))
             .joined(separator: "\n")
             .trimmingCharacters(in: .whitespacesAndNewlines)
@@ -53,12 +54,12 @@ struct NoteDocument: Codable, Sendable {
         return Self.truncated(text, maxLength: maxLength)
     }
 
-    func titleLine(maxLength: Int = 120) -> String {
+    public func titleLine(maxLength: Int = 120) -> String {
         let line = Self.documentLines(from: Self.normalizedJSON(root)).first ?? ""
         return Self.truncated(line, maxLength: maxLength)
     }
 
-    func previewText(maxLength: Int = 180) -> String {
+    public func previewText(maxLength: Int = 180) -> String {
         let lines = Self.documentLines(from: Self.normalizedJSON(root))
         let text = Array(lines.dropFirst())
             .joined(separator: "\n")
@@ -67,7 +68,7 @@ struct NoteDocument: Codable, Sendable {
         return Self.truncated(text, maxLength: maxLength)
     }
 
-    var canonicalJSONString: String? {
+    public var canonicalJSONString: String? {
         let normalized = Self.normalizedJSON(root)
         guard JSONSerialization.isValidJSONObject(normalized),
               let data = try? JSONSerialization.data(withJSONObject: normalized, options: [.sortedKeys]) else {
@@ -77,7 +78,7 @@ struct NoteDocument: Codable, Sendable {
         return String(decoding: data, as: UTF8.self)
     }
 
-    func migratedForInlineTitle(_ legacyTitle: String) -> NoteDocument {
+    public func migratedForInlineTitle(_ legacyTitle: String) -> NoteDocument {
         let normalizedTitle = Self.normalizeLine(legacyTitle)
         guard !normalizedTitle.isEmpty, titleLine(maxLength: Int.max).isEmpty else {
             return self
@@ -90,7 +91,7 @@ struct NoteDocument: Codable, Sendable {
         return NoteDocument(root: updatedRoot)
     }
 
-    func insertingPageSource(_ source: NotePageSource) -> NoteDocument {
+    public func insertingPageSource(_ source: NotePageSource) -> NoteDocument {
         var updatedRoot = root
         var content = updatedRoot["content"]?.arrayValue ?? []
         let attrs: [String: Any] = [
@@ -194,8 +195,7 @@ struct NoteDocument: Codable, Sendable {
             return []
 
         case let array as [Any]:
-            return array
-                .flatMap(blockTextLines(from:))
+            return array.flatMap(blockTextLines(from:))
 
         default:
             return []
@@ -321,18 +321,18 @@ struct NoteDocument: Codable, Sendable {
     }
 }
 
-struct NoteRecord: Codable, Identifiable, Sendable {
-    let id: UUID
-    let workspaceID: UUID
-    let kind: NoteKind
-    var title: String
-    let dayIdentifier: String?
-    let createdAt: Date
-    var updatedAt: Date
-    var excerpt: String
-    var document: NoteDocument
+public struct NoteRecord: Codable, Identifiable, Sendable {
+    public let id: UUID
+    public let workspaceID: UUID
+    public let kind: NoteKind
+    public var title: String
+    public let dayIdentifier: String?
+    public let createdAt: Date
+    public var updatedAt: Date
+    public var excerpt: String
+    public var document: NoteDocument
 
-    init(
+    public init(
         id: UUID = UUID(),
         workspaceID: UUID,
         kind: NoteKind,
@@ -354,26 +354,11 @@ struct NoteRecord: Codable, Identifiable, Sendable {
         self.document = document
     }
 
-    var displayTitle: String {
+    public var displayTitle: String {
         title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "Untitled Note" : title
     }
 
-    var shortUpdatedText: String {
+    public var shortUpdatedText: String {
         updatedAt.abbreviatedRelativeTimeString()
     }
-
-    static let dayFormatter: DateFormatter = {
-        let formatter = DateFormatter()
-        formatter.calendar = Calendar(identifier: .gregorian)
-        formatter.locale = Locale(identifier: "en_US_POSIX")
-        formatter.timeZone = .current
-        formatter.dateFormat = "yyyy-MM-dd"
-        return formatter
-    }()
-
-    static let displayDateFormatter: DateFormatter = {
-        let formatter = DateFormatter()
-        formatter.dateStyle = .medium
-        return formatter
-    }()
 }

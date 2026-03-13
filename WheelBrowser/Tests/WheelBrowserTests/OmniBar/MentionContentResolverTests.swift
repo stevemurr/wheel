@@ -13,10 +13,6 @@ struct MentionContentResolverTests {
             contentExtractor: ContentExtractor(),
             browserState: BrowserState(),
             currentTab: Tab(),
-            noteStore: NoteStore(
-                storageRoot: FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true),
-                saveDebounceInterval: .seconds(60)
-            ),
             fabricClient: FabricMentionClientStub(
                 contexts: [
                     FabricContextPayload(
@@ -69,10 +65,6 @@ struct MentionContentResolverTests {
             contentExtractor: ContentExtractor(),
             browserState: BrowserState(),
             currentTab: Tab(),
-            noteStore: NoteStore(
-                storageRoot: FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true),
-                saveDebounceInterval: .seconds(60)
-            ),
             fabricClient: FabricMentionClientStub(
                 contexts: [
                     FabricContextPayload(
@@ -102,17 +94,10 @@ struct MentionContentResolverTests {
     @Test("Note mentions resolve through Fabric when available")
     func resolvesFabricNoteMentions() async {
         let noteID = UUID()
-        let store = NoteStore(
-            storageRoot: FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true),
-            saveDebounceInterval: .seconds(60)
-        )
-        store.bindToWorkspace(UUID())
-
         let resolver = MentionContentResolver(
             contentExtractor: ContentExtractor(),
             browserState: BrowserState(),
             currentTab: Tab(),
-            noteStore: store,
             fabricClient: FabricMentionClientStub(
                 contexts: [
                     FabricContextPayload(
@@ -136,62 +121,24 @@ struct MentionContentResolverTests {
         #expect(contexts.first?.textContent.contains("Capture note mentions in AI chat.") == true)
     }
 
-    @Test("Note mentions resolve into note-backed chat context")
-    func resolvesNoteMentions() async {
-        let store = NoteStore(
-            storageRoot: FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true),
-            saveDebounceInterval: .seconds(60)
-        )
-        let workspaceID = UUID()
-        store.bindToWorkspace(workspaceID)
-
-        let note = store.createNote()
-        store.updateDocument(
-            id: note.id,
-            document: NoteDocument(
-                root: [
-                    "type": AnyCodable("doc"),
-                    "content": AnyCodable([
-                        [
-                            "type": "paragraph",
-                            "content": [
-                                [
-                                    "type": "text",
-                                    "text": "Architecture notes",
-                                ],
-                            ],
-                        ],
-                        [
-                            "type": "paragraph",
-                            "content": [
-                                [
-                                    "type": "text",
-                                    "text": "Capture note mentions in AI chat.",
-                                ],
-                            ],
-                        ],
-                    ]),
-                ]
-            )
-        )
-
-        let browserState = BrowserState()
+    @Test("Note mentions fall back to title-only context when Fabric is unavailable")
+    func fallsBackForNoteMentionsWithoutFabric() async {
+        let noteID = UUID()
         let resolver = MentionContentResolver(
             contentExtractor: ContentExtractor(),
-            browserState: browserState,
+            browserState: BrowserState(),
             currentTab: Tab(),
-            noteStore: store,
             fabricClient: nil
         )
 
         let contexts = await resolver.resolve(
-            mentions: [.note(id: note.id, title: "Architecture notes", excerpt: "Capture note mentions in AI chat.")],
+            mentions: [.note(id: noteID, title: "Architecture notes", excerpt: "Capture note mentions in AI chat.")],
             query: "architecture"
         )
 
         #expect(contexts.count == 1)
         #expect(contexts.first?.contextBadge.kind == .note)
         #expect(contexts.first?.title == "Architecture notes")
-        #expect(contexts.first?.textContent.contains("Capture note mentions in AI chat.") == true)
+        #expect(contexts.first?.textContent == "[From Note]\nArchitecture notes")
     }
 }

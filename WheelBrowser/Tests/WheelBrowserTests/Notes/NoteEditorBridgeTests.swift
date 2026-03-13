@@ -1,5 +1,5 @@
 import Testing
-@testable import WheelBrowser
+@testable import WheelNotesCore
 
 @Suite("NoteEditorBridge")
 @MainActor

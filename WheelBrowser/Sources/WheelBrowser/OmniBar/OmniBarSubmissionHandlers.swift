@@ -66,7 +66,6 @@ extension OmniBar {
                 contentExtractor: contentExtractor,
                 browserState: browserState,
                 currentTab: tab,
-                noteStore: noteStore,
                 fabricClient: fabricClient
             )
             let pageContexts = await resolver.resolve(mentions: currentMentions, query: content)

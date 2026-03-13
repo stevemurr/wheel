@@ -1,6 +1,7 @@
 import Foundation
 import Testing
-@testable import WheelBrowser
+import WheelSupport
+@testable import WheelNotesCore
 
 @Suite("NoteStore", .serialized)
 @MainActor

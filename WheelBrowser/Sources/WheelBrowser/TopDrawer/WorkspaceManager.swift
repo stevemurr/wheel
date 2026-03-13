@@ -4,6 +4,7 @@ import SwiftUI
 /// Notification sent when workspace changes - observers can respond to load appropriate tabs
 extension Notification.Name {
     static let workspaceDidChange = Notification.Name("workspaceDidChange")
+    static let workspaceCatalogDidChange = Notification.Name("workspaceCatalogDidChange")
 }
 
 /// Manages workspace storage and operations
@@ -251,6 +252,7 @@ class WorkspaceManager {
     }
 
     private func saveWorkspaces() {
+        NotificationCenter.default.post(name: .workspaceCatalogDidChange, object: nil)
         Task {
             await persistWorkspaces()
         }

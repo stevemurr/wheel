@@ -5,18 +5,6 @@ import Testing
 @Suite("AppContextMenuActionHandler")
 @MainActor
 struct AppContextMenuActionHandlerTests {
-    @Test("Routes new note to the app handler")
-    func routesNewNote() {
-        var didCreateNote = false
-
-        let handler = makeHandler(
-            createNote: { didCreateNote = true }
-        )
-
-        #expect(handler.handle(.newNote) == true)
-        #expect(didCreateNote)
-    }
-
     @Test("Routes rename and delete folder actions")
     func routesFolderActions() {
         let folderID = UUID()
@@ -43,7 +31,6 @@ struct AppContextMenuActionHandlerTests {
     }
 
     private func makeHandler(
-        createNote: @escaping () -> Void = {},
         createFolder: @escaping ([UUID]) -> Void = { _ in },
         moveTabsToFolder: @escaping ([UUID], UUID) -> Void = { _, _ in },
         removeTabsFromFolders: @escaping ([UUID]) -> Void = { _ in },
@@ -51,7 +38,6 @@ struct AppContextMenuActionHandlerTests {
         deleteFolder: @escaping (UUID) -> Void = { _ in }
     ) -> AppContextMenuActionHandler {
         AppContextMenuActionHandler(
-            createNote: createNote,
             createFolder: createFolder,
             moveTabsToFolder: moveTabsToFolder,
             removeTabsFromFolders: removeTabsFromFolders,
