@@ -17,28 +17,6 @@ let package = Package(
         ),
     ],
     targets: [
-        .target(
-            name: "WheelSupport",
-            dependencies: [],
-            path: "Sources/WheelSupport",
-            swiftSettings: [
-                .swiftLanguageMode(.v5)
-            ]
-        ),
-        .target(
-            name: "WheelNotesCore",
-            dependencies: [
-                "WheelSupport",
-                .product(name: "Fabric", package: "fabric"),
-            ],
-            path: "Sources/WheelNotesCore",
-            resources: [
-                .copy("Resources/NoteEditor"),
-            ],
-            swiftSettings: [
-                .swiftLanguageMode(.v5)
-            ]
-        ),
         .executableTarget(
             name: "WheelBrowser",
             dependencies: [
@@ -63,18 +41,6 @@ let package = Package(
             ]
         ),
         .executableTarget(
-            name: "WheelNotes",
-            dependencies: [
-                "WheelSupport",
-                "WheelNotesCore",
-                .product(name: "Fabric", package: "fabric"),
-            ],
-            path: "Sources/WheelNotes",
-            swiftSettings: [
-                .swiftLanguageMode(.v5)
-            ]
-        ),
-        .executableTarget(
             name: "wheel-mcp-bridge",
             dependencies: [],
             path: "Sources/WheelMCPBridge",
@@ -86,8 +52,6 @@ let package = Package(
             name: "WheelBrowserTests",
             dependencies: [
                 "WheelBrowser",
-                "WheelNotesCore",
-                "WheelSupport",
                 .product(name: "Fabric", package: "fabric"),
                 .product(name: "LanguageModelContextManagement", package: "LanguageModelKit"),
                 .product(name: "LanguageModelStructuredOutput", package: "LanguageModelKit"),
