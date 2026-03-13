@@ -6,6 +6,26 @@ import Testing
 @MainActor
 @Suite("Mention content resolver")
 struct MentionContentResolverTests {
+    @Test("Current page mentions resolve locally without Fabric round-trips")
+    func currentPageMentionsDoNotCallFabric() async {
+        let fabricClient = FabricMentionClientStub()
+        let resolver = MentionContentResolver(
+            contentExtractor: ContentExtractor(),
+            browserState: BrowserState(),
+            currentTab: Tab(),
+            fabricClient: fabricClient,
+            fabricResolutionTimeout: .seconds(1)
+        )
+
+        let contexts = await resolver.resolve(
+            mentions: [.currentPage],
+            query: "page"
+        )
+
+        #expect(contexts.isEmpty)
+        #expect(fabricClient.resolveCallCount == 0)
+    }
+
     @Test("Generic Fabric mentions resolve into generic chat context badges")
     func resolvesGenericFabricMentions() async {
         let resourceURI = FabricURI(appID: "external.docs", kind: "document", id: "roadmap")
@@ -28,7 +48,8 @@ struct MentionContentResolverTests {
                         )
                     )
                 ]
-            )
+            ),
+            fabricResolutionTimeout: .seconds(1)
         )
 
         let contexts = await resolver.resolve(
@@ -58,26 +79,15 @@ struct MentionContentResolverTests {
         #expect(contexts.first?.textContent.contains("Ship generic Fabric mentions for future apps.") == true)
     }
 
-    @Test("Page snapshot mentions resolve through Fabric when available")
-    func resolvesFabricPageSnapshotMentions() async {
+    @Test("Page snapshot mentions fall back to local metadata when no snapshot bridge is available")
+    func fallsBackForPageSnapshotMentionsWithoutSnapshotBridge() async {
         let tabID = UUID()
         let resolver = MentionContentResolver(
             contentExtractor: ContentExtractor(),
             browserState: BrowserState(),
             currentTab: Tab(),
-            fabricClient: FabricMentionClientStub(
-                contexts: [
-                    FabricContextPayload(
-                        uri: FabricURI(appID: WheelFabricAppID.browser, kind: "page-snapshot", id: tabID.uuidString),
-                        kind: "page-snapshot",
-                        title: "Checkout flow",
-                        body: "Snapshot content for the checkout page.",
-                        metadata: [
-                            "url": .string("https://example.com/checkout")
-                        ]
-                    )
-                ]
-            )
+            fabricClient: FabricMentionClientStub(),
+            fabricResolutionTimeout: .seconds(1)
         )
 
         let contexts = await resolver.resolve(
@@ -88,7 +98,11 @@ struct MentionContentResolverTests {
         #expect(contexts.count == 1)
         #expect(contexts.first?.contextBadge.kind == .website)
         #expect(contexts.first?.title == "Checkout flow")
-        #expect(contexts.first?.textContent.contains("Snapshot content for the checkout page.") == true)
+        #expect(contexts.first?.textContent == """
+        [Page Snapshot]
+        Title: Checkout flow
+        URL: https://example.com/checkout
+        """)
     }
 
     @Test("Note mentions resolve through Fabric when available")
@@ -107,7 +121,8 @@ struct MentionContentResolverTests {
                         body: "Capture note mentions in AI chat."
                     )
                 ]
-            )
+            ),
+            fabricResolutionTimeout: .seconds(1)
         )
 
         let contexts = await resolver.resolve(
@@ -128,7 +143,8 @@ struct MentionContentResolverTests {
             contentExtractor: ContentExtractor(),
             browserState: BrowserState(),
             currentTab: Tab(),
-            fabricClient: nil
+            fabricClient: nil,
+            fabricResolutionTimeout: .seconds(1)
         )
 
         let contexts = await resolver.resolve(
@@ -139,6 +155,31 @@ struct MentionContentResolverTests {
         #expect(contexts.count == 1)
         #expect(contexts.first?.contextBadge.kind == .note)
         #expect(contexts.first?.title == "Architecture notes")
+        #expect(contexts.first?.textContent == "[From Note]\nArchitecture notes")
+    }
+
+    @Test("Timed-out Fabric note lookups fall back to title-only note context")
+    func timesOutFabricLookupsWithoutBlockingFallbacks() async {
+        let noteID = UUID()
+        let fabricClient = FabricMentionClientStub(
+            resolveDelay: .seconds(5)
+        )
+        let resolver = MentionContentResolver(
+            contentExtractor: ContentExtractor(),
+            browserState: BrowserState(),
+            currentTab: Tab(),
+            fabricClient: fabricClient,
+            fabricResolutionTimeout: .milliseconds(10)
+        )
+
+        let contexts = await resolver.resolve(
+            mentions: [.note(id: noteID, title: "Architecture notes", excerpt: "")],
+            query: "architecture"
+        )
+
+        #expect(fabricClient.resolveCallCount == 1)
+        #expect(contexts.count == 1)
+        #expect(contexts.first?.contextBadge.kind == .note)
         #expect(contexts.first?.textContent == "[From Note]\nArchitecture notes")
     }
 }

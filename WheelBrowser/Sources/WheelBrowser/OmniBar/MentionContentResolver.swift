@@ -9,6 +9,21 @@ struct MentionContentResolver {
     let browserState: BrowserState
     let currentTab: Tab
     let fabricClient: (any WheelFabricMentionClient)?
+    let fabricResolutionTimeout: Duration
+
+    init(
+        contentExtractor: ContentExtractor,
+        browserState: BrowserState,
+        currentTab: Tab,
+        fabricClient: (any WheelFabricMentionClient)?,
+        fabricResolutionTimeout: Duration = .seconds(1)
+    ) {
+        self.contentExtractor = contentExtractor
+        self.browserState = browserState
+        self.currentTab = currentTab
+        self.fabricClient = fabricClient
+        self.fabricResolutionTimeout = fabricResolutionTimeout
+    }
 
     /// Resolve all mentions into page contexts for the given query
     func resolve(mentions: [Mention], query: String) async -> [PageContext] {
@@ -157,21 +172,47 @@ struct MentionContentResolver {
             return nil
         }
 
-        let uris = mentions.compactMap(\.fabricURI)
+        // Resolve browser-backed mentions locally to avoid depending on the
+        // Fabric loopback path for current-page chat.
+        let uris = mentions.compactMap { mention -> FabricURI? in
+            switch mention {
+            case .note, .fabricResource:
+                return mention.fabricURI
+            case .currentPage, .pageSnapshot, .tab, .overlay, .semanticResult, .history, .web, .readingList, .domain:
+                return nil
+            }
+        }
         guard !uris.isEmpty else {
             return [:]
         }
 
-        do {
-            let payloads = try await fabricClient.resolveContexts(
-                callerAppID: WheelFabricAppID.chat,
-                uris: uris
-            )
-            return Dictionary(
-                uniqueKeysWithValues: payloads.map { ($0.uri.rawValue, $0) }
-            )
-        } catch {
-            return nil
+        return await withCheckedContinuation { continuation in
+            let gate = FabricContextResolutionGate()
+
+            let resolutionTask = Task { @MainActor in
+                do {
+                    let payloads = try await fabricClient.resolveContexts(
+                        callerAppID: WheelFabricAppID.chat,
+                        uris: uris
+                    )
+                    guard await gate.claim() else { return }
+                    continuation.resume(returning: Dictionary(
+                        uniqueKeysWithValues: payloads.map { ($0.uri.rawValue, $0) }
+                    ))
+                } catch {
+                    guard await gate.claim() else { return }
+                    Log.Services.warning("Fabric context resolution failed: \(error.localizedDescription)")
+                    continuation.resume(returning: nil)
+                }
+            }
+
+            Task { @MainActor in
+                try? await Task.sleep(for: fabricResolutionTimeout)
+                guard await gate.claim() else { return }
+                resolutionTask.cancel()
+                Log.Services.warning("Fabric context resolution timed out; continuing without Fabric-backed context")
+                continuation.resume(returning: nil)
+            }
         }
     }
 
@@ -234,5 +275,15 @@ struct MentionContentResolver {
                 presentation: payload.presentation
             )
         }
+    }
+}
+
+private actor FabricContextResolutionGate {
+    private var didResolve = false
+
+    func claim() -> Bool {
+        guard !didResolve else { return false }
+        didResolve = true
+        return true
     }
 }
