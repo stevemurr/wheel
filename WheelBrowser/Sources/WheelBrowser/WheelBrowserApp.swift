@@ -114,29 +114,29 @@ struct WheelBrowserApp: App {
                 Divider()
 
                 Button("Focus AI Chat") {
-                    NotificationCenter.default.post(name: .focusAISidebar, object: nil)
+                    OmniBarCommandCenter.shared.send(.focusAISidebar)
                 }
                 .keyboardShortcut("k", modifiers: .command)
 
                 Button("Semantic Search") {
-                    NotificationCenter.default.post(name: .focusSemanticSearch, object: nil)
+                    OmniBarCommandCenter.shared.send(.focusSemanticSearch)
                 }
                 .keyboardShortcut("j", modifiers: .command)
 
                 Divider()
 
                 Button("Copy Last Response") {
-                    NotificationCenter.default.post(name: .copyLastResponse, object: nil)
+                    OmniBarCommandCenter.shared.send(.copyLastResponse)
                 }
                 .keyboardShortcut("c", modifiers: [.command, .shift])
 
                 Button("Regenerate Response") {
-                    NotificationCenter.default.post(name: .regenerateResponse, object: nil)
+                    OmniBarCommandCenter.shared.send(.regenerateResponse)
                 }
                 .keyboardShortcut("r", modifiers: [.command, .option])
 
                 Button("Edit Last Message") {
-                    NotificationCenter.default.post(name: .editLastMessage, object: nil)
+                    OmniBarCommandCenter.shared.send(.editLastMessage)
                 }
                 .keyboardShortcut("e", modifiers: [.command, .shift])
             }
@@ -144,12 +144,12 @@ struct WheelBrowserApp: App {
 // Navigation commands
             CommandGroup(after: .textEditing) {
                 Button("Focus Address Bar") {
-                    NotificationCenter.default.post(name: .focusAddressBar, object: nil)
+                    OmniBarCommandCenter.shared.send(.focusAddressBar(selectAll: true))
                 }
                 .keyboardShortcut("l", modifiers: .command)
 
                 Button("Focus Address Bar (Alt)") {
-                    NotificationCenter.default.post(name: .focusAddressBar, object: nil)
+                    OmniBarCommandCenter.shared.send(.focusAddressBar(selectAll: true))
                 }
                 .keyboardShortcut("f", modifiers: [.command, .option])
 
@@ -166,7 +166,7 @@ struct WheelBrowserApp: App {
                 .keyboardShortcut("r", modifiers: [.command, .shift])
 
                 Button("Stop Loading") {
-                    NotificationCenter.default.post(name: .escapePressed, object: nil)
+                    OmniBarCommandCenter.shared.send(.escape)
                     NotificationCenter.default.post(name: .stopLoading, object: nil)
                 }
                 .keyboardShortcut(.escape, modifiers: [])
@@ -184,7 +184,7 @@ struct WheelBrowserApp: App {
                 Divider()
 
                 Button("Find in Page") {
-                    NotificationCenter.default.post(name: .findInPage, object: nil)
+                    OmniBarCommandCenter.shared.send(.findInPage)
                 }
                 .keyboardShortcut("f", modifiers: .command)
             }
@@ -256,12 +256,12 @@ struct WheelBrowserApp: App {
                 Divider()
 
                 Button("Save to Reading List") {
-                    NotificationCenter.default.post(name: .toggleSavePage, object: nil)
+                    OmniBarCommandCenter.shared.send(.toggleSavePage)
                 }
                 .keyboardShortcut("s", modifiers: .command)
 
                 Button("Show Reading List") {
-                    NotificationCenter.default.post(name: .focusReadingList, object: nil)
+                    OmniBarCommandCenter.shared.send(.focusReadingList)
                 }
                 .keyboardShortcut("b", modifiers: .command)
 
@@ -294,29 +294,17 @@ extension Notification.Name {
     static let toggleTabSidebar = Notification.Name("toggleTabSidebar")
 
     // Navigation
-    static let focusAddressBar = Notification.Name("focusAddressBar")
     static let reloadPage = Notification.Name("reloadPage")
     static let toggleReaderMode = Notification.Name("toggleReaderMode")
     static let goBack = Notification.Name("goBack")
     static let goForward = Notification.Name("goForward")
     static let stopLoading = Notification.Name("stopLoading")
-    static let escapePressed = Notification.Name("escapePressed")
 
     // Tab switching
     static let switchToTab = Notification.Name("switchToTab")
     static let previousTab = Notification.Name("previousTab")
     static let nextTab = Notification.Name("nextTab")
     static let reopenClosedTab = Notification.Name("reopenClosedTab")
-
-    // Find in page
-    static let findInPage = Notification.Name("findInPage")
-
-    // AI sidebar
-    static let focusAISidebar = Notification.Name("focusAISidebar")
-    static let focusChatInput = Notification.Name("focusChatInput")
-
-    // Semantic search
-    static let focusSemanticSearch = Notification.Name("focusSemanticSearch")
 
     // Zoom controls
     static let zoomIn = Notification.Name("zoomIn")
@@ -330,10 +318,6 @@ extension Notification.Name {
     static let toggleDownloads = Notification.Name("toggleDownloads")
 
     // Reading list
-    static let toggleSavePage = Notification.Name("toggleSavePage")
-    static let focusReadingList = Notification.Name("focusReadingList")
-
-    // Overlay windows
     static let closeAllOverlays = Notification.Name("closeAllOverlays")
 
     // Tab wheel
@@ -345,8 +329,4 @@ extension Notification.Name {
     // Open link in new tab (from context menu)
     static let openLinkInNewTab = Notification.Name("openLinkInNewTab")
 
-    // Chat actions
-    static let copyLastResponse = Notification.Name("copyLastResponse")
-    static let regenerateResponse = Notification.Name("regenerateResponse")
-    static let editLastMessage = Notification.Name("editLastMessage")
 }

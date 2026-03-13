@@ -2,82 +2,97 @@ import Testing
 @testable import WheelBrowser
 
 @MainActor
-@Suite("OmniBar State")
+@Suite("OmniBar Feature Model")
 struct OmniBarStateTests {
+    private func makeFeatureModel(tab: Tab = Tab()) -> OmniBarFeatureModel {
+        let browserState = BrowserState()
+        let agentManager = AgentManager()
+        let agentEngine = AgentEngine(browserState: browserState, settings: AppSettings.shared)
+
+        return OmniBarFeatureModel(
+            tab: tab,
+            agentManager: agentManager,
+            browserState: browserState,
+            fabricClient: nil,
+            agentEngine: agentEngine,
+            contentExtractor: ContentExtractor()
+        )
+    }
+
     @Test("User removal of auto page context is preserved across mention resets")
     func userRemovalSuppressesAutomaticPageContext() {
         OverlayWindowManager.shared.closeAll()
 
-        let state = OmniBarState()
-        state.resetMentions(includeCurrentPage: true)
-        #expect(state.mentions.contains(.currentPage))
+        let featureModel = makeFeatureModel()
+        featureModel.resetMentions(includeCurrentPage: true)
+        #expect(featureModel.mentions.contains(.currentPage))
 
-        state.removeMention(.currentPage)
-        state.resetMentions(includeCurrentPage: true)
+        featureModel.removeMention(.currentPage)
+        featureModel.resetMentions(includeCurrentPage: true)
 
-        #expect(state.mentions.contains(.currentPage) == false)
+        #expect(featureModel.mentions.contains(.currentPage) == false)
     }
 
     @Test("System removal does not suppress automatic page context")
     func systemRemovalDoesNotSuppressAutomaticPageContext() {
         OverlayWindowManager.shared.closeAll()
 
-        let state = OmniBarState()
-        state.resetMentions(includeCurrentPage: true)
-        state.removeMention(.currentPage, userInitiated: false)
-        state.resetMentions(includeCurrentPage: true)
+        let featureModel = makeFeatureModel()
+        featureModel.resetMentions(includeCurrentPage: true)
+        featureModel.removeMention(.currentPage, userInitiated: false)
+        featureModel.resetMentions(includeCurrentPage: true)
 
-        #expect(state.mentions.contains(.currentPage))
+        #expect(featureModel.mentions.contains(.currentPage))
     }
 
     @Test("Clearing suppression restores automatic page context")
     func clearingSuppressionRestoresAutomaticPageContext() {
         OverlayWindowManager.shared.closeAll()
 
-        let state = OmniBarState()
-        state.removeMention(.currentPage)
-        state.resetMentions(includeCurrentPage: true)
-        #expect(state.mentions.contains(.currentPage) == false)
+        let featureModel = makeFeatureModel()
+        featureModel.removeMention(.currentPage)
+        featureModel.resetMentions(includeCurrentPage: true)
+        #expect(featureModel.mentions.contains(.currentPage) == false)
 
-        state.clearAutomaticMentionSuppression()
-        state.resetMentions(includeCurrentPage: true)
+        featureModel.clearAutomaticMentionSuppression()
+        featureModel.resetMentions(includeCurrentPage: true)
 
-        #expect(state.mentions.contains(.currentPage))
+        #expect(featureModel.mentions.contains(.currentPage))
     }
 
     @Test("Manually re-adding the page mention clears suppression")
     func reAddingMentionClearsSuppression() {
         OverlayWindowManager.shared.closeAll()
 
-        let state = OmniBarState()
-        state.removeMention(.currentPage)
-        state.resetMentions(includeCurrentPage: true)
-        #expect(state.mentions.contains(.currentPage) == false)
+        let featureModel = makeFeatureModel()
+        featureModel.removeMention(.currentPage)
+        featureModel.resetMentions(includeCurrentPage: true)
+        #expect(featureModel.mentions.contains(.currentPage) == false)
 
-        state.addMention(.currentPage)
-        state.resetMentions(includeCurrentPage: true)
+        featureModel.addMention(.currentPage)
+        featureModel.resetMentions(includeCurrentPage: true)
 
-        #expect(state.mentions.contains(.currentPage))
+        #expect(featureModel.mentions.contains(.currentPage))
     }
 
     @Test("Tab trapping stays active while any OmniBar surface is active")
     func tabTrappingActivatesForFocusedInputOrPanels() {
         #expect(
-            OmniBarState.shouldTrapTabNavigation(
+            OmniBarFeatureModel.shouldTrapTabNavigation(
                 isInputFocused: true,
                 visiblePanel: .none,
                 showMentionDropdown: false
             )
         )
         #expect(
-            OmniBarState.shouldTrapTabNavigation(
+            OmniBarFeatureModel.shouldTrapTabNavigation(
                 isInputFocused: false,
                 visiblePanel: .semantic,
                 showMentionDropdown: false
             )
         )
         #expect(
-            OmniBarState.shouldTrapTabNavigation(
+            OmniBarFeatureModel.shouldTrapTabNavigation(
                 isInputFocused: false,
                 visiblePanel: .none,
                 showMentionDropdown: true
@@ -88,11 +103,25 @@ struct OmniBarStateTests {
     @Test("Tab trapping stays off when the OmniBar is fully inactive")
     func tabTrappingStaysOffWhenOmniBarIsInactive() {
         #expect(
-            OmniBarState.shouldTrapTabNavigation(
+            OmniBarFeatureModel.shouldTrapTabNavigation(
                 isInputFocused: false,
                 visiblePanel: .none,
                 showMentionDropdown: false
             ) == false
         )
+    }
+
+    @Test("Focus commands activate modules through the feature model")
+    func focusCommandsSwitchModules() {
+        let featureModel = makeFeatureModel()
+
+        featureModel.handle(.focusSemanticSearch)
+        #expect(featureModel.mode == .semantic)
+        #expect(featureModel.isInputFocused)
+
+        featureModel.handle(.focusChatInput(prefill: "hello"))
+        #expect(featureModel.mode == .chat)
+        #expect(featureModel.inputText == "hello")
+        #expect(featureModel.tab.hasExplicitChatFocusIntent)
     }
 }

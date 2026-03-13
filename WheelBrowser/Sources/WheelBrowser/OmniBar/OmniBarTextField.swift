@@ -19,10 +19,10 @@ protocol OmniBarKeyboardHandler {
     /// Handle a keyboard command in the current mode.
     /// - Parameters:
     ///   - command: The keyboard command to handle
-    ///   - mode: The current OmniBar mode
+    ///   - moduleID: The current OmniBar module
     ///   - text: The current text in the field
     /// - Returns: `true` if the command was handled (swallow the event), `false` to let AppKit handle it
-    func handleKeyboardCommand(_ command: KeyboardCommand, mode: OmniBarMode, text: String) -> Bool
+    func handleKeyboardCommand(_ command: KeyboardCommand, moduleID: OmniBarModuleID, text: String) -> Bool
 }
 
 // MARK: - Custom Single-Line Text View for OmniBar
@@ -30,8 +30,9 @@ protocol OmniBarKeyboardHandler {
 struct OmniBarTextField: NSViewRepresentable {
     @Binding var text: String
     @Binding var isFocused: Bool
-    let mode: OmniBarMode
+    let moduleID: OmniBarModuleID
     let placeholder: String
+    let supportsMentions: Bool
     let keyboardHandler: any OmniBarKeyboardHandler
     var onSubmit: () -> Void
     var onAtTrigger: (String) -> Void
@@ -73,8 +74,6 @@ struct OmniBarTextField: NSViewRepresentable {
         scrollView.documentView = textView
         scrollView.frame.size.height = OmniBarSingleLineLayout.height
         context.coordinator.textView = textView
-        context.coordinator.scrollView = scrollView
-
         return scrollView
     }
 
@@ -98,29 +97,13 @@ struct OmniBarTextField: NSViewRepresentable {
     }
 
     private func requestFocusIfNeeded(for textView: NSTextView, coordinator: Coordinator) {
-        guard isFocused, !coordinator.isEditing else { return }
-
-        guard let window = textView.window else {
-            scheduleFocusRetry(for: textView, coordinator: coordinator, reason: "single-line-delayed-focus-no-window")
-            return
-        }
-
-        guard window.firstResponder !== textView else { return }
-
-        OmniBarWindowDiagnostics.shared.arm(reason: "single-line-programmatic-focus")
-        if !window.makeFirstResponder(textView) {
-            scheduleFocusRetry(for: textView, coordinator: coordinator, reason: "single-line-delayed-focus-retry")
-        }
-    }
-
-    private func scheduleFocusRetry(for textView: NSTextView, coordinator: Coordinator, reason: String) {
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
-            guard self.isFocused, !coordinator.isEditing else { return }
-            guard let window = textView.window, window.firstResponder !== textView else { return }
-
-            OmniBarWindowDiagnostics.shared.arm(reason: reason)
-            _ = window.makeFirstResponder(textView)
-        }
+        OmniBarTextInputFocusCoordinator.requestFocusIfNeeded(
+            isFocused: { self.isFocused },
+            isEditing: { coordinator.isEditing },
+            for: textView,
+            immediateReason: "single-line-programmatic-focus",
+            delayedReason: "single-line-delayed-focus-retry"
+        )
     }
 
     final class CommandTextView: NSTextView {
@@ -167,7 +150,6 @@ struct OmniBarTextField: NSViewRepresentable {
     final class Coordinator: NSObject, NSTextViewDelegate, CommandTextViewDelegate {
         var parent: OmniBarTextField
         weak var textView: NSTextView?
-        weak var scrollView: NSScrollView?
         var isEditing = false
         private var placeholderLabel: NSTextField?
 
@@ -193,7 +175,7 @@ struct OmniBarTextField: NSViewRepresentable {
         }
 
         func commandTextView(_ textView: CommandTextView, handleCommand command: KeyboardCommand) -> Bool {
-            parent.keyboardHandler.handleKeyboardCommand(command, mode: parent.mode, text: parent.text)
+            parent.keyboardHandler.handleKeyboardCommand(command, moduleID: parent.moduleID, text: parent.text)
         }
 
         func textDidBeginEditing(_ notification: Notification) {
@@ -208,13 +190,12 @@ struct OmniBarTextField: NSViewRepresentable {
         }
 
         private func syncFocusLoss() {
-            guard isEditing else { return }
-            isEditing = false
-            DispatchQueue.main.async {
-                guard !self.omniBarInputHasFirstResponder() else { return }
-                guard self.parent.isFocused else { return }
-                self.parent.isFocused = false
-            }
+            OmniBarTextInputFocusCoordinator.syncFocusLoss(
+                isEditing: &isEditing,
+                stillHasOmniBarInputFocus: { self.omniBarInputHasFirstResponder() },
+                parentIsFocused: { self.parent.isFocused },
+                onFocusLost: { self.parent.isFocused = false }
+            )
         }
 
         func textDidChange(_ notification: Notification) {
@@ -227,10 +208,7 @@ struct OmniBarTextField: NSViewRepresentable {
 
             parent.text = sanitized
 
-            if parent.mode == .chat {
-                checkForAtTrigger(in: sanitized)
-            }
-
+            checkForAtTrigger(in: sanitized)
             updatePlaceholder()
         }
 
@@ -264,24 +242,15 @@ struct OmniBarTextField: NSViewRepresentable {
         }
 
         private func checkForAtTrigger(in text: String) {
-            if let atIndex = text.lastIndex(of: "@") {
-                let queryStartIndex = text.index(after: atIndex)
-                let query = String(text[queryStartIndex...])
-
-                let isValidTrigger: Bool
-                if atIndex == text.startIndex {
-                    isValidTrigger = true
-                } else {
-                    let beforeAt = text.index(before: atIndex)
-                    isValidTrigger = text[beforeAt].isWhitespace
-                }
-
-                if isValidTrigger && !query.contains(" ") {
-                    parent.onAtTrigger(query)
-                    return
-                }
+            guard parent.supportsMentions else {
+                parent.onAtDismiss()
+                return
             }
 
+            if let query = OmniBarMentionTriggerParser.query(in: text) {
+                parent.onAtTrigger(query)
+                return
+            }
             parent.onAtDismiss()
         }
 
@@ -304,7 +273,7 @@ protocol CommandTextViewDelegate: AnyObject {
 // MARK: - Keyboard Command
 
 /// Typed representation of NSResponder keyboard selectors used in the OmniBar.
-enum KeyboardCommand {
+enum KeyboardCommand: Equatable {
     case moveUp
     case moveDown
     case submit

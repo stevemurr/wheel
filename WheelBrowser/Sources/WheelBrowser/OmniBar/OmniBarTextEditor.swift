@@ -7,7 +7,9 @@ import AppKit
 struct OmniBarTextEditor: NSViewRepresentable {
     @Binding var text: String
     @Binding var isFocused: Bool
+    let moduleID: OmniBarModuleID
     let placeholder: String
+    let supportsMentions: Bool
     let keyboardHandler: any OmniBarKeyboardHandler
     var onSubmit: () -> Void
     var onAtTrigger: (String) -> Void
@@ -66,25 +68,13 @@ struct OmniBarTextEditor: NSViewRepresentable {
 
         // Avoid re-requesting first responder from inside an active edit session.
         // That creates a SwiftUI <-> AppKit focus feedback loop during panel/layout updates.
-        if isFocused && !context.coordinator.isEditing {
-            if let window = textView.window, window.firstResponder != textView {
-                OmniBarWindowDiagnostics.shared.arm(reason: "chat-programmatic-focus")
-                window.makeFirstResponder(textView)
-            } else if textView.window == nil {
-                // View not yet in window hierarchy (e.g. mode switch created a new NSView).
-                // Retry after the current layout pass commits the view tree.
-                let coordinator = context.coordinator
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) { [weak textView] in
-                    guard coordinator.parent.isFocused,
-                          !coordinator.isEditing,
-                          let textView = textView,
-                          let window = textView.window,
-                          window.firstResponder != textView else { return }
-                    OmniBarWindowDiagnostics.shared.arm(reason: "chat-delayed-programmatic-focus")
-                    window.makeFirstResponder(textView)
-                }
-            }
-        }
+        OmniBarTextInputFocusCoordinator.requestFocusIfNeeded(
+            isFocused: { self.isFocused },
+            isEditing: { context.coordinator.isEditing },
+            for: textView,
+            immediateReason: "chat-programmatic-focus",
+            delayedReason: "chat-delayed-programmatic-focus"
+        )
 
         // Show/hide placeholder
         context.coordinator.updatePlaceholder()
@@ -164,13 +154,12 @@ struct OmniBarTextEditor: NSViewRepresentable {
         }
 
         private func syncFocusLoss() {
-            guard isEditing else { return }
-            isEditing = false
-            DispatchQueue.main.async {
-                guard !self.omniBarInputHasFirstResponder() else { return }
-                guard self.parent.isFocused else { return }
-                self.parent.isFocused = false
-            }
+            OmniBarTextInputFocusCoordinator.syncFocusLoss(
+                isEditing: &isEditing,
+                stillHasOmniBarInputFocus: { self.omniBarInputHasFirstResponder() },
+                parentIsFocused: { self.parent.isFocused },
+                onFocusLost: { self.parent.isFocused = false }
+            )
         }
 
         func chatTextViewShouldSubmit(_ textView: ChatTextView) -> Bool {
@@ -184,7 +173,7 @@ struct OmniBarTextEditor: NSViewRepresentable {
             case .moveUp, .moveDown:
                 return false
             default:
-                return parent.keyboardHandler.handleKeyboardCommand(command, mode: .chat, text: parent.text)
+                return parent.keyboardHandler.handleKeyboardCommand(command, moduleID: parent.moduleID, text: parent.text)
             }
         }
 
@@ -266,22 +255,14 @@ struct OmniBarTextEditor: NSViewRepresentable {
         // MARK: - @ Trigger
 
         private func checkForAtTrigger(in text: String) {
-            if let atIndex = text.lastIndex(of: "@") {
-                let queryStartIndex = text.index(after: atIndex)
-                let query = String(text[queryStartIndex...])
+            guard parent.supportsMentions else {
+                parent.onAtDismiss()
+                return
+            }
 
-                let isValidTrigger: Bool
-                if atIndex == text.startIndex {
-                    isValidTrigger = true
-                } else {
-                    let beforeAt = text.index(before: atIndex)
-                    isValidTrigger = text[beforeAt].isWhitespace
-                }
-
-                if isValidTrigger && !query.contains(" ") {
-                    parent.onAtTrigger(query)
-                    return
-                }
+            if let query = OmniBarMentionTriggerParser.query(in: text) {
+                parent.onAtTrigger(query)
+                return
             }
             parent.onAtDismiss()
         }

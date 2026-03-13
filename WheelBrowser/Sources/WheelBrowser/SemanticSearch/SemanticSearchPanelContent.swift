@@ -9,44 +9,32 @@ struct SemanticSearchPanelContent: View {
     let onSelect: (SemanticSearchResult) -> Void
 
     var body: some View {
-        ScrollViewReader { proxy in
-            ScrollView(showsIndicators: true) {
-                LazyVStack(spacing: 2) {
-                    if viewModel.results.isEmpty {
-                        if searchText.isEmpty {
-                            emptyStateNoQuery
-                                .padding(.top, 30)
-                        } else if viewModel.hasSearched && !viewModel.isSearching {
-                            emptyStateNoResults
-                                .padding(.top, 30)
-                        } else if viewModel.isSearching {
-                            searchingState
-                                .padding(.top, 30)
-                        }
-                    } else {
-                        ForEach(viewModel.results) { result in
-                            SemanticResultRow(
-                                result: result,
-                                isSelected: viewModel.results.firstIndex(where: { $0.id == result.id }) == viewModel.selectedIndex,
-                                searchQuery: searchText,
-                                onSelect: { onSelect(result) }
-                            )
-                            .id(result.id)
-                        }
+        SelectableResultsPanel(
+            items: viewModel.results,
+            selectedIndex: viewModel.selectedIndex,
+            emptyState: {
+                Group {
+                    if searchText.isEmpty {
+                        emptyStateNoQuery
+                            .padding(.top, 30)
+                    } else if viewModel.hasSearched && !viewModel.isSearching {
+                        emptyStateNoResults
+                            .padding(.top, 30)
+                    } else if viewModel.isSearching {
+                        searchingState
+                            .padding(.top, 30)
                     }
                 }
-                .padding(.horizontal, 8)
-                .padding(.vertical, 8)
+            },
+            row: { index, result in
+                SemanticResultRow(
+                    result: result,
+                    isSelected: index == viewModel.selectedIndex,
+                    searchQuery: searchText,
+                    onSelect: { onSelect(result) }
+                )
             }
-            .onChange(of: viewModel.selectedIndex) { _, newIndex in
-                if newIndex >= 0 && newIndex < viewModel.results.count {
-                    let selectedId = viewModel.results[newIndex].id
-                    withAnimation(AppAnimation.quickOut) {
-                        proxy.scrollTo(selectedId, anchor: .center)
-                    }
-                }
-            }
-        }
+        )
     }
 
     private var emptyStateNoQuery: some View {

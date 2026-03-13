@@ -7,46 +7,34 @@ struct ReadingListPanelContent: View {
     let onSelect: (SavedPageRecord) -> Void
 
     var body: some View {
-        ScrollViewReader { proxy in
-            ScrollView(showsIndicators: true) {
-                LazyVStack(spacing: 2) {
-                    if viewModel.items.isEmpty {
-                        if viewModel.isLoading {
-                            loadingState
+        SelectableResultsPanel(
+            items: viewModel.items,
+            selectedIndex: viewModel.selectedIndex,
+            emptyState: {
+                Group {
+                    if viewModel.isLoading {
+                        loadingState
+                            .padding(.top, 30)
+                    } else if viewModel.hasLoaded {
+                        if searchText.isEmpty {
+                            emptyStateNoSaved
                                 .padding(.top, 30)
-                        } else if viewModel.hasLoaded {
-                            if searchText.isEmpty {
-                                emptyStateNoSaved
-                                    .padding(.top, 30)
-                            } else {
-                                emptyStateNoResults
-                                    .padding(.top, 30)
-                            }
-                        }
-                    } else {
-                        ForEach(Array(viewModel.items.enumerated()), id: \.element.id) { index, item in
-                            ReadingListRow(
-                                item: item,
-                                isSelected: index == viewModel.selectedIndex,
-                                onSelect: { onSelect(item) },
-                                onRemove: { viewModel.unsave(url: item.url) }
-                            )
-                            .id(item.id)
+                        } else {
+                            emptyStateNoResults
+                                .padding(.top, 30)
                         }
                     }
                 }
-                .padding(.horizontal, 8)
-                .padding(.vertical, 8)
+            },
+            row: { index, item in
+                ReadingListRow(
+                    item: item,
+                    isSelected: index == viewModel.selectedIndex,
+                    onSelect: { onSelect(item) },
+                    onRemove: { viewModel.unsave(url: item.url) }
+                )
             }
-            .onChange(of: viewModel.selectedIndex) { _, newIndex in
-                if newIndex >= 0 && newIndex < viewModel.items.count {
-                    let selectedId = viewModel.items[newIndex].id
-                    withAnimation(AppAnimation.quickOut) {
-                        proxy.scrollTo(selectedId, anchor: .center)
-                    }
-                }
-            }
-        }
+        )
     }
 
     private var emptyStateNoSaved: some View {

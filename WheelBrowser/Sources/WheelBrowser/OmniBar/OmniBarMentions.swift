@@ -3,21 +3,17 @@ import SwiftUI
 // MARK: - Mention Chips, Dropdown Panel, and Handling
 
 extension OmniBar {
-    // MARK: - Mention Chips
-
     var mentionChips: some View {
         HStack(spacing: 4) {
-            ForEach(omniState.mentions) { mention in
+            ForEach(featureModel.mentions) { mention in
                 MentionChip(mention: mention) {
                     withAnimation(AppAnimation.standard) {
-                        omniState.removeMention(mention)
+                        featureModel.removeMention(mention)
                     }
                 }
             }
         }
     }
-
-    // MARK: - Mention Dropdown Panel
 
     var mentionDropdownPanel: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -47,7 +43,7 @@ extension OmniBar {
                                 suggestion: suggestion,
                                 isSelected: index == mentionSuggestionsVM.selectedIndex,
                                 onSelect: {
-                                    selectMentionSuggestion(suggestion)
+                                    currentMentionProvider?.selectMentionSuggestion(suggestion, in: featureModel)
                                 }
                             )
                         }
@@ -68,43 +64,5 @@ extension OmniBar {
             RoundedRectangle(cornerRadius: 10)
                 .strokeBorder(Color.purple.opacity(0.3), lineWidth: 1)
         )
-    }
-
-    // MARK: - Mention Handling
-
-    func handleAtTrigger(query: String) {
-        if !omniState.showMentionDropdown {
-            omniState.openMentionDropdown()
-        }
-        omniState.mentionSearchText = query
-        mentionSuggestionsVM.updateSuggestions(
-            for: query,
-            excluding: omniState.mentions,
-            currentTabId: tab.id
-        )
-    }
-
-    func handleMentionSelection() {
-        guard let suggestion = mentionSuggestionsVM.selectedSuggestion else { return }
-        selectMentionSuggestion(suggestion)
-    }
-
-    func selectMentionSuggestion(_ suggestion: MentionSuggestion) {
-        withAnimation(AppAnimation.standard) {
-            omniState.addMention(suggestion.mention)
-            omniState.dismissMentionDropdown()
-        }
-        mentionSuggestionsVM.clear()
-
-        // Remove the @query from input text
-        removeAtQueryFromInput()
-    }
-
-    func removeAtQueryFromInput() {
-        // Find and remove @... pattern from input
-        let text = omniState.inputText
-        if let atIndex = text.lastIndex(of: "@") {
-            omniState.inputText = String(text[..<atIndex])
-        }
     }
 }

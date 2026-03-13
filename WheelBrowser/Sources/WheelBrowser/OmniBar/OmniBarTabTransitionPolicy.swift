@@ -1,13 +1,13 @@
 import Foundation
 
 enum OmniBarTabTransitionPolicy {
-    static func shouldResetToAddressMode(for tab: Tab, currentMode: OmniBarMode) -> Bool {
+    static func shouldResetToAddressMode(for tab: Tab, currentMode: OmniBarModuleID) -> Bool {
         currentMode == .chat && shouldPreferNewTabPage(for: tab)
     }
 
     static func shouldLatchEmptyTabIntoChat(
         tab: Tab,
-        currentMode: OmniBarMode,
+        currentMode: OmniBarModuleID,
         isInputFocused: Bool,
         hasExplicitChatFocusIntent: Bool
     ) -> Bool {

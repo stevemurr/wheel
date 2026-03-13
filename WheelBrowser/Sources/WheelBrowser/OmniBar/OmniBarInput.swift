@@ -15,72 +15,66 @@ extension OmniBar {
 
     var inputPill: some View {
         HStack(spacing: 8) {
-            // Mode indicator icon
             modeIndicator
 
-            // Mention chips (only in chat mode)
-            if omniState.mode == .chat {
+            if currentMentionProvider != nil {
                 mentionChips
             }
 
-            // Input field or inline agent status
             if showInlineAgentStatus {
                 agentInlineStatus
-            } else if omniState.mode == .chat {
-                // Multi-line editor for chat mode
+            } else if featureModel.currentInputKind == .multiLine {
                 OmniBarTextEditor(
-                    text: $omniState.inputText,
-                    isFocused: $isInputFocused,
-                    placeholder: !omniState.mentions.isEmpty ? "Ask about these pages..." : omniState.placeholder,
+                    text: $featureModel.inputText,
+                    isFocused: $featureModel.isInputFocused,
+                    moduleID: featureModel.mode,
+                    placeholder: currentMentionProvider != nil && !featureModel.mentions.isEmpty
+                        ? "Ask about these pages..."
+                        : featureModel.placeholder,
+                    supportsMentions: currentMentionProvider != nil,
                     keyboardHandler: self,
-                    onSubmit: handleSubmit,
+                    onSubmit: { featureModel.handleSubmit() },
                     onAtTrigger: { query in
-                        handleAtTrigger(query: query)
+                        currentMentionProvider?.handleMentionTrigger(query: query, in: featureModel)
                     },
                     onAtDismiss: {
-                        if omniState.showMentionDropdown {
-                            omniState.dismissMentionDropdown()
-                            mentionSuggestionsVM.clear()
-                        }
+                        currentMentionProvider?.dismissMentionSuggestions(in: featureModel)
                     },
-                    onHeightChange: { chatEditorHeight = $0 }
+                    onHeightChange: { featureModel.chatEditorHeight = $0 }
                 )
-                .frame(height: chatEditorHeight)
+                .frame(height: featureModel.chatEditorHeight)
             } else {
                 OmniBarTextField(
-                    text: $omniState.inputText,
-                    isFocused: $isInputFocused,
-                    mode: omniState.mode,
-                    placeholder: omniState.placeholder,
+                    text: $featureModel.inputText,
+                    isFocused: $featureModel.isInputFocused,
+                    moduleID: featureModel.mode,
+                    placeholder: featureModel.placeholder,
+                    supportsMentions: currentMentionProvider != nil,
                     keyboardHandler: self,
-                    onSubmit: handleSubmit,
+                    onSubmit: { featureModel.handleSubmit() },
                     onAtTrigger: { query in
-                        handleAtTrigger(query: query)
+                        currentMentionProvider?.handleMentionTrigger(query: query, in: featureModel)
                     },
                     onAtDismiss: {
-                        if omniState.showMentionDropdown {
-                            omniState.dismissMentionDropdown()
-                            mentionSuggestionsVM.clear()
-                        }
+                        currentMentionProvider?.dismissMentionSuggestions(in: featureModel)
                     }
                 )
                 .frame(height: OmniBarTextEditor.lineHeight + OmniBarTextEditor.verticalPadding)
                 .fixedSize(horizontal: false, vertical: true)
             }
 
-            // Action button (clear in address mode, send in chat mode)
             actionButton
         }
         .padding(.horizontal, 14)
         .padding(.vertical, 10)
         .frame(
-            minWidth: shouldExpand ? OmniBarLayout.expandedMinWidth : OmniBarLayout.collapsedMinWidth,
-            maxWidth: shouldExpand ? OmniBarLayout.expandedMaxWidth : OmniBarLayout.collapsedMaxWidth
+            minWidth: featureModel.shouldExpand ? OmniBarLayout.expandedMinWidth : OmniBarLayout.collapsedMinWidth,
+            maxWidth: featureModel.shouldExpand ? OmniBarLayout.expandedMaxWidth : OmniBarLayout.collapsedMaxWidth
         )
         .contentShape(Capsule())
         .simultaneousGesture(
             TapGesture().onEnded {
-                handleInputPillClick()
+                featureModel.handleInputPillClick()
             }
         )
         .background {
@@ -97,9 +91,9 @@ extension OmniBar {
             }
             .shadow(
                 color: inputPillShadowColor,
-                radius: isInputFocused ? 12 : 6,
+                radius: featureModel.isInputFocused ? 12 : 6,
                 x: 0,
-                y: isInputFocused ? 6 : 3
+                y: featureModel.isInputFocused ? 6 : 3
             )
         }
         .overlay {
@@ -107,7 +101,7 @@ extension OmniBar {
                 Capsule()
                     .strokeBorder(
                         inputPillBorderColor,
-                        lineWidth: isInputFocused ? 1.5 : 1
+                        lineWidth: featureModel.isInputFocused ? 1.5 : 1
                     )
 
                 Capsule()
@@ -121,9 +115,9 @@ extension OmniBar {
 
     var modeIndicator: some View {
         ModeIndicatorView(
-            omniState: omniState,
-            isInputFocused: isInputFocused,
-            isFullPageChatActive: isFullPageChatActive
+            featureModel: featureModel,
+            isInputFocused: featureModel.isInputFocused,
+            isFullPageChatActive: featureModel.isFullPageChatActive
         )
     }
 
@@ -131,64 +125,8 @@ extension OmniBar {
 
     @ViewBuilder
     var actionButton: some View {
-        switch omniState.mode {
-        case .address:
-            if isInputFocused && !omniState.inputText.isEmpty {
-                Button(action: {
-                    omniState.inputText = ""
-                    suggestionsVM.clear()
-                }) {
-                    Image(systemName: "xmark.circle.fill")
-                        .foregroundColor(.secondary)
-                        .font(.system(size: 12))
-                }
-                .buttonStyle(.plain)
-                .transition(.opacity.combined(with: .scale))
-            }
-
-        case .chat:
-            ChatModeActionButton(
-                agentManager: agentManager,
-                inputText: omniState.inputText,
-                isSending: isSending,
-                onSubmit: handleSubmit
-            )
-
-        case .semantic:
-            if isInputFocused && !omniState.inputText.isEmpty {
-                Button(action: {
-                    omniState.inputText = ""
-                    semanticSearchVM.clear()
-                }) {
-                    Image(systemName: "xmark.circle.fill")
-                        .foregroundColor(.secondary)
-                        .font(.system(size: 12))
-                }
-                .buttonStyle(.plain)
-                .transition(.opacity.combined(with: .scale))
-            }
-
-        case .agent:
-            AgentActionButton(
-                agentEngine: agentEngine,
-                inputText: omniState.inputText,
-                onSubmit: handleSubmit
-            )
-
-        case .readingList:
-            if isInputFocused && !omniState.inputText.isEmpty {
-                Button(action: {
-                    omniState.inputText = ""
-                    readingListVM.loadSavedPages()
-                }) {
-                    Image(systemName: "xmark.circle.fill")
-                        .foregroundColor(.secondary)
-                        .font(.system(size: 12))
-                }
-                .buttonStyle(.plain)
-                .transition(.opacity.combined(with: .scale))
-            }
-
+        if let accessory = currentAccessoryProvider?.accessoryView(in: featureModel) {
+            accessory
         }
     }
 
@@ -196,22 +134,22 @@ extension OmniBar {
 
     /// Show inline status when agent is running but panel is dismissed
     private var showInlineAgentStatus: Bool {
-        omniState.mode == .agent
+        featureModel.mode == .agent
             && agentEngine.isRunning
-            && omniState.visiblePanel != .agent
+            && featureModel.visiblePanel != .agent
             && !agentEngine.steps.isEmpty
     }
 
     /// Compact single-line view of the latest agent step, tappable to open panel.
     private var agentInlineStatus: some View {
         AgentInlineStatusView(agentEngine: agentEngine) {
-            omniState.setVisiblePanel(.agent)
+            featureModel.setVisiblePanel(.agent)
         }
     }
 
     private var inputPillBaseFill: Color {
         if currentColorScheme == .dark {
-            return Color(nsColor: .controlBackgroundColor).opacity(isInputFocused ? 0.92 : 0.84)
+            return Color(nsColor: .controlBackgroundColor).opacity(featureModel.isInputFocused ? 0.92 : 0.84)
         }
 
         return Color(red: 0.985, green: 0.98, blue: 0.972)
@@ -219,15 +157,15 @@ extension OmniBar {
 
     private var inputPillTintOverlay: Color {
         if currentColorScheme == .dark {
-            return omniState.modeColor.opacity(isInputFocused ? 0.10 : 0.04)
+            return featureModel.modeColor.opacity(featureModel.isInputFocused ? 0.10 : 0.04)
         }
 
-        return omniState.modeColor.opacity(isInputFocused ? 0.07 : 0.03)
+        return featureModel.modeColor.opacity(featureModel.isInputFocused ? 0.07 : 0.03)
     }
 
     private var inputPillBorderColor: Color {
-        if isInputFocused {
-            return omniState.modeColor.opacity(currentColorScheme == .dark ? 0.58 : 0.42)
+        if featureModel.isInputFocused {
+            return featureModel.modeColor.opacity(currentColorScheme == .dark ? 0.58 : 0.42)
         }
 
         return currentColorScheme == .dark
@@ -240,8 +178,8 @@ extension OmniBar {
     }
 
     private var inputPillShadowColor: Color {
-        if isInputFocused {
-            return omniState.modeColor.opacity(currentColorScheme == .dark ? 0.18 : 0.14)
+        if featureModel.isInputFocused {
+            return featureModel.modeColor.opacity(currentColorScheme == .dark ? 0.18 : 0.14)
         }
 
         return Color.black.opacity(currentColorScheme == .dark ? 0.18 : 0.10)
@@ -314,29 +252,29 @@ private struct AgentInlineStatusView: View {
 
 /// Extracted from OmniBar to isolate full-page chat lock UI from the main input pill body.
 private struct ModeIndicatorView: View {
-    var omniState: OmniBarState
+    var featureModel: OmniBarFeatureModel
     var isInputFocused: Bool
     var isFullPageChatActive: Bool
 
     var body: some View {
         Button(action: {
             if !isFullPageChatActive {
-                omniState.nextMode()
+                featureModel.nextMode()
             }
         }) {
-            Image(systemName: omniState.modeIcon)
-                .foregroundColor(isInputFocused ? omniState.modeColor : .secondary)
+            Image(systemName: featureModel.modeIcon)
+                .foregroundColor(isInputFocused ? featureModel.modeColor : .secondary)
                 .font(.system(size: 12, weight: .medium))
                 .contentTransition(.symbolEffect(.replace))
         }
         .buttonStyle(.plain)
         .disabled(isFullPageChatActive)
-        .help(isFullPageChatActive ? "Chat mode" : "Press Tab to switch modes (Address / Chat / Semantic)")
+        .help(isFullPageChatActive ? "Chat mode" : "Press Tab to switch OmniBar modules")
     }
 }
 
 /// Extracted from OmniBar to isolate `agentEngine.isRunning` reads from OmniBar.body.
-private struct AgentActionButton: View {
+struct AgentActionButton: View {
     var agentEngine: AgentEngine
     var inputText: String
     var onSubmit: () -> Void
@@ -418,7 +356,7 @@ private struct AgentActionButton: View {
 
 /// Extracted sub-view for chat mode send/stop button (Rule 13).
 /// Isolates `agentManager.isStreamingActive` reads from OmniBar.body.
-private struct ChatModeActionButton: View {
+struct ChatModeActionButton: View {
     var agentManager: AgentManager
     var inputText: String
     var isSending: Bool

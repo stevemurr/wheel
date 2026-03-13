@@ -46,7 +46,7 @@ struct FullPageChatView: View {
         ChatMessageListView(
             agentManager: agentManager,
             onSubmitPrompt: onSubmitPrompt ?? { text in
-                NotificationCenter.default.post(name: .focusChatInput, object: text)
+                OmniBarCommandCenter.shared.send(.focusChatInput(prefill: text))
             },
             onSelectArtifact: { artifact in
                 withAnimation(AppAnimation.standard) {

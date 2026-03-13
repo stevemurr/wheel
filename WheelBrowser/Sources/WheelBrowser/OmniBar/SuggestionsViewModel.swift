@@ -91,33 +91,6 @@ enum Suggestion: Identifiable {
     }
 }
 
-/// Protocol for list-based ViewModels with keyboard selection wrapping
-@MainActor
-protocol ListSelectable: AnyObject {
-    var selectedIndex: Int { get set }
-    var selectableCount: Int { get }
-}
-
-extension ListSelectable {
-    func selectNext() {
-        guard selectableCount > 0 else { return }
-        if selectedIndex == -1 {
-            selectedIndex = 0
-        } else {
-            selectedIndex = (selectedIndex + 1) % selectableCount
-        }
-    }
-
-    func selectPrevious() {
-        guard selectableCount > 0 else { return }
-        if selectedIndex == -1 {
-            selectedIndex = selectableCount - 1
-        } else {
-            selectedIndex = (selectedIndex - 1 + selectableCount) % selectableCount
-        }
-    }
-}
-
 /// View model for managing address bar suggestions
 @MainActor
 @Observable class SuggestionsViewModel: ListSelectable {
