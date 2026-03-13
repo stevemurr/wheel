@@ -37,6 +37,15 @@ enum WheelModelProviderID: String, CaseIterable, Sendable {
         }
     }
 
+    var supportsEndpointModelCatalog: Bool {
+        switch self {
+        case .apple:
+            return false
+        case .openAI, .vllm:
+            return true
+        }
+    }
+
     var requiresAPIKey: Bool {
         self == .openAI
     }
