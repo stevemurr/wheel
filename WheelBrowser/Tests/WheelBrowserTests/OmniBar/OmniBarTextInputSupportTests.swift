@@ -1,8 +1,21 @@
+import AppKit
+import SwiftUI
 import Testing
 @testable import WheelBrowser
 
 @Suite("OmniBar Text Input Support")
 struct OmniBarTextInputSupportTests {
+    @MainActor
+    private final class StubKeyboardHandler: OmniBarKeyboardHandler {
+        var handledCommands: [KeyboardCommand] = []
+        var resultForCommand: [KeyboardCommand: Bool] = [:]
+
+        func handleKeyboardCommand(_ command: KeyboardCommand, moduleID: OmniBarModuleID, text: String) -> Bool {
+            handledCommands.append(command)
+            return resultForCommand[command] ?? false
+        }
+    }
+
     @Test("Mention parser extracts a trailing query after whitespace or start of input")
     func mentionParserFindsValidQueries() {
         #expect(OmniBarMentionTriggerParser.query(in: "@hist") == "hist")
@@ -13,5 +26,105 @@ struct OmniBarTextInputSupportTests {
     func mentionParserRejectsInvalidTriggers() {
         #expect(OmniBarMentionTriggerParser.query(in: "email@test.com") == nil)
         #expect(OmniBarMentionTriggerParser.query(in: "@done now") == nil)
+    }
+
+    @MainActor
+    @Test("Chat editor forwards arrow keys to the keyboard handler before falling back to caret movement")
+    func chatEditorForwardsArrowKeys() {
+        let handler = StubKeyboardHandler()
+        handler.resultForCommand[.moveDown] = true
+
+        var text = "@road"
+        var isFocused = false
+        let editor = OmniBarTextEditor(
+            text: Binding(
+                get: { text },
+                set: { text = $0 }
+            ),
+            isFocused: Binding(
+                get: { isFocused },
+                set: { isFocused = $0 }
+            ),
+            moduleID: .chat,
+            placeholder: "Ask about this page...",
+            supportsMentions: true,
+            keyboardHandler: handler,
+            onSubmit: {},
+            onAtTrigger: { _ in },
+            onAtDismiss: {}
+        )
+
+        let coordinator = OmniBarTextEditor.Coordinator(editor)
+        let textView = OmniBarTextEditor.ChatTextView()
+
+        #expect(coordinator.chatTextView(textView, handleCommand: .moveDown))
+        #expect(handler.handledCommands == [.moveDown])
+    }
+
+    @MainActor
+    @Test("Chat editor routes Return through the keyboard handler before direct submission")
+    func chatEditorForwardsSubmit() {
+        let handler = StubKeyboardHandler()
+        handler.resultForCommand[.submit] = true
+
+        var text = "@road"
+        var isFocused = false
+        var didSubmit = false
+        let editor = OmniBarTextEditor(
+            text: Binding(
+                get: { text },
+                set: { text = $0 }
+            ),
+            isFocused: Binding(
+                get: { isFocused },
+                set: { isFocused = $0 }
+            ),
+            moduleID: .chat,
+            placeholder: "Ask about this page...",
+            supportsMentions: true,
+            keyboardHandler: handler,
+            onSubmit: { didSubmit = true },
+            onAtTrigger: { _ in },
+            onAtDismiss: {}
+        )
+
+        let coordinator = OmniBarTextEditor.Coordinator(editor)
+        let textView = OmniBarTextEditor.ChatTextView()
+
+        #expect(coordinator.chatTextViewShouldSubmit(textView))
+        #expect(handler.handledCommands == [.submit])
+        #expect(didSubmit == false)
+    }
+
+    @MainActor
+    @Test("Chat editor preserves native arrow movement when the keyboard handler does not consume it")
+    func chatEditorFallsBackForUnhandledArrowKeys() {
+        let handler = StubKeyboardHandler()
+
+        var text = "plain text"
+        var isFocused = false
+        let editor = OmniBarTextEditor(
+            text: Binding(
+                get: { text },
+                set: { text = $0 }
+            ),
+            isFocused: Binding(
+                get: { isFocused },
+                set: { isFocused = $0 }
+            ),
+            moduleID: .chat,
+            placeholder: "Ask about this page...",
+            supportsMentions: true,
+            keyboardHandler: handler,
+            onSubmit: {},
+            onAtTrigger: { _ in },
+            onAtDismiss: {}
+        )
+
+        let coordinator = OmniBarTextEditor.Coordinator(editor)
+        let textView = OmniBarTextEditor.ChatTextView()
+
+        #expect(coordinator.chatTextView(textView, handleCommand: .moveUp) == false)
+        #expect(handler.handledCommands == [.moveUp])
     }
 }

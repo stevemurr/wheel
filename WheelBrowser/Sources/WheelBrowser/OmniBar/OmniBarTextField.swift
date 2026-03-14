@@ -170,6 +170,9 @@ struct OmniBarTextField: NSViewRepresentable {
         }
 
         func commandTextViewShouldSubmit(_ textView: CommandTextView) -> Bool {
+            if parent.keyboardHandler.handleKeyboardCommand(.submit, moduleID: parent.moduleID, text: parent.text) {
+                return true
+            }
             parent.onSubmit()
             return true
         }

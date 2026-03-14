@@ -163,15 +163,19 @@ struct OmniBarTextEditor: NSViewRepresentable {
         }
 
         func chatTextViewShouldSubmit(_ textView: ChatTextView) -> Bool {
+            if parent.keyboardHandler.handleKeyboardCommand(.submit, moduleID: parent.moduleID, text: parent.text) {
+                return true
+            }
             parent.onSubmit()
             return true
         }
 
         func chatTextView(_ textView: ChatTextView, handleCommand command: KeyboardCommand) -> Bool {
-            // Don't intercept arrow keys in multi-line - let NSTextView handle them
             switch command {
             case .moveUp, .moveDown:
-                return false
+                // Let the chat module claim arrow keys for mention dropdown navigation,
+                // but preserve native caret movement when there is no dropdown to handle.
+                return parent.keyboardHandler.handleKeyboardCommand(command, moduleID: parent.moduleID, text: parent.text)
             default:
                 return parent.keyboardHandler.handleKeyboardCommand(command, moduleID: parent.moduleID, text: parent.text)
             }
