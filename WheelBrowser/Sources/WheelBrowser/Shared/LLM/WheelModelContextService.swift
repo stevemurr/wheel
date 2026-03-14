@@ -21,11 +21,13 @@ struct WheelGeneratedReply<Value: Sendable>: Sendable {
 }
 
 enum WheelChatStreamEvent: Sendable {
+    case thinking(trace: String)
     case partial(answer: String)
     case completed(WheelGeneratedReply<GeneratedChatAssistantResponse>)
 }
 
 enum WheelPlainChatStreamEvent: Sendable {
+    case thinking(trace: String)
     case partial(answer: String)
     case completed(WheelGeneratedReply<String>)
 }
@@ -239,6 +241,7 @@ actor WheelModelContextService: WheelModelContextServing {
                 partialFieldName: "answer",
                 transcriptRenderer: { $0.answer },
                 modelDisplayName: modelDisplayName,
+                mapThinking: { .thinking(trace: $0) },
                 mapPartial: { .partial(answer: $0) },
                 mapCompleted: { .completed($0) }
             )
@@ -579,6 +582,7 @@ actor WheelModelContextService: WheelModelContextServing {
         partialFieldName: String,
         transcriptRenderer: @escaping @Sendable (Value) -> String,
         modelDisplayName: String,
+        mapThinking: (@Sendable (String) -> Event)? = nil,
         mapPartial: @escaping @Sendable (String) -> Event,
         mapCompleted: @escaping @Sendable (WheelGeneratedReply<Value>) -> Event
     ) -> AsyncThrowingStream<Event, Error> {
@@ -593,9 +597,18 @@ actor WheelModelContextService: WheelModelContextServing {
                     var aggregate = ""
                     var finalText = ""
                     var lastPartial = ""
+                    var reasoningTrace = ""
 
                     for try await event in stream {
                         switch event {
+                        case .reasoning(let partial):
+                            guard partial.isEmpty == false else {
+                                continue
+                            }
+                            reasoningTrace += partial
+                            if let mapThinking {
+                                continuation.yield(mapThinking(reasoningTrace))
+                            }
                         case .partial(let partial):
                             aggregate = WheelStructuredStreamAccumulator.merge(
                                 existing: aggregate,
@@ -691,9 +704,16 @@ actor WheelModelContextService: WheelModelContextServing {
                     let stream = session.stream(prompt)
                     var aggregate = ""
                     var completionText = ""
+                    var reasoningTrace = ""
 
                     for try await event in stream {
                         switch event {
+                        case .reasoning(let partial):
+                            guard partial.isEmpty == false else {
+                                continue
+                            }
+                            reasoningTrace += partial
+                            continuation.yield(.thinking(trace: reasoningTrace))
                         case .partial(let partial):
                             aggregate = WheelStructuredStreamAccumulator.merge(
                                 existing: aggregate,

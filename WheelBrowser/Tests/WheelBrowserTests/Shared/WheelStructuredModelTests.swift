@@ -9,12 +9,22 @@ struct WheelStructuredModelTests {
     func chatResponseSpecDecodes() throws {
         let value = GeneratedChatAssistantResponse(
             answer: "Hello, world.",
+            thinking: "I summarized the key point before answering.",
+            toolCalls: [
+                GeneratedChatToolCall(
+                    name: "web.search",
+                    inputSummary: "site:example.com release notes",
+                    outputSummary: "Found the release notes page."
+                )
+            ],
             suggestions: ["What changed?", "Show me the sources."]
         )
 
         let decoded = try decode(value, with: GeneratedChatAssistantResponse.spec)
 
         #expect(decoded.answer == value.answer)
+        #expect(decoded.thinking == value.thinking)
+        #expect(decoded.toolCalls == value.toolCalls)
         #expect(decoded.suggestions == value.suggestions)
     }
 
@@ -27,6 +37,23 @@ struct WheelStructuredModelTests {
         #expect(decoded.answer == "Hello, world.")
         #expect(decoded.suggestions == ["- What changed?", "- Show me the sources."])
         #expect(decoded.normalizedSuggestions == ["What changed?", "Show me the sources."])
+    }
+
+    @Test("Chat response spec decodes optional thinking and tool call summaries")
+    func chatResponseSpecDecodesThinkingAndToolCalls() throws {
+        let payload = #"{"answer":"Hello, world.","thinking":"Checked the latest release notes.","toolCalls":[{"name":"web.search","inputSummary":"latest release notes","outputSummary":"Matched the official docs page."}]}"#
+
+        let decoded = try decodeJSON(payload, with: GeneratedChatAssistantResponse.spec)
+
+        #expect(decoded.answer == "Hello, world.")
+        #expect(decoded.normalizedThinking == "Checked the latest release notes.")
+        #expect(decoded.toolCalls == [
+            GeneratedChatToolCall(
+                name: "web.search",
+                inputSummary: "latest release notes",
+                outputSummary: "Matched the official docs page."
+            )
+        ])
     }
 
     @Test("Summary response spec decodes Codable JSON")

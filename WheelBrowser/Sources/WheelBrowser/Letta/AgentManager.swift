@@ -87,6 +87,23 @@ class AgentManager {
         update(&messages[index])
     }
 
+    private func finishThinkingMessage(id: UUID, completedAt: Date = Date()) {
+        safeUpdateMessage(id: id) { message in
+            guard message.role == .thinking else { return }
+            if message.thinkingDurationSeconds == nil {
+                if let thinkingStartTime = message.thinkingStartTime {
+                    message.thinkingDurationSeconds = max(
+                        0,
+                        completedAt.timeIntervalSince(thinkingStartTime)
+                    )
+                } else {
+                    message.thinkingDurationSeconds = 0
+                }
+            }
+            message.isStreaming = false
+        }
+    }
+
     func sendMessage(_ content: String, pageContexts: [PageContext]) async {
         isLoading = true
         lastFailedPageContexts = pageContexts
@@ -156,6 +173,13 @@ class AgentManager {
         }
 
         if let thinkIdx = messages.lastIndex(where: { $0.role == .thinking && $0.isStreaming }) {
+            if messages[thinkIdx].thinkingDurationSeconds == nil,
+               let thinkingStartTime = messages[thinkIdx].thinkingStartTime {
+                messages[thinkIdx].thinkingDurationSeconds = max(
+                    0,
+                    Date().timeIntervalSince(thinkingStartTime)
+                )
+            }
             messages[thinkIdx].isStreaming = false
         }
 
@@ -303,6 +327,16 @@ class AgentManager {
         isLoading = true
         isStreamingActive = true
 
+        let thinkingPlaceholder = ChatMessage(
+            role: .thinking,
+            content: "",
+            timestamp: Date(),
+            isStreaming: true,
+            thinkingStartTime: Date()
+        )
+        let thinkingMessageId = thinkingPlaceholder.id
+        messages.append(thinkingPlaceholder)
+
         let assistantPlaceholder = ChatMessage(
             role: .assistant,
             content: "",
@@ -326,29 +360,44 @@ class AgentManager {
                     do {
                         streamAttempt += 1
                         Log.Chat.info("Starting chat stream attempt \(streamAttempt) for conversation \(conversationID.uuidString.lowercased())")
-                        let latestResponse = try await collectVisiblePlainChatResponse(
+                        let latestResponse = try await collectVisibleStructuredChatResponse(
                             conversationId: conversationID,
                             prompt: prompt,
-                            assistantMessageId: assistantMessageId
+                            assistantMessageId: assistantMessageId,
+                            thinkingMessageId: thinkingMessageId
                         )
-                        let finalizedResponse = try await continueIfLikelyTruncated(
-                            latestResponse,
-                            conversationId: conversationID
-                        )
-
                         let parsedResponse = ChatFollowUpSuggestionParser.parse(
-                            finalizedResponse.value
+                            latestResponse.value.answer
                         )
-                        let displayContent = parsedResponse.displayText
+                        let displayContent = parsedResponse.displayText.isEmpty
+                            ? latestResponse.value.answer.trimmingCharacters(in: .whitespacesAndNewlines)
+                            : parsedResponse.displayText
+                        let suggestions = latestResponse.value.normalizedSuggestions.isEmpty
+                            ? parsedResponse.suggestions
+                            : latestResponse.value.normalizedSuggestions
+                        let streamedThinkingTrace = messages
+                            .first(where: { $0.id == thinkingMessageId })?
+                            .content
+                            .trimmingCharacters(in: .whitespacesAndNewlines)
+                        let thinkingContent = formattedThinkingTrace(
+                            thinking: streamedThinkingTrace?.isEmpty == false
+                                ? streamedThinkingTrace
+                                : latestResponse.value.normalizedThinking,
+                            toolCalls: latestResponse.value.toolCalls
+                        )
                         let artifacts = ArtifactExtractor.extract(from: displayContent)
 
                         safeUpdateMessage(id: assistantMessageId) { msg in
                             msg.content = displayContent
                             msg.isStreaming = false
-                            msg.modelUsed = finalizedResponse.modelDisplayName
-                            msg.suggestedFollowUps = parsedResponse.suggestions
+                            msg.modelUsed = latestResponse.modelDisplayName
+                            msg.suggestedFollowUps = suggestions
                             msg.artifacts = artifacts
                         }
+                        safeUpdateMessage(id: thinkingMessageId) { msg in
+                            msg.content = thinkingContent
+                        }
+                        finishThinkingMessage(id: thinkingMessageId)
 
                         syncConversationMessages()
                         lastFailedContent = nil
@@ -369,6 +418,7 @@ class AgentManager {
                 }
             } catch is CancellationError {
                 Log.Chat.info("Chat stream cancelled")
+                finishThinkingMessage(id: thinkingMessageId)
                 safeUpdateMessage(id: assistantMessageId) { msg in
                     msg.isStreaming = false
                     msg.wasStoppedByUser = true
@@ -376,6 +426,7 @@ class AgentManager {
                 syncConversationMessages()
             } catch {
                 Log.Chat.error("Chat stream failed", error: error)
+                finishThinkingMessage(id: thinkingMessageId)
                 safeUpdateMessage(id: assistantMessageId) { msg in
                     msg.content = "Error: \(Self.userFacingErrorMessage(for: error))"
                     msg.isStreaming = false
@@ -393,27 +444,34 @@ class AgentManager {
         await streamTask.value
     }
 
-    private func collectVisiblePlainChatResponse(
+    private func collectVisibleStructuredChatResponse(
         conversationId: UUID,
         prompt: String,
-        assistantMessageId: UUID
-    ) async throws -> WheelGeneratedReply<String> {
-        let stream = try await contextService.streamPlainChatResponse(
+        assistantMessageId: UUID,
+        thinkingMessageId: UUID
+    ) async throws -> WheelGeneratedReply<GeneratedChatAssistantResponse> {
+        let stream = try await contextService.streamChatResponse(
             conversationId: conversationId,
             prompt: prompt
         )
 
-        var latestResponse: WheelGeneratedReply<String>?
+        var latestResponse: WheelGeneratedReply<GeneratedChatAssistantResponse>?
         var latestAnswer = ""
         var lastStreamedAnswer = ""
         var pendingChunk = ""
         var lastUpdateTime = Date()
+        var didFinishThinking = false
+        var hasCommittedVisibleAnswer = false
+        var latestThinkingTrace = ""
         let maxUpdateInterval: TimeInterval = WindowConstants.streamingFlushInterval
 
         for try await event in stream {
             try Task.checkCancellation()
 
             switch event {
+            case .thinking(let trace):
+                latestThinkingTrace = trace
+                safeUpdateMessage(id: thinkingMessageId) { $0.content = trace }
             case .partial(let currentAnswer):
                 let now = Date()
                 let timeSinceUpdate = now.timeIntervalSince(lastUpdateTime)
@@ -429,25 +487,73 @@ class AgentManager {
                 if bufferFlusher.shouldFlush(pendingChunk) || timeSinceUpdate >= maxUpdateInterval {
                     pendingChunk = ""
                     safeUpdateMessage(id: assistantMessageId) { $0.content = latestAnswer }
+                    if !didFinishThinking && !latestAnswer.isEmpty {
+                        finishThinkingMessage(id: thinkingMessageId, completedAt: now)
+                        didFinishThinking = true
+                    }
+                    hasCommittedVisibleAnswer = hasCommittedVisibleAnswer || !latestAnswer.isEmpty
                     streamingScrollToken &+= 1
                     lastUpdateTime = now
                 }
             case .completed(let response):
                 latestResponse = response
-                latestAnswer = response.value
+                latestAnswer = response.value.answer
             }
+        }
+
+        let normalizedThinkingTrace = latestThinkingTrace.trimmingCharacters(in: .whitespacesAndNewlines)
+        if normalizedThinkingTrace.isEmpty == false {
+            safeUpdateMessage(id: thinkingMessageId) { $0.content = normalizedThinkingTrace }
         }
 
         if pendingChunk.isEmpty == false || latestAnswer.isEmpty == false {
             safeUpdateMessage(id: assistantMessageId) { $0.content = latestAnswer }
+            if !didFinishThinking && !latestAnswer.isEmpty {
+                finishThinkingMessage(id: thinkingMessageId)
+                didFinishThinking = true
+            }
+            hasCommittedVisibleAnswer = hasCommittedVisibleAnswer || !latestAnswer.isEmpty
             streamingScrollToken &+= 1
         }
 
+        if !didFinishThinking && !hasCommittedVisibleAnswer {
+            finishThinkingMessage(id: thinkingMessageId)
+        }
+
         guard let latestResponse else {
-            throw AgentError.invalidLLMResponse("Plain-text chat response stream produced no content")
+            throw AgentError.invalidLLMResponse("Structured chat response stream produced no content")
         }
 
         return latestResponse
+    }
+
+    private func formattedThinkingTrace(
+        thinking: String?,
+        toolCalls: [GeneratedChatToolCall]
+    ) -> String {
+        var sections: [String] = []
+
+        if let thinking {
+            sections.append(thinking)
+        }
+
+        if !toolCalls.isEmpty {
+            let renderedCalls = toolCalls.enumerated().map { index, toolCall in
+                var lines = ["\(index + 1). \(toolCall.name)"]
+                if let inputSummary = toolCall.inputSummary {
+                    lines.append("   Input: \(inputSummary)")
+                }
+                if let outputSummary = toolCall.outputSummary {
+                    lines.append("   Output: \(outputSummary)")
+                }
+                return lines.joined(separator: "\n")
+            }
+
+            let toolsSection = (["Tools used:"] + renderedCalls).joined(separator: "\n")
+            sections.append(toolsSection)
+        }
+
+        return sections.joined(separator: "\n\n").trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
     private func continueIfLikelyTruncated(

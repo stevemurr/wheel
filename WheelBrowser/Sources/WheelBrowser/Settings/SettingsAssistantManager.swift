@@ -178,6 +178,8 @@ final class SettingsAssistantManager {
 
             for try await event in stream {
                 switch event {
+                case .thinking:
+                    continue
                 case .partial(let answer):
                     latestAnswer = answer
                     updateAssistantMessage(

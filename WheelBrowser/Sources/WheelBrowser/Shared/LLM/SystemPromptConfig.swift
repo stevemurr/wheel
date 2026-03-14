@@ -17,6 +17,8 @@ enum SystemPromptConfig {
     Match the user's requested depth and level of detail. Default to natural, direct prose.
     Use Markdown when it helps readability, but do not add unnecessary structure.
     If useful, you may end with a short "Follow-up questions" section containing up to 3 bullet questions.
+    When a structured output schema includes `thinking`, fill it with a brief user-visible reasoning summary rather than hidden chain-of-thought.
+    When a structured output schema includes `toolCalls`, summarize only the tools or retrieval steps you actually used.
     """
 
     /// Resolved chat system prompt — uses custom if set, otherwise default.

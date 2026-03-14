@@ -24,25 +24,6 @@ private enum ChatSurfaceStyle {
     }
 }
 
-// MARK: - Pulsing Loading Dot
-
-struct ChatPanelPulsingDot: View {
-    @State private var isAnimating = false
-
-    var body: some View {
-        Circle()
-            .fill(Color.purple)
-            .frame(width: 8, height: 8)
-            .scaleEffect(isAnimating ? 1.2 : 0.8)
-            .opacity(isAnimating ? 1.0 : 0.5)
-            .onAppear {
-                withAnimation(.easeInOut(duration: 0.8).repeatForever(autoreverses: true)) {
-                    isAnimating = true
-                }
-            }
-    }
-}
-
 /// Collapsible thinking/reasoning bubble for displaying AI thought process
 struct ThinkingBubble: View {
     let message: ChatMessage
@@ -53,80 +34,20 @@ struct ThinkingBubble: View {
     init(message: ChatMessage, compact: Bool = false) {
         self.message = message
         self.compact = compact
-        // Auto-expand while streaming
-        self._isExpanded = State(initialValue: message.isStreaming)
+        let hasDetails = message.content.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false
+        self._isExpanded = State(initialValue: message.isStreaming && hasDetails)
     }
 
-    /// Duration label: shows "Thought for Xs" or live timer during streaming
-    private var durationLabel: String {
-        if let duration = message.thinkingDurationSeconds {
-            return "Thought for \(Int(duration))s"
-        }
-        return "\(message.content.count) chars"
+    private var hasDetails: Bool {
+        message.content.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false
     }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            // Header row with toggle
-            Button(action: {
-                withAnimation(AppAnimation.medium) {
-                    isExpanded.toggle()
-                }
-            }) {
-                HStack(spacing: 6) {
-                    Image(systemName: isExpanded ? "chevron.down" : "chevron.right")
-                        .font(.system(size: 9, weight: .semibold))
-                        .foregroundColor(.secondary.opacity(0.85))
-                        .frame(width: 12)
-
-                    RoundedRectangle(cornerRadius: 6, style: .continuous)
-                        .fill(Color(nsColor: .controlAccentColor).opacity(0.12))
-                        .frame(width: 18, height: 18)
-                        .overlay {
-                            Image(systemName: "brain.head.profile")
-                                .font(.system(size: 10, weight: .medium))
-                                .foregroundColor(Color(nsColor: .controlAccentColor).opacity(0.8))
-                        }
-
-                    Text("Thought Process")
-                        .font(.system(size: compact ? 11 : 12, weight: .semibold))
-                        .foregroundColor(.primary.opacity(0.82))
-
-                    if message.isStreaming {
-                        // Live timer using TimelineView (Rule 5: no .contentTransition on streaming)
-                        if let startTime = message.thinkingStartTime {
-                            ThinkingLiveTimer(startTime: startTime)
-                        } else {
-                            ChatPanelPulsingDot()
-                                .scaleEffect(0.7)
-                        }
-
-                        // Subtle indeterminate progress bar
-                        ThinkingProgressBar()
-                            .frame(width: 40, height: 2)
-                    }
-
-                    Spacer()
-
-                    if !message.isStreaming {
-                        Image(systemName: "checkmark.circle.fill")
-                            .font(.system(size: 11, weight: .semibold))
-                            .foregroundColor(.green.opacity(0.72))
-                    }
-
-                    Text(durationLabel)
-                        .font(.system(size: 10, weight: .medium, design: .monospaced))
-                        .foregroundColor(.secondary.opacity(0.65))
-                }
-                .padding(.horizontal, compact ? 10 : 12)
-                .padding(.vertical, compact ? 8 : 10)
-                .contentShape(Rectangle())
-            }
-            .buttonStyle(.plain)
+            header
             .onHover { hovering in
                 isHovered = hovering
             }
-            // Auto-collapse when streaming ends
             .onChange(of: message.isStreaming) { _, newValue in
                 if !newValue && isExpanded {
                     withAnimation(AppAnimation.medium) {
@@ -134,9 +55,16 @@ struct ThinkingBubble: View {
                     }
                 }
             }
+            .onChange(of: message.content) { _, newValue in
+                let hasContent = newValue.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false
+                if hasContent && message.isStreaming && !isExpanded {
+                    withAnimation(AppAnimation.medium) {
+                        isExpanded = true
+                    }
+                }
+            }
 
-            // Expandable content — extracted so header doesn't force content re-render
-            if isExpanded {
+            if hasDetails && isExpanded {
                 Divider()
                     .opacity(0.3)
 
@@ -145,13 +73,137 @@ struct ThinkingBubble: View {
         }
         .background(
             RoundedRectangle(cornerRadius: compact ? 12 : 14, style: .continuous)
-                .fill(Color(nsColor: .controlBackgroundColor).opacity(isHovered ? 0.82 : 0.66))
+                .fill(backgroundFill)
         )
         .overlay(
             RoundedRectangle(cornerRadius: compact ? 12 : 14, style: .continuous)
-                .stroke(Color(nsColor: .separatorColor).opacity(0.32), lineWidth: 1)
+                .stroke(borderColor, lineWidth: 1)
+        )
+        .overlay(alignment: .bottomLeading) {
+            if message.isStreaming {
+                ThinkingProgressSweep(compact: compact)
+                    .padding(.horizontal, compact ? 12 : 14)
+                    .padding(.bottom, 1)
+            }
+        }
+        .shadow(
+            color: Color.black.opacity(compact ? 0.04 : 0.06),
+            radius: compact ? 4 : 8,
+            x: 0,
+            y: compact ? 1 : 3
         )
         .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    @ViewBuilder
+    private var header: some View {
+        if hasDetails {
+            Button(action: toggleExpanded) {
+                headerContent
+            }
+            .buttonStyle(.plain)
+        } else {
+            headerContent
+        }
+    }
+
+    private var headerContent: some View {
+        HStack(spacing: compact ? 8 : 10) {
+            thinkingIcon
+
+            HStack(spacing: 4) {
+                Text("Thought Process")
+                    .font(.system(size: compact ? 11.5 : 12.5, weight: .medium))
+                    .foregroundColor(.primary.opacity(0.78))
+
+                Image(systemName: hasDetails && isExpanded ? "chevron.down" : "chevron.right")
+                    .font(.system(size: compact ? 9 : 10, weight: .semibold))
+                    .foregroundColor(.secondary.opacity(0.7))
+            }
+
+            Spacer(minLength: 12)
+
+            HStack(spacing: 6) {
+                if let duration = message.thinkingDurationSeconds,
+                   duration >= 1,
+                   !message.isStreaming {
+                    Text(durationLabel(for: duration))
+                        .font(.system(size: compact ? 10 : 10.5, weight: .medium, design: .monospaced))
+                        .foregroundColor(.secondary.opacity(0.62))
+                }
+
+                if message.isStreaming {
+                    ThinkingActivityIndicator(compact: compact)
+                } else {
+                    Image(systemName: "checkmark.circle")
+                        .font(.system(size: compact ? 13 : 14, weight: .semibold))
+                        .foregroundColor(Color(red: 0.15, green: 0.73, blue: 0.45))
+                }
+            }
+        }
+        .padding(.horizontal, compact ? 10 : 12)
+        .padding(.vertical, compact ? 8 : 9)
+        .contentShape(Rectangle())
+    }
+
+    private var thinkingIcon: some View {
+        RoundedRectangle(cornerRadius: compact ? 6 : 7, style: .continuous)
+            .fill(
+                LinearGradient(
+                    colors: [
+                        Color(red: 0.10, green: 0.08, blue: 0.12),
+                        Color(red: 0.26, green: 0.07, blue: 0.10),
+                    ],
+                    startPoint: .topLeading,
+                    endPoint: .bottomTrailing
+                )
+            )
+            .frame(width: compact ? 20 : 22, height: compact ? 20 : 22)
+            .overlay {
+                Image(systemName: "sparkles")
+                    .font(.system(size: compact ? 10 : 11, weight: .bold))
+                    .foregroundStyle(
+                        LinearGradient(
+                            colors: [
+                                Color(red: 1.0, green: 0.69, blue: 0.34),
+                                Color(red: 0.95, green: 0.28, blue: 0.30),
+                            ],
+                            startPoint: .topLeading,
+                            endPoint: .bottomTrailing
+                        )
+                    )
+            }
+    }
+
+    private var backgroundFill: LinearGradient {
+        let topOpacity = isHovered ? 0.95 : 0.90
+        let bottomOpacity = isHovered ? 0.90 : 0.82
+        return LinearGradient(
+            colors: [
+                Color(nsColor: .textBackgroundColor).opacity(topOpacity),
+                Color(nsColor: .controlBackgroundColor).opacity(bottomOpacity),
+            ],
+            startPoint: .top,
+            endPoint: .bottom
+        )
+    }
+
+    private var borderColor: Color {
+        if message.isStreaming {
+            return Color(red: 0.92, green: 0.38, blue: 0.31).opacity(0.34)
+        }
+        return Color(nsColor: .separatorColor).opacity(0.26)
+    }
+
+    private func toggleExpanded() {
+        withAnimation(AppAnimation.medium) {
+            isExpanded.toggle()
+        }
+    }
+
+    private func durationLabel(for duration: TimeInterval) -> String {
+        let rounded = max(1, Int(duration.rounded(.up)))
+        return "\(rounded)s"
     }
 }
 
@@ -174,36 +226,63 @@ private struct ThinkingContentView: View {
     }
 }
 
-/// Live timer that updates every second during thinking (Rule 5 compliant - no contentTransition)
-private struct ThinkingLiveTimer: View {
-    let startTime: Date
+private struct ThinkingActivityIndicator: View {
+    let compact: Bool
+    @State private var rotation = 0.0
 
     var body: some View {
-        TimelineView(.periodic(from: startTime, by: 1)) { timeline in
-            let elapsed = Int(timeline.date.timeIntervalSince(startTime))
-            Text("\(elapsed)s")
-                .font(.system(size: 10, weight: .medium, design: .monospaced))
-                .foregroundColor(.secondary.opacity(0.7))
+        ZStack {
+            Circle()
+                .stroke(Color.black.opacity(0.10), lineWidth: 1.2)
+
+            Circle()
+                .trim(from: 0.10, to: 0.62)
+                .stroke(
+                    Color(red: 0.94, green: 0.37, blue: 0.30),
+                    style: StrokeStyle(lineWidth: 1.8, lineCap: .round)
+                )
+                .rotationEffect(.degrees(rotation))
+        }
+        .frame(width: compact ? 14 : 16, height: compact ? 14 : 16)
+        .onAppear {
+            withAnimation(.linear(duration: 1.0).repeatForever(autoreverses: false)) {
+                rotation = 360
+            }
         }
     }
 }
 
-/// Subtle indeterminate progress bar for thinking state
-private struct ThinkingProgressBar: View {
-    @State private var offset: CGFloat = -1
+private struct ThinkingProgressSweep: View {
+    let compact: Bool
+    @State private var offset: CGFloat = -0.35
 
     var body: some View {
         GeometryReader { geometry in
-            RoundedRectangle(cornerRadius: 1)
-                .fill(Color(nsColor: .controlAccentColor).opacity(0.35))
-                .frame(width: geometry.size.width * 0.4)
-                .offset(x: offset * geometry.size.width * 0.6)
+            Capsule(style: .continuous)
+                .fill(Color.black.opacity(0.06))
+                .overlay(alignment: .leading) {
+                    Capsule(style: .continuous)
+                        .fill(
+                            LinearGradient(
+                                colors: [
+                                    .clear,
+                                    Color(red: 0.99, green: 0.68, blue: 0.33).opacity(0.95),
+                                    Color(red: 0.94, green: 0.36, blue: 0.29).opacity(0.95),
+                                    .clear,
+                                ],
+                                startPoint: .leading,
+                                endPoint: .trailing
+                            )
+                        )
+                        .frame(width: max(geometry.size.width * 0.24, compact ? 36 : 52))
+                        .offset(x: offset * geometry.size.width)
+                }
         }
-        .clipShape(RoundedRectangle(cornerRadius: 1))
-        .background(Color(nsColor: .separatorColor).opacity(0.18))
+        .frame(height: 2)
+        .clipShape(Capsule(style: .continuous))
         .onAppear {
-            withAnimation(.easeInOut(duration: 1.2).repeatForever(autoreverses: true)) {
-                offset = 1
+            withAnimation(.easeInOut(duration: 1.35).repeatForever(autoreverses: false)) {
+                offset = 1.1
             }
         }
     }

@@ -33,15 +33,28 @@ enum FollowUpSuggestionNormalizer {
 struct GeneratedChatAssistantResponse: Codable, Sendable, WheelStructuredSpecProviding {
     let answer: String
 
+    let thinking: String?
+
+    let toolCalls: [GeneratedChatToolCall]
+
     let suggestions: [String]
 
     private enum CodingKeys: String, CodingKey {
         case answer
+        case thinking
+        case toolCalls
         case suggestions
     }
 
-    init(answer: String, suggestions: [String]) {
+    init(
+        answer: String,
+        thinking: String? = nil,
+        toolCalls: [GeneratedChatToolCall] = [],
+        suggestions: [String] = []
+    ) {
         self.answer = answer
+        self.thinking = Self.normalizeOptionalString(thinking)
+        self.toolCalls = toolCalls
         self.suggestions = suggestions
     }
 
@@ -49,6 +62,8 @@ struct GeneratedChatAssistantResponse: Codable, Sendable, WheelStructuredSpecPro
         if let container = try? decoder.container(keyedBy: CodingKeys.self),
            let answer = try? container.decode(String.self, forKey: .answer) {
             self.answer = answer
+            self.thinking = Self.decodeThinking(from: container)
+            self.toolCalls = Self.decodeToolCalls(from: container)
             self.suggestions = Self.decodeSuggestions(from: container)
             return
         }
@@ -57,6 +72,8 @@ struct GeneratedChatAssistantResponse: Codable, Sendable, WheelStructuredSpecPro
            let nested = try? envelope.nestedContainer(keyedBy: CodingKeys.self, forKey: .response),
            let answer = try? nested.decode(String.self, forKey: .answer) {
             self.answer = answer
+            self.thinking = Self.decodeThinking(from: nested)
+            self.toolCalls = Self.decodeToolCalls(from: nested)
             self.suggestions = Self.decodeSuggestions(from: nested)
             return
         }
@@ -67,12 +84,16 @@ struct GeneratedChatAssistantResponse: Codable, Sendable, WheelStructuredSpecPro
            let nested = try? container.nestedContainer(keyedBy: CodingKeys.self, forKey: key),
            let answer = try? nested.decode(String.self, forKey: .answer) {
             self.answer = answer
+            self.thinking = Self.decodeThinking(from: nested)
+            self.toolCalls = Self.decodeToolCalls(from: nested)
             self.suggestions = Self.decodeSuggestions(from: nested)
             return
         }
 
         let container = try decoder.container(keyedBy: CodingKeys.self)
         answer = try container.decode(String.self, forKey: .answer)
+        thinking = Self.decodeThinking(from: container)
+        toolCalls = Self.decodeToolCalls(from: container)
         suggestions = Self.decodeSuggestions(from: container)
     }
 
@@ -80,14 +101,32 @@ struct GeneratedChatAssistantResponse: Codable, Sendable, WheelStructuredSpecPro
         FollowUpSuggestionNormalizer.normalize(suggestions)
     }
 
+    var normalizedThinking: String? {
+        Self.normalizeOptionalString(thinking)
+    }
+
     static let outputSchema = WheelOutputSchema.object(
         name: "GeneratedChatAssistantResponse",
-        description: "A browser chat response with the answer text and suggested follow-up questions.",
+        description: "A browser chat response with the answer text, an optional concise user-visible reasoning summary, optional tool call summaries, and suggested follow-up questions.",
         properties: [
             WheelOutputSchema.property(
                 "answer",
                 schema: WheelOutputSchema.string(minLength: 1),
                 description: "The main assistant answer in markdown."
+            ),
+            WheelOutputSchema.property(
+                "thinking",
+                schema: WheelOutputSchema.string(minLength: 1),
+                description: "Optional brief user-visible reasoning trace. Keep it concise and safe to show to the user.",
+                optional: true
+            ),
+            WheelOutputSchema.property(
+                "toolCalls",
+                schema: WheelOutputSchema.array(
+                    item: GeneratedChatToolCall.outputSchema
+                ),
+                description: "Optional summaries of tool or retrieval calls used while answering.",
+                optional: true
             ),
             WheelOutputSchema.property(
                 "suggestions",
@@ -132,6 +171,33 @@ extension GeneratedChatAssistantResponse {
         }
 
         return extractSuggestions(from: rawSuggestions)
+    }
+
+    private static func decodeThinking(
+        from container: KeyedDecodingContainer<CodingKeys>
+    ) -> String? {
+        guard let thinking = try? container.decodeIfPresent(String.self, forKey: .thinking) else {
+            return nil
+        }
+        return normalizeOptionalString(thinking)
+    }
+
+    private static func decodeToolCalls(
+        from container: KeyedDecodingContainer<CodingKeys>
+    ) -> [GeneratedChatToolCall] {
+        do {
+            return try container.decodeIfPresent([GeneratedChatToolCall].self, forKey: .toolCalls) ?? []
+        } catch {
+            return []
+        }
+    }
+
+    private static func normalizeOptionalString(_ value: String?) -> String? {
+        guard let trimmed = value?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !trimmed.isEmpty else {
+            return nil
+        }
+        return trimmed
     }
 
     private static func extractSuggestions(from rawSuggestions: AnyCodable) -> [String] {
@@ -188,6 +254,71 @@ extension GeneratedChatAssistantResponse {
         }
 
         return [trimmed]
+    }
+}
+
+struct GeneratedChatToolCall: Codable, Sendable, Equatable {
+    let name: String
+    let inputSummary: String?
+    let outputSummary: String?
+
+    private enum CodingKeys: String, CodingKey {
+        case name
+        case inputSummary
+        case outputSummary
+    }
+
+    init(
+        name: String,
+        inputSummary: String? = nil,
+        outputSummary: String? = nil
+    ) {
+        self.name = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        self.inputSummary = Self.normalizeOptionalString(inputSummary)
+        self.outputSummary = Self.normalizeOptionalString(outputSummary)
+    }
+
+    init(from decoder: any Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        name = try container.decode(String.self, forKey: .name).trimmingCharacters(in: .whitespacesAndNewlines)
+        inputSummary = Self.normalizeOptionalString(
+            try container.decodeIfPresent(String.self, forKey: .inputSummary)
+        )
+        outputSummary = Self.normalizeOptionalString(
+            try container.decodeIfPresent(String.self, forKey: .outputSummary)
+        )
+    }
+
+    static let outputSchema = WheelOutputSchema.object(
+        name: "GeneratedChatToolCall",
+        description: "A concise summary of a tool or retrieval call used to answer the user.",
+        properties: [
+            WheelOutputSchema.property(
+                "name",
+                schema: WheelOutputSchema.string(minLength: 1),
+                description: "Human-readable tool name."
+            ),
+            WheelOutputSchema.property(
+                "inputSummary",
+                schema: WheelOutputSchema.string(minLength: 1),
+                description: "Short summary of the tool input.",
+                optional: true
+            ),
+            WheelOutputSchema.property(
+                "outputSummary",
+                schema: WheelOutputSchema.string(minLength: 1),
+                description: "Short summary of the tool output.",
+                optional: true
+            ),
+        ]
+    )
+
+    private static func normalizeOptionalString(_ value: String?) -> String? {
+        guard let trimmed = value?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !trimmed.isEmpty else {
+            return nil
+        }
+        return trimmed
     }
 }
 
