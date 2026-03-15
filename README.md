@@ -84,10 +84,6 @@ Wheel can expose browser control over MCP and can also run headlessly.
 ```bash
 git clone https://github.com/stevemurr/wheel.git
 cd wheel/WheelBrowser
-cd ../NoteEditorWeb
-npm install
-npm run build
-cd ../WheelBrowser
 swift run WheelBrowser
 ```
 
@@ -96,14 +92,6 @@ swift run WheelBrowser
 ```bash
 cd WheelBrowser
 make build
-```
-
-If you change the note editor bundle, rebuild it first:
-
-```bash
-cd NoteEditorWeb
-npm install
-npm run build
 ```
 
 This produces:
