@@ -298,8 +298,12 @@ private struct MessageContentView: View {
     let isStreaming: Bool
     let compact: Bool
 
+    private var renderableContent: String {
+        ChatMarkdownFormatter.renderableContent(content, closeUnbalancedFence: true)
+    }
+
     var body: some View {
-        Markdown(content)
+        Markdown(renderableContent)
             .markdownTheme(ChatMarkdownTheme.theme(for: role, compact: compact))
             .textSelection(.enabled)
             .frame(maxWidth: .infinity, alignment: .leading)

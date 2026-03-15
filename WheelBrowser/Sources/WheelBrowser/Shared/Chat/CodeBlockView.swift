@@ -35,11 +35,11 @@ struct CodeBlockView: View {
             // Code content
             codeContent
         }
-        .background(Color(nsColor: .controlBackgroundColor).opacity(0.52))
+        .background(Color(nsColor: .controlBackgroundColor).opacity(0.72))
         .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
         .overlay(
             RoundedRectangle(cornerRadius: 10, style: .continuous)
-                .stroke(Color(nsColor: .separatorColor).opacity(0.24), lineWidth: 1)
+                .stroke(Color(nsColor: .separatorColor).opacity(0.30), lineWidth: 1)
         )
         .onHover { hovering in
             isHovered = hovering
@@ -98,15 +98,19 @@ struct CodeBlockView: View {
                     .opacity(0.2)
             }
 
-            // Highlighted code
-            VStack(alignment: .leading, spacing: 0) {
-                ForEach(Array(lines.enumerated()), id: \.offset) { _, line in
-                    Text(SyntaxHighlighter.highlight(line, language: normalizedLanguage))
-                        .font(.system(size: 11.5, design: .monospaced))
-                        .textSelection(.enabled)
+            ScrollView(.horizontal, showsIndicators: false) {
+                VStack(alignment: .leading, spacing: 0) {
+                    ForEach(Array(lines.enumerated()), id: \.offset) { _, line in
+                        Text(SyntaxHighlighter.highlight(line, language: normalizedLanguage))
+                            .font(.system(size: 11.5, design: .monospaced))
+                            .lineLimit(1)
+                            .fixedSize(horizontal: true, vertical: false)
+                            .textSelection(.enabled)
+                    }
                 }
+                .padding(10)
+                .frame(maxWidth: .infinity, alignment: .leading)
             }
-            .padding(10)
         }
     }
 

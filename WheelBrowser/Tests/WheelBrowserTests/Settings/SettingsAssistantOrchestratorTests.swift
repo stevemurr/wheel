@@ -1,5 +1,4 @@
 import Foundation
-import LanguageModelContextManagement
 import Testing
 @testable import WheelBrowser
 
@@ -48,8 +47,11 @@ struct SettingsAssistantOrchestratorTests {
         #expect(reply.source == .appleSettings)
         #expect(reply.pendingPlan == nil)
         #expect(reply.message.contains("Apple"))
-        #expect(await apple.importCallCount() == 2)
-        #expect(await general.importCallCount() == 0)
+        #expect(await apple.routeCallCount() == 1)
+        #expect(await apple.planCallCount() == 1)
+        #expect(await general.streamCallCount() == 0)
+        #expect(await apple.routeCalls().first?.history.count == 2)
+        #expect(await apple.planCalls().first?.history.count == 2)
     }
 
     @Test("Settings mutation requests produce a pending confirmation only")
@@ -100,6 +102,8 @@ struct SettingsAssistantOrchestratorTests {
 
         #expect(reply.pendingPlan?.actions.count == 1)
         #expect(reply.message.contains("Confirm to apply"))
+        #expect(await apple.routeCallCount() == 1)
+        #expect(await apple.planCallCount() == 1)
         #expect(await general.streamCallCount() == 0)
     }
 
@@ -119,7 +123,7 @@ struct SettingsAssistantOrchestratorTests {
             streamedReply: WheelGeneratedReply(
                 value: GeneratedChatAssistantResponse(answer: "General answer", suggestions: []),
                 transcriptText: "General answer",
-                metadata: WheelTurnMetadata(compaction: nil, bridge: nil),
+                metadata: WheelTurnMetadata(truncation: nil),
                 modelDisplayName: "OpenAI / gpt-4.1-mini"
             )
         )
@@ -142,9 +146,9 @@ struct SettingsAssistantOrchestratorTests {
         }
 
         #expect(source == .configuredGeneralChat)
-        #expect(await general.importCallCount() == 1)
+        #expect(await apple.routeCallCount() == 1)
         #expect(await general.streamCallCount() == 1)
-        #expect(await apple.importCallCount() == 1)
+        #expect(await general.streamCalls().first?.history.map(\.text) == ["Earlier prompt"])
     }
 
     @Test("General chat falls back to Apple when configured model is unavailable")
@@ -160,7 +164,7 @@ struct SettingsAssistantOrchestratorTests {
             streamedReply: WheelGeneratedReply(
                 value: GeneratedChatAssistantResponse(answer: "Apple fallback answer", suggestions: []),
                 transcriptText: "Apple fallback answer",
-                metadata: WheelTurnMetadata(compaction: nil, bridge: nil),
+                metadata: WheelTurnMetadata(truncation: nil),
                 modelDisplayName: "Apple / default"
             )
         )
@@ -186,15 +190,13 @@ struct SettingsAssistantOrchestratorTests {
         }
 
         #expect(source == .appleGeneralFallback)
-        #expect(await apple.importCallCount() == 2)
+        #expect(await apple.routeCallCount() == 1)
         #expect(await apple.streamCallCount() == 1)
-        #expect(await general.importCallCount() == 0)
+        #expect(await general.streamCallCount() == 0)
     }
 
-    @Test("Alternating settings and general turns reimport the visible transcript")
-    func alternatingTurnsReimportVisibleTranscript() async throws {
-        let settingsConversationID = UUID()
-        let generalConversationID = UUID()
+    @Test("Alternating settings and general turns reuse the visible transcript directly")
+    func alternatingTurnsReuseVisibleTranscriptDirectly() async throws {
         let apple = MockSettingsAssistantContextService(
             availability: .available,
             routeDecisions: [
@@ -218,20 +220,14 @@ struct SettingsAssistantOrchestratorTests {
                     actions: [],
                     requiresConfirmation: false
                 )
-            ],
-            streamedReply: WheelGeneratedReply(
-                value: GeneratedChatAssistantResponse(answer: "Fallback answer", suggestions: []),
-                transcriptText: "Fallback answer",
-                metadata: WheelTurnMetadata(compaction: nil, bridge: nil),
-                modelDisplayName: "Apple / default"
-            )
+            ]
         )
         let general = MockSettingsAssistantContextService(
             availability: .available,
             streamedReply: WheelGeneratedReply(
                 value: GeneratedChatAssistantResponse(answer: "Configured answer", suggestions: []),
                 transcriptText: "Configured answer",
-                metadata: WheelTurnMetadata(compaction: nil, bridge: nil),
+                metadata: WheelTurnMetadata(truncation: nil),
                 modelDisplayName: "OpenAI / gpt-4.1-mini"
             )
         )
@@ -247,8 +243,8 @@ struct SettingsAssistantOrchestratorTests {
                 ChatMessage.user("Hi"),
                 ChatMessage.assistant("Hello")
             ],
-            settingsConversationID: settingsConversationID,
-            generalConversationID: generalConversationID
+            settingsConversationID: UUID(),
+            generalConversationID: UUID()
         )
 
         _ = try await orchestrator.prepareTurn(
@@ -259,30 +255,42 @@ struct SettingsAssistantOrchestratorTests {
                 ChatMessage.user("What provider am I using?"),
                 ChatMessage.assistant("You are using Apple.")
             ],
-            settingsConversationID: settingsConversationID,
-            generalConversationID: generalConversationID
+            settingsConversationID: UUID(),
+            generalConversationID: UUID()
         )
 
-        let appleImports = await apple.importCalls()
-        let generalImports = await general.importCalls()
+        let appleRouteCalls = await apple.routeCalls()
+        let applePlanCalls = await apple.planCalls()
+        let generalStreamCalls = await general.streamCalls()
 
-        #expect(appleImports.count == 3)
-        #expect(appleImports[0].turns.count == 2)
-        #expect(appleImports[1].turns.count == 2)
-        #expect(appleImports[2].turns.count == 4)
-        #expect(generalImports.count == 1)
-        #expect(generalImports[0].turns.count == 4)
-        #expect(generalImports[0].conversationID == generalConversationID)
-        #expect(generalImports[0].turns.last?.text == "You are using Apple.")
+        #expect(appleRouteCalls.count == 2)
+        #expect(appleRouteCalls[0].history.count == 2)
+        #expect(appleRouteCalls[1].history.count == 4)
+        #expect(applePlanCalls.count == 1)
+        #expect(applePlanCalls[0].history.count == 2)
+        #expect(generalStreamCalls.count == 1)
+        #expect(generalStreamCalls[0].history.count == 4)
+        #expect(generalStreamCalls[0].history.last?.text == "You are using Apple.")
     }
 }
 
 private actor MockSettingsAssistantContextService: WheelModelContextServing {
-    struct ImportCall: Sendable {
-        let conversationID: UUID
+    struct RouteCall: Sendable, Equatable {
         let instructions: String
-        let turns: [WheelNormalizedTurn]
-        let replaceExisting: Bool
+        let history: [WheelConversationTurn]
+        let prompt: String
+    }
+
+    struct PlanCall: Sendable, Equatable {
+        let instructions: String
+        let history: [WheelConversationTurn]
+        let prompt: String
+    }
+
+    struct StreamCall: Sendable, Equatable {
+        let instructions: String
+        let history: [WheelConversationTurn]
+        let prompt: String
     }
 
     enum Availability: Sendable {
@@ -294,8 +302,9 @@ private actor MockSettingsAssistantContextService: WheelModelContextServing {
     private var routeDecisions: [GeneratedSettingsRouteDecision]
     private var settingsPlans: [GeneratedSettingsPlan]
     private let streamedReply: WheelGeneratedReply<GeneratedChatAssistantResponse>?
-    private var importHistory: [ImportCall] = []
-    private var streamCalls = 0
+    private var routeCallStorage: [RouteCall] = []
+    private var planCallStorage: [PlanCall] = []
+    private var streamCallStorage: [StreamCall] = []
 
     init(
         availability: Availability,
@@ -326,35 +335,34 @@ private actor MockSettingsAssistantContextService: WheelModelContextServing {
         )
     }
 
-    func openChatSession(conversationId: UUID, instructions: String) async throws {}
-
-    func importChatSession(
-        conversationId: UUID,
+    func streamPlainChatResponse(
         instructions: String,
-        turns: [WheelNormalizedTurn],
-        durableMemory: [WheelDurableMemoryRecord],
-        replaceExisting: Bool
-    ) async throws {
-        importHistory.append(
-            ImportCall(
-                conversationID: conversationId,
-                instructions: instructions,
-                turns: turns,
-                replaceExisting: replaceExisting
-            )
-        )
+        history: [WheelConversationTurn],
+        prompt: String
+    ) async throws -> AsyncThrowingStream<WheelPlainChatStreamEvent, Error> {
+        _ = instructions
+        _ = history
+        _ = prompt
+        fatalError("Not used in SettingsAssistantOrchestratorTests")
     }
 
     func streamChatResponse(
-        conversationId: UUID,
+        instructions: String,
+        history: [WheelConversationTurn],
         prompt: String
     ) async throws -> AsyncThrowingStream<WheelChatStreamEvent, Error> {
-        streamCalls += 1
+        streamCallStorage.append(
+            StreamCall(
+                instructions: instructions,
+                history: history,
+                prompt: prompt
+            )
+        )
 
         let reply = streamedReply ?? WheelGeneratedReply(
             value: GeneratedChatAssistantResponse(answer: "Fallback response", suggestions: []),
             transcriptText: "Fallback response",
-            metadata: WheelTurnMetadata(compaction: nil, bridge: nil),
+            metadata: WheelTurnMetadata(truncation: nil),
             modelDisplayName: "Mock / default"
         )
 
@@ -364,17 +372,19 @@ private actor MockSettingsAssistantContextService: WheelModelContextServing {
         }
     }
 
-    func streamPlainChatResponse(
-        conversationId: UUID,
-        prompt: String
-    ) async throws -> AsyncThrowingStream<WheelPlainChatStreamEvent, Error> {
-        fatalError("Not used in SettingsAssistantOrchestratorTests")
-    }
-
     func generateSettingsRouteDecision(
-        conversationId: UUID,
+        instructions: String,
+        history: [WheelConversationTurn],
         prompt: String
     ) async throws -> WheelGeneratedReply<GeneratedSettingsRouteDecision> {
+        routeCallStorage.append(
+            RouteCall(
+                instructions: instructions,
+                history: history,
+                prompt: prompt
+            )
+        )
+
         let value = routeDecisions.isEmpty
             ? GeneratedSettingsRouteDecision(
                 route: SettingsAssistantRoute.unsupported.rawValue,
@@ -387,15 +397,24 @@ private actor MockSettingsAssistantContextService: WheelModelContextServing {
         return WheelGeneratedReply(
             value: value,
             transcriptText: value.reason,
-            metadata: WheelTurnMetadata(compaction: nil, bridge: nil),
+            metadata: WheelTurnMetadata(truncation: nil),
             modelDisplayName: "Apple / default"
         )
     }
 
     func generateSettingsPlan(
-        conversationId: UUID,
+        instructions: String,
+        history: [WheelConversationTurn],
         prompt: String
     ) async throws -> WheelGeneratedReply<GeneratedSettingsPlan> {
+        planCallStorage.append(
+            PlanCall(
+                instructions: instructions,
+                history: history,
+                prompt: prompt
+            )
+        )
+
         let value = settingsPlans.isEmpty
             ? GeneratedSettingsPlan(reply: "No plan configured.", warnings: [], actions: [], requiresConfirmation: false)
             : settingsPlans.removeFirst()
@@ -403,12 +422,15 @@ private actor MockSettingsAssistantContextService: WheelModelContextServing {
         return WheelGeneratedReply(
             value: value,
             transcriptText: value.reply,
-            metadata: WheelTurnMetadata(compaction: nil, bridge: nil),
+            metadata: WheelTurnMetadata(truncation: nil),
             modelDisplayName: "Apple / default"
         )
     }
 
     func openAgentSession(tabId: UUID, runId: UUID, instructions: String) async throws -> String {
+        _ = tabId
+        _ = runId
+        _ = instructions
         fatalError("Not used in SettingsAssistantOrchestratorTests")
     }
 
@@ -417,6 +439,9 @@ private actor MockSettingsAssistantContextService: WheelModelContextServing {
         task: String,
         instructions: String
     ) async throws -> WheelGeneratedReply<GeneratedAgentTaskIntent> {
+        _ = requestID
+        _ = task
+        _ = instructions
         fatalError("Not used in SettingsAssistantOrchestratorTests")
     }
 
@@ -424,6 +449,8 @@ private actor MockSettingsAssistantContextService: WheelModelContextServing {
         prompt: String,
         sessionID: String
     ) async throws -> AsyncThrowingStream<WheelAgentDecisionStreamEvent, Error> {
+        _ = prompt
+        _ = sessionID
         fatalError("Not used in SettingsAssistantOrchestratorTests")
     }
 
@@ -432,10 +459,16 @@ private actor MockSettingsAssistantContextService: WheelModelContextServing {
         prompt: String,
         instructions: String
     ) async throws -> WheelGeneratedReply<GeneratedAgentCompletionEvaluation> {
+        _ = requestID
+        _ = prompt
+        _ = instructions
         fatalError("Not used in SettingsAssistantOrchestratorTests")
     }
 
     func appendAgentToolTurn(text: String, tags: [String], sessionID: String) async throws {
+        _ = text
+        _ = tags
+        _ = sessionID
         fatalError("Not used in SettingsAssistantOrchestratorTests")
     }
 
@@ -444,6 +477,9 @@ private actor MockSettingsAssistantContextService: WheelModelContextServing {
         prompt: String,
         instructions: String
     ) async throws -> WheelGeneratedReply<GeneratedSummaryResponse> {
+        _ = requestID
+        _ = prompt
+        _ = instructions
         fatalError("Not used in SettingsAssistantOrchestratorTests")
     }
 
@@ -452,6 +488,9 @@ private actor MockSettingsAssistantContextService: WheelModelContextServing {
         prompt: String,
         instructions: String
     ) async throws -> AsyncThrowingStream<WheelSummaryStreamEvent, Error> {
+        _ = requestID
+        _ = prompt
+        _ = instructions
         fatalError("Not used in SettingsAssistantOrchestratorTests")
     }
 
@@ -461,22 +500,43 @@ private actor MockSettingsAssistantContextService: WheelModelContextServing {
         instructions: String,
         transcriptRenderer: (@Sendable (GeneratedWidgetPlan) -> String)?
     ) async throws -> WheelGeneratedReply<GeneratedWidgetPlan> {
+        _ = requestID
+        _ = prompt
+        _ = instructions
+        _ = transcriptRenderer
         fatalError("Not used in SettingsAssistantOrchestratorTests")
     }
 
-    func sessionExists(sessionID: String) async -> Bool { true }
-
-    func resetSession(sessionID: String) async throws {}
-
-    func importCalls() -> [ImportCall] {
-        importHistory
+    func sessionExists(sessionID: String) async -> Bool {
+        _ = sessionID
+        return false
     }
 
-    func importCallCount() -> Int {
-        importHistory.count
+    func resetSession(sessionID: String) async throws {
+        _ = sessionID
+    }
+
+    func routeCalls() -> [RouteCall] {
+        routeCallStorage
+    }
+
+    func planCalls() -> [PlanCall] {
+        planCallStorage
+    }
+
+    func streamCalls() -> [StreamCall] {
+        streamCallStorage
+    }
+
+    func routeCallCount() -> Int {
+        routeCallStorage.count
+    }
+
+    func planCallCount() -> Int {
+        planCallStorage.count
     }
 
     func streamCallCount() -> Int {
-        streamCalls
+        streamCallStorage.count
     }
 }

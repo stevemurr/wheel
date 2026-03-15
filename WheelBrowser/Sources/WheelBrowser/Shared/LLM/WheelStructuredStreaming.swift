@@ -1,5 +1,4 @@
 import Foundation
-import LanguageModelStructuredOutput
 
 enum WheelStructuredStreamingPrompt {
     static func build<Value>(

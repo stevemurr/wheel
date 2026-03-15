@@ -1,5 +1,124 @@
 import Foundation
-import LanguageModelStructuredOutput
+
+indirect enum OutputSchema: Sendable, Equatable {
+    case string(StringConstraints)
+    case integer(NumberConstraints<Int>)
+    case number(NumberConstraints<Double>)
+    case boolean
+    case array(ArrayConstraints)
+    case object(ObjectSchema)
+    case enumeration(EnumSchema)
+    case optional(OutputSchema)
+}
+
+struct StringConstraints: Sendable, Equatable {
+    let regex: String?
+    let minLength: Int?
+    let maxLength: Int?
+
+    init(
+        regex: String? = nil,
+        minLength: Int? = nil,
+        maxLength: Int? = nil
+    ) {
+        self.regex = regex
+        self.minLength = minLength
+        self.maxLength = maxLength
+    }
+}
+
+struct NumberConstraints<Value: Comparable & Sendable>: Sendable, Equatable {
+    let minimum: Value?
+    let maximum: Value?
+
+    init(
+        minimum: Value? = nil,
+        maximum: Value? = nil
+    ) {
+        self.minimum = minimum
+        self.maximum = maximum
+    }
+}
+
+struct ArrayConstraints: Sendable, Equatable {
+    let item: OutputSchema
+    let minimumCount: Int?
+    let maximumCount: Int?
+
+    init(
+        item: OutputSchema,
+        minimumCount: Int? = nil,
+        maximumCount: Int? = nil
+    ) {
+        self.item = item
+        self.minimumCount = minimumCount
+        self.maximumCount = maximumCount
+    }
+}
+
+struct ObjectSchema: Sendable, Equatable {
+    struct Property: Sendable, Equatable {
+        let name: String
+        let description: String?
+        let schema: OutputSchema
+        let isOptional: Bool
+
+        init(
+            name: String,
+            description: String? = nil,
+            schema: OutputSchema,
+            isOptional: Bool = false
+        ) {
+            self.name = name
+            self.description = description
+            self.schema = schema
+            self.isOptional = isOptional
+        }
+    }
+
+    let name: String
+    let description: String?
+    let properties: [Property]
+
+    init(
+        name: String,
+        description: String? = nil,
+        properties: [Property]
+    ) {
+        self.name = name
+        self.description = description
+        self.properties = properties
+    }
+}
+
+struct EnumSchema: Sendable, Equatable {
+    let name: String?
+    let cases: [String]
+
+    init(
+        name: String? = nil,
+        cases: [String]
+    ) {
+        self.name = name
+        self.cases = cases
+    }
+}
+
+struct StructuredOutputSpec<Value>: Sendable {
+    let schema: OutputSchema
+    let decode: @Sendable (Data) throws -> Value
+    let transcriptRenderer: @Sendable (Value) -> String
+
+    init(
+        schema: OutputSchema,
+        decode: @escaping @Sendable (Data) throws -> Value,
+        transcriptRenderer: @escaping @Sendable (Value) -> String
+    ) {
+        self.schema = schema
+        self.decode = decode
+        self.transcriptRenderer = transcriptRenderer
+    }
+}
 
 protocol WheelStructuredSpecProviding: Codable, Sendable {
     static var outputSchema: OutputSchema { get }

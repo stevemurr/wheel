@@ -1,5 +1,4 @@
 import Foundation
-import LanguageModelContextManagement
 import Observation
 
 @MainActor
@@ -120,16 +119,6 @@ class AgentManager {
         let contextBadges = ChatContextBadge.deduplicated(pageContexts.map(\.contextBadge))
         let injectedContextKeys = ConversationHistoryBuilder.injectedContextKeys(for: injectedPageContexts)
 
-        do {
-            try await prepareActiveConversationThread(replaceExisting: false)
-        } catch {
-            self.error = Self.userFacingErrorMessage(for: error)
-            isLoading = false
-            isStreamingActive = false
-            activeStreamTask = nil
-            return
-        }
-
         await sendMessageInternal(
             content: content,
             fullMessage: fullMessage,
@@ -229,18 +218,9 @@ class AgentManager {
         }
 
         syncConversationMessages()
-        do {
-            try await prepareActiveConversationThread(
-                excludingPendingUserMessageID: editedMessageId,
-                replaceExisting: true
-            )
-        } catch {
-            self.error = Self.userFacingErrorMessage(for: error)
-            return
-        }
-
         await performStreaming(
             prompt: fullMessage,
+            history: modelVisibleTurns(excludingPendingUserMessageID: editedMessageId),
             contextBadges: contextBadges
         )
     }
@@ -270,18 +250,9 @@ class AgentManager {
         syncConversationMessages()
         lastFailedPageContexts = pageContexts
 
-        do {
-            try await prepareActiveConversationThread(
-                excludingPendingUserMessageID: userMessage.id,
-                replaceExisting: true
-            )
-        } catch {
-            self.error = Self.userFacingErrorMessage(for: error)
-            return
-        }
-
         await performStreaming(
             prompt: prompt,
+            history: modelVisibleTurns(excludingPendingUserMessageID: userMessage.id),
             contextBadges: contextBadges
         )
     }
@@ -317,11 +288,16 @@ class AgentManager {
         }
 
         conversationManager.addMessage(userMessage)
-        await performStreaming(prompt: fullMessage, contextBadges: contextBadges)
+        await performStreaming(
+            prompt: fullMessage,
+            history: modelVisibleTurns(excludingPendingUserMessageID: userMessage.id),
+            contextBadges: contextBadges
+        )
     }
 
     private func performStreaming(
         prompt: String,
+        history: [WheelConversationTurn],
         contextBadges: [ChatContextBadge]
     ) async {
         isLoading = true
@@ -353,69 +329,51 @@ class AgentManager {
                 guard let conversationID else {
                     throw AgentError.invalidLLMResponse("No active conversation")
                 }
-                var didRetryMissingThread = false
-                var streamAttempt = 0
+                Log.Chat.info("Starting chat stream for conversation \(conversationID.uuidString.lowercased())")
+                let latestResponse = try await collectVisibleStructuredChatResponse(
+                    instructions: systemPrompt,
+                    history: history,
+                    prompt: prompt,
+                    assistantMessageId: assistantMessageId,
+                    thinkingMessageId: thinkingMessageId
+                )
+                let parsedResponse = ChatFollowUpSuggestionParser.parse(
+                    latestResponse.value.answer
+                )
+                let displayContent = parsedResponse.displayText.isEmpty
+                    ? latestResponse.value.answer.trimmingCharacters(in: .whitespacesAndNewlines)
+                    : parsedResponse.displayText
+                let suggestions = latestResponse.value.normalizedSuggestions.isEmpty
+                    ? parsedResponse.suggestions
+                    : latestResponse.value.normalizedSuggestions
+                let streamedThinkingTrace = messages
+                    .first(where: { $0.id == thinkingMessageId })?
+                    .content
+                    .trimmingCharacters(in: .whitespacesAndNewlines)
+                let thinkingContent = formattedThinkingTrace(
+                    thinking: streamedThinkingTrace?.isEmpty == false
+                        ? streamedThinkingTrace
+                        : latestResponse.value.normalizedThinking,
+                    toolCalls: latestResponse.value.toolCalls
+                )
+                let artifacts = ArtifactExtractor.extract(from: displayContent)
 
-                while true {
-                    do {
-                        streamAttempt += 1
-                        Log.Chat.info("Starting chat stream attempt \(streamAttempt) for conversation \(conversationID.uuidString.lowercased())")
-                        let latestResponse = try await collectVisibleStructuredChatResponse(
-                            conversationId: conversationID,
-                            prompt: prompt,
-                            assistantMessageId: assistantMessageId,
-                            thinkingMessageId: thinkingMessageId
-                        )
-                        let parsedResponse = ChatFollowUpSuggestionParser.parse(
-                            latestResponse.value.answer
-                        )
-                        let displayContent = parsedResponse.displayText.isEmpty
-                            ? latestResponse.value.answer.trimmingCharacters(in: .whitespacesAndNewlines)
-                            : parsedResponse.displayText
-                        let suggestions = latestResponse.value.normalizedSuggestions.isEmpty
-                            ? parsedResponse.suggestions
-                            : latestResponse.value.normalizedSuggestions
-                        let streamedThinkingTrace = messages
-                            .first(where: { $0.id == thinkingMessageId })?
-                            .content
-                            .trimmingCharacters(in: .whitespacesAndNewlines)
-                        let thinkingContent = formattedThinkingTrace(
-                            thinking: streamedThinkingTrace?.isEmpty == false
-                                ? streamedThinkingTrace
-                                : latestResponse.value.normalizedThinking,
-                            toolCalls: latestResponse.value.toolCalls
-                        )
-                        let artifacts = ArtifactExtractor.extract(from: displayContent)
-
-                        safeUpdateMessage(id: assistantMessageId) { msg in
-                            msg.content = displayContent
-                            msg.isStreaming = false
-                            msg.modelUsed = latestResponse.modelDisplayName
-                            msg.suggestedFollowUps = suggestions
-                            msg.artifacts = artifacts
-                        }
-                        safeUpdateMessage(id: thinkingMessageId) { msg in
-                            msg.content = thinkingContent
-                        }
-                        finishThinkingMessage(id: thinkingMessageId)
-
-                        syncConversationMessages()
-                        lastFailedContent = nil
-                        lastFailedPageContexts = []
-                        Log.Chat.info("Chat stream completed for conversation \(conversationID.uuidString.lowercased()) on attempt \(streamAttempt)")
-                        break
-                    } catch let error as ContextManagerError
-                        where !didRetryMissingThread && Self.isMissingThreadError(error)
-                    {
-                        didRetryMissingThread = true
-                        Log.Chat.warning("Chat stream hit missing thread for conversation \(conversationID.uuidString.lowercased()); rebuilding session and retrying")
-                        safeUpdateMessage(id: assistantMessageId) { msg in
-                            msg.content = ""
-                        }
-                        try await prepareActiveConversationThread(replaceExisting: true)
-                        continue
-                    }
+                safeUpdateMessage(id: assistantMessageId) { msg in
+                    msg.content = displayContent
+                    msg.isStreaming = false
+                    msg.modelUsed = latestResponse.modelDisplayName
+                    msg.suggestedFollowUps = suggestions
+                    msg.artifacts = artifacts
                 }
+                safeUpdateMessage(id: thinkingMessageId) { msg in
+                    msg.content = thinkingContent
+                }
+                finishThinkingMessage(id: thinkingMessageId)
+
+                syncConversationMessages()
+                lastFailedContent = nil
+                lastFailedPageContexts = []
+                Log.Chat.info("Chat stream completed for conversation \(conversationID.uuidString.lowercased())")
             } catch is CancellationError {
                 Log.Chat.info("Chat stream cancelled")
                 finishThinkingMessage(id: thinkingMessageId)
@@ -445,13 +403,15 @@ class AgentManager {
     }
 
     private func collectVisibleStructuredChatResponse(
-        conversationId: UUID,
+        instructions: String,
+        history: [WheelConversationTurn],
         prompt: String,
         assistantMessageId: UUID,
         thinkingMessageId: UUID
     ) async throws -> WheelGeneratedReply<GeneratedChatAssistantResponse> {
         let stream = try await contextService.streamChatResponse(
-            conversationId: conversationId,
+            instructions: instructions,
+            history: history,
             prompt: prompt
         )
 
@@ -556,93 +516,6 @@ class AgentManager {
         return sections.joined(separator: "\n\n").trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
-    private func continueIfLikelyTruncated(
-        _ response: WheelGeneratedReply<String>,
-        conversationId: UUID
-    ) async throws -> WheelGeneratedReply<String> {
-        var combined = response.value
-        var modelDisplayName = response.modelDisplayName
-        var continuationAttempt = 0
-
-        while continuationAttempt < ChatResponseContinuation.maxAttempts,
-              ChatResponseContinuation.shouldRequestContinuation(for: combined) {
-            continuationAttempt += 1
-            Log.Chat.warning(
-                "Assistant response appears truncated for conversation \(conversationId.uuidString.lowercased()); requesting hidden continuation attempt \(continuationAttempt)"
-            )
-
-            let continuation = try await collectHiddenPlainChatResponse(
-                conversationId: conversationId,
-                prompt: ChatResponseContinuation.prompt
-            )
-            combined = ChatResponseContinuation.merge(
-                base: combined,
-                continuation: continuation.value
-            )
-            modelDisplayName = continuation.modelDisplayName
-        }
-
-        return WheelGeneratedReply(
-            value: combined,
-            transcriptText: combined,
-            metadata: response.metadata,
-            modelDisplayName: modelDisplayName
-        )
-    }
-
-    private func collectHiddenPlainChatResponse(
-        conversationId: UUID,
-        prompt: String
-    ) async throws -> WheelGeneratedReply<String> {
-        let stream = try await contextService.streamPlainChatResponse(
-            conversationId: conversationId,
-            prompt: prompt
-        )
-        var latestResponse: WheelGeneratedReply<String>?
-
-        for try await event in stream {
-            try Task.checkCancellation()
-            if case .completed(let response) = event {
-                latestResponse = response
-            }
-        }
-
-        guard let latestResponse else {
-            throw AgentError.invalidLLMResponse("Hidden continuation stream produced no content")
-        }
-
-        return latestResponse
-    }
-
-    private func prepareActiveConversationThread(
-        excludingPendingUserMessageID: UUID? = nil,
-        replaceExisting: Bool
-    ) async throws {
-        let conversationId = ensureActiveConversation().id
-
-        let sessionID = WheelModelContextService.chatSessionID(for: conversationId)
-        let filteredMessages = modelVisibleMessages(excludingPendingUserMessageID: excludingPendingUserMessageID)
-        let turns = filteredMessages.map { Self.normalizedTurn(from: $0) }
-        let sessionExists = await contextService.sessionExists(sessionID: sessionID)
-        Log.Chat.info("Preparing chat thread \(sessionID): replaceExisting=\(replaceExisting), sessionExists=\(sessionExists), turns=\(turns.count), excludedPendingMessage=\(excludingPendingUserMessageID?.uuidString.lowercased() ?? "nil")")
-
-        if !turns.isEmpty {
-            let shouldReplaceExistingHistory = replaceExisting || sessionExists
-            try await contextService.importChatSession(
-                conversationId: conversationId,
-                instructions: systemPrompt,
-                turns: turns,
-                durableMemory: [],
-                replaceExisting: shouldReplaceExistingHistory
-            )
-        }
-
-        try await contextService.openChatSession(
-            conversationId: conversationId,
-            instructions: systemPrompt
-        )
-    }
-
     private func modelVisibleMessages(excludingPendingUserMessageID: UUID?) -> [ChatMessage] {
         messages.filter { message in
             guard !message.isStreaming else {
@@ -660,8 +533,13 @@ class AgentManager {
         }
     }
 
-    private static func normalizedTurn(from message: ChatMessage) -> WheelNormalizedTurn {
-        let role: WheelNormalizedTurn.Role
+    private func modelVisibleTurns(excludingPendingUserMessageID: UUID?) -> [WheelConversationTurn] {
+        modelVisibleMessages(excludingPendingUserMessageID: excludingPendingUserMessageID)
+            .map { Self.normalizedTurn(from: $0) }
+    }
+
+    private static func normalizedTurn(from message: ChatMessage) -> WheelConversationTurn {
+        let role: WheelConversationTurn.Role
         let priority: Int
 
         switch message.role {
@@ -680,13 +558,13 @@ class AgentManager {
         }
 
         let text = message.role == .user ? (message.modelContent ?? message.content) : message.content
-        return WheelNormalizedTurn(
+        return WheelConversationTurn(
             id: message.id,
             role: role,
             text: text,
             createdAt: message.timestamp,
             priority: priority,
-            windowIndex: 0
+            tags: []
         )
     }
 
@@ -765,13 +643,6 @@ class AgentManager {
         default:
             return error.localizedDescription
         }
-    }
-
-    private static func isMissingThreadError(_ error: ContextManagerError) -> Bool {
-        if case .threadNotFound = error {
-            return true
-        }
-        return false
     }
 }
 

@@ -70,6 +70,8 @@ final class SettingsAssistantOrchestrator {
         settingsConversationID: UUID,
         generalConversationID: UUID
     ) async throws -> SettingsAssistantPreparedTurn {
+        _ = settingsConversationID
+        _ = generalConversationID
         let appleAvailability = await appleContextService.availabilityStatus()
         guard appleAvailability.isAvailable else {
             throw SettingsAssistantOrchestratorError.appleModelUnavailable(
@@ -77,15 +79,11 @@ final class SettingsAssistantOrchestrator {
             )
         }
 
-        try await syncTranscript(
-            visibleMessages,
-            conversationID: settingsConversationID,
-            instructions: SettingsAssistantPromptBuilder.settingsTrackInstructions,
-            service: appleContextService
-        )
+        let visibleTurns = modelVisibleTurns(from: visibleMessages)
 
         let decision = try await appleContextService.generateSettingsRouteDecision(
-            conversationId: settingsConversationID,
+            instructions: SettingsAssistantPromptBuilder.settingsTrackInstructions,
+            history: visibleTurns,
             prompt: SettingsAssistantPromptBuilder.routePrompt(
                 userPrompt: prompt,
                 registry: registry
@@ -94,15 +92,9 @@ final class SettingsAssistantOrchestrator {
 
         switch decision.value.normalizedRoute {
         case .settingsReport, .settingsMutation:
-            try await syncTranscript(
-                visibleMessages,
-                conversationID: settingsConversationID,
-                instructions: SettingsAssistantPromptBuilder.settingsTrackInstructions,
-                service: appleContextService
-            )
-
             let plan = try await appleContextService.generateSettingsPlan(
-                conversationId: settingsConversationID,
+                instructions: SettingsAssistantPromptBuilder.settingsTrackInstructions,
+                history: visibleTurns,
                 prompt: SettingsAssistantPromptBuilder.settingsPlanPrompt(
                     userPrompt: prompt,
                     route: decision.value.normalizedRoute,
@@ -135,14 +127,9 @@ final class SettingsAssistantOrchestrator {
 
         case .generalChat:
             let generalBackend = try await selectGeneralBackend()
-            try await syncTranscript(
-                visibleMessages,
-                conversationID: generalConversationID,
-                instructions: SystemPromptConfig.chatPrompt,
-                service: generalBackend.service
-            )
             let stream = try await generalBackend.service.streamChatResponse(
-                conversationId: generalConversationID,
+                instructions: SystemPromptConfig.chatPrompt,
+                history: visibleTurns,
                 prompt: prompt
             )
             return .generalChat(stream: stream, source: generalBackend.source)
@@ -162,32 +149,13 @@ final class SettingsAssistantOrchestrator {
         }
     }
 
-    private func syncTranscript(
-        _ messages: [ChatMessage],
-        conversationID: UUID,
-        instructions: String,
-        service: any WheelModelContextServing
-    ) async throws {
-        try await service.importChatSession(
-            conversationId: conversationID,
-            instructions: instructions,
-            turns: modelVisibleTurns(from: messages),
-            durableMemory: [],
-            replaceExisting: true
-        )
-        try await service.openChatSession(
-            conversationId: conversationID,
-            instructions: instructions
-        )
-    }
-
-    private func modelVisibleTurns(from messages: [ChatMessage]) -> [WheelNormalizedTurn] {
+    private func modelVisibleTurns(from messages: [ChatMessage]) -> [WheelConversationTurn] {
         messages.compactMap { message in
             guard !message.isStreaming else {
                 return nil
             }
 
-            let role: WheelNormalizedTurn.Role
+            let role: WheelConversationTurn.Role
             let priority: Int
 
             switch message.role {
@@ -204,13 +172,13 @@ final class SettingsAssistantOrchestrator {
                 return nil
             }
 
-            return WheelNormalizedTurn(
+            return WheelConversationTurn(
                 id: message.id,
                 role: role,
                 text: message.modelContent ?? message.content,
                 createdAt: message.timestamp,
                 priority: priority,
-                windowIndex: 0
+                tags: []
             )
         }
     }

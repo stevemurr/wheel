@@ -6,20 +6,26 @@ enum ArtifactExtractor {
     /// Extract artifacts from markdown content containing fenced code blocks.
     /// Only creates artifacts for blocks of meaningful size (>3 lines).
     static func extract(from content: String) -> [ChatArtifact] {
-        let pattern = #"```(\w*)\n([\s\S]*?)```"#
+        let normalizedContent = ChatMarkdownFormatter.renderableContent(content)
+        let pattern = #"```([^\n`]*)\n([\s\S]*?)```"#
         guard let regex = try? NSRegularExpression(pattern: pattern, options: []) else {
             return []
         }
 
-        let nsContent = content as NSString
-        let matches = regex.matches(in: content, range: NSRange(location: 0, length: nsContent.length))
+        let nsContent = normalizedContent as NSString
+        let matches = regex.matches(
+            in: normalizedContent,
+            range: NSRange(location: 0, length: nsContent.length)
+        )
 
         var artifacts: [ChatArtifact] = []
 
         for match in matches {
             // Extract language
             let langRange = match.range(at: 1)
-            let language = langRange.length > 0 ? nsContent.substring(with: langRange) : nil
+            let language = langRange.length > 0
+                ? nsContent.substring(with: langRange).trimmingCharacters(in: .whitespacesAndNewlines)
+                : nil
 
             // Extract code content
             let codeRange = match.range(at: 2)

@@ -1,5 +1,4 @@
 import Foundation
-import LanguageModelContextManagement
 import Testing
 @testable import WheelBrowser
 
@@ -728,45 +727,51 @@ private actor MockWheelModelContextService: WheelModelContextServing {
         )
     }
 
-    func openChatSession(conversationId: UUID, instructions: String) async throws {}
-
-    func importChatSession(
-        conversationId: UUID,
-        instructions: String,
-        turns: [WheelNormalizedTurn],
-        durableMemory: [WheelDurableMemoryRecord],
-        replaceExisting: Bool
-    ) async throws {}
-
     func streamChatResponse(
-        conversationId: UUID,
+        instructions: String,
+        history: [WheelConversationTurn],
         prompt: String
     ) async throws -> AsyncThrowingStream<WheelChatStreamEvent, Error> {
-        AsyncThrowingStream { continuation in
+        _ = instructions
+        _ = history
+        _ = prompt
+        return AsyncThrowingStream<WheelChatStreamEvent, Error> { continuation in
             continuation.finish()
         }
     }
 
     func streamPlainChatResponse(
-        conversationId: UUID,
+        instructions: String,
+        history: [WheelConversationTurn],
         prompt: String
     ) async throws -> AsyncThrowingStream<WheelPlainChatStreamEvent, Error> {
-        AsyncThrowingStream { continuation in
+        _ = instructions
+        _ = history
+        _ = prompt
+        return AsyncThrowingStream<WheelPlainChatStreamEvent, Error> { continuation in
             continuation.finish()
         }
     }
 
     func generateSettingsRouteDecision(
-        conversationId: UUID,
+        instructions: String,
+        history: [WheelConversationTurn],
         prompt: String
     ) async throws -> WheelGeneratedReply<GeneratedSettingsRouteDecision> {
+        _ = instructions
+        _ = history
+        _ = prompt
         fatalError("Not used in agent execution tests")
     }
 
     func generateSettingsPlan(
-        conversationId: UUID,
+        instructions: String,
+        history: [WheelConversationTurn],
         prompt: String
     ) async throws -> WheelGeneratedReply<GeneratedSettingsPlan> {
+        _ = instructions
+        _ = history
+        _ = prompt
         fatalError("Not used in agent execution tests")
     }
 
