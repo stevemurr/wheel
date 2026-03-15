@@ -149,6 +149,7 @@ struct SettingsAssistantOrchestratorTests {
         #expect(await apple.routeCallCount() == 1)
         #expect(await general.streamCallCount() == 1)
         #expect(await general.streamCalls().first?.history.map(\.text) == ["Earlier prompt"])
+        #expect(await general.streamCalls().first?.instructions == SystemPromptConfig.chatPrompt)
     }
 
     @Test("General chat falls back to Apple when configured model is unavailable")

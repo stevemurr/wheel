@@ -107,17 +107,17 @@ struct GeneratedChatAssistantResponse: Codable, Sendable, WheelStructuredSpecPro
 
     static let outputSchema = WheelOutputSchema.object(
         name: "GeneratedChatAssistantResponse",
-        description: "A browser chat response with the answer text, an optional concise user-visible reasoning summary, optional tool call summaries, and suggested follow-up questions.",
+        description: "A browser chat response with the answer text, an optional user-visible reasoning summary, optional tool call summaries, and suggested follow-up questions.",
         properties: [
             WheelOutputSchema.property(
                 "answer",
                 schema: WheelOutputSchema.string(minLength: 1),
-                description: "The main assistant answer in markdown."
+                description: "The main assistant answer in markdown. Make it complete and match the user's requested depth and level of detail."
             ),
             WheelOutputSchema.property(
                 "thinking",
                 schema: WheelOutputSchema.string(minLength: 1),
-                description: "Optional brief user-visible reasoning trace. Keep it concise and safe to show to the user.",
+                description: "Optional brief user-visible reasoning summary. Keep it concise and safe to show to the user.",
                 optional: true
             ),
             WheelOutputSchema.property(
@@ -125,7 +125,7 @@ struct GeneratedChatAssistantResponse: Codable, Sendable, WheelStructuredSpecPro
                 schema: WheelOutputSchema.array(
                     item: GeneratedChatToolCall.outputSchema
                 ),
-                description: "Optional summaries of tool or retrieval calls used while answering.",
+                description: "Optional concise summaries of tool or retrieval calls used while answering.",
                 optional: true
             ),
             WheelOutputSchema.property(

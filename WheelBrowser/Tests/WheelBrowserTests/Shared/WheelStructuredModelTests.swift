@@ -297,6 +297,26 @@ struct WheelStructuredModelTests {
         #expect(rendered.contains(#""response":"#) == false)
     }
 
+    @Test("Chat response schema keeps detail in the answer while auxiliary fields stay concise")
+    func chatResponseSchemaDescriptionsBalanceDetailAndConciseness() {
+        guard case .object(let object) = GeneratedChatAssistantResponse.outputSchema else {
+            Issue.record("Expected chat response schema to be an object")
+            return
+        }
+
+        let answerProperty = object.properties.first { $0.name == "answer" }
+        let thinkingProperty = object.properties.first { $0.name == "thinking" }
+        let toolCallsProperty = object.properties.first { $0.name == "toolCalls" }
+        let suggestionsProperty = object.properties.first { $0.name == "suggestions" }
+
+        #expect(object.description?.contains("optional user-visible reasoning summary") == true)
+        #expect(answerProperty?.description?.contains("match the user's requested depth and level of detail") == true)
+        #expect(answerProperty?.description?.localizedCaseInsensitiveContains("concise") == false)
+        #expect(thinkingProperty?.description?.contains("Keep it concise") == true)
+        #expect(toolCallsProperty?.description?.contains("Optional concise summaries") == true)
+        #expect(suggestionsProperty?.description == "Two or three concise follow-up questions.")
+    }
+
     private func decode<Value: Encodable & Sendable>(
         _ value: Value,
         with spec: StructuredOutputSpec<Value>

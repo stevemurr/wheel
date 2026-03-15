@@ -53,6 +53,7 @@ struct AgentManagerTests {
         let thinkingMessages = manager.messages.filter { $0.role == .thinking }
 
         #expect(streamCalls.count == 1)
+        #expect(streamCalls[0].instructions == SystemPromptConfig.chatPrompt)
         #expect(streamCalls[0].history.isEmpty)
         #expect(streamCalls[0].prompt == "Hello there")
         #expect(await contextService.structuredStreamCallCount() == 1)
