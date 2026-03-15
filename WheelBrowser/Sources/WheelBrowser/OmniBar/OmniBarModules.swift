@@ -62,7 +62,7 @@ struct OmniBarModuleRegistry {
     }
 
     var orderedModuleIDs: [OmniBarModuleID] {
-        modules.map(\.id)
+        modules.map(\.id).filter(BrowserExperience.showsOmniBarModule)
     }
 
     func module(for id: OmniBarModuleID) -> (any OmniBarModule)? {
@@ -164,7 +164,7 @@ final class AddressOmniBarModule: OmniBarPanelProviding, OmniBarSelectableResult
     }
 
     func handleSubmit(in featureModel: OmniBarFeatureModel) {
-        guard !featureModel.tab.isChatTab else { return }
+        guard !featureModel.tab.showsChatUI else { return }
 
         if let selected = viewModel.selectedSuggestion {
             featureModel.handleSuggestionSelection(selected)

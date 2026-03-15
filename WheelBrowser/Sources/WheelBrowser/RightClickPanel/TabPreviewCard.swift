@@ -29,13 +29,13 @@ struct TabPreviewCard: View {
                     .frame(width: cardWidth, height: thumbnailHeight)
                     .clipShape(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
                     .overlay {
-                        if tab.hasActiveAgent {
+                        if tab.showsAgentAutomationUI {
                             AgentRoundedGlow(cornerRadius: cornerRadius, lineWidth: 2.2, fillOpacity: 0.03)
                         }
                     }
 
                 // Close button overlay
-                if showClose && canClose && !tab.hasActiveAgent {
+                if showClose && canClose && !tab.showsAgentAutomationUI {
                     Button(action: onClose) {
                         Image(systemName: "xmark.circle.fill")
                             .font(.system(size: 16))
@@ -67,7 +67,7 @@ struct TabPreviewCard: View {
         .onHover { hovering in
             showClose = hovering
         }
-        .help(tab.hasActiveAgent ? "\(tab.title) (Agent running)" : tab.title)
+        .help(tab.showsAgentAutomationUI ? "\(tab.title) (Agent running)" : tab.title)
     }
 
     // MARK: - Thumbnail View
@@ -106,7 +106,7 @@ struct TabPreviewCard: View {
     // MARK: - Styling
 
     private var borderColor: Color {
-        if tab.hasActiveAgent {
+        if tab.showsAgentAutomationUI {
             return .green.opacity(0.9)
         } else if isActive {
             return Color(nsColor: .controlAccentColor)
@@ -116,7 +116,7 @@ struct TabPreviewCard: View {
     }
 
     private var borderWidth: CGFloat {
-        if tab.hasActiveAgent {
+        if tab.showsAgentAutomationUI {
             return 2
         } else if isActive {
             return 2.5

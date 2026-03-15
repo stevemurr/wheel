@@ -3,8 +3,8 @@ import Testing
 
 @Suite("OmniBar Tab Transition Policy Tests")
 struct OmniBarTabTransitionPolicyTests {
-    @Test("Blank tabs only latch into full-page chat when chat was actively focused")
-    func blankTabDoesNotLatchIntoChatWithoutFocus() {
+    @Test("Blank tabs do not latch into full-page chat when chat is disabled")
+    func blankTabDoesNotLatchIntoChat() {
         let tab = Tab()
 
         #expect(
@@ -29,12 +29,12 @@ struct OmniBarTabTransitionPolicyTests {
                 currentMode: .chat,
                 isInputFocused: true,
                 hasExplicitChatFocusIntent: true
-            ) == true
+            ) == false
         )
     }
 
-    @Test("Fresh blank tabs reset out of leaked chat mode")
-    func freshBlankTabResetsToAddressMode() {
+    @Test("Chat reset policy stays off when chat is disabled")
+    func freshBlankTabDoesNotResetToAddressMode() {
         let blankTab = Tab()
         let existingChatTab = Tab(isChatTab: true, hasConversationStarted: true)
 
@@ -42,7 +42,7 @@ struct OmniBarTabTransitionPolicyTests {
             OmniBarTabTransitionPolicy.shouldResetToAddressMode(
                 for: blankTab,
                 currentMode: .chat
-            )
+            ) == false
         )
         #expect(
             OmniBarTabTransitionPolicy.shouldResetToAddressMode(

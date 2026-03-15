@@ -84,7 +84,7 @@ struct OmniBarModuleRegistryTests {
     func registryUsesRegistrationOrder() {
         let registry = OmniBarModuleRegistry.builtIn()
 
-        #expect(registry.nextID(after: .address) == .chat)
+        #expect(registry.nextID(after: .address) == .semantic)
         #expect(registry.previousID(before: .address) == .readingList)
     }
 }

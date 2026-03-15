@@ -57,7 +57,7 @@ struct StageManagerThumbnail: View {
                     titleOverlay
                 }
                 .overlay {
-                    if tab.hasActiveAgent {
+                    if tab.showsAgentAutomationUI {
                         AgentRoundedGlow(cornerRadius: cornerRadius, lineWidth: 2.2, fillOpacity: 0.028)
                     } else {
                         RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
@@ -65,13 +65,13 @@ struct StageManagerThumbnail: View {
                     }
                 }
                 .overlay {
-                    if tab.isLoading && !tab.hasActiveAgent {
+                    if tab.isLoading && !tab.showsAgentAutomationUI {
                         loadingIndicator
                     }
                 }
 
             // Close button (hover-reveal)
-            if isHovered && canClose && !tab.hasActiveAgent {
+            if isHovered && canClose && !tab.showsAgentAutomationUI {
                 Button(action: onClose) {
                     Image(systemName: "xmark.circle.fill")
                         .font(.system(size: closeButtonFontSize))
@@ -93,11 +93,11 @@ struct StageManagerThumbnail: View {
         .animation(AppAnimation.hoverSpring, value: isHovered)
         // Floating shadow — stronger for active tab
         .shadow(
-            color: tab.hasActiveAgent
+            color: tab.showsAgentAutomationUI
                 ? Color.green.opacity(isActive ? 0.45 : 0.3)
                 : (groupAccentColor?.opacity(isActive ? 0.34 : 0.22)
                     ?? .black.opacity(isActive ? 0.45 : 0.3)),
-            radius: tab.hasActiveAgent ? (isActive ? 14 : 10) : (isActive ? 8 : 5),
+            radius: tab.showsAgentAutomationUI ? (isActive ? 14 : 10) : (isActive ? 8 : 5),
             x: isActive ? 3 : 2,
             y: isActive ? 3 : 2
         )
@@ -107,7 +107,7 @@ struct StageManagerThumbnail: View {
         .onHover { hovering in
             isHovered = hovering
         }
-        .help(tab.hasActiveAgent ? "\(tab.displayTitle) (Agent running)" : tab.displayTitle)
+        .help(tab.showsAgentAutomationUI ? "\(tab.displayTitle) (Agent running)" : tab.displayTitle)
     }
 
     // MARK: - Thumbnail View
@@ -132,7 +132,7 @@ struct StageManagerThumbnail: View {
                     startPoint: .topLeading,
                     endPoint: .bottomTrailing
                 )
-            } else if tab.isChatTab {
+            } else if tab.showsChatUI {
                 LinearGradient(
                     colors: [.purple.opacity(0.4), .purple.opacity(0.25)],
                     startPoint: .topLeading,
@@ -143,10 +143,10 @@ struct StageManagerThumbnail: View {
             }
 
             if groupAccentColor != nil {
-                Image(systemName: tab.isChatTab ? "sparkles" : "globe")
+                Image(systemName: tab.showsChatUI ? "sparkles" : "globe")
                     .font(.system(size: placeholderFontSize, weight: .medium))
                     .foregroundColor(.white.opacity(0.82))
-            } else if tab.isChatTab {
+            } else if tab.showsChatUI {
                 Image(systemName: "sparkles")
                     .font(.system(size: placeholderFontSize, weight: .medium))
                     .foregroundColor(.purple.opacity(0.8))
@@ -212,7 +212,7 @@ struct StageManagerThumbnail: View {
     // MARK: - Styling
 
     private var borderColor: Color {
-        if tab.hasActiveAgent {
+        if tab.showsAgentAutomationUI {
             return Color.green.opacity(0.9)
         } else if let groupAccentColor {
             return groupAccentColor.opacity(isActive ? 0.92 : (isSelected ? 0.62 : 0.34))
@@ -226,7 +226,7 @@ struct StageManagerThumbnail: View {
     }
 
     private var borderWidth: CGFloat {
-        if tab.hasActiveAgent {
+        if tab.showsAgentAutomationUI {
             return 2
         } else if groupAccentColor != nil {
             return isActive ? 2.1 : (isSelected ? 1.4 : 0.7)

@@ -323,6 +323,15 @@ struct WheelFixedModelConfigurationProvider: WheelModelConfigurationProviding {
             appleGuardrails: .default
         )
     )
+    static let widgetGenerationApple = WheelFixedModelConfigurationProvider(
+        profile: WheelModelProfile(
+            providerID: .apple,
+            modelID: WheelModelProviderID.apple.defaultModelID,
+            baseURL: nil,
+            contextWindowOverride: nil,
+            appleGuardrails: .default
+        )
+    )
 
     let profile: WheelModelProfile
     let secretStore: any WheelModelSecretStoring

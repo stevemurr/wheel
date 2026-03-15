@@ -941,7 +941,7 @@ private struct BinderTabPeek: View {
 
     private var peekWidth: CGFloat {
         let baseWidth: CGFloat
-        if tab.hasActiveAgent {
+        if tab.showsAgentAutomationUI {
             baseWidth = isHovered ? 16.0 : 13.0
         } else {
             baseWidth = isActive ? 14.0 : (isHovered ? 12.0 : 8.0)
@@ -975,7 +975,7 @@ private struct BinderTabPeek: View {
             .fill(tabColor)
             .frame(width: peekWidth, height: peekHeight)
             .overlay {
-                if tab.hasActiveAgent {
+                if tab.showsAgentAutomationUI {
                     UnevenRoundedRectangle(
                         cornerRadii: .init(
                             topLeading: 0,
@@ -990,12 +990,12 @@ private struct BinderTabPeek: View {
                 }
             }
             .overlay(alignment: .trailing) {
-                if tab.hasActiveAgent {
+                if tab.showsAgentAutomationUI {
                     AgentAutomationOrb(size: max(4, 5 * sizeScale))
                         .offset(x: 4 * sizeScale)
                 }
 
-                if tab.hasActiveAgent || isActive || groupAccentColor != nil {
+                if tab.showsAgentAutomationUI || isActive || groupAccentColor != nil {
                     UnevenRoundedRectangle(
                         cornerRadii: .init(
                             topLeading: 0,
@@ -1006,7 +1006,7 @@ private struct BinderTabPeek: View {
                         style: .continuous
                     )
                     .strokeBorder(
-                        tab.hasActiveAgent
+                        tab.showsAgentAutomationUI
                             ? Color.green.opacity(0.82 + (0.12 * glowPhase))
                             : (groupAccentColor?.opacity(isActive ? 0.88 : 0.5) ?? Color(nsColor: .controlAccentColor)),
                         lineWidth: max(1, 1.5 * sizeScale)
@@ -1014,32 +1014,32 @@ private struct BinderTabPeek: View {
                 }
             }
             .shadow(
-                color: tab.hasActiveAgent
+                color: tab.showsAgentAutomationUI
                     ? Color.green.opacity(0.28 + (0.16 * glowPhase))
                     : (groupAccentColor?.opacity(isActive ? 0.22 : 0.12) ?? .black.opacity(0.25)),
-                radius: tab.hasActiveAgent ? (8 * sizeScale) + (3 * sizeScale * glowPhase) : 2 * sizeScale,
+                radius: tab.showsAgentAutomationUI ? (8 * sizeScale) + (3 * sizeScale * glowPhase) : 2 * sizeScale,
                 x: sizeScale,
                 y: sizeScale
             )
         }
         .animation(AppAnimation.hoverSpring, value: isHovered)
         .animation(AppAnimation.hoverSpring, value: isActive)
-        .animation(AppAnimation.hoverSpring, value: tab.hasActiveAgent)
+        .animation(AppAnimation.hoverSpring, value: tab.showsAgentAutomationUI)
         .onTapGesture {
             onSelect(NSApp.currentEvent?.modifierFlags ?? [])
         }
         .onHover { isHovered = $0 }
-        .help(tab.hasActiveAgent ? "\(tab.displayTitle) (Agent running)" : tab.displayTitle)
+        .help(tab.showsAgentAutomationUI ? "\(tab.displayTitle) (Agent running)" : tab.displayTitle)
     }
 
     private var tabColor: Color {
-        if tab.hasActiveAgent {
+        if tab.showsAgentAutomationUI {
             return .green.opacity(0.8)
         }
         if let groupAccentColor {
             return groupAccentColor.opacity(isActive ? 0.88 : (isHovered ? 0.78 : 0.68))
         }
-        if tab.isChatTab {
+        if tab.showsChatUI {
             return .purple.opacity(0.7)
         }
         return DomainGradient.solidColor(for: tab.url?.host)

@@ -39,7 +39,7 @@ final class OnDeviceWidgetManifestGenerator: @unchecked Sendable, WidgetManifest
         completionProvider: CompletionProvider? = nil,
         availabilityProvider: AvailabilityProvider? = nil,
         preflightProvider: PreflightProvider? = nil,
-        contextService: any WheelModelContextServing = WheelModelContextService.shared
+        contextService: any WheelModelContextServing = WheelModelContextService.widgetGenerationApple
     ) {
         self.completionProvider = completionProvider
         self.preflightProvider = preflightProvider ?? { manifest in
@@ -91,13 +91,13 @@ final class OnDeviceWidgetManifestGenerator: @unchecked Sendable, WidgetManifest
         if let availabilityProvider {
             await report(
                 .checkingAvailability,
-                detail: "Checking the selected AI model.",
+                detail: "Checking the Apple on-device model.",
                 to: progress
             )
             let availability = await availabilityProvider()
             guard availability.isAvailable else {
                 throw WidgetManifestGenerationError.llmFailed(
-                    availability.reason ?? "The selected language model is not available."
+                    availability.reason ?? "The Apple on-device model is not available."
                 )
             }
         }

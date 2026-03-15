@@ -20,6 +20,14 @@ class Tab: Identifiable {
     var agentProgress: String = ""
     var isChatTab: Bool = false
 
+    var showsAgentAutomationUI: Bool {
+        BrowserExperience.agentAutomationEnabled && hasActiveAgent
+    }
+
+    var showsChatUI: Bool {
+        BrowserExperience.aiChatEnabled && isChatTab
+    }
+
     /// Set to true once a message has been sent in this tab's conversation.
     /// Once true, the chat tab latch becomes permanent.
     var hasConversationStarted: Bool = false
@@ -66,7 +74,7 @@ class Tab: Identifiable {
     /// Computed display title that handles empty/default titles gracefully
     /// Returns the URL host (without www.) if title is empty or "New Tab"
     var displayTitle: String {
-        if isChatTab && (title.isEmpty || title == "New Tab") {
+        if showsChatUI && (title.isEmpty || title == "New Tab") {
             return "Chat"
         }
         if title.isEmpty || title == "New Tab" {
@@ -168,7 +176,7 @@ class Tab: Identifiable {
 
     @MainActor
     func setReaderModeEnabled(_ enabled: Bool) async {
-        guard !isChatTab, hasWebView else { return }
+        guard !showsChatUI, hasWebView else { return }
 
         isReaderMode = enabled
 

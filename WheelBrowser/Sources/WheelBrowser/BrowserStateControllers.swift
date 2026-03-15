@@ -36,12 +36,13 @@ struct TabCollectionController {
         shouldSynchronizeFolders: Bool = true,
         model: inout BrowserTabModel
     ) -> Tab {
+        let restoredChatState = BrowserExperience.aiChatEnabled && isChatTab
         let tab = Tab(
             id: id,
             title: title,
             url: url,
             folderID: folderID,
-            isChatTab: isChatTab,
+            isChatTab: restoredChatState,
             hasConversationStarted: hasConversationStarted,
             conversationId: conversationId
         )

@@ -111,34 +111,10 @@ struct WheelBrowserApp: App {
                 ))
                 .keyboardShortcut("h", modifiers: [.command, .option])
 
-                Divider()
-
-                Button("Focus AI Chat") {
-                    OmniBarCommandCenter.shared.send(.focusAISidebar)
-                }
-                .keyboardShortcut("k", modifiers: .command)
-
                 Button("Semantic Search") {
                     OmniBarCommandCenter.shared.send(.focusSemanticSearch)
                 }
                 .keyboardShortcut("j", modifiers: .command)
-
-                Divider()
-
-                Button("Copy Last Response") {
-                    OmniBarCommandCenter.shared.send(.copyLastResponse)
-                }
-                .keyboardShortcut("c", modifiers: [.command, .shift])
-
-                Button("Regenerate Response") {
-                    OmniBarCommandCenter.shared.send(.regenerateResponse)
-                }
-                .keyboardShortcut("r", modifiers: [.command, .option])
-
-                Button("Edit Last Message") {
-                    OmniBarCommandCenter.shared.send(.editLastMessage)
-                }
-                .keyboardShortcut("e", modifiers: [.command, .shift])
             }
 
 // Navigation commands

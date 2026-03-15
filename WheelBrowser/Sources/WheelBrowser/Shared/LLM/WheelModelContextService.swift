@@ -116,6 +116,13 @@ actor WheelModelContextService: WheelModelContextServing {
         ),
         modelConfigurationProvider: WheelFixedModelConfigurationProvider.settingsAssistantApple
     )
+    static let widgetGenerationApple = WheelModelContextService(
+        storageRootURL: FileManager.appSupportDirectory.appendingPathComponent(
+            "WheelWidgetGenerationApple",
+            isDirectory: true
+        ),
+        modelConfigurationProvider: WheelFixedModelConfigurationProvider.widgetGenerationApple
+    )
 
     private struct PreparedRequest: Sendable {
         let runtime: ThreadRuntimeConfiguration

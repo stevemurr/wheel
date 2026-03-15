@@ -203,7 +203,7 @@ struct WidgetPromptSheet: View {
         .frame(minWidth: 860, minHeight: 600)
         .task {
             guard availability == nil else { return }
-            availability = await WheelModelContextService.shared.availabilityStatus()
+            availability = await WheelModelContextService.widgetGenerationApple.availabilityStatus()
         }
         .onChange(of: prompt) { _, _ in
             guard !isWorking else { return }
@@ -296,7 +296,7 @@ struct WidgetPromptSheet: View {
                 Spacer()
             }
 
-            Text("Generation uses the selected AI model. If the model still misses the schema, the app now retries one automatic repair pass before surfacing the error.")
+            Text("Widget generation uses the Apple on-device model. If it still misses the schema, the app retries one automatic repair pass before surfacing the error.")
                 .font(.caption)
                 .foregroundStyle(.secondary)
         }
@@ -589,7 +589,7 @@ struct WidgetPromptSheet: View {
         guard let availability else {
             return "The create flow will enable once the model check completes."
         }
-        return availability.reason ?? "Widget generation uses the currently selected AI model."
+        return availability.reason ?? "Widget generation uses the Apple on-device model."
     }
 
     private var trimmedPrompt: String {
@@ -620,7 +620,7 @@ struct WidgetPromptSheet: View {
 
     private var creationSteps: [WidgetCreationStepDescriptor] {
         [
-            .init(id: 0, title: "Check model", detail: "Verify the selected model is ready."),
+            .init(id: 0, title: "Check model", detail: "Verify the Apple on-device model is ready."),
             .init(id: 1, title: "Draft a plan", detail: "Generate a constrained widget plan from your prompt."),
             .init(id: 2, title: "Compile and preflight", detail: "Compile the plan, run it once in a hidden runtime, and retry once if needed."),
             .init(id: 3, title: "Save to dashboard", detail: "Persist the widget and trigger its first render."),
@@ -917,7 +917,7 @@ struct WidgetPromptSheet: View {
     private func failureSummary(for error: Error) -> String {
         switch error {
         case WidgetManifestGenerationError.llmFailed:
-            return "The selected AI model did not return a usable result."
+            return "The Apple on-device model did not return a usable result."
         case WidgetManifestGenerationError.parseFailed:
             return "The model responded, but the widget response still did not match the expected structure."
         case WidgetManifestGenerationError.validationFailed:

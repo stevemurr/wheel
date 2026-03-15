@@ -111,7 +111,7 @@ struct OmniBarStateTests {
         )
     }
 
-    @Test("Focus commands activate modules through the feature model")
+    @Test("Focus commands activate available modules through the feature model")
     func focusCommandsSwitchModules() {
         let featureModel = makeFeatureModel()
 
@@ -120,8 +120,8 @@ struct OmniBarStateTests {
         #expect(featureModel.isInputFocused)
 
         featureModel.handle(.focusChatInput(prefill: "hello"))
-        #expect(featureModel.mode == .chat)
+        #expect(featureModel.mode == .address)
         #expect(featureModel.inputText == "hello")
-        #expect(featureModel.tab.hasExplicitChatFocusIntent)
+        #expect(featureModel.tab.hasExplicitChatFocusIntent == false)
     }
 }

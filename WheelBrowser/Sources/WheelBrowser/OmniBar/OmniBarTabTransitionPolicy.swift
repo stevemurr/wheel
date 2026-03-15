@@ -2,7 +2,8 @@ import Foundation
 
 enum OmniBarTabTransitionPolicy {
     static func shouldResetToAddressMode(for tab: Tab, currentMode: OmniBarModuleID) -> Bool {
-        currentMode == .chat && shouldPreferNewTabPage(for: tab)
+        guard BrowserExperience.aiChatEnabled else { return false }
+        return currentMode == .chat && shouldPreferNewTabPage(for: tab)
     }
 
     static func shouldLatchEmptyTabIntoChat(
@@ -11,7 +12,8 @@ enum OmniBarTabTransitionPolicy {
         isInputFocused: Bool,
         hasExplicitChatFocusIntent: Bool
     ) -> Bool {
-        shouldPreferNewTabPage(for: tab)
+        guard BrowserExperience.aiChatEnabled else { return false }
+        return shouldPreferNewTabPage(for: tab)
             && currentMode == .chat
             && isInputFocused
             && hasExplicitChatFocusIntent

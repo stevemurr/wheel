@@ -199,7 +199,7 @@ private struct FolderPreviewIcon: View {
         ZStack {
             if let url = tab.url {
                 FaviconPlaceholder(url: url, size: 18, cornerRadius: 5, style: .gradient)
-            } else if tab.isChatTab {
+            } else if tab.showsChatUI {
                 RoundedRectangle(cornerRadius: 5, style: .continuous)
                     .fill(
                         LinearGradient(

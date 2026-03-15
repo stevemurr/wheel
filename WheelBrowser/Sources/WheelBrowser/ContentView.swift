@@ -93,9 +93,7 @@ private struct TabWebViewContainer: View {
     var body: some View {
         ZStack {
             Group {
-                if tab.url == nil && tab.isChatTab {
-                    FullPageChatView(agentManager: agentManager)
-                } else if tab.url == nil {
+                if tab.url == nil {
                     WidgetDashboardPageView { url in
                         browserState.addTab(withURL: url)
                     }
@@ -114,10 +112,6 @@ private struct TabWebViewContainer: View {
                         tab.load(url.absoluteString)
                     }
                 }
-            }
-
-            if tab.hasActiveAgent {
-                AgentControlledTabOverlay(progress: tab.agentProgress)
             }
         }
         // Keep inactive tabs in hierarchy but hidden
@@ -242,7 +236,7 @@ private struct NavigationNotificationModifier: ViewModifier {
             }
             .onReceive(NotificationCenter.default.publisher(for: .openURL)) { notification in
                 if let url = notification.object as? URL,
-                   state.activeTab?.isChatTab != true {
+                   state.activeTab?.showsChatUI != true {
                     state.navigate(to: url)
                 }
             }
@@ -405,11 +399,6 @@ struct ContentView: View {
                     )
                 } else {
                     StartupBrowserSurface()
-                }
-            }
-            .overlay {
-                if startupExtensionsReady, state.activeTab?.hasActiveAgent == true {
-                    AgentControlledWindowGlow()
                 }
             }
             .background(WindowAccessor())
