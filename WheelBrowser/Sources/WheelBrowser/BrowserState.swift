@@ -268,9 +268,8 @@ class BrowserState: BrowserBridgeProvider {
         )
     }
 
-    /// Navigate the active tab to a URL (no-op on chat tabs)
+    /// Navigate the active tab to a URL.
     func navigate(to url: URL) {
-        guard activeTab?.showsChatUI != true else { return }
         activeTab?.load(url.absoluteString)
         persistCurrentWorkspaceState()
     }

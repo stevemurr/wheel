@@ -132,24 +132,14 @@ struct StageManagerThumbnail: View {
                     startPoint: .topLeading,
                     endPoint: .bottomTrailing
                 )
-            } else if tab.showsChatUI {
-                LinearGradient(
-                    colors: [.purple.opacity(0.4), .purple.opacity(0.25)],
-                    startPoint: .topLeading,
-                    endPoint: .bottomTrailing
-                )
             } else {
                 DomainGradient.placeholderGradient(for: tab.url?.host)
             }
 
             if groupAccentColor != nil {
-                Image(systemName: tab.showsChatUI ? "sparkles" : "globe")
+                Image(systemName: "globe")
                     .font(.system(size: placeholderFontSize, weight: .medium))
                     .foregroundColor(.white.opacity(0.82))
-            } else if tab.showsChatUI {
-                Image(systemName: "sparkles")
-                    .font(.system(size: placeholderFontSize, weight: .medium))
-                    .foregroundColor(.purple.opacity(0.8))
             } else if let host = tab.url?.host {
                 Text(DomainGradient.initial(for: host))
                     .font(.system(size: placeholderFontSize, weight: .semibold))

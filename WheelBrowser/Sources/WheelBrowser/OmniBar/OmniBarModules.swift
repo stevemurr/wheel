@@ -163,8 +163,6 @@ final class AddressOmniBarModule: OmniBarPanelProviding, OmniBarSelectableResult
     }
 
     func handleSubmit(in featureModel: OmniBarFeatureModel) {
-        guard !featureModel.tab.showsChatUI else { return }
-
         if let selected = viewModel.selectedSuggestion {
             featureModel.handleSuggestionSelection(selected)
             return

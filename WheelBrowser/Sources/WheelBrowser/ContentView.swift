@@ -235,8 +235,7 @@ private struct NavigationNotificationModifier: ViewModifier {
                 state.activeTab?.toggleReaderMode()
             }
             .onReceive(NotificationCenter.default.publisher(for: .openURL)) { notification in
-                if let url = notification.object as? URL,
-                   state.activeTab?.showsChatUI != true {
+                if let url = notification.object as? URL {
                     state.navigate(to: url)
                 }
             }

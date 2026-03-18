@@ -1039,9 +1039,6 @@ private struct BinderTabPeek: View {
         if let groupAccentColor {
             return groupAccentColor.opacity(isActive ? 0.88 : (isHovered ? 0.78 : 0.68))
         }
-        if tab.showsChatUI {
-            return .purple.opacity(0.7)
-        }
         return DomainGradient.solidColor(for: tab.url?.host)
     }
 

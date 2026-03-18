@@ -415,7 +415,6 @@ final class OmniBarFeatureModel: OmniBarCommandHandling {
             addressModule.viewModel.hide()
             inputText = tab.url?.absoluteString ?? ""
         case .history(let entry, _, _, _):
-            guard !self.tab.showsChatUI else { return }
             inputText = entry.url
             tab.load(entry.url)
             isInputFocused = false
@@ -425,7 +424,6 @@ final class OmniBarFeatureModel: OmniBarCommandHandling {
     }
 
     func handleSemanticSelection(_ result: SemanticSearchResult) {
-        guard !tab.showsChatUI else { return }
         tab.load(result.page.url)
         isInputFocused = false
         dismissVisiblePanel()
@@ -434,7 +432,6 @@ final class OmniBarFeatureModel: OmniBarCommandHandling {
     }
 
     func handleReadingListSelection(_ item: SavedPageRecord) {
-        guard !tab.showsChatUI else { return }
         tab.load(item.url.absoluteString)
         isInputFocused = false
         dismissVisiblePanel()
