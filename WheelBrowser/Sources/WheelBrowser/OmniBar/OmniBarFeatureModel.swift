@@ -90,12 +90,7 @@ final class OmniBarFeatureModel: OmniBarCommandHandling {
     }
 
     var isFullPageChatActiveOrPending: Bool {
-        isFullPageChatActive || OmniBarTabTransitionPolicy.shouldLatchEmptyTabIntoChat(
-            tab: tab,
-            currentMode: mode,
-            isInputFocused: isInputFocused,
-            hasExplicitChatFocusIntent: tab.hasExplicitChatFocusIntent
-        )
+        isFullPageChatActive
     }
 
     var isFullPageChatLocked: Bool {
@@ -184,36 +179,6 @@ final class OmniBarFeatureModel: OmniBarCommandHandling {
                 moduleID: .address,
                 selectAllInput: selectAll
             ))
-        case .focusChatInput(let prefill):
-            guard BrowserExperience.aiChatEnabled else {
-                focusModule(.init(
-                    moduleID: .address,
-                    prefill: prefill,
-                    selectAllInput: prefill == nil
-                ))
-                return
-            }
-            focusModule(.init(
-                moduleID: .chat,
-                prefill: prefill,
-                resetMentions: true,
-                explicitChatFocusIntent: true,
-                respectsFullPageChatLock: false
-            ))
-        case .focusAISidebar:
-            guard BrowserExperience.aiChatEnabled else {
-                focusModule(.init(
-                    moduleID: .address,
-                    selectAllInput: true
-                ))
-                return
-            }
-            focusModule(.init(
-                moduleID: .chat,
-                resetMentions: true,
-                explicitChatFocusIntent: true,
-                respectsFullPageChatLock: false
-            ))
         case .focusSemanticSearch:
             focusModule(.init(moduleID: .semantic))
         case .focusReadingList:
@@ -224,15 +189,6 @@ final class OmniBarFeatureModel: OmniBarCommandHandling {
             handleFindInPage()
         case .toggleSavePage:
             toggleSaveCurrentPage()
-        case .copyLastResponse:
-            guard BrowserExperience.aiChatEnabled else { return }
-            handleCopyLastResponse()
-        case .regenerateResponse:
-            guard BrowserExperience.aiChatEnabled else { return }
-            handleRegenerateResponse()
-        case .editLastMessage:
-            guard BrowserExperience.aiChatEnabled else { return }
-            handleEditLastMessage()
         }
     }
 
@@ -331,18 +287,6 @@ final class OmniBarFeatureModel: OmniBarCommandHandling {
 
             guard BrowserExperience.aiChatEnabled else {
                 self.tab.isChatTab = false
-                self.tab.hasExplicitChatFocusIntent = false
-                return
-            }
-
-            if OmniBarTabTransitionPolicy.shouldLatchEmptyTabIntoChat(
-                tab: self.tab,
-                currentMode: self.mode,
-                isInputFocused: self.isInputFocused,
-                hasExplicitChatFocusIntent: self.tab.hasExplicitChatFocusIntent
-            ) {
-                self.tab.isChatTab = true
-                self.tab.hasExplicitChatFocusIntent = false
                 return
             }
 
@@ -351,7 +295,6 @@ final class OmniBarFeatureModel: OmniBarCommandHandling {
                 && self.tab.url == nil
                 && self.mode != .chat {
                 self.tab.isChatTab = false
-                self.tab.hasExplicitChatFocusIntent = false
             }
         }
     }
@@ -375,10 +318,7 @@ final class OmniBarFeatureModel: OmniBarCommandHandling {
         if tab.showsChatUI {
             setMode(.chat)
             inputText = ""
-        } else if OmniBarTabTransitionPolicy.shouldResetToAddressMode(
-            for: tab,
-            currentMode: mode
-        ) {
+        } else if mode == .chat {
             setMode(.address)
             inputText = tab.url?.absoluteString ?? ""
         }
@@ -400,9 +340,6 @@ final class OmniBarFeatureModel: OmniBarCommandHandling {
 
     func handleInputPillClick() {
         prepareForOmniBarFocus()
-        if BrowserExperience.aiChatEnabled && mode == .chat {
-            tab.hasExplicitChatFocusIntent = true
-        }
         guard !isInputFocused else { return }
         withAnimation(AppAnimation.panelSpring) {
             isInputFocused = true
@@ -430,10 +367,6 @@ final class OmniBarFeatureModel: OmniBarCommandHandling {
     }
 
     func handleModeChange(_ newMode: OmniBarModuleID) {
-        if !BrowserExperience.aiChatEnabled || newMode != .chat {
-            tab.hasExplicitChatFocusIntent = false
-        }
-
         deactivateInactiveModules(except: newMode)
         updateFullPageChatState()
 
@@ -477,25 +410,6 @@ final class OmniBarFeatureModel: OmniBarCommandHandling {
             tab.showFindBar()
         }
         findBarFocusRequestToken += 1
-    }
-
-    func handleCopyLastResponse() {
-        guard let lastAssistant = agentManager.messages.last(where: { $0.role == .assistant }) else { return }
-        PasteboardHelper.copy(lastAssistant.content)
-    }
-
-    func handleRegenerateResponse() {
-        guard let lastAssistantID = agentManager.messages.last(where: { $0.role == .assistant })?.id else { return }
-        Task {
-            await agentManager.regenerateResponse(messageID: lastAssistantID)
-        }
-    }
-
-    func handleEditLastMessage() {
-        focusModule(.init(
-            moduleID: .chat,
-            respectsFullPageChatLock: false
-        ))
     }
 
     func handlePageSaveStateChanged(_ notification: Notification) {
@@ -685,9 +599,6 @@ final class OmniBarFeatureModel: OmniBarCommandHandling {
             isInputFocused = true
         }
 
-        if request.explicitChatFocusIntent {
-            tab.hasExplicitChatFocusIntent = true
-        }
         if request.resetMentions {
             resetMentions(includeCurrentPage: tab.url != nil)
         }
@@ -712,7 +623,7 @@ final class OmniBarFeatureModel: OmniBarCommandHandling {
         case .module(let moduleID):
             if moduleID == .address {
                 inputText = tab.url?.absoluteString ?? ""
-            } else if moduleID != .chat {
+            } else {
                 inputText = ""
             }
         case .downloads:
@@ -747,21 +658,11 @@ final class OmniBarFeatureModel: OmniBarCommandHandling {
             return true
         case .tab:
             guard !isFullPageChatLocked else { return true }
-            let wasChat = mode == .chat
             nextMode()
-            if !wasChat && mode == .chat {
-                tab.hasExplicitChatFocusIntent = true
-                resetMentions(includeCurrentPage: tab.url != nil)
-            }
             return true
         case .shiftTab:
             guard !isFullPageChatLocked else { return true }
-            let wasChat = mode == .chat
             previousMode()
-            if !wasChat && mode == .chat {
-                tab.hasExplicitChatFocusIntent = true
-                resetMentions(includeCurrentPage: tab.url != nil)
-            }
             return true
         case .escape:
             handleEscapePressed()

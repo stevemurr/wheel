@@ -34,7 +34,6 @@ struct OmniBarFocusRequest: Equatable {
     var prefill: String? = nil
     var selectAllInput: Bool = false
     var resetMentions: Bool = false
-    var explicitChatFocusIntent: Bool = false
     var respectsFullPageChatLock: Bool = true
 }
 

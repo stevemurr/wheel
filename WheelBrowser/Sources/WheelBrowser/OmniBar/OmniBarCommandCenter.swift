@@ -7,16 +7,11 @@ protocol OmniBarCommandHandling: AnyObject {
 
 enum OmniBarExternalCommand: Equatable {
     case focusAddressBar(selectAll: Bool = true)
-    case focusChatInput(prefill: String? = nil)
-    case focusAISidebar
     case focusSemanticSearch
     case focusReadingList
     case escape
     case findInPage
     case toggleSavePage
-    case copyLastResponse
-    case regenerateResponse
-    case editLastMessage
 }
 
 @MainActor

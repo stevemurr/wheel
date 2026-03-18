@@ -119,9 +119,8 @@ struct OmniBarStateTests {
         #expect(featureModel.mode == .semantic)
         #expect(featureModel.isInputFocused)
 
-        featureModel.handle(.focusChatInput(prefill: "hello"))
+        featureModel.handle(.focusAddressBar(selectAll: false))
         #expect(featureModel.mode == .address)
-        #expect(featureModel.inputText == "hello")
-        #expect(featureModel.tab.hasExplicitChatFocusIntent == false)
+        #expect(featureModel.isInputFocused)
     }
 }

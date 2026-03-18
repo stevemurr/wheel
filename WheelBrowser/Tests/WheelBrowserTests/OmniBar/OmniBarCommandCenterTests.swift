@@ -18,11 +18,11 @@ struct OmniBarCommandCenterTests {
         let handler = Handler()
         commandCenter.register(handler)
 
-        commandCenter.send(.focusChatInput(prefill: "summarize this"))
+        commandCenter.send(.focusAddressBar(selectAll: false))
         commandCenter.send(.toggleSavePage)
 
         #expect(handler.commands == [
-            .focusChatInput(prefill: "summarize this"),
+            .focusAddressBar(selectAll: false),
             .toggleSavePage,
         ])
     }

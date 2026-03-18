@@ -32,10 +32,6 @@ class Tab: Identifiable {
     /// Once true, the chat tab latch becomes permanent.
     var hasConversationStarted: Bool = false
 
-    /// Transient UI intent used to decide whether a blank tab should latch
-    /// into full-page chat, instead of inheriting shared OmniBar chat mode.
-    var hasExplicitChatFocusIntent: Bool = false
-
     /// Each tab has its own conversation ID for per-tab chat isolation.
     var conversationId: UUID = UUID()
 
