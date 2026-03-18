@@ -196,20 +196,7 @@ final class OmniBarFeatureModel: OmniBarCommandHandling {
         }
     }
 
-    func updateFullPageChatState() {
-        let targetTabID = tab.id
-        DispatchQueue.main.async {
-            guard self.tab.id == targetTabID else { return }
-
-            guard BrowserExperience.aiChatEnabled else {
-                self.tab.isChatTab = false
-                return
-            }
-        }
-    }
-
     func handleURLChange(_ newURL: URL?) {
-        updateFullPageChatState()
         if !isInputFocused && mode == .address {
             inputText = newURL?.absoluteString ?? ""
         }
@@ -228,7 +215,6 @@ final class OmniBarFeatureModel: OmniBarCommandHandling {
             mode = sanitizedMode
             inputText = tab.url?.absoluteString ?? ""
         }
-        updateFullPageChatState()
     }
 
     func handleInputTextChange(_ newValue: String) {
@@ -273,7 +259,6 @@ final class OmniBarFeatureModel: OmniBarCommandHandling {
 
     func handleModeChange(_ newMode: OmniBarModuleID) {
         deactivateInactiveModules(except: newMode)
-        updateFullPageChatState()
 
         guard isInputFocused else {
             dismissVisiblePanel()
@@ -450,7 +435,6 @@ final class OmniBarFeatureModel: OmniBarCommandHandling {
     }
 
     private func handleFocusGained() {
-        updateFullPageChatState()
         currentModule.activate(in: self, reason: .focusGain)
     }
 
@@ -485,7 +469,6 @@ final class OmniBarFeatureModel: OmniBarCommandHandling {
         let panel = visiblePanel
         dismissVisiblePanel()
         isInputFocused = false
-        updateFullPageChatState()
 
         switch panel {
         case .module(let moduleID):

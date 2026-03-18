@@ -11,8 +11,6 @@ struct ClosedTabInfo {
     let url: URL?
     let title: String
     let folderID: UUID?
-    let isChatTab: Bool
-    let hasConversationStarted: Bool
     let conversationId: UUID
     let closedAt: Date
 }
@@ -23,8 +21,6 @@ struct PersistedTab: Codable {
     let url: String?
     let title: String
     let folderID: UUID?
-    let isChatTab: Bool
-    let hasConversationStarted: Bool
     let conversationId: UUID
 
     init(
@@ -32,16 +28,12 @@ struct PersistedTab: Codable {
         url: String?,
         title: String,
         folderID: UUID? = nil,
-        isChatTab: Bool,
-        hasConversationStarted: Bool,
         conversationId: UUID
     ) {
         self.id = id
         self.url = url
         self.title = title
         self.folderID = folderID
-        self.isChatTab = isChatTab
-        self.hasConversationStarted = hasConversationStarted
         self.conversationId = conversationId
     }
 
@@ -51,8 +43,6 @@ struct PersistedTab: Codable {
         url = try container.decodeIfPresent(String.self, forKey: .url)
         title = try container.decode(String.self, forKey: .title)
         folderID = try container.decodeIfPresent(UUID.self, forKey: .folderID)
-        isChatTab = try container.decodeIfPresent(Bool.self, forKey: .isChatTab) ?? false
-        hasConversationStarted = try container.decodeIfPresent(Bool.self, forKey: .hasConversationStarted) ?? false
         conversationId = try container.decodeIfPresent(UUID.self, forKey: .conversationId) ?? UUID()
     }
 }

@@ -363,16 +363,12 @@ struct WorkspaceIntegrationTests {
                         id: activeID,
                         url: "https://example.com/active",
                         title: "Active",
-                        isChatTab: false,
-                        hasConversationStarted: false,
                         conversationId: UUID()
                     ),
                     PersistedTab(
                         id: backgroundID,
                         url: "https://example.com/background",
                         title: "Background",
-                        isChatTab: false,
-                        hasConversationStarted: false,
                         conversationId: UUID()
                     )
                 ],
@@ -399,8 +395,8 @@ struct WorkspaceIntegrationTests {
 
         let state = WorkspaceTabState(
             tabData: [
-                PersistedTab(id: UUID(), url: nil, title: "One", isChatTab: false, hasConversationStarted: false, conversationId: UUID()),
-                PersistedTab(id: UUID(), url: nil, title: "Two", isChatTab: false, hasConversationStarted: false, conversationId: UUID())
+                PersistedTab(id: UUID(), url: nil, title: "One", conversationId: UUID()),
+                PersistedTab(id: UUID(), url: nil, title: "Two", conversationId: UUID())
             ],
             activeTabId: nil
         )

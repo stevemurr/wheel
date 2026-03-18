@@ -120,7 +120,6 @@ struct OmniBar: View {
             featureModel.sync(tab: tab)
             featureModel.inputText = tab.url?.absoluteString ?? ""
             agentManager.switchConversation(to: tab.conversationId)
-            featureModel.updateFullPageChatState()
             featureModel.registerCommands()
         }
         .onDisappear {

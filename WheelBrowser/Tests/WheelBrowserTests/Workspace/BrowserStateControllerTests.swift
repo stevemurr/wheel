@@ -16,8 +16,6 @@ struct BrowserStateControllerTests {
                     url: "https://example.com/restored",
                     title: "Restored",
                     folderID: nil,
-                    isChatTab: false,
-                    hasConversationStarted: false,
                     conversationId: UUID()
                 ),
             ],
@@ -81,8 +79,6 @@ struct BrowserStateControllerTests {
                     url: "https://example.com/restored",
                     title: "Restored",
                     folderID: nil,
-                    isChatTab: false,
-                    hasConversationStarted: false,
                     conversationId: UUID()
                 ),
                 PersistedTab(
@@ -90,8 +86,6 @@ struct BrowserStateControllerTests {
                     url: "https://example.com/loose",
                     title: "Loose",
                     folderID: nil,
-                    isChatTab: false,
-                    hasConversationStarted: false,
                     conversationId: UUID()
                 ),
             ],
@@ -202,8 +196,6 @@ struct BrowserStateControllerTests {
                     url: "https://example.com",
                     title: "Example",
                     folderID: nil,
-                    isChatTab: false,
-                    hasConversationStarted: false,
                     conversationId: UUID()
                 ),
             ],

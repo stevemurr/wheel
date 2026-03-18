@@ -29,21 +29,16 @@ struct TabCollectionController {
         title: String = "New Tab",
         url: URL? = nil,
         folderID: UUID? = nil,
-        isChatTab: Bool = false,
-        hasConversationStarted: Bool = false,
         conversationId: UUID = UUID(),
         loadURLImmediately: Bool = false,
         shouldSynchronizeFolders: Bool = true,
         model: inout BrowserTabModel
     ) -> Tab {
-        let restoredChatState = BrowserExperience.aiChatEnabled && isChatTab
         let tab = Tab(
             id: id,
             title: title,
             url: url,
             folderID: folderID,
-            isChatTab: restoredChatState,
-            hasConversationStarted: hasConversationStarted,
             conversationId: conversationId
         )
         model.tabs.append(tab)
@@ -72,8 +67,6 @@ struct TabCollectionController {
             url: tab.url,
             title: tab.title,
             folderID: tab.folderID,
-            isChatTab: tab.isChatTab,
-            hasConversationStarted: tab.hasConversationStarted,
             conversationId: tab.conversationId,
             closedAt: Date()
         )
@@ -132,8 +125,6 @@ struct TabCollectionController {
                 id: persistedTab.id,
                 title: persistedTab.title,
                 folderID: persistedTab.folderID,
-                isChatTab: persistedTab.isChatTab,
-                hasConversationStarted: persistedTab.hasConversationStarted,
                 conversationId: persistedTab.conversationId,
                 shouldSynchronizeFolders: false,
                 model: &model
@@ -157,8 +148,6 @@ struct TabCollectionController {
                 url: tab.url?.absoluteString,
                 title: tab.title,
                 folderID: tab.folderID,
-                isChatTab: tab.isChatTab,
-                hasConversationStarted: tab.hasConversationStarted,
                 conversationId: tab.conversationId
             )
         }
@@ -605,8 +594,6 @@ struct BrowserLifecycleController {
         let tab = tabCollectionController.appendTab(
             title: closedInfo.title,
             folderID: tabCollectionController.validFolderId(closedInfo.folderID, model: model),
-            isChatTab: closedInfo.isChatTab,
-            hasConversationStarted: closedInfo.hasConversationStarted,
             conversationId: closedInfo.conversationId,
             model: &model
         )
@@ -892,6 +879,7 @@ final class BrowserStateEffects {
     private let removeScreenshotImpl: @MainActor (UUID) -> Void
     private let saveConversationImpl: @MainActor () -> Void
     private let clearSnapshotImpl: @MainActor (UUID) -> Void
+    private let isConversationActiveImpl: @MainActor (UUID) -> Bool
 
     init() {
         self.captureScreenshotImpl = { tab in
@@ -905,6 +893,9 @@ final class BrowserStateEffects {
         }
         self.clearSnapshotImpl = { conversationID in
             AgentManager.shared.clearSnapshot(for: conversationID)
+        }
+        self.isConversationActiveImpl = { conversationID in
+            AgentManager.shared.activeConversationId == conversationID
         }
     }
 
@@ -925,6 +916,9 @@ final class BrowserStateEffects {
         self.clearSnapshotImpl = { conversationID in
             agentManager.clearSnapshot(for: conversationID)
         }
+        self.isConversationActiveImpl = { conversationID in
+            agentManager.activeConversationId == conversationID
+        }
     }
 
     func captureScreenshot(of tab: Tab?) {
@@ -941,12 +935,12 @@ final class BrowserStateEffects {
     }
 
     func handleClosing(tab: Tab) {
-        if tab.isChatTab {
-            let conversationID = tab.conversationId
-            Task { @MainActor in
+        let conversationID = tab.conversationId
+        Task { @MainActor in
+            if isConversationActiveImpl(conversationID) {
                 saveConversationImpl()
-                clearSnapshotImpl(conversationID)
             }
+            clearSnapshotImpl(conversationID)
         }
 
         tab.cleanup()

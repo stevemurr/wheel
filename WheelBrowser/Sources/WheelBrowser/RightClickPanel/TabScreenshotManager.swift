@@ -23,9 +23,8 @@ class TabScreenshotManager {
     private init() {}
 
     /// Captures a screenshot of the given tab's web view and caches it.
-    /// Skips chat tabs since they don't use a WKWebView.
     func captureScreenshot(for tab: Tab) async {
-        guard !tab.isChatTab, tab.hasWebView else { return }
+        guard tab.hasWebView else { return }
         let webView = tab.webView
 
         // Configure snapshot to capture the visible portion

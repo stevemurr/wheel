@@ -18,25 +18,16 @@ class Tab: Identifiable {
     var findSearchText: String = ""
     var hasActiveAgent: Bool = false
     var agentProgress: String = ""
-    var isChatTab: Bool = false
 
     var showsAgentAutomationUI: Bool {
         BrowserExperience.agentAutomationEnabled && hasActiveAgent
     }
 
-    var showsChatUI: Bool {
-        BrowserExperience.aiChatEnabled && isChatTab
-    }
-
-    /// Set to true once a message has been sent in this tab's conversation.
-    /// Once true, the chat tab latch becomes permanent.
-    var hasConversationStarted: Bool = false
-
     /// Each tab has its own conversation ID for per-tab chat isolation.
     var conversationId: UUID = UUID()
 
     /// Backing storage for the lazily-created WKWebView.
-    /// Chat tabs that never render web content avoid the ~30-50MB overhead.
+    /// Avoids the ~30-50MB overhead for tabs that never render web content.
     private var _webView: WKWebView?
     @ObservationIgnored private var pendingReloadURL: URL?
     var webViewRevision: UUID = UUID()
@@ -70,9 +61,6 @@ class Tab: Identifiable {
     /// Computed display title that handles empty/default titles gracefully
     /// Returns the URL host (without www.) if title is empty or "New Tab"
     var displayTitle: String {
-        if showsChatUI && (title.isEmpty || title == "New Tab") {
-            return "Chat"
-        }
         if title.isEmpty || title == "New Tab" {
             if let domain = url?.cleanDomain, !domain.isEmpty {
                 return domain
@@ -92,16 +80,12 @@ class Tab: Identifiable {
         title: String = "New Tab",
         url: URL? = nil,
         folderID: UUID? = nil,
-        isChatTab: Bool = false,
-        hasConversationStarted: Bool = false,
         conversationId: UUID = UUID()
     ) {
         self.id = id
         self.title = title
         self.url = url
         self.folderID = folderID
-        self.isChatTab = isChatTab
-        self.hasConversationStarted = hasConversationStarted
         self.conversationId = conversationId
     }
 
@@ -172,7 +156,7 @@ class Tab: Identifiable {
 
     @MainActor
     func setReaderModeEnabled(_ enabled: Bool) async {
-        guard !showsChatUI, hasWebView else { return }
+        guard hasWebView else { return }
 
         isReaderMode = enabled
 
