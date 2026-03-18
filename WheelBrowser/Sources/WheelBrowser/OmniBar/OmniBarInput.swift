@@ -116,8 +116,7 @@ extension OmniBar {
     var modeIndicator: some View {
         ModeIndicatorView(
             featureModel: featureModel,
-            isInputFocused: featureModel.isInputFocused,
-            isFullPageChatActive: featureModel.isFullPageChatActive
+            isInputFocused: featureModel.isInputFocused
         )
     }
 
@@ -250,17 +249,14 @@ private struct AgentInlineStatusView: View {
 
 // MARK: - Agent Action Button (isolated sub-view for per-property observation)
 
-/// Extracted from OmniBar to isolate full-page chat lock UI from the main input pill body.
+/// Extracted from OmniBar to isolate mode/icon reads from the main input pill body.
 private struct ModeIndicatorView: View {
     var featureModel: OmniBarFeatureModel
     var isInputFocused: Bool
-    var isFullPageChatActive: Bool
 
     var body: some View {
         Button(action: {
-            if !isFullPageChatActive {
-                featureModel.nextMode()
-            }
+            featureModel.nextMode()
         }) {
             Image(systemName: featureModel.modeIcon)
                 .foregroundColor(isInputFocused ? featureModel.modeColor : .secondary)
@@ -268,8 +264,7 @@ private struct ModeIndicatorView: View {
                 .contentTransition(.symbolEffect(.replace))
         }
         .buttonStyle(.plain)
-        .disabled(isFullPageChatActive)
-        .help(isFullPageChatActive ? "Chat mode" : "Press Tab to switch OmniBar modules")
+        .help("Press Tab to switch OmniBar modules")
     }
 }
 
@@ -350,54 +345,6 @@ struct AgentActionButton: View {
             }
         } else {
             isAnimating = false
-        }
-    }
-}
-
-/// Extracted sub-view for chat mode send/stop button (Rule 13).
-/// Isolates `agentManager.isStreamingActive` reads from OmniBar.body.
-struct ChatModeActionButton: View {
-    var agentManager: AgentManager
-    var inputText: String
-    var isSending: Bool
-    var onSubmit: () -> Void
-
-    var body: some View {
-        if agentManager.isStreamingActive {
-            // Stop button during streaming
-            Button(action: { agentManager.stopGeneration() }) {
-                Image(systemName: "stop.fill")
-                    .font(.system(size: 8, weight: .bold))
-                    .foregroundColor(.white)
-                    .frame(width: 22, height: 22)
-                    .background(
-                        Circle()
-                            .fill(Color.red.opacity(0.85))
-                    )
-            }
-            .buttonStyle(.plain)
-            .help("Stop generation")
-        } else {
-            // Send button
-            Button(action: onSubmit) {
-                ZStack {
-                    if isSending {
-                        ProgressView()
-                            .scaleEffect(0.5)
-                    } else {
-                        Image(systemName: "arrow.up")
-                            .font(.system(size: 10, weight: .bold))
-                            .foregroundColor(inputText.isEmpty ? .secondary : .white)
-                    }
-                }
-                .frame(width: 22, height: 22)
-                .background(
-                    Circle()
-                        .fill(inputText.isEmpty ? Color.secondary.opacity(0.2) : Color.purple)
-                )
-            }
-            .buttonStyle(.plain)
-            .disabled(inputText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || isSending)
         }
     }
 }

@@ -1,7 +1,7 @@
 import SwiftUI
 import AppKit
 
-/// Multi-line text editor for chat mode input.
+/// Multi-line text editor for OmniBar input.
 /// Wraps NSTextView in NSScrollView for auto-resize up to ~6 lines.
 /// Enter sends, Shift+Enter inserts newline.
 struct OmniBarTextEditor: NSViewRepresentable {
@@ -29,7 +29,7 @@ struct OmniBarTextEditor: NSViewRepresentable {
         scrollView.drawsBackground = false
         scrollView.borderType = .noBorder
 
-        let textView = ChatTextView()
+        let textView = MultilineTextView()
         textView.isRichText = false
         textView.allowsUndo = true
         textView.font = NSFont.systemFont(ofSize: 13)
@@ -45,7 +45,7 @@ struct OmniBarTextEditor: NSViewRepresentable {
         textView.isAutomaticTextCompletionEnabled = false
         OmniBarTextInputConfigurator.configure(textView)
         textView.delegate = context.coordinator
-        textView.chatDelegate = context.coordinator
+        textView.editorDelegate = context.coordinator
 
         scrollView.documentView = textView
         context.coordinator.textView = textView
@@ -86,14 +86,14 @@ struct OmniBarTextEditor: NSViewRepresentable {
 
     // MARK: - Custom NSTextView Subclass
 
-    /// Subclass to intercept key events before they become commands
-    class ChatTextView: NSTextView {
-        weak var chatDelegate: ChatTextViewDelegate?
+    /// Subclass to intercept key events before they become commands.
+    class MultilineTextView: NSTextView {
+        weak var editorDelegate: OmniBarTextEditorDelegate?
 
         override func becomeFirstResponder() -> Bool {
             let didBecome = super.becomeFirstResponder()
             if didBecome {
-                chatDelegate?.chatTextViewDidBecomeFirstResponder(self)
+                editorDelegate?.textEditorDidBecomeFirstResponder(self)
             }
             return didBecome
         }
@@ -101,7 +101,7 @@ struct OmniBarTextEditor: NSViewRepresentable {
         override func resignFirstResponder() -> Bool {
             let didResign = super.resignFirstResponder()
             if didResign {
-                chatDelegate?.chatTextViewDidResignFirstResponder(self)
+                editorDelegate?.textEditorDidResignFirstResponder(self)
             }
             return didResign
         }
@@ -109,7 +109,7 @@ struct OmniBarTextEditor: NSViewRepresentable {
         override func keyDown(with event: NSEvent) {
             // Enter without shift = submit
             if event.keyCode == 36 && !event.modifierFlags.contains(.shift) {
-                if chatDelegate?.chatTextViewShouldSubmit(self) == true {
+                if editorDelegate?.textEditorShouldSubmit(self) == true {
                     return // Swallowed
                 }
             }
@@ -118,7 +118,7 @@ struct OmniBarTextEditor: NSViewRepresentable {
 
         override func doCommand(by selector: Selector) {
             if let command = KeyboardCommand.from(selector: selector) {
-                if chatDelegate?.chatTextView(self, handleCommand: command) == true {
+                if editorDelegate?.textEditor(self, handleCommand: command) == true {
                     return // Swallowed
                 }
             }
@@ -128,7 +128,7 @@ struct OmniBarTextEditor: NSViewRepresentable {
 
     // MARK: - Coordinator
 
-    class Coordinator: NSObject, NSTextViewDelegate, ChatTextViewDelegate {
+    class Coordinator: NSObject, NSTextViewDelegate, OmniBarTextEditorDelegate {
         var parent: OmniBarTextEditor
         weak var textView: NSTextView?
         weak var scrollView: NSScrollView?
@@ -139,9 +139,9 @@ struct OmniBarTextEditor: NSViewRepresentable {
             self.parent = parent
         }
 
-        // MARK: - ChatTextViewDelegate
+        // MARK: - OmniBarTextEditorDelegate
 
-        func chatTextViewDidBecomeFirstResponder(_ textView: ChatTextView) {
+        func textEditorDidBecomeFirstResponder(_ textView: MultilineTextView) {
             isEditing = true
             DispatchQueue.main.async {
                 guard !self.parent.isFocused else { return }
@@ -149,7 +149,7 @@ struct OmniBarTextEditor: NSViewRepresentable {
             }
         }
 
-        func chatTextViewDidResignFirstResponder(_ textView: ChatTextView) {
+        func textEditorDidResignFirstResponder(_ textView: MultilineTextView) {
             syncFocusLoss()
         }
 
@@ -162,7 +162,7 @@ struct OmniBarTextEditor: NSViewRepresentable {
             )
         }
 
-        func chatTextViewShouldSubmit(_ textView: ChatTextView) -> Bool {
+        func textEditorShouldSubmit(_ textView: MultilineTextView) -> Bool {
             if parent.keyboardHandler.handleKeyboardCommand(.submit, moduleID: parent.moduleID, text: parent.text) {
                 return true
             }
@@ -170,10 +170,10 @@ struct OmniBarTextEditor: NSViewRepresentable {
             return true
         }
 
-        func chatTextView(_ textView: ChatTextView, handleCommand command: KeyboardCommand) -> Bool {
+        func textEditor(_ textView: MultilineTextView, handleCommand command: KeyboardCommand) -> Bool {
             switch command {
             case .moveUp, .moveDown:
-                // Let the chat module claim arrow keys for mention dropdown navigation,
+                // Let the current module claim arrow keys for mention dropdown navigation,
                 // but preserve native caret movement when there is no dropdown to handle.
                 return parent.keyboardHandler.handleKeyboardCommand(command, moduleID: parent.moduleID, text: parent.text)
             default:
@@ -273,17 +273,17 @@ struct OmniBarTextEditor: NSViewRepresentable {
 
         private func omniBarInputHasFirstResponder() -> Bool {
             guard let responder = NSApp.keyWindow?.firstResponder else { return false }
-            return responder is OmniBarTextEditor.ChatTextView
+            return responder is OmniBarTextEditor.MultilineTextView
                 || responder is OmniBarTextField.CommandTextView
         }
     }
 }
 
-/// Protocol for the chat text view to communicate with its coordinator
+/// Protocol for the multi-line text view to communicate with its coordinator.
 @MainActor
-protocol ChatTextViewDelegate: AnyObject {
-    func chatTextViewDidBecomeFirstResponder(_ textView: OmniBarTextEditor.ChatTextView)
-    func chatTextViewDidResignFirstResponder(_ textView: OmniBarTextEditor.ChatTextView)
-    func chatTextViewShouldSubmit(_ textView: OmniBarTextEditor.ChatTextView) -> Bool
-    func chatTextView(_ textView: OmniBarTextEditor.ChatTextView, handleCommand: KeyboardCommand) -> Bool
+protocol OmniBarTextEditorDelegate: AnyObject {
+    func textEditorDidBecomeFirstResponder(_ textView: OmniBarTextEditor.MultilineTextView)
+    func textEditorDidResignFirstResponder(_ textView: OmniBarTextEditor.MultilineTextView)
+    func textEditorShouldSubmit(_ textView: OmniBarTextEditor.MultilineTextView) -> Bool
+    func textEditor(_ textView: OmniBarTextEditor.MultilineTextView, handleCommand: KeyboardCommand) -> Bool
 }

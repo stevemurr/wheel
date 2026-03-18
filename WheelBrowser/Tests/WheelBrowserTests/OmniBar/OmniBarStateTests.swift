@@ -123,4 +123,15 @@ struct OmniBarStateTests {
         #expect(featureModel.mode == .address)
         #expect(featureModel.isInputFocused)
     }
+
+    @Test("Hidden OmniBar modes fall back to address mode")
+    func hiddenModesFallBackToAddress() {
+        let featureModel = makeFeatureModel()
+
+        featureModel.setMode(.chat)
+        #expect(featureModel.mode == .address)
+
+        featureModel.setMode(.agent)
+        #expect(featureModel.mode == .address)
+    }
 }

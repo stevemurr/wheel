@@ -1,7 +1,7 @@
 import AppKit
 import SwiftUI
 
-/// The OmniBar - a unified input bar for URL navigation, AI chat, and semantic search.
+/// The OmniBar - a unified input bar for navigation and browser tools.
 struct OmniBar: View {
     var tab: Tab
     var agentManager: AgentManager
@@ -42,7 +42,6 @@ struct OmniBar: View {
 
     var suggestionsVM: SuggestionsViewModel { featureModel.addressModule.viewModel }
     var semanticSearchVM: SemanticSearchViewModel { featureModel.semanticModule.viewModel }
-    var mentionSuggestionsVM: MentionSuggestionsViewModel { featureModel.chatModule.mentionSuggestionsViewModel }
     var readingListVM: ReadingListViewModel { featureModel.readingListModule.viewModel }
 
     var currentPanelProvider: (any OmniBarPanelProviding)? {
@@ -55,6 +54,10 @@ struct OmniBar: View {
 
     var currentMentionProvider: (any OmniBarMentionProviding)? {
         featureModel.currentModule as? any OmniBarMentionProviding
+    }
+
+    var currentMentionSuggestionsViewModel: MentionSuggestionsViewModel? {
+        currentMentionProvider?.mentionSuggestionsViewModel
     }
 
     var shouldTrapTabNavigation: Bool {
@@ -73,8 +76,9 @@ struct OmniBar: View {
         VStack(spacing: 0) {
             panelViews
 
-            if featureModel.mode == .chat && featureModel.showMentionDropdown {
-                mentionDropdownPanel
+            if featureModel.showMentionDropdown,
+               let mentionSuggestionsViewModel = currentMentionSuggestionsViewModel {
+                mentionDropdownPanel(mentionSuggestionsVM: mentionSuggestionsViewModel)
                     .padding(.horizontal, 16)
                     .padding(.bottom, 4)
                     .transition(.opacity.combined(with: .scale(scale: 0.95, anchor: .bottom)))

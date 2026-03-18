@@ -138,37 +138,6 @@ struct HistoryPanelContent: View {
     }
 }
 
-struct ChatPanelContent: View {
-    var agentManager: AgentManager
-    var isSending: Bool
-    var onSubmitPrompt: ((String) -> Void)?
-
-    var body: some View {
-        Group {
-            if isSending && agentManager.messages.isEmpty {
-                VStack(spacing: 10) {
-                    ProgressView()
-                        .controlSize(.regular)
-
-                    Text("Preparing response…")
-                        .font(.system(size: 13, weight: .medium))
-                        .foregroundColor(.secondary)
-                }
-                .frame(maxWidth: .infinity, minHeight: 180)
-            } else {
-                ChatMessageListView(
-                    agentManager: agentManager,
-                    onSubmitPrompt: onSubmitPrompt,
-                    onSelectArtifact: { artifact in
-                        agentManager.selectedArtifact = artifact
-                    },
-                    compact: true
-                )
-            }
-        }
-    }
-}
-
 private struct DownloadsOmniPanel: View {
     private var downloadManager = DownloadManager.shared
 

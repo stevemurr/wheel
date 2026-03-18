@@ -29,8 +29,8 @@ struct OmniBarTextInputSupportTests {
     }
 
     @MainActor
-    @Test("Chat editor forwards arrow keys to the keyboard handler before falling back to caret movement")
-    func chatEditorForwardsArrowKeys() {
+    @Test("Multiline editor forwards arrow keys to the keyboard handler before falling back to caret movement")
+    func multilineEditorForwardsArrowKeys() {
         let handler = StubKeyboardHandler()
         handler.resultForCommand[.moveDown] = true
 
@@ -45,8 +45,8 @@ struct OmniBarTextInputSupportTests {
                 get: { isFocused },
                 set: { isFocused = $0 }
             ),
-            moduleID: .chat,
-            placeholder: "Ask about this page...",
+            moduleID: "multiline-test",
+            placeholder: "Enter query...",
             supportsMentions: true,
             keyboardHandler: handler,
             onSubmit: {},
@@ -55,15 +55,15 @@ struct OmniBarTextInputSupportTests {
         )
 
         let coordinator = OmniBarTextEditor.Coordinator(editor)
-        let textView = OmniBarTextEditor.ChatTextView()
+        let textView = OmniBarTextEditor.MultilineTextView()
 
-        #expect(coordinator.chatTextView(textView, handleCommand: .moveDown))
+        #expect(coordinator.textEditor(textView, handleCommand: .moveDown))
         #expect(handler.handledCommands == [.moveDown])
     }
 
     @MainActor
-    @Test("Chat editor routes Return through the keyboard handler before direct submission")
-    func chatEditorForwardsSubmit() {
+    @Test("Multiline editor routes Return through the keyboard handler before direct submission")
+    func multilineEditorForwardsSubmit() {
         let handler = StubKeyboardHandler()
         handler.resultForCommand[.submit] = true
 
@@ -79,8 +79,8 @@ struct OmniBarTextInputSupportTests {
                 get: { isFocused },
                 set: { isFocused = $0 }
             ),
-            moduleID: .chat,
-            placeholder: "Ask about this page...",
+            moduleID: "multiline-test",
+            placeholder: "Enter query...",
             supportsMentions: true,
             keyboardHandler: handler,
             onSubmit: { didSubmit = true },
@@ -89,16 +89,16 @@ struct OmniBarTextInputSupportTests {
         )
 
         let coordinator = OmniBarTextEditor.Coordinator(editor)
-        let textView = OmniBarTextEditor.ChatTextView()
+        let textView = OmniBarTextEditor.MultilineTextView()
 
-        #expect(coordinator.chatTextViewShouldSubmit(textView))
+        #expect(coordinator.textEditorShouldSubmit(textView))
         #expect(handler.handledCommands == [.submit])
         #expect(didSubmit == false)
     }
 
     @MainActor
-    @Test("Chat editor preserves native arrow movement when the keyboard handler does not consume it")
-    func chatEditorFallsBackForUnhandledArrowKeys() {
+    @Test("Multiline editor preserves native arrow movement when the keyboard handler does not consume it")
+    func multilineEditorFallsBackForUnhandledArrowKeys() {
         let handler = StubKeyboardHandler()
 
         var text = "plain text"
@@ -112,8 +112,8 @@ struct OmniBarTextInputSupportTests {
                 get: { isFocused },
                 set: { isFocused = $0 }
             ),
-            moduleID: .chat,
-            placeholder: "Ask about this page...",
+            moduleID: "multiline-test",
+            placeholder: "Enter query...",
             supportsMentions: true,
             keyboardHandler: handler,
             onSubmit: {},
@@ -122,9 +122,9 @@ struct OmniBarTextInputSupportTests {
         )
 
         let coordinator = OmniBarTextEditor.Coordinator(editor)
-        let textView = OmniBarTextEditor.ChatTextView()
+        let textView = OmniBarTextEditor.MultilineTextView()
 
-        #expect(coordinator.chatTextView(textView, handleCommand: .moveUp) == false)
+        #expect(coordinator.textEditor(textView, handleCommand: .moveUp) == false)
         #expect(handler.handledCommands == [.moveUp])
     }
 }

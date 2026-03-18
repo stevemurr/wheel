@@ -260,7 +260,7 @@ struct OmniBarTextField: NSViewRepresentable {
         private func omniBarInputHasFirstResponder() -> Bool {
             guard let responder = NSApp.keyWindow?.firstResponder else { return false }
             return responder is OmniBarTextField.CommandTextView
-                || responder is OmniBarTextEditor.ChatTextView
+                || responder is OmniBarTextEditor.MultilineTextView
         }
     }
 }

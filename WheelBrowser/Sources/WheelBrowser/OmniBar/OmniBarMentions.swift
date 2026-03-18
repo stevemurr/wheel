@@ -15,7 +15,7 @@ extension OmniBar {
         }
     }
 
-    var mentionDropdownPanel: some View {
+    func mentionDropdownPanel(mentionSuggestionsVM: MentionSuggestionsViewModel) -> some View {
         VStack(alignment: .leading, spacing: 0) {
             if mentionSuggestionsVM.suggestions.isEmpty {
                 if mentionSuggestionsVM.isSearching {

@@ -23,7 +23,6 @@ final class OmniBarFeatureModel: OmniBarCommandHandling {
 
     var isInputFocused: Bool = false
     var isHovering: Bool = false
-    var isSending = false
     var findText: String = ""
     var isCurrentPageSaved = false
     var chatEditorHeight: CGFloat = OmniBarTextEditor.lineHeight + OmniBarTextEditor.verticalPadding
@@ -85,18 +84,6 @@ final class OmniBarFeatureModel: OmniBarCommandHandling {
         isInputFocused || isHovering
     }
 
-    var isFullPageChatActive: Bool {
-        BrowserExperience.aiChatEnabled && tab.url == nil && tab.isChatTab
-    }
-
-    var isFullPageChatActiveOrPending: Bool {
-        isFullPageChatActive
-    }
-
-    var isFullPageChatLocked: Bool {
-        isFullPageChatActive && tab.hasConversationStarted
-    }
-
     var historyPanelSubtitle: String {
         let suggestions = addressModule.viewModel.suggestions
 
@@ -126,13 +113,6 @@ final class OmniBarFeatureModel: OmniBarCommandHandling {
     var addressModule: AddressOmniBarModule {
         guard let module = registry.module(for: .address, as: AddressOmniBarModule.self) else {
             preconditionFailure("Missing address OmniBar module")
-        }
-        return module
-    }
-
-    var chatModule: ChatOmniBarModule {
-        guard let module = registry.module(for: .chat, as: ChatOmniBarModule.self) else {
-            preconditionFailure("Missing chat OmniBar module")
         }
         return module
     }
@@ -201,8 +181,9 @@ final class OmniBarFeatureModel: OmniBarCommandHandling {
     }
 
     func setMode(_ newMode: OmniBarModuleID) {
-        guard mode != newMode else { return }
-        mode = newMode
+        let resolvedMode = resolvedMode(for: newMode)
+        guard mode != resolvedMode else { return }
+        mode = resolvedMode
         inputText = ""
     }
 
@@ -289,13 +270,6 @@ final class OmniBarFeatureModel: OmniBarCommandHandling {
                 self.tab.isChatTab = false
                 return
             }
-
-            if self.tab.isChatTab
-                && !self.tab.hasConversationStarted
-                && self.tab.url == nil
-                && self.mode != .chat {
-                self.tab.isChatTab = false
-            }
         }
     }
 
@@ -315,11 +289,9 @@ final class OmniBarFeatureModel: OmniBarCommandHandling {
         dismissVisiblePanel()
 
         agentManager.switchConversation(to: tab.conversationId)
-        if tab.showsChatUI {
-            setMode(.chat)
-            inputText = ""
-        } else if mode == .chat {
-            setMode(.address)
+        let sanitizedMode = resolvedMode(for: mode)
+        if sanitizedMode != mode {
+            mode = sanitizedMode
             inputText = tab.url?.absoluteString ?? ""
         }
         updateFullPageChatState()
@@ -387,7 +359,7 @@ final class OmniBarFeatureModel: OmniBarCommandHandling {
         if DownloadManager.shared.showDownloadsPanel {
             DownloadManager.shared.dismissPanel()
         } else if showMentionDropdown {
-            chatModule.dismissMentionSuggestions(in: self)
+            dismissMentionDropdown()
         } else if tab.isFindBarVisible {
             withAnimation(AppAnimation.standard) {
                 tab.hideFindBar()
@@ -541,10 +513,6 @@ final class OmniBarFeatureModel: OmniBarCommandHandling {
 
     private func syncModuleDependencies() {
         addressModule.viewModel.browserState = browserState
-        if let chatModule = registry.module(for: .chat, as: ChatOmniBarModule.self) {
-            chatModule.mentionSuggestionsViewModel.browserState = browserState
-            chatModule.mentionSuggestionsViewModel.fabricClient = fabricClient
-        }
     }
 
     private func automaticMention(includeCurrentPage: Bool) -> Mention? {
@@ -587,10 +555,6 @@ final class OmniBarFeatureModel: OmniBarCommandHandling {
                     selectAllInput: request.selectAllInput
                 ))
             }
-            return
-        }
-
-        if request.respectsFullPageChatLock && request.moduleID != .chat && isFullPageChatLocked {
             return
         }
 
@@ -639,6 +603,14 @@ final class OmniBarFeatureModel: OmniBarCommandHandling {
         }
     }
 
+    private func resolvedMode(for requestedMode: OmniBarModuleID) -> OmniBarModuleID {
+        guard BrowserExperience.showsOmniBarModule(requestedMode),
+              registry.module(for: requestedMode) != nil else {
+            return .address
+        }
+        return requestedMode
+    }
+
     private func handleGeneralKeyboardCommand(_ command: KeyboardCommand, moduleID: OmniBarModuleID) -> Bool {
         switch command {
         case .submit:
@@ -657,11 +629,9 @@ final class OmniBarFeatureModel: OmniBarCommandHandling {
             selectable.selectNext()
             return true
         case .tab:
-            guard !isFullPageChatLocked else { return true }
             nextMode()
             return true
         case .shiftTab:
-            guard !isFullPageChatLocked else { return true }
             previousMode()
             return true
         case .escape:
