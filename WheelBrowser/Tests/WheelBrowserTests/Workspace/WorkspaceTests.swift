@@ -15,27 +15,23 @@ struct WorkspaceTests {
         #expect(workspace.icon == "folder")
         #expect(workspace.color == "#007AFF")
         #expect(workspace.tabIDs.isEmpty)
-        #expect(workspace.defaultAgentID == nil)
     }
 
     @Test("Workspace initializes with custom values")
     func initializesWithCustomValues() {
         let tabIDs = [UUID(), UUID()]
-        let agentID = UUID()
 
         let workspace = Workspace(
             name: "Custom",
             icon: "briefcase",
             color: "#FF5733",
-            tabIDs: tabIDs,
-            defaultAgentID: agentID
+            tabIDs: tabIDs
         )
 
         #expect(workspace.name == "Custom")
         #expect(workspace.icon == "briefcase")
         #expect(workspace.color == "#FF5733")
         #expect(workspace.tabIDs == tabIDs)
-        #expect(workspace.defaultAgentID == agentID)
     }
 
     @Test("Workspace generates unique ID")

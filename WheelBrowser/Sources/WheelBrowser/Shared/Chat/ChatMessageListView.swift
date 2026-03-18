@@ -1,6 +1,6 @@
 import SwiftUI
 
-/// Shared message list used by both `ChatPanelContent` (OmniBar panel) and `FullPageChatView`.
+/// Shared message list used by compact and expanded chat surfaces.
 /// Uses `LazyVStack` so off-screen messages aren't instantiated, and `ForEach` keyed on
 /// stable message IDs (not positional indices) so streaming insertions don't invalidate the list.
 struct ChatMessageListView: View {

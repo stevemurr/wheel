@@ -1,13 +1,12 @@
 import Foundation
 
-/// Represents a workspace that groups tabs together with an optional assigned agent
+/// Represents a workspace that groups tabs together.
 struct Workspace: Identifiable, Codable, Equatable {
     let id: UUID
     var name: String
     var icon: String  // SF Symbol name
     var color: String // Hex color for accent
     var tabIDs: [UUID]  // References to tabs in this workspace
-    var defaultAgentID: UUID?  // The agent assigned to this workspace
     var createdAt: Date
     var lastAccessedAt: Date
 
@@ -17,7 +16,6 @@ struct Workspace: Identifiable, Codable, Equatable {
         icon: String = "folder",
         color: String = "#007AFF",
         tabIDs: [UUID] = [],
-        defaultAgentID: UUID? = nil,
         createdAt: Date = Date(),
         lastAccessedAt: Date = Date()
     ) {
@@ -26,7 +24,6 @@ struct Workspace: Identifiable, Codable, Equatable {
         self.icon = icon
         self.color = color
         self.tabIDs = tabIDs
-        self.defaultAgentID = defaultAgentID
         self.createdAt = createdAt
         self.lastAccessedAt = lastAccessedAt
     }

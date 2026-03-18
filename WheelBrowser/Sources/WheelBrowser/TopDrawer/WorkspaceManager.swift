@@ -51,15 +51,13 @@ class WorkspaceManager {
         name: String,
         icon: String = "folder",
         color: String = "#007AFF",
-        tabIDs: [UUID] = [],
-        defaultAgentID: UUID? = nil
+        tabIDs: [UUID] = []
     ) -> Workspace {
         let workspace = Workspace(
             name: name,
             icon: icon,
             color: color,
-            tabIDs: tabIDs,
-            defaultAgentID: defaultAgentID
+            tabIDs: tabIDs
         )
 
         workspaces.append(workspace)
@@ -126,8 +124,7 @@ class WorkspaceManager {
         name: String? = nil,
         icon: String? = nil,
         color: String? = nil,
-        tabIDs: [UUID]? = nil,
-        defaultAgentID: UUID?? = nil
+        tabIDs: [UUID]? = nil
     ) {
         guard let index = workspaces.firstIndex(where: { $0.id == id }) else { return }
 
@@ -142,9 +139,6 @@ class WorkspaceManager {
         }
         if let tabIDs = tabIDs {
             workspaces[index].tabIDs = tabIDs
-        }
-        if let defaultAgentID = defaultAgentID {
-            workspaces[index].defaultAgentID = defaultAgentID
         }
 
         saveWorkspaces()
