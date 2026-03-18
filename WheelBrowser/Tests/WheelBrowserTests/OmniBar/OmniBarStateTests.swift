@@ -60,9 +60,6 @@ struct OmniBarStateTests {
     func hiddenModesFallBackToAddress() {
         let featureModel = makeFeatureModel()
 
-        featureModel.setMode(.chat)
-        #expect(featureModel.mode == .address)
-
         featureModel.setMode(.agent)
         #expect(featureModel.mode == .address)
     }

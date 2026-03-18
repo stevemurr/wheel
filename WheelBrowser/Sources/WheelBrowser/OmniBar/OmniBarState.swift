@@ -12,7 +12,6 @@ struct OmniBarModuleID: Hashable, RawRepresentable, ExpressibleByStringLiteral, 
     }
 
     static let address: Self = "address"
-    static let chat: Self = "chat"
     static let semantic: Self = "semantic"
     static let agent: Self = "agent"
     static let readingList: Self = "readingList"
