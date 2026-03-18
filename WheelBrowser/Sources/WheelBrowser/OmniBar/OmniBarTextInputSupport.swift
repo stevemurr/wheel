@@ -1,25 +1,5 @@
 import AppKit
 
-enum OmniBarMentionTriggerParser {
-    static func query(in text: String) -> String? {
-        guard let atIndex = text.lastIndex(of: "@") else { return nil }
-
-        let queryStartIndex = text.index(after: atIndex)
-        let query = String(text[queryStartIndex...])
-
-        let isValidTrigger: Bool
-        if atIndex == text.startIndex {
-            isValidTrigger = true
-        } else {
-            let beforeAt = text.index(before: atIndex)
-            isValidTrigger = text[beforeAt].isWhitespace
-        }
-
-        guard isValidTrigger, !query.contains(" ") else { return nil }
-        return query
-    }
-}
-
 @MainActor
 enum OmniBarTextInputFocusCoordinator {
     static func requestFocusIfNeeded(

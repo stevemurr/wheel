@@ -2,8 +2,7 @@ import Foundation
 
 /// Categories for embedding content to enable filtered semantic search.
 ///
-/// Documents indexed with categories can be filtered during search using
-/// the `@Web`, `@History`, and `@ReadingList` mentions in chat.
+/// Documents indexed with categories can be filtered during semantic search.
 enum EmbeddingCategory: String, CaseIterable, Codable, Sendable {
     /// Browsing history - pages visited by the user
     case history

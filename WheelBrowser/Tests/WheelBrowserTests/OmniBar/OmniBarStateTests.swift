@@ -13,66 +13,8 @@ struct OmniBarStateTests {
             tab: tab,
             agentManager: agentManager,
             browserState: browserState,
-            fabricClient: nil,
-            agentEngine: agentEngine,
-            contentExtractor: ContentExtractor()
+            agentEngine: agentEngine
         )
-    }
-
-    @Test("User removal of auto page context is preserved across mention resets")
-    func userRemovalSuppressesAutomaticPageContext() {
-        OverlayWindowManager.shared.closeAll()
-
-        let featureModel = makeFeatureModel()
-        featureModel.resetMentions(includeCurrentPage: true)
-        #expect(featureModel.mentions.contains(.currentPage))
-
-        featureModel.removeMention(.currentPage)
-        featureModel.resetMentions(includeCurrentPage: true)
-
-        #expect(featureModel.mentions.contains(.currentPage) == false)
-    }
-
-    @Test("System removal does not suppress automatic page context")
-    func systemRemovalDoesNotSuppressAutomaticPageContext() {
-        OverlayWindowManager.shared.closeAll()
-
-        let featureModel = makeFeatureModel()
-        featureModel.resetMentions(includeCurrentPage: true)
-        featureModel.removeMention(.currentPage, userInitiated: false)
-        featureModel.resetMentions(includeCurrentPage: true)
-
-        #expect(featureModel.mentions.contains(.currentPage))
-    }
-
-    @Test("Clearing suppression restores automatic page context")
-    func clearingSuppressionRestoresAutomaticPageContext() {
-        OverlayWindowManager.shared.closeAll()
-
-        let featureModel = makeFeatureModel()
-        featureModel.removeMention(.currentPage)
-        featureModel.resetMentions(includeCurrentPage: true)
-        #expect(featureModel.mentions.contains(.currentPage) == false)
-
-        featureModel.clearAutomaticMentionSuppression()
-        featureModel.resetMentions(includeCurrentPage: true)
-
-        #expect(featureModel.mentions.contains(.currentPage))
-    }
-
-    @Test("Manually re-adding the page mention clears suppression")
-    func reAddingMentionClearsSuppression() {
-        OverlayWindowManager.shared.closeAll()
-
-        let featureModel = makeFeatureModel()
-        featureModel.removeMention(.currentPage)
-        featureModel.resetMentions(includeCurrentPage: true)
-        #expect(featureModel.mentions.contains(.currentPage) == false)
-
-        featureModel.addMention(.currentPage)
-        featureModel.resetMentions(includeCurrentPage: true)
-
-        #expect(featureModel.mentions.contains(.currentPage))
     }
 
     @Test("Tab trapping stays active while any OmniBar surface is active")
@@ -80,22 +22,13 @@ struct OmniBarStateTests {
         #expect(
             OmniBarFeatureModel.shouldTrapTabNavigation(
                 isInputFocused: true,
-                visiblePanel: .none,
-                showMentionDropdown: false
+                visiblePanel: .none
             )
         )
         #expect(
             OmniBarFeatureModel.shouldTrapTabNavigation(
                 isInputFocused: false,
-                visiblePanel: .semantic,
-                showMentionDropdown: false
-            )
-        )
-        #expect(
-            OmniBarFeatureModel.shouldTrapTabNavigation(
-                isInputFocused: false,
-                visiblePanel: .none,
-                showMentionDropdown: true
+                visiblePanel: .semantic
             )
         )
     }
@@ -105,8 +38,7 @@ struct OmniBarStateTests {
         #expect(
             OmniBarFeatureModel.shouldTrapTabNavigation(
                 isInputFocused: false,
-                visiblePanel: .none,
-                showMentionDropdown: false
+                visiblePanel: .none
             ) == false
         )
     }

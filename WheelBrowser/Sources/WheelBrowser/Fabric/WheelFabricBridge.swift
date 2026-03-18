@@ -3,8 +3,6 @@ import Foundation
 
 enum WheelFabricAppID {
     static let browser = "wheel.browser"
-    static let notes = "wheel.notes"
-    static let chat = "wheel.chat"
 }
 
 @MainActor
@@ -405,7 +403,6 @@ final class WheelBrowserFabricProvider: FabricResourceProvider, FabricSubscripti
 final class WheelFabricCoordinator {
     private let browserProvider: WheelBrowserFabricProvider
     private let browserClient: FabricXPCClient
-    let consumerClient: FabricXPCClient
 
     private var isRegistered = false
     private var isRegistering = false
@@ -426,7 +423,6 @@ final class WheelFabricCoordinator {
             actionProvider: nil,
             subscriptionProvider: AnyFabricSubscriptionProvider(browserProvider)
         )
-        self.consumerClient = FabricXPCClient()
     }
 
     func start() {

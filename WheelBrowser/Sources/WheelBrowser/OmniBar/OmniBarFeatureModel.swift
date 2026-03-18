@@ -6,9 +6,7 @@ final class OmniBarFeatureModel: OmniBarCommandHandling {
     @ObservationIgnored let registry: OmniBarModuleRegistry
     @ObservationIgnored let agentManager: AgentManager
     @ObservationIgnored let browserState: BrowserState
-    @ObservationIgnored var fabricClient: (any WheelFabricMentionClient)?
     @ObservationIgnored let agentEngine: AgentEngine
-    @ObservationIgnored let contentExtractor: ContentExtractor
     @ObservationIgnored private let commandCenter: OmniBarCommandCenter
 
     @ObservationIgnored var tab: Tab
@@ -17,36 +15,25 @@ final class OmniBarFeatureModel: OmniBarCommandHandling {
     var inputText: String = ""
     var visiblePanel: OmniBarPanelVisibility = .none
 
-    var mentions: [Mention] = [.currentPage]
-    var showMentionDropdown: Bool = false
-    var mentionSearchText: String = ""
-
     var isInputFocused: Bool = false
     var isHovering: Bool = false
     var findText: String = ""
     var isCurrentPageSaved = false
-    var chatEditorHeight: CGFloat = OmniBarTextEditor.lineHeight + OmniBarTextEditor.verticalPadding
     var findBarFocusRequestToken = 0
     var inputSelectAllRequestToken = 0
-
-    @ObservationIgnored private var suppressedAutomaticMention: Mention?
 
     init(
         tab: Tab,
         agentManager: AgentManager,
         browserState: BrowserState,
-        fabricClient: (any WheelFabricMentionClient)?,
         agentEngine: AgentEngine,
-        contentExtractor: ContentExtractor,
         registry: OmniBarModuleRegistry? = nil,
         commandCenter: OmniBarCommandCenter? = nil
     ) {
         self.tab = tab
         self.agentManager = agentManager
         self.browserState = browserState
-        self.fabricClient = fabricClient
         self.agentEngine = agentEngine
-        self.contentExtractor = contentExtractor
         self.registry = registry ?? .builtIn()
         self.commandCenter = commandCenter ?? .shared
 
@@ -74,10 +61,6 @@ final class OmniBarFeatureModel: OmniBarCommandHandling {
 
     var modeColor: Color {
         currentModule.color
-    }
-
-    var currentInputKind: OmniBarInputKind {
-        currentModule.inputKind
     }
 
     var shouldExpand: Bool {
@@ -138,9 +121,8 @@ final class OmniBarFeatureModel: OmniBarCommandHandling {
         return module
     }
 
-    func sync(tab: Tab, fabricClient: (any WheelFabricMentionClient)?) {
+    func sync(tab: Tab) {
         self.tab = tab
-        self.fabricClient = fabricClient
         syncModuleDependencies()
     }
 
@@ -187,53 +169,6 @@ final class OmniBarFeatureModel: OmniBarCommandHandling {
         inputText = ""
     }
 
-    func addMention(_ mention: Mention) {
-        guard !mentions.contains(mention) else { return }
-        if suppressedAutomaticMention == mention {
-            suppressedAutomaticMention = nil
-        }
-        mentions.append(mention)
-    }
-
-    func removeMention(_ mention: Mention, userInitiated: Bool = true) {
-        mentions.removeAll { $0 == mention }
-        if userInitiated && mention.isAutomaticDefaultContext {
-            suppressedAutomaticMention = mention
-        }
-    }
-
-    func resetMentions(includeCurrentPage: Bool = true) {
-        let persistent = mentions.filter { $0.isPersistent }
-        guard let automaticMention = automaticMention(includeCurrentPage: includeCurrentPage) else {
-            mentions = persistent
-            return
-        }
-
-        if suppressedAutomaticMention == automaticMention {
-            mentions = persistent
-        } else {
-            mentions = [automaticMention] + persistent
-        }
-    }
-
-    func clearAutomaticMentionSuppression() {
-        suppressedAutomaticMention = nil
-    }
-
-    func openMentionDropdown() {
-        withAnimation(AppAnimation.standard) {
-            showMentionDropdown = true
-            mentionSearchText = ""
-        }
-    }
-
-    func dismissMentionDropdown() {
-        withAnimation(AppAnimation.standard) {
-            showMentionDropdown = false
-            mentionSearchText = ""
-        }
-    }
-
     func setVisiblePanel(_ panel: OmniBarPanelVisibility) {
         guard visiblePanel != panel else { return }
         withAnimation(AppAnimation.panelSpring) {
@@ -275,7 +210,6 @@ final class OmniBarFeatureModel: OmniBarCommandHandling {
 
     func handleURLChange(_ newURL: URL?) {
         updateFullPageChatState()
-        clearAutomaticMentionSuppression()
         if !isInputFocused && mode == .address {
             inputText = newURL?.absoluteString ?? ""
         }
@@ -321,8 +255,7 @@ final class OmniBarFeatureModel: OmniBarCommandHandling {
     func handleOmniBarTabPress(isShiftTab: Bool) {
         guard Self.shouldTrapTabNavigation(
             isInputFocused: isInputFocused,
-            visiblePanel: visiblePanel,
-            showMentionDropdown: showMentionDropdown
+            visiblePanel: visiblePanel
         ) else { return }
 
         if !isInputFocused {
@@ -358,8 +291,6 @@ final class OmniBarFeatureModel: OmniBarCommandHandling {
 
         if DownloadManager.shared.showDownloadsPanel {
             DownloadManager.shared.dismissPanel()
-        } else if showMentionDropdown {
-            dismissMentionDropdown()
         } else if tab.isFindBarVisible {
             withAnimation(AppAnimation.standard) {
                 tab.hideFindBar()
@@ -493,35 +424,15 @@ final class OmniBarFeatureModel: OmniBarCommandHandling {
         }
     }
 
-    func removeAtQueryFromInput() {
-        let text = inputText
-        if let atIndex = text.lastIndex(of: "@") {
-            inputText = String(text[..<atIndex])
-        }
-    }
-
     static func shouldTrapTabNavigation(
         isInputFocused: Bool,
-        visiblePanel: OmniBarPanelVisibility,
-        showMentionDropdown: Bool
+        visiblePanel: OmniBarPanelVisibility
     ) -> Bool {
-        isInputFocused || visiblePanel != .none || showMentionDropdown
+        isInputFocused || visiblePanel != .none
     }
 
     private func syncModuleDependencies() {
         addressModule.viewModel.browserState = browserState
-    }
-
-    private func automaticMention(includeCurrentPage: Bool) -> Mention? {
-        guard includeCurrentPage else { return nil }
-        if let mostRecentOverlay = OverlayWindowManager.shared.windows.sorted(by: { $0.createdAt > $1.createdAt }).first {
-            return .overlay(
-                id: mostRecentOverlay.id,
-                title: mostRecentOverlay.title,
-                url: mostRecentOverlay.url.absoluteString
-            )
-        }
-        return .currentPage
     }
 
     private func prepareForOmniBarFocus() {
@@ -558,10 +469,6 @@ final class OmniBarFeatureModel: OmniBarCommandHandling {
         prepareForOmniBarFocus()
         withAnimation(AppAnimation.panelSpring) {
             isInputFocused = true
-        }
-
-        if request.resetMentions {
-            resetMentions(includeCurrentPage: tab.url != nil)
         }
 
         setMode(request.moduleID)

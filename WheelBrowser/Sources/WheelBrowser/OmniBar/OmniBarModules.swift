@@ -18,7 +18,6 @@ protocol OmniBarModule: AnyObject {
     var icon: String { get }
     var placeholder: String { get }
     var color: Color { get }
-    var inputKind: OmniBarInputKind { get }
 
     func activate(in featureModel: OmniBarFeatureModel, reason: OmniBarModuleActivationReason)
     func deactivate(in featureModel: OmniBarFeatureModel)
@@ -36,15 +35,6 @@ protocol OmniBarPanelProviding: OmniBarModule {
 
 @MainActor
 protocol OmniBarSelectableResultsProviding: OmniBarModule, ListSelectable {}
-
-@MainActor
-protocol OmniBarMentionProviding: OmniBarModule {
-    var mentionSuggestionsViewModel: MentionSuggestionsViewModel { get }
-    func handleMentionTrigger(query: String, in featureModel: OmniBarFeatureModel)
-    func handleMentionSelection(in featureModel: OmniBarFeatureModel)
-    func selectMentionSuggestion(_ suggestion: MentionSuggestion, in featureModel: OmniBarFeatureModel)
-    func dismissMentionSuggestions(in featureModel: OmniBarFeatureModel)
-}
 
 @MainActor
 protocol OmniBarAccessoryProviding: OmniBarModule {
@@ -124,7 +114,6 @@ final class AddressOmniBarModule: OmniBarPanelProviding, OmniBarSelectableResult
     let icon = "magnifyingglass"
     let placeholder = "Search or enter URL"
     let color: Color = .accentColor
-    let inputKind: OmniBarInputKind = .singleLine
 
     let viewModel = SuggestionsViewModel()
 
@@ -226,7 +215,6 @@ final class SemanticOmniBarModule: OmniBarPanelProviding, OmniBarSelectableResul
     let icon = "brain.head.profile"
     let placeholder = "Search history semantically..."
     let color: Color = .orange
-    let inputKind: OmniBarInputKind = .singleLine
 
     let viewModel = SemanticSearchViewModel()
 
@@ -326,7 +314,6 @@ final class AgentOmniBarModule: OmniBarPanelProviding, OmniBarAccessoryProviding
     let icon = "wand.and.stars"
     let placeholder = "Describe a task for the agent..."
     let color: Color = .green
-    let inputKind: OmniBarInputKind = .singleLine
 
     func activate(in featureModel: OmniBarFeatureModel, reason: OmniBarModuleActivationReason) {
         featureModel.dismissVisiblePanel()
@@ -423,7 +410,6 @@ final class ReadingListOmniBarModule: OmniBarPanelProviding, OmniBarSelectableRe
     let icon = "bookmark.fill"
     let placeholder = "Search reading list..."
     let color: Color = .pink
-    let inputKind: OmniBarInputKind = .singleLine
 
     let viewModel = ReadingListViewModel()
 

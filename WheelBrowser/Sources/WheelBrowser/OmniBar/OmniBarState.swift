@@ -18,11 +18,6 @@ struct OmniBarModuleID: Hashable, RawRepresentable, ExpressibleByStringLiteral, 
     static let readingList: Self = "readingList"
 }
 
-enum OmniBarInputKind: Equatable {
-    case singleLine
-    case multiLine
-}
-
 enum OmniBarModuleActivationReason: Equatable {
     case focusGain
     case modeSwitch
@@ -33,7 +28,6 @@ struct OmniBarFocusRequest: Equatable {
     let moduleID: OmniBarModuleID
     var prefill: String? = nil
     var selectAllInput: Bool = false
-    var resetMentions: Bool = false
 }
 
 /// Represents which panel is currently visible (mutually exclusive)
@@ -43,7 +37,6 @@ enum OmniBarPanelVisibility: Equatable {
     case downloads
 
     static let history: Self = .module(.address)
-    static let chat: Self = .module(.chat)
     static let semantic: Self = .module(.semantic)
     static let agent: Self = .module(.agent)
     static let readingList: Self = .module(.readingList)

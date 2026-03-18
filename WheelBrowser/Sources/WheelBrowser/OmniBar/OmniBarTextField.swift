@@ -2,7 +2,9 @@ import SwiftUI
 import AppKit
 
 private enum OmniBarSingleLineLayout {
-    static let height: CGFloat = OmniBarTextEditor.lineHeight + OmniBarTextEditor.verticalPadding
+    static let lineHeight: CGFloat = 18
+    static let verticalPadding: CGFloat = 8
+    static let height: CGFloat = lineHeight + verticalPadding
 
     static func verticalInset(for textView: NSTextView) -> CGFloat {
         let font = textView.font ?? NSFont.systemFont(ofSize: 13)
@@ -32,11 +34,10 @@ struct OmniBarTextField: NSViewRepresentable {
     @Binding var isFocused: Bool
     let moduleID: OmniBarModuleID
     let placeholder: String
-    let supportsMentions: Bool
     let keyboardHandler: any OmniBarKeyboardHandler
     var onSubmit: () -> Void
-    var onAtTrigger: (String) -> Void
-    var onAtDismiss: () -> Void
+
+    static let defaultHeight = OmniBarSingleLineLayout.height
 
     func makeNSView(context: Context) -> NSScrollView {
         let scrollView = CommandTextScrollView()
@@ -210,8 +211,6 @@ struct OmniBarTextField: NSViewRepresentable {
             }
 
             parent.text = sanitized
-
-            checkForAtTrigger(in: sanitized)
             updatePlaceholder()
         }
 
@@ -244,23 +243,9 @@ struct OmniBarTextField: NSViewRepresentable {
                 .joined(separator: " ")
         }
 
-        private func checkForAtTrigger(in text: String) {
-            guard parent.supportsMentions else {
-                parent.onAtDismiss()
-                return
-            }
-
-            if let query = OmniBarMentionTriggerParser.query(in: text) {
-                parent.onAtTrigger(query)
-                return
-            }
-            parent.onAtDismiss()
-        }
-
         private func omniBarInputHasFirstResponder() -> Bool {
             guard let responder = NSApp.keyWindow?.firstResponder else { return false }
             return responder is OmniBarTextField.CommandTextView
-                || responder is OmniBarTextEditor.MultilineTextView
         }
     }
 }

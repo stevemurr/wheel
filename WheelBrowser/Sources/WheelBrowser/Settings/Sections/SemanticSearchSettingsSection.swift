@@ -14,7 +14,7 @@ struct SemanticSearchSettingsSection: View {
                     }
                 }
 
-            Text("Index your browsing history for semantic search. Uses on-device embeddings to find pages by meaning, not just keywords. Supports @Web, @History, @ReadingList mentions.")
+            Text("Index your browsing history for semantic search. Uses on-device embeddings to find pages by meaning, not just keywords.")
                 .font(.caption)
                 .foregroundColor(.secondary)
 

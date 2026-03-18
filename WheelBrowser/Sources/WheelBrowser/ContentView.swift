@@ -6,11 +6,9 @@ private struct BrowserContentArea: View {
     var activeTab: Tab?
     var agentManager: AgentManager
     var browserState: BrowserState
-    var fabricClient: (any WheelFabricMentionClient)?
     var agentEngine: AgentEngine
     var wheelState: TabWheelState
     var contextMenuState = ContextMenuState.shared
-    let contentExtractor: ContentExtractor
 
     var body: some View {
         GeometryReader { geometry in
@@ -37,9 +35,7 @@ private struct BrowserContentArea: View {
                             tab: activeTab,
                             agentManager: agentManager,
                             browserState: browserState,
-                            fabricClient: fabricClient,
-                            agentEngine: agentEngine,
-                            contentExtractor: contentExtractor
+                            agentEngine: agentEngine
                         )
                     }
                 }
@@ -369,10 +365,8 @@ struct ContentView: View {
                             activeTab: state.activeTab,
                             agentManager: agentManager,
                             browserState: state,
-                            fabricClient: fabricCoordinator?.consumerClient,
                             agentEngine: agentEngine,
-                            wheelState: wheelState,
-                            contentExtractor: contentExtractor
+                            wheelState: wheelState
                         )
                         .overlay {
                             if state.activeTab == nil {

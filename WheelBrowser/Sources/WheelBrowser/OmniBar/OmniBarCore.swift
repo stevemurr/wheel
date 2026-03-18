@@ -6,9 +6,7 @@ struct OmniBar: View {
     var tab: Tab
     var agentManager: AgentManager
     var browserState: BrowserState
-    var fabricClient: (any WheelFabricMentionClient)?
     var agentEngine: AgentEngine
-    let contentExtractor: ContentExtractor
 
     @Environment(\.colorScheme) var currentColorScheme
     @State var featureModel: OmniBarFeatureModel
@@ -18,23 +16,17 @@ struct OmniBar: View {
         tab: Tab,
         agentManager: AgentManager,
         browserState: BrowserState,
-        fabricClient: (any WheelFabricMentionClient)?,
-        agentEngine: AgentEngine,
-        contentExtractor: ContentExtractor
+        agentEngine: AgentEngine
     ) {
         self.tab = tab
         self.agentManager = agentManager
         self.browserState = browserState
-        self.fabricClient = fabricClient
         self.agentEngine = agentEngine
-        self.contentExtractor = contentExtractor
         _featureModel = State(initialValue: OmniBarFeatureModel(
             tab: tab,
             agentManager: agentManager,
             browserState: browserState,
-            fabricClient: fabricClient,
-            agentEngine: agentEngine,
-            contentExtractor: contentExtractor
+            agentEngine: agentEngine
         ))
     }
 
@@ -52,38 +44,16 @@ struct OmniBar: View {
         featureModel.currentModule as? any OmniBarAccessoryProviding
     }
 
-    var currentMentionProvider: (any OmniBarMentionProviding)? {
-        featureModel.currentModule as? any OmniBarMentionProviding
-    }
-
-    var currentMentionSuggestionsViewModel: MentionSuggestionsViewModel? {
-        currentMentionProvider?.mentionSuggestionsViewModel
-    }
-
     var shouldTrapTabNavigation: Bool {
         OmniBarFeatureModel.shouldTrapTabNavigation(
             isInputFocused: featureModel.isInputFocused,
-            visiblePanel: featureModel.visiblePanel,
-            showMentionDropdown: featureModel.showMentionDropdown
+            visiblePanel: featureModel.visiblePanel
         )
-    }
-
-    private var fabricClientIdentity: ObjectIdentifier? {
-        fabricClient.map(ObjectIdentifier.init)
     }
 
     var body: some View {
         VStack(spacing: 0) {
             panelViews
-
-            if featureModel.showMentionDropdown,
-               let mentionSuggestionsViewModel = currentMentionSuggestionsViewModel {
-                mentionDropdownPanel(mentionSuggestionsVM: mentionSuggestionsViewModel)
-                    .padding(.horizontal, 16)
-                    .padding(.bottom, 4)
-                    .transition(.opacity.combined(with: .scale(scale: 0.95, anchor: .bottom)))
-                    .zIndex(1000)
-            }
 
             Group {
                 if tab.isFindBarVisible {
@@ -114,11 +84,11 @@ struct OmniBar: View {
             .frame(width: 0, height: 0)
         )
         .onChange(of: tab.url) { _, newURL in
-            featureModel.sync(tab: tab, fabricClient: fabricClient)
+            featureModel.sync(tab: tab)
             featureModel.handleURLChange(newURL)
         }
         .onChange(of: tab.id) { _, _ in
-            featureModel.sync(tab: tab, fabricClient: fabricClient)
+            featureModel.sync(tab: tab)
             featureModel.handleTabChanged()
         }
         .onChange(of: featureModel.inputText) { _, newValue in
@@ -129,9 +99,6 @@ struct OmniBar: View {
         }
         .onChange(of: featureModel.mode) { _, newMode in
             featureModel.handleModeChange(newMode)
-        }
-        .onChange(of: fabricClientIdentity) { _, _ in
-            featureModel.sync(tab: tab, fabricClient: fabricClient)
         }
         .onChange(of: featureModel.findBarFocusRequestToken) { _, _ in
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
@@ -150,7 +117,7 @@ struct OmniBar: View {
             featureModel.handlePageSaveStateChanged(notification)
         }
         .onAppear {
-            featureModel.sync(tab: tab, fabricClient: fabricClient)
+            featureModel.sync(tab: tab)
             featureModel.inputText = tab.url?.absoluteString ?? ""
             agentManager.switchConversation(to: tab.conversationId)
             featureModel.updateFullPageChatState()

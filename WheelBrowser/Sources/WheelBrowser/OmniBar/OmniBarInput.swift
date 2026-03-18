@@ -17,49 +17,18 @@ extension OmniBar {
         HStack(spacing: 8) {
             modeIndicator
 
-            if currentMentionProvider != nil {
-                mentionChips
-            }
-
             if showInlineAgentStatus {
                 agentInlineStatus
-            } else if featureModel.currentInputKind == .multiLine {
-                OmniBarTextEditor(
-                    text: $featureModel.inputText,
-                    isFocused: $featureModel.isInputFocused,
-                    moduleID: featureModel.mode,
-                    placeholder: currentMentionProvider != nil && !featureModel.mentions.isEmpty
-                        ? "Ask about these pages..."
-                        : featureModel.placeholder,
-                    supportsMentions: currentMentionProvider != nil,
-                    keyboardHandler: self,
-                    onSubmit: { featureModel.handleSubmit() },
-                    onAtTrigger: { query in
-                        currentMentionProvider?.handleMentionTrigger(query: query, in: featureModel)
-                    },
-                    onAtDismiss: {
-                        currentMentionProvider?.dismissMentionSuggestions(in: featureModel)
-                    },
-                    onHeightChange: { featureModel.chatEditorHeight = $0 }
-                )
-                .frame(height: featureModel.chatEditorHeight)
             } else {
                 OmniBarTextField(
                     text: $featureModel.inputText,
                     isFocused: $featureModel.isInputFocused,
                     moduleID: featureModel.mode,
                     placeholder: featureModel.placeholder,
-                    supportsMentions: currentMentionProvider != nil,
                     keyboardHandler: self,
-                    onSubmit: { featureModel.handleSubmit() },
-                    onAtTrigger: { query in
-                        currentMentionProvider?.handleMentionTrigger(query: query, in: featureModel)
-                    },
-                    onAtDismiss: {
-                        currentMentionProvider?.dismissMentionSuggestions(in: featureModel)
-                    }
+                    onSubmit: { featureModel.handleSubmit() }
                 )
-                .frame(height: OmniBarTextEditor.lineHeight + OmniBarTextEditor.verticalPadding)
+                .frame(height: OmniBarTextField.defaultHeight)
                 .fixedSize(horizontal: false, vertical: true)
             }
 

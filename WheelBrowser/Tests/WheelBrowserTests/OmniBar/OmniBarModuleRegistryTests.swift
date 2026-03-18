@@ -11,7 +11,6 @@ struct OmniBarModuleRegistryTests {
         let icon = "hammer"
         let placeholder = "Test module"
         let color = Color.blue
-        let inputKind: OmniBarInputKind = .singleLine
 
         var activateCount = 0
         var deactivateCount = 0
@@ -53,9 +52,7 @@ struct OmniBarModuleRegistryTests {
             tab: Tab(),
             agentManager: agentManager,
             browserState: browserState,
-            fabricClient: nil,
             agentEngine: agentEngine,
-            contentExtractor: ContentExtractor(),
             registry: registry,
             commandCenter: OmniBarCommandCenter()
         )
